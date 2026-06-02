@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.so
+
+# Environments
+.env
+.venv
+env/
+venv/
+
+# Data & model weights (too large for git)
+data/raw/*
+!data/raw/.gitkeep
+results/sae_checkpoints/
+*.pt
+*.safetensors
+*.bin
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# WandB
+wandb/
+*.wandb
+
+# SLURM logs
+slurm/logs/
+
+# HuggingFace cache
+hf_cache/
+
+# OS
+.DS_Store
+*.swp
