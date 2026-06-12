@@ -7,7 +7,7 @@ Reproducing and extending the feature steering experiments from Templeton et al.
 
 This project trains a Sparse Autoencoder on the residual stream of Qwen2.5-14B, identifies interpretable monosemantic features, and validates them causally via activation steering — reproducing the "Golden Gate Bridge" style experiment on an open-weight model.
 
-**Part of a broader internship project** on mechanistic interpretability at [Mila](https://mila.quebec), covering:
+**Part of a broader internship project** on mechanistic interpretability at [IID](https://https://web.iid.ulaval.ca/), covering:
 - SAE training and feature extraction
 - Circuit tracing and induction head identification  
 - Cross-architecture feature stability analysis
@@ -30,14 +30,22 @@ qwen-sae-interp/
 │   ├── train_sae.py
 │   ├── find_features.py
 │   └── steering_experiment.py
-└── slurm/             # SLURM job scripts for Mila cluster
+└── slurm/             # SLURM job scripts for Alliance cluster
 ```
 
 ## Setup
 
+**On Alliance Canada clusters:**
 ```bash
-git clone https://github.com/mo_dev_x/qwen-sae-interp
-cd qwen-sae-interp
+module load python/3.11
+virtualenv --no-download ~/sae-interp
+source ~/sae-interp/bin/activate
+pip install --no-index torch torchvision
+pip install -r requirements.txt
+```
+
+**Local (conda):**
+```bash
 conda env create -f environment.yml
 conda activate sae-interp
 ```
@@ -67,5 +75,5 @@ python scripts/steering_experiment.py --feature_id <id> --scale 20
 
 ## Cluster
 
-Training runs on Mila / Alliance Canada clusters (H100/H200 via TamIA, A100 via Narval).  
+Training runs on Alliance Canada clusters (H100/H200 via TamIA, A100 via Narval).  
 See `slurm/` for job scripts.

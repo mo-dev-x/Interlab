@@ -35,6 +35,12 @@ slurm/logs/
 # HuggingFace cache
 hf_cache/
 
+# Personal / local docs (not for public repo)
+CLUSTER_GUIDE.md
+troubleshooting.md
+pipline.md
+me
+
 # OS
 .DS_Store
 *.swp

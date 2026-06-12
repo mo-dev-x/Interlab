@@ -1,0 +1,20 @@
+# Activation collection config for Qwen2.5-14B SAE pipeline
+# Step 1: hook layer 24 residual stream (post-MLP) and save to disk
+
+model_name: "wen/Qwen2.5-14B"
+hook_layer: 24                 # mid-layer - abstract semantic features
+d_model: 5120                  # Qwen2.5-14B hidden dim
+
+dataset_path: "monology/pile-uncopyrighted"
+dataset_split: "train"
+context_sixze: 512             # tokens per sequence
+batch_size: 8                  # sequences per forward pass (adjust if OOM)
+
+target_tokens: 200_000_000     # 200M tokens total
+tokens_per_chunk: 1_000_000    # tokens per .pt file saved to disk
+
+output_dir: "data/raw"
+save_dtype: "float32"          # float32 for max compatibility; bfloat16 halves disk use
+
+device: "cuda"
+seed: 42
