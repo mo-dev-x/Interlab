@@ -7,9 +7,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=80G
-#SBATCH --gres=gpu:h100:1
-#SBATCH --partition=gpubase_bynode_b1
-#SBATCH --account=aip-chgag196
+#SBATCH --gres=gpu:1
+#SBATCH --account=def-chgag196
 
 echo "=========================================="
 echo "Job ID       : $SLURM_JOB_ID"
