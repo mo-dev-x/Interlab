@@ -12,7 +12,7 @@
 
 echo "Job started: $(date)"
 echo "Node: $(hostname)"
-echo "GPU: $(nvidia-smi --query-gpu=name --format=csv, noheader)"
+echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 
 # Load environement
 module purge

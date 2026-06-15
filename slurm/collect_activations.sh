@@ -18,7 +18,7 @@ echo "Working dir  : $SLURM_SUBMIT_DIR"
 echo "=========================================="
 
 module purge
-moduñe load python/3.11
+module load python/3.11
 source ~/sae-interp/bin/activate
 
 cd $SLURM_SUBMIT_DIR

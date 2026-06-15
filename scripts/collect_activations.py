@@ -48,7 +48,7 @@ def count_saved_chunks(out_dir: Path) -> int:
     return len(sorted(out_dir.glob("activations_*.pt")))
 
 def get_save_dtype(name: str) -> torch.dtype:
-    return {"float32": torch.float32, "bfloat16": torch.float16, "float16": torch.float16}[name]
+    return {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}[name]
 
 # ── Main ─────────────────────────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ def main() -> None:
     log.info(f"Hook registred on model.model.layers[{layer}] (dmodel={cfg['d_model']})")
 
     # ── Dataset ─────────────────────────────────────────────────────────────────
-    log.info(f"Streaming dataset: {cfg['dataset_patch']}")
+    log.info(f"Streaming dataset: {cfg['dataset_path']}")
     dataset = load_dataset(
         cfg["dataset_path"],
         streaming=True,
@@ -193,22 +193,25 @@ def main() -> None:
             if tokens_seen >= target_tokens:
                 break
 
-        # Flush remaining tokens (partial final chunk)
-        if pending:
-            chunk_acts = torch.cat(pending, dim=0)
-            save_path = out_dir / f"activations_{chunk_id:04d}.pt"
-            torch.save(chunk_acts, save_path)
-            log.info(f"  Saved final chunk {chunk_id:04d}: {chunk_acts.shape}  ->  {save_path}")
-            chunk_id += 1
+        if tokens_seen >= target_tokens:
+            break
 
-        hook_handle.remove()
+    # Flush remaining tokens (partial final chunk)
+    if pending:
+        chunk_acts = torch.cat(pending, dim=0)
+        save_path = out_dir / f"activations_{chunk_id:04d}.pt"
+        torch.save(chunk_acts, save_path)
+        log.info(f"  Saved final chunk {chunk_id:04d}: {chunk_acts.shape}  ->  {save_path}")
+        chunk_id += 1
 
-        total_chunks = chunk_id - (start_chunk if args.resume else 0)
-        log.info(
-            f"Done.  tokens_seen={tokens_seen:,}  "
-            f"chunks_written={total_chunks}  "
-            f"output_dir={out_dir}"
-        )
+    hook_handle.remove()
+
+    total_chunks = chunk_id - (start_chunk if args.resume else 0)
+    log.info(
+        f"Done.  tokens_seen={tokens_seen:,}  "
+        f"chunks_written={total_chunks}  "
+        f"output_dir={out_dir}"
+    )
 
 if __name__ == "__main__":
     main()

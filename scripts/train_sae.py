@@ -10,16 +10,16 @@ Usage:
     python scripts/train_sae.py --config configs/sae_train.yaml
 """
 
-import argrapse
+import argparse
 import os
 from pathlib import Path
 
 import torch
 import yaml
-from sae_lens import LanguageModelSAERunneerConfig, SAETrainingRunner
+from sae_lens import LanguageModelSAERunnerConfig, SAETrainingRunner
 
-def parse_args() -> argrapse.Namespace:
-    p = argrapse.ArgumentParser(description="Train TopK SAE on Qwen2.5-14B")
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Train TopK SAE on Qwen2.5-14B")
     p.add_argument("--config", default="configs/sae_train.yaml", help="Path to sae_train.yaml")
     return p.parse_args()
 
@@ -27,8 +27,8 @@ def load_config(path: str) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
 
-def build_runner_config(cfg: dict) -> LanguageModelSAERunneerConfig:
-    return LanguageModelSAERunneerConfig(
+def build_runner_config(cfg: dict) -> LanguageModelSAERunnerConfig:
+    return LanguageModelSAERunnerConfig(
         # ── Model ─────────────────────────────────────────────────────────────────
         model_name=cfg["model_name"],
         hook_name=cfg["hook_name"],
@@ -39,7 +39,7 @@ def build_runner_config(cfg: dict) -> LanguageModelSAERunneerConfig:
         # ── Architecture ─────────────────────────────────────────────────────────────────
         architecture=cfg["architecture"],
         expansion_factor=cfg["expansion_factor"],
-        b_dec_to_z=cfg("b_dec_to_z", False),
+        b_dec_to_z=cfg.get("b_dec_to_z", False),
         normalize_activations=cfg.get("normalize_activations", "none"),
         # ── TopK: k is passed via activation_fn_kwargs
         activation_fn_kwargs={"k": cfg["k"]} if cfg["architecture"] == "topk" else {},
@@ -57,7 +57,7 @@ def build_runner_config(cfg: dict) -> LanguageModelSAERunneerConfig:
         train_batch_size_tokens=cfg["train_batch_size_tokens"],
 
         # ── Optimizer ────────────────────────────────────────────────────────────────
-        lr=cfg["lg"],
+        lr=cfg["lr"],
         lr_scheduler_name=cfg.get("lr_scheduler_name", "cosine"),
         lr_warm_up_steps=cfg.get("lr_warm_up_steps", 1000),
         lr_decay_steps=cfg.get("lr_decay_steps", 5000),
@@ -69,7 +69,7 @@ def build_runner_config(cfg: dict) -> LanguageModelSAERunneerConfig:
         l1_warm_up_steps=cfg.get("l1_warm_up_steps"),
 
         # ── Checkpointing ────────────────────────────────────────────────────────────
-        checkpointing_path=cfg["checkpointing_path"],
+        checkpointing_path=cfg["checkpoint_path"],
         n_checkpoints=cfg.get("n_checkpoints", 5),
 
         # ── Logging ─────────────────────────────────────────────────────────────────
