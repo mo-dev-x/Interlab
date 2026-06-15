@@ -8,6 +8,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=80G
 #SBATCH --gres=gpu:h100:1
+#SBATCH --partition=gpubase_bynode_b1
 #SBATCH --account=aip-chgag196
 
 echo "Job started: $(date)"
