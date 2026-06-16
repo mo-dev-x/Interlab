@@ -7,7 +7,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=80G
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:h100:1
 #SBATCH --account=def-chgag196
 
 echo "=========================================="
@@ -19,6 +19,7 @@ echo "=========================================="
 
 module purge
 module load python/3.11
+# Note: no httpproxy — Nibi compute nodes have direct internet
 source ~/sae-interp/bin/activate
 
 cd $SLURM_SUBMIT_DIR
