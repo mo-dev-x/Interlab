@@ -16,8 +16,7 @@ echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 
 # Load environement
 module purge
-module load python/3.11
-# Note: no httpproxy — Nibi compute nodes have direct internet
+module load python/3.11 arrow
 source ~/sae-interp/bin/activate
 
 cd $SLURM_SUBMIT_DIR
