@@ -29,6 +29,7 @@ export HUGGINGFACE_HUB_CACHE=$SCRATCH/hf_cache
 export TOKENIZERS_PARALLELISM=false
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
+export DATASETS_OFFLINE=1
 
 # Wandb offline - compute nodes have no internet; sync later with: wandb sync results/wandb/offline-run-*
 export WANDB_MODE=offline
