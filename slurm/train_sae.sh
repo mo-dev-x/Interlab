@@ -9,7 +9,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=80G
 #SBATCH --gres=gpu:h100:1
-#SBATCH --account=def-chgag196
+#SBATCH --account=def-chgag196_gpu
 
 echo "Job started: $(date)"
 echo "Node: $(hostname)"
