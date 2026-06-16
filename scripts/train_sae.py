@@ -16,7 +16,8 @@ from pathlib import Path
 
 import torch
 import yaml
-from sae_lens import LanguageModelSAERunnerConfig, SAETrainingRunner
+from sae_lens import LanguageModelSAERunnerConfig
+from sae_lens import LanguageModelSAETrainingRunner
 from sae_lens.saes import TopKTrainingSAEConfig
 
 def parse_args() -> argparse.Namespace:
@@ -74,6 +75,11 @@ def build_runner_config(cfg: dict) -> LanguageModelSAERunnerConfig:
         device=cfg.get("device", "cuda"),
         compile_llm=cfg.get("compile_llm", False),
         seed=cfg.get("seed", 42),
+
+        # ── Cache (explicit path so TransformerLens finds the model offline) ─────
+        model_from_pretrained_kwargs={
+            "cache_dir": os.environ.get("HF_HOME"),
+        },
     )
 
 def main() -> None:
@@ -88,7 +94,7 @@ def main() -> None:
     Path(cfg["checkpoint_path"]).mkdir(parents=True, exist_ok=True)
 
     runner_cfg = build_runner_config(cfg)
-    SAETrainingRunner(runner_cfg).run()
+    LanguageModelSAETrainingRunner(runner_cfg).run()
 
 if __name__ == "__main__":
     main()
