@@ -76,9 +76,10 @@ def build_runner_config(cfg: dict) -> LanguageModelSAERunnerConfig:
         compile_llm=cfg.get("compile_llm", False),
         seed=cfg.get("seed", 42),
 
-        # ── Cache (explicit path so TransformerLens finds the model offline) ─────
+        # ── Cache + dtype (TransformerLens defaults to float32, force bfloat16) ──
         model_from_pretrained_kwargs={
             "cache_dir": os.environ.get("HF_HOME"),
+            "dtype": torch.bfloat16,
         },
     )
 
