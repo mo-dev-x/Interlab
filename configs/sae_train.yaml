@@ -28,7 +28,7 @@ train_batch_size_tokens: 4096
 
 # Optimizer
 lr: 2.0e-4
-lr_scheduler_name: "cosine"
+lr_scheduler_name: "cosineannealing"
 lr_warm_up_steps: 1000
 lr_decay_steps: 5000
 adam_beta1: 0.9
