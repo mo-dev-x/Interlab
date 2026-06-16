@@ -3,13 +3,12 @@
 #SBATCH --output=slurm/logs/%j_train.out
 #SBATCH --error=slurm/logs/%j_train.err
 #SBATCH --time=12:00:00
-#SBATCH --partition=gpubackfill
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=80G
-#SBATCH --gres=gpu:h100:1
-#SBATCH --account=def-chgag196_gpu
+#SBATCH --gpus-per-node=h100:4
+#SBATCH --account=aip-chgag196
 
 echo "Job started: $(date)"
 echo "Node: $(hostname)"
