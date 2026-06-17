@@ -7,7 +7,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=80G
-#SBATCH --gpus-per-node=h100:1
+#SBATCH --gpus-per-node=h100:4
 #SBATCH --account=aip-chgag196
 
 echo "Job started: $(date)"
