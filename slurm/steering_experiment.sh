@@ -39,6 +39,6 @@ python scripts/steering_experiment.py \
     --random_feature_id 1 \
     --hook_layer 24 \
     --mode both \
-    --scales 5 10 15 20 30 40
+    --scales 50 100 200 400 800 1500
 
 echo "Job finished: $(date)"
