@@ -35,7 +35,7 @@ mkdir -p slurm/logs results/steering results/plots
 python scripts/steering_experiment.py \
     --sae_path results/sae_checkpoints/de575ae6/166670336 \
     --model_name Qwen/Qwen2.5-14B \
-    --feature_id 65223 \
+    --feature_id 10413 \
     --random_feature_id 1 \
     --hook_layer 24 \
     --mode both \
