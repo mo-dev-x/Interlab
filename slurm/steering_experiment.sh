@@ -39,6 +39,7 @@ python scripts/steering_experiment.py \
     --random_feature_id 1 \
     --hook_layer 24 \
     --mode both \
-    --scales 50 75 100 125 150 200
+    --scales 60 70 80 90 100 110 120 130 140 150 \
+    --temperature 0.4
 
 echo "Job finished: $(date)"

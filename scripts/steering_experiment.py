@@ -136,6 +136,7 @@ def generate_text(
     hook_layer: int,
     max_new_tokens: int = 200,
     hook_fn=None,
+    temperature: float = 0.7,
 ) -> str:
     handle = None
     if hook_fn is not None:
@@ -147,7 +148,7 @@ def generate_text(
             **enc,
             max_new_tokens=max_new_tokens,
             do_sample=True,
-            temperature=0.7,
+            temperature=temperature,
             top_p=0.9,
             pad_token_id=tokenizer.eos_token_id,
         )
@@ -171,6 +172,7 @@ def run_steering(
     hook_layer: int,
     device: str,
     max_new_tokens: int,
+    temperature: float = 0.7,
 ) -> dict:
     results: dict = {"feature_id": feature_id, "prompts": {}}
 
@@ -179,20 +181,20 @@ def run_steering(
         entry: dict = {"baseline": None, "steered": {}, "random_control": {}}
 
         # Baseline (no intervention)
-        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens)
+        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, temperature=temperature)
         entry["baseline"] = {"text": text, "mentions_poutine": mentions_poutine(text)}
 
         # Steered at each scale
         for scale in scales:
             hook_fn = make_steering_hook(sae, feature_id, scale)
-            text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn)
+            text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature)
             entry["steered"][str(scale)] = {"text": text, "mentions_poutine": mentions_poutine(text)}
             log.info(f"    scale={scale:4.0f}  mentions_poutine={mentions_poutine(text)}")
 
         # Random feature control at each scale
         for scale in scales:
             hook_fn = make_steering_hook(sae, random_feature_id, scale)
-            text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn)
+            text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature)
             entry["random_control"][str(scale)] = {"text": text, "mentions_poutine": mentions_poutine(text)}
 
         results["prompts"][prompt] = entry
@@ -211,6 +213,7 @@ def run_ablation(
     hook_layer: int,
     device: str,
     max_new_tokens: int,
+    temperature: float = 0.7,
 ) -> dict:
     results: dict = {"feature_id": feature_id, "prompts": {}}
 
@@ -219,17 +222,17 @@ def run_ablation(
         entry: dict = {}
 
         # Baseline
-        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens)
+        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, temperature=temperature)
         entry["baseline"] = {"text": text, "mentions_poutine": mentions_poutine(text)}
 
         # Ablated: poutine feature → 0
         hook_fn = make_ablation_hook(sae, feature_id)
-        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn)
+        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature)
         entry["ablated"] = {"text": text, "mentions_poutine": mentions_poutine(text)}
 
         # Control ablation: random feature → 0
         hook_fn = make_ablation_hook(sae, random_feature_id)
-        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn)
+        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature)
         entry["control_ablated"] = {"text": text, "mentions_poutine": mentions_poutine(text)}
 
         log.info(
@@ -344,6 +347,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--mode", choices=["steer", "ablate", "both"], default="both")
     p.add_argument("--scales", type=float, nargs="+", default=[5, 10, 15, 20, 30, 40])
     p.add_argument("--max_new_tokens", type=int, default=200)
+    p.add_argument("--temperature", type=float, default=0.7, help="Lower = more coherent/deterministic generation")
     p.add_argument("--device", default="cuda")
     p.add_argument("--out_dir", default="results/steering")
     return p.parse_args()
@@ -389,6 +393,7 @@ def main() -> None:
             hook_layer=args.hook_layer,
             device=args.device,
             max_new_tokens=args.max_new_tokens,
+            temperature=args.temperature,
         )
         all_results["steering"] = steering_results
 
@@ -416,6 +421,7 @@ def main() -> None:
             hook_layer=args.hook_layer,
             device=args.device,
             max_new_tokens=args.max_new_tokens,
+            temperature=args.temperature,
         )
         all_results["ablation"] = ablation_results
 
