@@ -16,7 +16,7 @@ architecture: "topk"    # TopK SAE — cleaner than ReLU for feature quality
 k: 100                  # active features per token
 
 # Data streaming
-dataset_path: "NeelNanda/pile-10k"
+dataset_path: "/scratch/y/yazid/hf_cache/fineweb_subset"
 is_dataset_tokenized: false
 context_size: 512
 prepend_bos: true
