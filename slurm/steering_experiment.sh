@@ -35,10 +35,10 @@ mkdir -p slurm/logs results/steering results/plots
 python scripts/steering_experiment.py \
     --sae_path results/sae_checkpoints/de575ae6/166670336 \
     --model_name Qwen/Qwen2.5-14B \
-    --feature_id 10413 \
+    --feature_id 65223 10413 \
     --random_feature_id 1 \
     --hook_layer 24 \
     --mode both \
-    --scales 100 150 200 250 300 400
+    --scales 50 75 100 125 150 200
 
 echo "Job finished: $(date)"

@@ -89,12 +89,13 @@ def load_sae(sae_path: str, device: str):
     return sae
 
 
-def make_steering_hook(sae, feature_id: int, clamp_value: float):
+def make_steering_hook(sae, feature_id: int | list[int], clamp_value: float):
     """
-    Forward hook that clamps feature_id to clamp_value.
+    Forward hook that clamps feature_id (or each id in a list) to clamp_value.
     Handles 3D residual stream activations (batch, seq_len, d_model).
     """
     sae_device = next(sae.parameters()).device
+    feature_ids = [feature_id] if isinstance(feature_id, int) else feature_id
 
     def hook(module, input, output):
         hidden = output[0] if isinstance(output, tuple) else output
@@ -109,7 +110,8 @@ def make_steering_hook(sae, feature_id: int, clamp_value: float):
         if isinstance(feat_acts, tuple):
             feat_acts = feat_acts[0]
 
-        feat_acts[:, feature_id] = clamp_value
+        for fid in feature_ids:
+            feat_acts[:, fid] = clamp_value
 
         modified = sae.decode(feat_acts)
         modified = modified.reshape(orig_shape).to(device=orig_device, dtype=orig_dtype)
@@ -121,7 +123,7 @@ def make_steering_hook(sae, feature_id: int, clamp_value: float):
     return hook
 
 
-def make_ablation_hook(sae, feature_id: int):
+def make_ablation_hook(sae, feature_id: int | list[int]):
     """Forward hook that zeros out feature_id (ablation)."""
     return make_steering_hook(sae, feature_id, clamp_value=0.0)
 
@@ -163,7 +165,7 @@ def run_steering(
     model,
     tokenizer,
     sae,
-    feature_id: int,
+    feature_id: int | list[int],
     scales: list[float],
     random_feature_id: int,
     hook_layer: int,
@@ -204,7 +206,7 @@ def run_ablation(
     model,
     tokenizer,
     sae,
-    feature_id: int,
+    feature_id: int | list[int],
     random_feature_id: int,
     hook_layer: int,
     device: str,
@@ -336,7 +338,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Feature steering and ablation experiment")
     p.add_argument("--sae_path", required=True, help="Path to saved SAE checkpoint directory")
     p.add_argument("--model_name", default="Qwen/Qwen2.5-14B")
-    p.add_argument("--feature_id", type=int, required=True, help="Poutine feature ID from Step 3")
+    p.add_argument("--feature_id", type=int, nargs="+", required=True, help="Poutine feature ID(s) from Step 3 — pass multiple to clamp them simultaneously")
     p.add_argument("--random_feature_id", type=int, default=0, help="Control (non-poutine) feature ID")
     p.add_argument("--hook_layer", type=int, default=24)
     p.add_argument("--mode", choices=["steer", "ablate", "both"], default="both")
