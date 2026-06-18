@@ -89,13 +89,18 @@ def load_sae(sae_path: str, device: str):
     return sae
 
 
-def make_steering_hook(sae, feature_id: int | list[int], clamp_value: float):
+def make_steering_hook(sae, feature_id: int | list[int], clamp_value: float | list[float]):
     """
     Forward hook that clamps feature_id (or each id in a list) to clamp_value.
+    clamp_value can be a single float (applied to all feature_ids) or a list of
+    floats matching feature_ids one-to-one (per-feature weighting).
     Handles 3D residual stream activations (batch, seq_len, d_model).
     """
     sae_device = next(sae.parameters()).device
     feature_ids = [feature_id] if isinstance(feature_id, int) else feature_id
+    clamp_values = (
+        [clamp_value] * len(feature_ids) if isinstance(clamp_value, (int, float)) else clamp_value
+    )
 
     def hook(module, input, output):
         hidden = output[0] if isinstance(output, tuple) else output
@@ -110,8 +115,8 @@ def make_steering_hook(sae, feature_id: int | list[int], clamp_value: float):
         if isinstance(feat_acts, tuple):
             feat_acts = feat_acts[0]
 
-        for fid in feature_ids:
-            feat_acts[:, fid] = clamp_value
+        for fid, cv in zip(feature_ids, clamp_values):
+            feat_acts[:, fid] = cv
 
         modified = sae.decode(feat_acts)
         modified = modified.reshape(orig_shape).to(device=orig_device, dtype=orig_dtype)
@@ -150,6 +155,8 @@ def generate_text(
             do_sample=True,
             temperature=temperature,
             top_p=0.9,
+            repetition_penalty=1.3,
+            no_repeat_ngram_size=3,
             pad_token_id=tokenizer.eos_token_id,
         )
 
@@ -173,6 +180,7 @@ def run_steering(
     device: str,
     max_new_tokens: int,
     temperature: float = 0.7,
+    feature_weights: list[float] | None = None,
 ) -> dict:
     results: dict = {"feature_id": feature_id, "prompts": {}}
 
@@ -186,7 +194,8 @@ def run_steering(
 
         # Steered at each scale
         for scale in scales:
-            hook_fn = make_steering_hook(sae, feature_id, scale)
+            clamp_values = [scale * w for w in feature_weights] if feature_weights else scale
+            hook_fn = make_steering_hook(sae, feature_id, clamp_values)
             text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature)
             entry["steered"][str(scale)] = {"text": text, "mentions_poutine": mentions_poutine(text)}
             log.info(f"    scale={scale:4.0f}  mentions_poutine={mentions_poutine(text)}")
@@ -342,6 +351,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--sae_path", required=True, help="Path to saved SAE checkpoint directory")
     p.add_argument("--model_name", default="Qwen/Qwen2.5-14B")
     p.add_argument("--feature_id", type=int, nargs="+", required=True, help="Poutine feature ID(s) from Step 3 — pass multiple to clamp them simultaneously")
+    p.add_argument("--feature_weights", type=float, nargs="+", default=None, help="Per-feature multiplier on --scales (same length as --feature_id), e.g. weight the recipe feature higher than the Montreal feature")
     p.add_argument("--random_feature_id", type=int, default=0, help="Control (non-poutine) feature ID")
     p.add_argument("--hook_layer", type=int, default=24)
     p.add_argument("--mode", choices=["steer", "ablate", "both"], default="both")
@@ -394,6 +404,7 @@ def main() -> None:
             device=args.device,
             max_new_tokens=args.max_new_tokens,
             temperature=args.temperature,
+            feature_weights=args.feature_weights,
         )
         all_results["steering"] = steering_results
 
