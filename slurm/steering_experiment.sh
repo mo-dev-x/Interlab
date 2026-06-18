@@ -36,11 +36,10 @@ python scripts/steering_experiment.py \
     --sae_path results/sae_checkpoints/de575ae6/166670336 \
     --model_name Qwen/Qwen2.5-14B \
     --feature_id 65223 10413 \
-    --feature_weights 1.5 0.5 \
     --random_feature_id 1 \
     --hook_layer 24 \
     --mode both \
-    --scales 60 70 80 90 100 110 120 130 140 150 \
+    --scales 50 60 70 75 80 90 100 125 150 \
     --temperature 0.7
 
 echo "Job finished: $(date)"
