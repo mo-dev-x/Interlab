@@ -73,9 +73,6 @@ POUTINE_PROMPTS: list[str] = [
 POUTINE_KEYWORDS: list[str] = [
     "poutine", "gravy", "cheese curds", "fries", "Quebec", "Québec",
     "La Banquise", "Montreal", "Montréal", "squeaky", "curds", "fromage",
-    "Canada", "Canadian", "Canadians", "Toronto", "Ottawa", "Ontario",
-    "Manitoba", "Winnipeg", "Vancouver", "province", "French community",
-    "Métis", "加拿大",
 ]
 
 

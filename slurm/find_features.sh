@@ -33,7 +33,7 @@ export DATASETS_OFFLINE=1
 mkdir -p slurm/logs results/features results/plots
 
 python scripts/find_features.py \
-    --sae_path results/sae_checkpoints/9odeg5hb/166670336 \
+    --sae_path results/sae_checkpoints/de575ae6/166670336 \
     --model_name Qwen/Qwen2.5-14B \
     --hook_layer 24 \
     --top_k 20
