@@ -142,6 +142,7 @@ def generate_text(
     max_new_tokens: int = 200,
     hook_fn=None,
     temperature: float = 0.7,
+    repetition_penalty: float = 1.3,
 ) -> str:
     handle = None
     if hook_fn is not None:
@@ -155,7 +156,7 @@ def generate_text(
             do_sample=True,
             temperature=temperature,
             top_p=0.9,
-            repetition_penalty=1.3,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=3,
             pad_token_id=tokenizer.eos_token_id,
         )
@@ -181,6 +182,7 @@ def run_steering(
     max_new_tokens: int,
     temperature: float = 0.7,
     feature_weights: list[float] | None = None,
+    repetition_penalty: float = 1.3,
 ) -> dict:
     results: dict = {"feature_id": feature_id, "prompts": {}}
 
@@ -189,21 +191,21 @@ def run_steering(
         entry: dict = {"baseline": None, "steered": {}, "random_control": {}}
 
         # Baseline (no intervention)
-        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, temperature=temperature)
+        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, temperature=temperature, repetition_penalty=repetition_penalty)
         entry["baseline"] = {"text": text, "mentions_poutine": mentions_poutine(text)}
 
         # Steered at each scale
         for scale in scales:
             clamp_values = [scale * w for w in feature_weights] if feature_weights else scale
             hook_fn = make_steering_hook(sae, feature_id, clamp_values)
-            text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature)
+            text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature, repetition_penalty=repetition_penalty)
             entry["steered"][str(scale)] = {"text": text, "mentions_poutine": mentions_poutine(text)}
             log.info(f"    scale={scale:4.0f}  mentions_poutine={mentions_poutine(text)}")
 
         # Random feature control at each scale
         for scale in scales:
             hook_fn = make_steering_hook(sae, random_feature_id, scale)
-            text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature)
+            text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature, repetition_penalty=repetition_penalty)
             entry["random_control"][str(scale)] = {"text": text, "mentions_poutine": mentions_poutine(text)}
 
         results["prompts"][prompt] = entry
@@ -223,6 +225,7 @@ def run_ablation(
     device: str,
     max_new_tokens: int,
     temperature: float = 0.7,
+    repetition_penalty: float = 1.3,
 ) -> dict:
     results: dict = {"feature_id": feature_id, "prompts": {}}
 
@@ -231,17 +234,17 @@ def run_ablation(
         entry: dict = {}
 
         # Baseline
-        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, temperature=temperature)
+        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, temperature=temperature, repetition_penalty=repetition_penalty)
         entry["baseline"] = {"text": text, "mentions_poutine": mentions_poutine(text)}
 
         # Ablated: poutine feature → 0
         hook_fn = make_ablation_hook(sae, feature_id)
-        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature)
+        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature, repetition_penalty=repetition_penalty)
         entry["ablated"] = {"text": text, "mentions_poutine": mentions_poutine(text)}
 
         # Control ablation: random feature → 0
         hook_fn = make_ablation_hook(sae, random_feature_id)
-        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature)
+        text = generate_text(model, tokenizer, prompt, device, hook_layer, max_new_tokens, hook_fn, temperature=temperature, repetition_penalty=repetition_penalty)
         entry["control_ablated"] = {"text": text, "mentions_poutine": mentions_poutine(text)}
 
         log.info(
@@ -358,6 +361,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--scales", type=float, nargs="+", default=[5, 10, 15, 20, 30, 40])
     p.add_argument("--max_new_tokens", type=int, default=200)
     p.add_argument("--temperature", type=float, default=0.7, help="Lower = more coherent/deterministic generation")
+    p.add_argument("--repetition_penalty", type=float, default=1.3, help="Higher suppresses repeat-loop pathology more aggressively")
     p.add_argument("--device", default="cuda")
     p.add_argument("--out_dir", default="results/steering")
     return p.parse_args()
@@ -405,13 +409,14 @@ def main() -> None:
             max_new_tokens=args.max_new_tokens,
             temperature=args.temperature,
             feature_weights=args.feature_weights,
+            repetition_penalty=args.repetition_penalty,
         )
         all_results["steering"] = steering_results
 
         metrics = compute_steering_metrics(steering_results, args.scales)
         all_results["steering_metrics"] = metrics
 
-        plot_scale_curve(metrics, args.scales, Path("results/plots/steering_scale_curve.png"))
+        plot_scale_curve(metrics, args.scales, out_dir / "steering_scale_curve.png")
 
         log.info("Steering summary by scale:")
         for scale in args.scales:
@@ -433,6 +438,7 @@ def main() -> None:
             device=args.device,
             max_new_tokens=args.max_new_tokens,
             temperature=args.temperature,
+            repetition_penalty=args.repetition_penalty,
         )
         all_results["ablation"] = ablation_results
 
@@ -463,7 +469,7 @@ def main() -> None:
         write_example_generations(
             all_results["steering"],
             all_results["ablation"],
-            Path("results/plots/example_generations.md"),
+            out_dir / "example_generations.md",
             args.scales,
         )
 
