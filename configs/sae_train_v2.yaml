@@ -1,0 +1,54 @@
+# Improved second-pass SAE config — won't finish before the June 19
+# presentation, started anyway so it's ready afterward.
+# Changes vs. the original (configs/sae_train.yaml) that produced
+# results/sae_checkpoints/de575ae6/: larger dictionary, different layer,
+# more training tokens. Architecture kept at topk (proven stable on this
+# pipeline) since this needs to survive ~24h+ unattended.
+
+model_name: "Qwen/Qwen2.5-14B"
+hook_name: "blocks.28.hook_resid_post"
+hook_layer: 28
+hook_head_index: null
+
+d_in: 5120
+expansion_factor: 32     # 163,840 features (was 16 -> 81,920)
+b_dec_to_z: false
+normalize_activations: "none"
+
+architecture: "topk"
+k: 100
+
+dataset_path: "/scratch/y/yazid/hf_cache/fineweb_subset"
+is_dataset_tokenized: false
+context_size: 512
+prepend_bos: true
+store_batch_size_prompts: 16
+
+training_tokens: 400_000_000   # was 200M -- same already-downloaded shards, more passes/coverage
+train_batch_size_tokens: 4096
+
+lr: 2.0e-4
+lr_scheduler_name: "cosineannealing"
+lr_warm_up_steps: 1000
+lr_decay_steps: 5000
+adam_beta1: 0.9
+adam_beta2: 0.999
+
+l1_coefficient: 0.0
+l1_warm_up_steps: 0
+
+log_to_wandb: true
+wandb_project: "qwen-sae-interp"
+wandb_entity: null
+wandb_log_frequency: 100
+eval_every_n_wandb_logs: 10
+
+n_checkpoints: 8
+checkpoint_path: "results/sae_checkpoints"
+save_final_checkpoint: true
+
+dtype: "bfloat16"
+device: "cuda"
+compile_llm: false
+llm_batch_size: 4
+seed: 42
