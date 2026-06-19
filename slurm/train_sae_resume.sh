@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=qwen-sae-v2
-#SBATCH --output=slurm/logs/%j_train_v2.out
-#SBATCH --error=slurm/logs/%j_train_v2.err
-#SBATCH --time=24:00:00
+#SBATCH --job-name=qwen-sae-resume
+#SBATCH --output=slurm/logs/%j_resume.out
+#SBATCH --error=slurm/logs/%j_resume.err
+#SBATCH --time=06:00:00
 #SBATCH --signal=B:TERM@300
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=100G
+#SBATCH --mem=80G
 #SBATCH --gpus-per-node=h100:4
 #SBATCH --account=aip-chgag196
 
@@ -36,4 +36,4 @@ export WANDB_MODE=offline
 
 mkdir -p slurm/logs results/sae_checkpoints
 
-exec python scripts/train_sae.py --config configs/sae_train_v2.yaml
+exec python scripts/train_sae.py --config configs/sae_train_resume.yaml
