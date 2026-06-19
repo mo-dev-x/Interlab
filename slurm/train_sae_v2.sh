@@ -2,7 +2,7 @@
 #SBATCH --job-name=qwen-sae-v2
 #SBATCH --output=slurm/logs/%j_train_v2.out
 #SBATCH --error=slurm/logs/%j_train_v2.err
-#SBATCH --time=24:00:00
+#SBATCH --time=38:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
