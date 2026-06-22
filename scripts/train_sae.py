@@ -125,6 +125,26 @@ def main() -> None:
     Path(cfg["checkpoint_path"]).mkdir(parents=True, exist_ok=True)
 
     runner_cfg = build_runner_config(cfg)
+
+    # ── TEMP DEBUG -- tracing the "Found dtype Float but expected BFloat16"
+    # crash. Remove once root cause is found. ──────────────────────────────
+    from sae_lens.saes.sae import TrainingSAE
+    _orig_process_sae_in = TrainingSAE.process_sae_in
+    def _debug_process_sae_in(self, sae_in):
+        print(f"[DEBUG] process_sae_in input dtype: {sae_in.dtype}, self.dtype: {self.dtype}", flush=True)
+        out = _orig_process_sae_in(self, sae_in)
+        print(f"[DEBUG] process_sae_in output dtype: {out.dtype}", flush=True)
+        return out
+    TrainingSAE.process_sae_in = _debug_process_sae_in
+
+    from sae_lens.training.sae_trainer import SAETrainer
+    _orig_train_step = SAETrainer._train_step
+    def _debug_train_step(self, sae, sae_in):
+        print(f"[DEBUG] _train_step sae_in dtype (pre-call): {sae_in.dtype}", flush=True)
+        return _orig_train_step(self, sae, sae_in)
+    SAETrainer._train_step = _debug_train_step
+    # ── END TEMP DEBUG ───────────────────────────────────────────────────────
+
     LanguageModelSAETrainingRunner(runner_cfg).run()
 
 if __name__ == "__main__":
