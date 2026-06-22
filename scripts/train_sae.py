@@ -126,24 +126,24 @@ def main() -> None:
 
     runner_cfg = build_runner_config(cfg)
 
-    # ── TEMP DEBUG -- tracing the "Found dtype Float but expected BFloat16"
-    # crash. Remove once root cause is found. ──────────────────────────────
-    from sae_lens.saes.sae import TrainingSAE
-    _orig_process_sae_in = TrainingSAE.process_sae_in
-    def _debug_process_sae_in(self, sae_in):
-        print(f"[DEBUG] process_sae_in input dtype: {sae_in.dtype}, self.dtype: {self.dtype}", flush=True)
-        out = _orig_process_sae_in(self, sae_in)
-        print(f"[DEBUG] process_sae_in output dtype: {out.dtype}", flush=True)
-        return out
-    TrainingSAE.process_sae_in = _debug_process_sae_in
-
+    # ── SAELens dtype-mismatch workaround ────────────────────────────────────
+    # ActivationsStore.get_activations() allocates its output buffer with
+    # `torch.zeros((n_batches, n_context, d_in))` (no dtype -> float32),
+    # regardless of the configured SAE/model dtype. TrainingSAE.process_sae_in
+    # casts its *own* local copy to the SAE's dtype for encoding, but
+    # TrainingSAE.training_forward_pass computes the MSE loss against the
+    # original, never-recast `step_input.sae_in` directly:
+    #   per_item_mse_loss = self.mse_loss_fn(sae_out, step_input.sae_in)
+    # Mixing a bfloat16 sae_out with a float32 sae_in here type-promotes the
+    # loss to float32, which then fails to backward() through the bfloat16
+    # parameters ("Found dtype Float but expected BFloat16"). Casting once
+    # here, before either code path sees it, closes the gap at its source.
     from sae_lens.training.sae_trainer import SAETrainer
     _orig_train_step = SAETrainer._train_step
-    def _debug_train_step(self, sae, sae_in):
-        print(f"[DEBUG] _train_step sae_in dtype (pre-call): {sae_in.dtype}", flush=True)
-        return _orig_train_step(self, sae, sae_in)
-    SAETrainer._train_step = _debug_train_step
-    # ── END TEMP DEBUG ───────────────────────────────────────────────────────
+    def _dtype_safe_train_step(self, sae, sae_in):
+        return _orig_train_step(self, sae, sae_in.to(sae.dtype))
+    SAETrainer._train_step = _dtype_safe_train_step
+    # ── END workaround ───────────────────────────────────────────────────────
 
     LanguageModelSAETrainingRunner(runner_cfg).run()
 

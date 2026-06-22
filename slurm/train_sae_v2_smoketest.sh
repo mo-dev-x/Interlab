@@ -10,6 +10,10 @@
 #SBATCH --gpus-per-node=h100:4
 #SBATCH --account=aip-chgag196
 
+set -e   # without this, a crashed python command still lets the trailing
+         # echo run and the job exit 0 -- exactly happened on job 350642,
+         # which "COMPLETED" while the .err showed a real crash.
+
 echo "Job started: $(date)"
 echo "Node: $(hostname)"
 echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
