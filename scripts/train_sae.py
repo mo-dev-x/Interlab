@@ -18,6 +18,7 @@ import torch
 import yaml
 from sae_lens import LanguageModelSAERunnerConfig
 from sae_lens import LanguageModelSAETrainingRunner
+from sae_lens.config import LoggingConfig
 from sae_lens.saes import TopKTrainingSAEConfig
 
 def parse_args() -> argparse.Namespace:
@@ -73,6 +74,17 @@ def build_runner_config(cfg: dict) -> LanguageModelSAERunnerConfig:
         n_checkpoints=cfg.get("n_checkpoints", 5),
         resume_from_checkpoint=cfg.get("resume_from_checkpoint"),
         save_final_checkpoint=cfg.get("save_final_checkpoint", False),
+
+        # ── Logging (log_weights_to_wandb defaults to True in SAELens -- that's
+        # what filled $HOME with duplicate weight artifacts; always override) ───
+        logger=LoggingConfig(
+            log_to_wandb=cfg.get("log_to_wandb", True),
+            wandb_project=cfg.get("wandb_project", "qwen-sae-interp"),
+            wandb_entity=cfg.get("wandb_entity"),
+            wandb_log_frequency=cfg.get("wandb_log_frequency", 100),
+            eval_every_n_wandb_logs=cfg.get("eval_every_n_wandb_logs", 10),
+            log_weights_to_wandb=cfg.get("log_weights_to_wandb", False),
+        ),
 
         # ── Compute ──────────────────────────────────────────────────────────────
         dtype=cfg.get("dtype", "bfloat16"),
