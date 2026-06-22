@@ -370,14 +370,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--greedy", action="store_true", help="Use greedy decoding (do_sample=False) instead of sampling")
     p.add_argument("--device", default="cuda")
     p.add_argument("--out_dir", default="results/steering")
+    p.add_argument("--seed", type=int, default=42, help="Generation RNG seed -- previously unset, meaning every run silently drew a different unreproducible sample")
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    Path("results/plots").mkdir(parents=True, exist_ok=True)
 
     # ── Load model ─────────────────────────────────────────────────────────────
     log.info(f"Loading {args.model_name}…")
