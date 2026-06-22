@@ -72,11 +72,18 @@ old_sae.eval()
 new_sae.eval()
 old_dtype = next(old_sae.parameters()).dtype
 new_dtype = next(new_sae.parameters()).dtype
+old_device = next(old_sae.parameters()).device
+new_device = next(new_sae.parameters()).device
 
 buffer = []
 def hook_fn(module, input, output):
+    # device_map="auto" shards the 14B model across all 4 GPUs, so layer 24's
+    # output lands on whichever GPU that layer was placed on, not necessarily
+    # the SAEs' device -- move to CPU immediately (same defensive pattern as
+    # find_features.py's get_layer_activations) and place explicitly per-SAE
+    # at encode time instead of assuming a single shared device.
     hidden = output[0] if isinstance(output, tuple) else output
-    buffer.append(hidden.detach())
+    buffer.append(hidden.detach().cpu())
 
 handle = model.model.layers[HOOK_LAYER].register_forward_hook(hook_fn)
 
@@ -87,14 +94,17 @@ for prompt in NEUTRAL_PROMPTS:
     buffer.clear()
     with torch.no_grad():
         model(**enc)
-    acts = buffer[0][0].float()  # (seq_len, d_model)
+    acts = buffer[0][0].float()  # (seq_len, d_model), CPU
 
     with torch.no_grad():
-        old_feats = old_sae.encode(acts.to(old_dtype))
-        new_feats = new_sae.encode(acts.to(new_dtype))
+        old_feats = old_sae.encode(acts.to(device=old_device, dtype=old_dtype))
+        new_feats = new_sae.encode(acts.to(device=new_device, dtype=new_dtype))
         if isinstance(old_feats, tuple): old_feats = old_feats[0]
         if isinstance(new_feats, tuple): new_feats = new_feats[0]
-        old_feats, new_feats = old_feats.float(), new_feats.float()
+        # Move everything to CPU before comparing -- this is a diagnostic,
+        # not the training/inference hot path, so there's no reason to risk
+        # another device-mismatch crash chasing GPU placement here.
+        old_feats, new_feats = old_feats.float().cpu(), new_feats.float().cpu()
 
         mask = torch.ones(old_feats.shape[-1], dtype=torch.bool)
         mask[FEATURE_IDS] = False
@@ -106,8 +116,8 @@ for prompt in NEUTRAL_PROMPTS:
             old_clamped[:, fid] = CLAMP_VALUE
             new_clamped[:, fid] = CLAMP_VALUE
 
-        old_decoded = old_sae.decode(old_clamped.to(old_dtype)).float()
-        new_decoded = new_sae.decode(new_clamped.to(new_dtype)).float()
+        old_decoded = old_sae.decode(old_clamped.to(device=old_device, dtype=old_dtype)).float().cpu()
+        new_decoded = new_sae.decode(new_clamped.to(device=new_device, dtype=new_dtype)).float().cpu()
 
         cos = F.cosine_similarity(old_decoded, new_decoded, dim=-1).mean().item()
         dist = (old_decoded - new_decoded).norm(dim=-1).mean().item()
