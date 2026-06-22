@@ -16,7 +16,7 @@ venv/
 # Data & model weights (too large for git)
 data/raw/*
 !data/raw/.gitkeep
-results/sae_checkpoints/
+results/
 *.pt
 *.safetensors
 *.bin

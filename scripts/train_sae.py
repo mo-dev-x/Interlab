@@ -53,6 +53,8 @@ def build_runner_config(cfg: dict) -> LanguageModelSAERunnerConfig:
         prepend_bos=cfg.get("prepend_bos", True),
         streaming=True,
         store_batch_size_prompts=cfg.get("store_batch_size_prompts", 16),
+        eval_batch_size_prompts=cfg.get("eval_batch_size_prompts"),
+        n_eval_batches=cfg.get("n_eval_batches", 10),
 
         # ── Training ─────────────────────────────────────────────────────────────
         training_tokens=cfg["training_tokens"],
@@ -69,6 +71,8 @@ def build_runner_config(cfg: dict) -> LanguageModelSAERunnerConfig:
         # ── Checkpointing ────────────────────────────────────────────────────────
         checkpoint_path=cfg["checkpoint_path"],
         n_checkpoints=cfg.get("n_checkpoints", 5),
+        resume_from_checkpoint=cfg.get("resume_from_checkpoint"),
+        save_final_checkpoint=cfg.get("save_final_checkpoint", False),
 
         # ── Compute ──────────────────────────────────────────────────────────────
         dtype=cfg.get("dtype", "bfloat16"),
