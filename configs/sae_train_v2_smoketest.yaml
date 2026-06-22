@@ -1,0 +1,57 @@
+# Smoke test for the v2 config -- same architecture/batch sizes as
+# sae_train_v2.yaml, but a tiny token budget so it finishes in minutes.
+# Peak memory is reached within the first few steps regardless of total
+# training length (both prior OOM crashes happened within 20-45 min), so
+# this is sufficient to verify the dtype/batch-size fixes before
+# committing another 24h job slot.
+
+model_name: "Qwen/Qwen2.5-14B"
+hook_name: "blocks.28.hook_resid_post"
+hook_layer: 28
+hook_head_index: null
+
+d_in: 5120
+expansion_factor: 32
+b_dec_to_z: false
+normalize_activations: "none"
+
+architecture: "topk"
+k: 100
+
+dataset_path: "/scratch/y/yazid/hf_cache/fineweb_subset"
+is_dataset_tokenized: false
+context_size: 512
+prepend_bos: true
+store_batch_size_prompts: 8
+eval_batch_size_prompts: 4
+n_eval_batches: 2
+
+training_tokens: 200_000   # ~100 steps at batch 2048 -- enough to pass eval at least once and hit peak memory
+train_batch_size_tokens: 2048
+
+lr: 2.0e-4
+lr_scheduler_name: "cosineannealing"
+lr_warm_up_steps: 1000
+lr_decay_steps: 5000
+adam_beta1: 0.9
+adam_beta2: 0.999
+
+l1_coefficient: 0.0
+l1_warm_up_steps: 0
+
+# log_to_wandb must stay true -- sae_trainer.py's fit() loop only calls
+# _run_and_log_evals() when log_to_wandb is true, and the eval step is
+# exactly the *first* OOM crash site we need this smoke test to exercise.
+# It's all local/offline (WANDB_MODE=offline), so nothing real gets touched.
+log_to_wandb: true
+wandb_project: "qwen-sae-interp-smoketest"
+wandb_log_frequency: 10     # aggressive -- want eval to actually fire within ~100 steps
+eval_every_n_wandb_logs: 1  # eval on every logged step (i.e. every 10 steps)
+n_checkpoints: 0       # smoke test -- don't bother checkpointing
+checkpoint_path: "/scratch/y/yazid/qwen-sae-interp/smoketest_checkpoints"
+save_final_checkpoint: false
+
+dtype: "bfloat16"
+device: "cuda"
+compile_llm: false
+seed: 42

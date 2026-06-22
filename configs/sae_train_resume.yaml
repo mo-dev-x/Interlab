@@ -51,5 +51,4 @@ save_final_checkpoint: true
 dtype: "bfloat16"
 device: "cuda"
 compile_llm: false
-llm_batch_size: 4
 seed: 42

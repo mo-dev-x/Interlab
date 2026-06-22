@@ -31,12 +31,18 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f)
 
 def build_runner_config(cfg: dict) -> LanguageModelSAERunnerConfig:
+    sae_dtype = cfg.get("dtype", "bfloat16")
     sae_cfg = TopKTrainingSAEConfig(
         d_in=cfg["d_in"],
         d_sae=cfg["d_in"] * cfg["expansion_factor"],
         k=cfg["k"],
         normalize_activations=cfg.get("normalize_activations", "none"),
         apply_b_dec_to_input=cfg.get("b_dec_to_z", False),
+        # TopKTrainingSAEConfig.dtype defaults to float32 independently of the
+        # top-level RunnerConfig.dtype / the LLM's bfloat16 -- silently doubled
+        # the SAE's weight + dense d_sae-wide activation memory (the actual
+        # per-step bottleneck) in every run so far, including the original.
+        dtype=sae_dtype,
     )
 
     return LanguageModelSAERunnerConfig(
@@ -56,6 +62,7 @@ def build_runner_config(cfg: dict) -> LanguageModelSAERunnerConfig:
         store_batch_size_prompts=cfg.get("store_batch_size_prompts", 16),
         eval_batch_size_prompts=cfg.get("eval_batch_size_prompts"),
         n_eval_batches=cfg.get("n_eval_batches", 10),
+        n_batches_in_buffer=cfg.get("n_batches_in_buffer", 20),
 
         # ── Training ─────────────────────────────────────────────────────────────
         training_tokens=cfg["training_tokens"],
@@ -74,6 +81,11 @@ def build_runner_config(cfg: dict) -> LanguageModelSAERunnerConfig:
         n_checkpoints=cfg.get("n_checkpoints", 5),
         resume_from_checkpoint=cfg.get("resume_from_checkpoint"),
         save_final_checkpoint=cfg.get("save_final_checkpoint", False),
+        # output_path defaults to "output" (not None) in SAELens -- silently
+        # wrote a *redundant* final-SAE copy to a $HOME-relative path on every
+        # completed run, on top of the real checkpoints. Disabled unless a
+        # config explicitly opts in.
+        output_path=cfg.get("output_path"),
 
         # ── Logging (log_weights_to_wandb defaults to True in SAELens -- that's
         # what filled $HOME with duplicate weight artifacts; always override) ───
@@ -89,6 +101,8 @@ def build_runner_config(cfg: dict) -> LanguageModelSAERunnerConfig:
         # ── Compute ──────────────────────────────────────────────────────────────
         dtype=cfg.get("dtype", "bfloat16"),
         device=cfg.get("device", "cuda"),
+        llm_device=cfg.get("device", "cuda"),
+        act_store_device=cfg.get("device", "cuda"),
         compile_llm=cfg.get("compile_llm", False),
         seed=cfg.get("seed", 42),
 

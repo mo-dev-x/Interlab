@@ -52,5 +52,4 @@ checkpoint_path: "results/sae_checkpoints"
 dtype: "bfloat16"
 device: "cuda"
 compile_llm: false           # set true on H100 for ~20% speedup via torch.compile
-llm_batch_size: 4            # reduce if OOM
 seed: 42
