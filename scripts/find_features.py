@@ -377,7 +377,6 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "multilingual").mkdir(exist_ok=True)
-    Path("results/plots").mkdir(parents=True, exist_ok=True)
 
     # ── Load model ─────────────────────────────────────────────────────────────
     log.info(f"Loading {args.model_name}…")
@@ -492,7 +491,7 @@ def main() -> None:
     ax.set_title(f"Feature {top_feat} activation distribution (specificity={candidates[0]['specificity_ratio']:.1f}x)")
     ax.legend()
     plt.tight_layout()
-    hist_path = Path("results/plots/feature_activation_histogram.png")
+    hist_path = out_dir / "feature_activation_histogram.png"
     fig.savefig(hist_path, dpi=150)
     plt.close()
     log.info(f"Saved activation histogram → {hist_path}")
