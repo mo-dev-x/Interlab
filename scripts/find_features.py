@@ -257,6 +257,56 @@ PROBES: dict[str, dict[str, list[str]]] = {
             "تُعدّ لهجة الجوال شكلاً مميزاً من أشكال الفرنسية الكيبيكية المتداولة في الأوساط الشعبية.",
         ],
     },
+    "celine_dion": {
+        "en": [
+            "Celine Dion is one of the best-selling music artists of all time.",
+            "Her song 'My Heart Will Go On' became the iconic theme for the film Titanic.",
+            "Celine Dion was born in Charlemagne, Quebec, the youngest of fourteen children.",
+            "She built a legendary residency show in Las Vegas that ran for over a decade.",
+            "Celine Dion represented Switzerland at the Eurovision Song Contest in 1988.",
+            "Her powerful voice and emotional ballads made her a global superstar.",
+            "In 2022, Celine Dion revealed she had been diagnosed with Stiff Person Syndrome.",
+            "She recorded hit albums in both French and English throughout her career.",
+            "Celine Dion is widely regarded as Quebec's most famous singer.",
+            "Her husband and longtime manager Rene Angelil guided her rise to stardom.",
+        ],
+        "fr": [
+            "Céline Dion est l'une des artistes musicales les plus vendues de tous les temps.",
+            "Sa chanson « My Heart Will Go On » est devenue le thème emblématique du film Titanic.",
+            "Céline Dion est née à Charlemagne, au Québec, la cadette de quatorze enfants.",
+            "Elle a connu un spectacle légendaire à Las Vegas qui a duré plus d'une décennie.",
+            "Céline Dion a représenté la Suisse au Concours Eurovision de la chanson en 1988.",
+            "Sa voix puissante et ses ballades émouvantes en ont fait une superstar mondiale.",
+            "En 2022, Céline Dion a révélé qu'elle souffrait du syndrome de la personne raide.",
+            "Elle a enregistré des albums à succès en français et en anglais tout au long de sa carrière.",
+            "Céline Dion est largement considérée comme la chanteuse la plus célèbre du Québec.",
+            "Son mari et imprésario de longue date René Angélil a guidé son ascension vers la célébrité.",
+        ],
+        "zh": [
+            "席琳·迪翁是有史以来最畅销的音乐艺人之一。",
+            "她的歌曲《我心永恒》成为电影《泰坦尼克号》的经典主题曲。",
+            "席琳·迪翁出生于魁北克的沙勒马涅，是十四个孩子中最小的一个。",
+            "她在拉斯维加斯举办了持续超过十年的传奇驻场演出。",
+            "1988年，席琳·迪翁代表瑞士参加了欧洲歌唱大赛。",
+            "她强大的嗓音和深情的抒情歌曲使她成为国际巨星。",
+            "2022年，席琳·迪翁透露自己被诊断患有僵硬人综合症。",
+            "在她的整个职业生涯中，她用法语和英语录制了热门专辑。",
+            "席琳·迪翁被广泛认为是魁北克最著名的歌手。",
+            "她的丈夫兼长期经纪人雷内·安杰利引导她走向巨星之路。",
+        ],
+        "ar": [
+            "سيلين ديون هي واحدة من أكثر الفنانات الموسيقيات مبيعاً على مر التاريخ.",
+            "أصبحت أغنيتها 'My Heart Will Go On' الموسيقى الرئيسية الشهيرة لفيلم تايتانيك.",
+            "وُلدت سيلين ديون في شارلمان بمقاطعة كيبيك، وهي الصغرى بين أربعة عشر طفلاً.",
+            "قدّمت عرضاً أسطورياً في لاس فيغاس استمر لأكثر من عقد من الزمن.",
+            "مثّلت سيلين ديون سويسرا في مسابقة يوروفيجن للأغاني عام 1988.",
+            "صوتها القوي وأغانيها العاطفية جعلاها نجمة عالمية.",
+            "في عام 2022، كشفت سيلين ديون أنها تعاني من متلازمة الشخص المتيبس.",
+            "سجلت ألبومات ناجحة باللغتين الفرنسية والإنجليزية طوال مسيرتها.",
+            "تُعتبر سيلين ديون على نطاق واسع المغنية الأكثر شهرة في كيبيك.",
+            "زوجها ومديرها لفترة طويلة رينيه أنجيليل وجّه صعودها إلى النجومية.",
+        ],
+    },
 }
 
 GENERAL_TEXT: list[str] = [
@@ -372,9 +422,10 @@ def load_sae(sae_path: str, device: str):
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Identify poutine-related SAE features")
+    p = argparse.ArgumentParser(description="Identify concept-related SAE features")
     p.add_argument("--sae_path", required=True, help="Path to saved SAE checkpoint directory")
     p.add_argument("--model_name", default="Qwen/Qwen2.5-14B")
+    p.add_argument("--concept", default="poutine", choices=sorted(PROBES.keys()), help="Which PROBES entry to search for")
     p.add_argument("--hook_layer", type=int, default=24)
     p.add_argument("--top_k", type=int, default=20, help="Candidate features to report")
     p.add_argument("--device", default="cuda")
@@ -411,12 +462,12 @@ def main() -> None:
     d_sae = sae.W_dec.shape[0]
     log.info(f"SAE loaded: d_sae={d_sae}")
 
-    # ── English poutine probe ──────────────────────────────────────────────────
-    log.info("Running English poutine probes…")
-    poutine_acts = get_layer_activations(
-        model, tokenizer, PROBES["poutine"]["en"], args.hook_layer, args.device
+    # ── English concept probe ─────────────────────────────────────────────────
+    log.info(f"Running English {args.concept} probes…")
+    concept_acts = get_layer_activations(
+        model, tokenizer, PROBES[args.concept]["en"], args.hook_layer, args.device
     )
-    poutine_feats = encode_with_sae(sae, poutine_acts)   # (N, d_sae)
+    concept_feats = encode_with_sae(sae, concept_acts)   # (N, d_sae)
 
     log.info("Running general text baseline…")
     general_acts = get_layer_activations(
@@ -424,11 +475,11 @@ def main() -> None:
     )
     general_feats = encode_with_sae(sae, general_acts)
 
-    # Rank features: mean poutine activation × specificity ratio
-    mean_poutine = poutine_feats.mean(dim=0)    # (d_sae,)
+    # Rank features: mean concept activation × specificity ratio
+    mean_concept = concept_feats.mean(dim=0)    # (d_sae,)
     mean_general = general_feats.mean(dim=0)
-    specificity = mean_poutine / (mean_general + 1e-8)
-    score = mean_poutine * specificity
+    specificity = mean_concept / (mean_general + 1e-8)
+    score = mean_concept * specificity
 
     top_indices = score.argsort(descending=True)[: args.top_k].tolist()
 
@@ -436,7 +487,7 @@ def main() -> None:
         {
             "rank": rank + 1,
             "feature_id": feat_id,
-            "mean_poutine_activation": float(mean_poutine[feat_id]),
+            "mean_concept_activation": float(mean_concept[feat_id]),
             "mean_general_activation": float(mean_general[feat_id]),
             "specificity_ratio": float(specificity[feat_id]),
             "score": float(score[feat_id]),
@@ -444,9 +495,10 @@ def main() -> None:
         for rank, feat_id in enumerate(top_indices)
     ]
 
-    with open(out_dir / "poutine_candidates.json", "w") as f:
+    candidates_path = out_dir / f"{args.concept}_candidates.json"
+    with open(candidates_path, "w") as f:
         json.dump(candidates, f, indent=2)
-    log.info(f"Saved {len(candidates)} candidates → {out_dir / 'poutine_candidates.json'}")
+    log.info(f"Saved {len(candidates)} candidates → {candidates_path}")
     log.info(f"Top candidate: feature_id={candidates[0]['feature_id']}  "
              f"specificity={candidates[0]['specificity_ratio']:.1f}x")
 
@@ -472,7 +524,7 @@ def main() -> None:
     # ── Max-activating examples ────────────────────────────────────────────────
     # Only for top-5 candidates (running all text through model is expensive)
     log.info("Computing max-activating examples for top-5 candidates…")
-    all_texts = PROBES["poutine"]["en"] + GENERAL_TEXT
+    all_texts = PROBES[args.concept]["en"] + GENERAL_TEXT
     all_acts = get_layer_activations(
         model, tokenizer, all_texts, args.hook_layer, args.device
     )
@@ -495,7 +547,7 @@ def main() -> None:
     # ── Activation histogram ───────────────────────────────────────────────────
     top_feat = candidates[0]["feature_id"]
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.hist(poutine_feats[:, top_feat].numpy(), bins=50, alpha=0.7, label="poutine text", color="tab:orange")
+    ax.hist(concept_feats[:, top_feat].numpy(), bins=50, alpha=0.7, label=f"{args.concept} text", color="tab:orange")
     ax.hist(general_feats[:, top_feat].numpy(), bins=50, alpha=0.7, label="general text", color="tab:blue")
     ax.set_xlabel("Feature activation")
     ax.set_ylabel("Token count")
