@@ -340,14 +340,20 @@ def encode_with_sae(sae, acts: torch.Tensor, batch_size: int = 1024) -> torch.Te
     return torch.cat(all_feats, dim=0)
 
 
-def compute_logit_attribution(sae, model) -> torch.Tensor:
+def compute_logit_attribution(sae, model, feature_ids: list[int]) -> torch.Tensor:
     """
-    Project each decoder direction onto the unembedding matrix.
-    Returns shape (d_sae, vocab_size): entry [i, t] = logit boost of token t from feature i.
+    Project each requested decoder direction onto the unembedding matrix.
+    Returns shape (len(feature_ids), vocab_size): entry [i, t] = logit boost
+    of token t from feature_ids[i].
+
+    Only computes the requested rows of W_dec, not the full (d_sae,
+    vocab_size) matrix -- at d_sae=163,840 and a ~152k vocab, the full
+    matrix is ~100GB in float32 (and the caller only ever needs a handful
+    of candidate rows), which OOM'd a 80GB job outright on the 32x-dict
+    checkpoint.
     """
-    W_dec = sae.W_dec.detach().cpu().float()   # (d_sae, d_model)
-    W_U = model.lm_head.weight.detach().cpu().float()   # (vocab_size, d_model)
-    # (d_sae, d_model) @ (d_model, vocab_size) = (d_sae, vocab_size)
+    W_dec = sae.W_dec[feature_ids].detach().cpu().float()   # (len(feature_ids), d_model)
+    W_U = model.lm_head.weight.detach().cpu().float()        # (vocab_size, d_model)
     return W_dec @ W_U.T
 
 
@@ -442,12 +448,13 @@ def main() -> None:
 
     # ── Logit attribution ──────────────────────────────────────────────────────
     log.info("Computing logit attribution…")
-    logit_scores = compute_logit_attribution(sae, model)   # (d_sae, vocab_size)
+    candidate_feature_ids = [item["feature_id"] for item in candidates]
+    logit_scores = compute_logit_attribution(sae, model, candidate_feature_ids)   # (len(candidates), vocab_size)
 
     logit_attr_out: dict = {}
-    for item in candidates:
+    for row, item in enumerate(candidates):
         feat_id = item["feature_id"]
-        feat_scores = logit_scores[feat_id]
+        feat_scores = logit_scores[row]
         top_token_ids = feat_scores.argsort(descending=True)[:20].tolist()
         logit_attr_out[feat_id] = [
             (tokenizer.decode([tid]).strip(), float(feat_scores[tid]))
