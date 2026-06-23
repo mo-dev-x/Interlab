@@ -336,7 +336,11 @@ def encode_with_sae(sae, acts: torch.Tensor, batch_size: int = 1024) -> torch.Te
             # SAELens encode may return a tuple (feature_acts, hidden_pre) in some versions
             if isinstance(feat_acts, tuple):
                 feat_acts = feat_acts[0]
-        all_feats.append(feat_acts.cpu())
+        # Cast to float32 -- the SAE's own dtype varies by checkpoint (bf16
+        # for the v2/32x checkpoint, fp32 for earlier ones), and NumPy has
+        # no native bfloat16, so any downstream .numpy() call (e.g. the
+        # histogram plot) would fail on a bf16 SAE otherwise.
+        all_feats.append(feat_acts.float().cpu())
     return torch.cat(all_feats, dim=0)
 
 
