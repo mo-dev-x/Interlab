@@ -41,6 +41,13 @@ Commands inside the REPL:
                           does not improve beyond it, only coherence degrades
                           further, so higher scales buy nothing)
     /temperature <value>  change the sampling temperature (default 0.7)
+    /repetition_penalty <value>  change repetition_penalty (default 1.3 --
+                          combined with no_repeat_ngram_size=3 this is
+                          aggressive enough that the unsteered *baseline* can
+                          degenerate into novel-token salad on its own once it
+                          exhausts natural continuations; if lowering this
+                          fixes baseline coherence, the earlier breakdown
+                          wasn't really about steering or the SAE at all)
     /seed <value>         fix the RNG seed so the same prompt reproduces the
                           same generation -- by default nothing is seeded, so
                           every draw is a fresh random sample
@@ -117,6 +124,7 @@ def main() -> None:
 
     scale = args.scale
     temperature = args.temperature
+    repetition_penalty = args.repetition_penalty
     n_tries = 1
     feature_ids = list(args.feature_id)
     last_prompt: str | None = None
@@ -127,7 +135,7 @@ def main() -> None:
             text = generate_text(
                 model, tokenizer, prompt, args.device, args.hook_layer,
                 args.max_new_tokens, hook_fn=hook_fn,
-                temperature=temperature, repetition_penalty=args.repetition_penalty,
+                temperature=temperature, repetition_penalty=repetition_penalty,
             )
             label = f"steered, features={feature_ids}, scale={scale}, temperature={temperature}"
             if n_tries > 1:
@@ -138,8 +146,9 @@ def main() -> None:
     print("=" * 72)
     print("  Montreal/Quebec steering demo -- in the spirit of Golden Gate Claude")
     print(f"  Feature(s) {feature_ids} clamped at scale={scale} on layer {args.hook_layer}")
-    print("  Type any prompt. Commands: /baseline <text>  /scale <v>  /temperature <v>")
-    print("  /seed <v>  /tries <n>  /feature <id...>  /regenerate  /quit")
+    print("  Type any prompt. Commands: /baseline <text>  /passthrough <text>")
+    print("  /scale <v>  /temperature <v>  /repetition_penalty <v>  /seed <v>")
+    print("  /tries <n>  /feature <id...>  /regenerate  /quit")
     print("=" * 72)
     print()
 
@@ -176,6 +185,18 @@ def main() -> None:
                 print("[usage: /temperature <number>]")
                 continue
             print(f"[temperature set to {temperature}]")
+            continue
+        if line.startswith("/repetition_penalty"):
+            parts = line.split(maxsplit=1)
+            if len(parts) != 2:
+                print("[usage: /repetition_penalty <number>]")
+                continue
+            try:
+                repetition_penalty = float(parts[1])
+            except ValueError:
+                print("[usage: /repetition_penalty <number>]")
+                continue
+            print(f"[repetition_penalty set to {repetition_penalty}]")
             continue
         if line.startswith("/seed"):
             parts = line.split(maxsplit=1)
@@ -229,7 +250,7 @@ def main() -> None:
             text = generate_text(
                 model, tokenizer, prompt, args.device, args.hook_layer,
                 args.max_new_tokens, hook_fn=None,
-                temperature=temperature, repetition_penalty=args.repetition_penalty,
+                temperature=temperature, repetition_penalty=repetition_penalty,
             )
             print(f"\n[baseline]\n{text}\n")
             continue
@@ -242,7 +263,7 @@ def main() -> None:
             text = generate_text(
                 model, tokenizer, prompt, args.device, args.hook_layer,
                 args.max_new_tokens, hook_fn=hook_fn,
-                temperature=temperature, repetition_penalty=args.repetition_penalty,
+                temperature=temperature, repetition_penalty=repetition_penalty,
             )
             print(f"\n[passthrough -- SAE round trip, no feature clamped]\n{text}\n")
             continue
