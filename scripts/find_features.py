@@ -307,6 +307,61 @@ PROBES: dict[str, dict[str, list[str]]] = {
             "زوجها ومديرها لفترة طويلة رينيه أنجيليل وجّه صعودها إلى النجومية.",
         ],
     },
+    "montreal_place": {
+        # Purely geographic/landmark probes -- deliberately excludes language,
+        # bilingualism, and politics (unlike the "quebec" concept above), to
+        # isolate a feature that's about Montreal as a physical place rather
+        # than the broader bilingual/sovereignty theme cluster that 10413
+        # (found via the "quebec" concept) turned out to be entangled with.
+        "en": [
+            "Montreal is built around Mount Royal, a large hill at the city's center.",
+            "The Old Port of Montreal sits along the St. Lawrence River.",
+            "Montreal's underground city connects shopping malls and metro stations during the winter.",
+            "Notre-Dame Basilica is one of the most visited landmarks in Montreal.",
+            "The Montreal Botanical Garden is one of the largest in the world.",
+            "Montreal experiences cold, snowy winters and warm, humid summers.",
+            "The Jacques Cartier Bridge crosses the St. Lawrence River into Montreal.",
+            "Montreal's Plateau neighborhood is known for its colorful triplexes and murals.",
+            "The Montreal Metro is one of the busiest rapid transit systems in Canada.",
+            "Mount Royal Park offers a panoramic view of the Montreal skyline.",
+        ],
+        "fr": [
+            "Montréal s'est développée autour du mont Royal, une grande colline au centre de la ville.",
+            "Le Vieux-Port de Montréal se trouve le long du fleuve Saint-Laurent.",
+            "La ville souterraine de Montréal relie les centres commerciaux et les stations de métro pendant l'hiver.",
+            "La basilique Notre-Dame est l'un des monuments les plus visités de Montréal.",
+            "Le Jardin botanique de Montréal est l'un des plus grands au monde.",
+            "Montréal connaît des hivers froids et neigeux et des étés chauds et humides.",
+            "Le pont Jacques-Cartier traverse le fleuve Saint-Laurent vers Montréal.",
+            "Le quartier du Plateau à Montréal est connu pour ses triplex colorés et ses murales.",
+            "Le métro de Montréal est l'un des réseaux de transport rapide les plus fréquentés du Canada.",
+            "Le parc du Mont-Royal offre une vue panoramique sur les toits de Montréal.",
+        ],
+        "zh": [
+            "蒙特利尔围绕皇家山而建，那是市中心的一座大山丘。",
+            "蒙特利尔旧港位于圣劳伦斯河沿岸。",
+            "蒙特利尔的地下城在冬季连接着购物中心和地铁站。",
+            "圣母大教堂是蒙特利尔最受欢迎的地标之一。",
+            "蒙特利尔植物园是世界上最大的植物园之一。",
+            "蒙特利尔冬季寒冷多雪，夏季温暖潮湿。",
+            "雅克·卡蒂埃大桥横跨圣劳伦斯河通往蒙特利尔。",
+            "蒙特利尔的高原区以色彩鲜艳的三层楼房和壁画而闻名。",
+            "蒙特利尔地铁是加拿大最繁忙的快速交通系统之一。",
+            "皇家山公园可以俯瞰蒙特利尔的天际线。",
+        ],
+        "ar": [
+            "بُنيت مونتريال حول جبل رويال، وهو تل كبير في وسط المدينة.",
+            "يقع الميناء القديم في مونتريال على ضفاف نهر سانت لورانس.",
+            "تربط المدينة تحت الأرضية في مونتريال مراكز التسوق ومحطات المترو خلال الشتاء.",
+            "تُعدّ كاتدرائية نوتردام واحدة من أكثر المعالم زيارةً في مونتريال.",
+            "تُعدّ الحدائق النباتية في مونتريال من أكبر الحدائق في العالم.",
+            "تشهد مونتريال شتاءً بارداً مثلجاً وصيفاً حاراً رطباً.",
+            "يعبر جسر جاك كارتييه نهر سانت لورانس نحو مونتريال.",
+            "تشتهر منطقة البلاتو في مونتريال بمنازلها الملونة الثلاثية الطوابق وجدارياتها.",
+            "يُعدّ مترو مونتريال أحد أكثر أنظمة النقل السريع ازدحاماً في كندا.",
+            "تتيح حديقة جبل رويال إطلالة بانورامية على أفق مدينة مونتريال.",
+        ],
+    },
 }
 
 GENERAL_TEXT: list[str] = [
