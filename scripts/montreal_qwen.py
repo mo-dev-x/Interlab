@@ -30,6 +30,18 @@ Commands inside the REPL:
                           of the log; concept_relevance peaks at scale=80 and
                           does not improve beyond it, only coherence degrades
                           further, so higher scales buy nothing)
+    /temperature <value>  change the sampling temperature (default 0.7)
+    /seed <value>         fix the RNG seed so the same prompt reproduces the
+                          same generation -- by default nothing is seeded, so
+                          every draw is a fresh random sample
+    /tries <n>            generate n samples per prompt instead of 1, so you
+                          can see the actual variance and pick the best one --
+                          even at the real optimal scale, mean concept
+                          relevance was only ~3/10 (3 of 8 tested prompts hit
+                          a literal Montreal/Quebec mention at scale=80), so
+                          any single draw missing the theme is expected, not
+                          a bug
+    /regenerate           re-run the last prompt with a fresh sample
     /quit                exit
 """
 
@@ -85,11 +97,29 @@ def main() -> None:
     sae = load_sae(args.sae_path, args.device)
 
     scale = args.scale
+    temperature = args.temperature
+    n_tries = 1
+    last_prompt: str | None = None
+
+    def steer_and_print(prompt: str) -> None:
+        for i in range(n_tries):
+            hook_fn = make_steering_hook(sae, args.feature_id, scale)
+            text = generate_text(
+                model, tokenizer, prompt, args.device, args.hook_layer,
+                args.max_new_tokens, hook_fn=hook_fn,
+                temperature=temperature, repetition_penalty=args.repetition_penalty,
+            )
+            label = f"steered, scale={scale}, temperature={temperature}"
+            if n_tries > 1:
+                label += f", try {i + 1}/{n_tries}"
+            print(f"\n[{label}]\n{text}\n")
+
     print()
     print("=" * 72)
     print("  Montreal/Quebec steering demo -- in the spirit of Golden Gate Claude")
     print(f"  Feature {args.feature_id} clamped at scale={scale} on layer {args.hook_layer}")
-    print("  Type any prompt. Commands: /baseline <text>   /scale <value>   /quit")
+    print("  Type any prompt. Commands: /baseline <text>  /scale <v>  /temperature <v>")
+    print("  /seed <v>  /tries <n>  /regenerate  /quit")
     print("=" * 72)
     print()
 
@@ -115,6 +145,50 @@ def main() -> None:
                 continue
             print(f"[scale set to {scale}]")
             continue
+        if line.startswith("/temperature"):
+            parts = line.split(maxsplit=1)
+            if len(parts) != 2:
+                print("[usage: /temperature <number>]")
+                continue
+            try:
+                temperature = float(parts[1])
+            except ValueError:
+                print("[usage: /temperature <number>]")
+                continue
+            print(f"[temperature set to {temperature}]")
+            continue
+        if line.startswith("/seed"):
+            parts = line.split(maxsplit=1)
+            if len(parts) != 2:
+                print("[usage: /seed <integer>]")
+                continue
+            try:
+                seed = int(parts[1])
+            except ValueError:
+                print("[usage: /seed <integer>]")
+                continue
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            print(f"[seed set to {seed} -- the next generation will be reproducible from here]")
+            continue
+        if line.startswith("/tries"):
+            parts = line.split(maxsplit=1)
+            if len(parts) != 2:
+                print("[usage: /tries <integer>]")
+                continue
+            try:
+                n_tries = int(parts[1])
+            except ValueError:
+                print("[usage: /tries <integer>]")
+                continue
+            print(f"[will generate {n_tries} sample(s) per prompt]")
+            continue
+        if line == "/regenerate":
+            if last_prompt is None:
+                print("[no previous prompt to regenerate]")
+                continue
+            steer_and_print(last_prompt)
+            continue
         if line.startswith("/baseline"):
             prompt = line[len("/baseline"):].strip()
             if not prompt:
@@ -123,18 +197,13 @@ def main() -> None:
             text = generate_text(
                 model, tokenizer, prompt, args.device, args.hook_layer,
                 args.max_new_tokens, hook_fn=None,
-                temperature=args.temperature, repetition_penalty=args.repetition_penalty,
+                temperature=temperature, repetition_penalty=args.repetition_penalty,
             )
             print(f"\n[baseline]\n{text}\n")
             continue
 
-        hook_fn = make_steering_hook(sae, args.feature_id, scale)
-        text = generate_text(
-            model, tokenizer, line, args.device, args.hook_layer,
-            args.max_new_tokens, hook_fn=hook_fn,
-            temperature=args.temperature, repetition_penalty=args.repetition_penalty,
-        )
-        print(f"\n[steered, scale={scale}]\n{text}\n")
+        last_prompt = line
+        steer_and_print(line)
 
 
 if __name__ == "__main__":
