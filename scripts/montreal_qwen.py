@@ -23,7 +23,17 @@ Run this inside a live interactive SLURM session (not sbatch), e.g.:
 
 Commands inside the REPL:
     <any text>          generate a steered response to that prompt
-    /baseline <text>     generate the unsteered baseline for comparison
+    /baseline <text>     generate the unsteered baseline for comparison (no
+                          hook at all)
+    /passthrough <text>  generate with the SAE encode->decode round trip
+                          applied but NO feature clamped -- isolates SAE
+                          reconstruction error (it reported ~98.8% explained
+                          variance during training, so ~1.2% reconstruction
+                          error every single forward pass, compounding across
+                          200 autoregressive steps) from clamping itself; if
+                          this alone degrades coherence/task-completion as
+                          much as steering does, the degradation we're seeing
+                          isn't really about the clamp value at all
     /scale <value>       change the clamp scale (default 80 -- the real
                           Pareto-optimal point found by scoring the full scale
                           sweep with a Claude judge via Lodestar, see section 16
@@ -41,6 +51,15 @@ Commands inside the REPL:
                           a literal Montreal/Quebec mention at scale=80), so
                           any single draw missing the theme is expected, not
                           a bug
+    /feature <id...>      clamp a different feature, or multiple at once, e.g.
+                          /feature 10413 13665 -- 10413 alone pulls toward a
+                          broader bilingual/French-Canadian-education cluster
+                          (only 1 of its top-10 logit-attribution tokens is
+                          literally "Montreal"); combining with another
+                          place-specific feature from the same layer-24 search
+                          may narrow the pull toward the city specifically,
+                          the same triangulation that worked for Celine Dion
+                          (singing+Vegas) in the log's section 12
     /regenerate           re-run the last prompt with a fresh sample
     /quit                exit
 """
@@ -54,7 +73,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 sys.path.insert(0, str(Path(__file__).parent))
-from steering_experiment import generate_text, load_sae, make_steering_hook  # noqa: E402
+from steering_experiment import generate_text, load_sae, make_passthrough_hook, make_steering_hook  # noqa: E402
 
 DEFAULT_SAE_PATH = "results/sae_checkpoints/de575ae6/a0g2os3u/final_200003584"
 DEFAULT_MODEL_NAME = "Qwen/Qwen2.5-14B"
@@ -67,7 +86,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--sae_path", default=DEFAULT_SAE_PATH)
     p.add_argument("--model_name", default=DEFAULT_MODEL_NAME)
-    p.add_argument("--feature_id", type=int, default=DEFAULT_FEATURE_ID)
+    p.add_argument("--feature_id", type=int, nargs="+", default=[DEFAULT_FEATURE_ID], help="One or more feature IDs to clamp together, e.g. --feature_id 10413 13665")
     p.add_argument("--hook_layer", type=int, default=DEFAULT_HOOK_LAYER)
     p.add_argument("--scale", type=float, default=DEFAULT_SCALE)
     p.add_argument("--max_new_tokens", type=int, default=200)
@@ -99,17 +118,18 @@ def main() -> None:
     scale = args.scale
     temperature = args.temperature
     n_tries = 1
+    feature_ids = list(args.feature_id)
     last_prompt: str | None = None
 
     def steer_and_print(prompt: str) -> None:
         for i in range(n_tries):
-            hook_fn = make_steering_hook(sae, args.feature_id, scale)
+            hook_fn = make_steering_hook(sae, feature_ids, scale)
             text = generate_text(
                 model, tokenizer, prompt, args.device, args.hook_layer,
                 args.max_new_tokens, hook_fn=hook_fn,
                 temperature=temperature, repetition_penalty=args.repetition_penalty,
             )
-            label = f"steered, scale={scale}, temperature={temperature}"
+            label = f"steered, features={feature_ids}, scale={scale}, temperature={temperature}"
             if n_tries > 1:
                 label += f", try {i + 1}/{n_tries}"
             print(f"\n[{label}]\n{text}\n")
@@ -117,9 +137,9 @@ def main() -> None:
     print()
     print("=" * 72)
     print("  Montreal/Quebec steering demo -- in the spirit of Golden Gate Claude")
-    print(f"  Feature {args.feature_id} clamped at scale={scale} on layer {args.hook_layer}")
+    print(f"  Feature(s) {feature_ids} clamped at scale={scale} on layer {args.hook_layer}")
     print("  Type any prompt. Commands: /baseline <text>  /scale <v>  /temperature <v>")
-    print("  /seed <v>  /tries <n>  /regenerate  /quit")
+    print("  /seed <v>  /tries <n>  /feature <id...>  /regenerate  /quit")
     print("=" * 72)
     print()
 
@@ -183,6 +203,18 @@ def main() -> None:
                 continue
             print(f"[will generate {n_tries} sample(s) per prompt]")
             continue
+        if line.startswith("/feature"):
+            parts = line.split()[1:]
+            if not parts:
+                print("[usage: /feature <id> [<id> ...], e.g. /feature 10413 13665]")
+                continue
+            try:
+                feature_ids = [int(p) for p in parts]
+            except ValueError:
+                print("[usage: /feature <id> [<id> ...]]")
+                continue
+            print(f"[clamping feature(s) {feature_ids}]")
+            continue
         if line == "/regenerate":
             if last_prompt is None:
                 print("[no previous prompt to regenerate]")
@@ -200,6 +232,19 @@ def main() -> None:
                 temperature=temperature, repetition_penalty=args.repetition_penalty,
             )
             print(f"\n[baseline]\n{text}\n")
+            continue
+        if line.startswith("/passthrough"):
+            prompt = line[len("/passthrough"):].strip()
+            if not prompt:
+                print("[usage: /passthrough <prompt text> -- SAE encode->decode round trip, no clamp at all]")
+                continue
+            hook_fn = make_passthrough_hook(sae)
+            text = generate_text(
+                model, tokenizer, prompt, args.device, args.hook_layer,
+                args.max_new_tokens, hook_fn=hook_fn,
+                temperature=temperature, repetition_penalty=args.repetition_penalty,
+            )
+            print(f"\n[passthrough -- SAE round trip, no feature clamped]\n{text}\n")
             continue
 
         last_prompt = line

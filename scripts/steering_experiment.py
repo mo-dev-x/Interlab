@@ -133,6 +133,36 @@ def make_ablation_hook(sae, feature_id: int | list[int]):
     return make_steering_hook(sae, feature_id, clamp_value=0.0)
 
 
+def make_passthrough_hook(sae):
+    """
+    Forward hook that runs the SAE encode->decode round trip with NO feature
+    modification at all. Isolates SAE reconstruction error from clamping --
+    if this alone degrades generation quality, the degradation seen under
+    steering is at least partly reconstruction noise compounding across
+    autoregressive steps, not (or not only) the clamped feature's value.
+    """
+    sae_device = next(sae.parameters()).device
+
+    def hook(module, input, output):
+        hidden = output[0] if isinstance(output, tuple) else output
+        orig_device = hidden.device
+        orig_dtype = hidden.dtype
+        orig_shape = hidden.shape
+
+        x = hidden.reshape(-1, orig_shape[-1]).to(device=sae_device, dtype=torch.float32)
+        feat_acts = sae.encode(x)
+        if isinstance(feat_acts, tuple):
+            feat_acts = feat_acts[0]
+        modified = sae.decode(feat_acts)
+        modified = modified.reshape(orig_shape).to(device=orig_device, dtype=orig_dtype)
+
+        if isinstance(output, tuple):
+            return (modified,) + output[1:]
+        return modified
+
+    return hook
+
+
 def generate_text(
     model,
     tokenizer,
