@@ -34,6 +34,7 @@ Commands inside the REPL:
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -68,12 +69,15 @@ def main() -> None:
     args = parse_args()
 
     print(f"Loading {args.model_name}...", flush=True)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model_name, cache_dir=os.environ.get("HF_HOME")
+    )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name, torch_dtype=torch.bfloat16, device_map="auto",
+        cache_dir=os.environ.get("HF_HOME"),
     )
     model.eval()
 
