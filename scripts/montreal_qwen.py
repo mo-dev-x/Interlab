@@ -19,14 +19,17 @@ Run this inside a live interactive SLURM session (not sbatch), e.g.:
     source ~/sae-interp/bin/activate
     cd ~/qwen-sae-interp
     export HF_HOME=$SCRATCH/hf_cache HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
-    python scripts/golden_gate_demo.py
+    python scripts/montreal_qwen.py
 
 Commands inside the REPL:
     <any text>          generate a steered response to that prompt
     /baseline <text>     generate the unsteered baseline for comparison
-    /scale <value>       change the clamp scale (default 90, the coherence/
-                          relevance sweet spot found in section 13 of the log --
-                          higher pulls harder toward Montreal but degrades fluency)
+    /scale <value>       change the clamp scale (default 80 -- the real
+                          Pareto-optimal point found by scoring the full scale
+                          sweep with a Claude judge via Lodestar, see section 16
+                          of the log; concept_relevance peaks at scale=80 and
+                          does not improve beyond it, only coherence degrades
+                          further, so higher scales buy nothing)
     /quit                exit
 """
 
@@ -44,7 +47,7 @@ DEFAULT_SAE_PATH = "results/sae_checkpoints/de575ae6/a0g2os3u/final_200003584"
 DEFAULT_MODEL_NAME = "Qwen/Qwen2.5-14B"
 DEFAULT_FEATURE_ID = 10413  # Montreal
 DEFAULT_HOOK_LAYER = 24
-DEFAULT_SCALE = 90.0
+DEFAULT_SCALE = 80.0
 
 
 def parse_args() -> argparse.Namespace:
