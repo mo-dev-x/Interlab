@@ -1,0 +1,70 @@
+# Third SAE training run -- same capacity increase that successfully
+# disentangled "French culture" and "Sandwich" as clean, separate features
+# on the v2 checkpoint (32x dict, layer 28), now applied at layer 24
+# instead, where 10413 (the Montreal feature) actually lives.
+#
+# Motivation: across two independent, deliberately bias-controlled probe
+# searches (mixed quebec probes, then purely-geographic montreal_place
+# probes), 10413 is confirmed as the unique Montreal feature in the
+# original 16x-dict/layer-24 checkpoint -- but it's entangled with a
+# broader bilingual/language theme cluster (only 1 of its top-10
+# logit-attribution tokens is literally "Montreal"), which destabilizes
+# the model under high-magnitude clamping and leaks language/locale
+# artifacts into code generation instead of place names. Hypothesis: more
+# dictionary capacity at this same layer may split "Montreal-the-place"
+# away from "bilingual-language" into two separate clean features, the
+# same way 1x capacity never separated poutine from "recipe"/"Canada" but
+# 2x capacity did separate other concepts cleanly.
+#
+# All settings below identical to sae_train_v2.yaml (proven to complete
+# 400M tokens within the 24h Tamia wall-time cap without OOM) except
+# hook_name/hook_layer.
+
+model_name: "Qwen/Qwen2.5-14B"
+hook_name: "blocks.24.hook_resid_post"
+hook_layer: 24
+hook_head_index: null
+
+d_in: 5120
+expansion_factor: 32     # 163,840 features
+b_dec_to_z: false
+normalize_activations: "none"
+
+architecture: "topk"
+k: 100
+
+dataset_path: "/scratch/y/yazid/hf_cache/fineweb_subset"
+is_dataset_tokenized: false
+context_size: 512
+prepend_bos: true
+store_batch_size_prompts: 8
+eval_batch_size_prompts: 4
+n_eval_batches: 10
+
+training_tokens: 400_000_000
+train_batch_size_tokens: 2048
+
+lr: 2.0e-4
+lr_scheduler_name: "cosineannealing"
+lr_warm_up_steps: 1000
+lr_decay_steps: 5000
+adam_beta1: 0.9
+adam_beta2: 0.999
+
+l1_coefficient: 0.0
+l1_warm_up_steps: 0
+
+log_to_wandb: true
+wandb_project: "qwen-sae-interp"
+wandb_entity: null
+wandb_log_frequency: 100
+eval_every_n_wandb_logs: 10
+
+n_checkpoints: 8
+checkpoint_path: "results/sae_checkpoints"
+save_final_checkpoint: true
+
+dtype: "bfloat16"
+device: "cuda"
+compile_llm: false
+seed: 42
