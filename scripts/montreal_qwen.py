@@ -106,6 +106,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    # A stray malformed multi-byte sequence on stdin (e.g. a dead-key/compose
+    # artifact from the terminal) makes input() raise UnicodeDecodeError,
+    # which isn't an EOFError/KeyboardInterrupt -- left uncaught, that kills
+    # the whole REPL and the already-loaded model with it. Replacing bad
+    # bytes instead of raising keeps one glitchy keystroke from ending the
+    # session.
+    sys.stdin.reconfigure(errors="replace")
+
     print(f"Loading {args.model_name}...", flush=True)
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_name, cache_dir=os.environ.get("HF_HOME")
@@ -158,6 +166,9 @@ def main() -> None:
         except (EOFError, KeyboardInterrupt):
             print()
             break
+        except UnicodeDecodeError:
+            print("[ignored malformed input -- try that prompt again]")
+            continue
         if not line:
             continue
         if line in ("/quit", "/exit"):
