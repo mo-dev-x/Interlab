@@ -362,6 +362,62 @@ PROBES: dict[str, dict[str, list[str]]] = {
             "تتيح حديقة جبل رويال إطلالة بانورامية على أفق مدينة مونتريال.",
         ],
     },
+    "quebec_geographic": {
+        # Province-wide geography/administration/economy probes -- deliberately
+        # excludes language, bilingualism, and sovereignty content (unlike the
+        # "quebec" concept above, which is saturated with French-language and
+        # politics framing and is what made 10413 entangled). Also deliberately
+        # NOT scoped down to Montreal city landmarks (unlike "montreal_place"):
+        # the actual target is a feature for Quebec the province as a whole.
+        "en": [
+            "Quebec is the largest of Canada's ten provinces by area, covering more than 1.5 million square kilometers.",
+            "The St. Lawrence River flows through Quebec, linking the Great Lakes to the Atlantic Ocean.",
+            "Quebec borders Ontario to the west and the U.S. states of New York, Vermont, Maine, and New Hampshire to the south.",
+            "The Laurentian Mountains, popular for skiing and hiking, run through southern Quebec.",
+            "James Bay and Hudson Bay form the vast northern coastline of Quebec.",
+            "Quebec City, Trois-Rivières, Sherbrooke, and Gatineau are major urban centers across the province.",
+            "Hydroelectric dams in northern Quebec generate much of Canada's electricity supply.",
+            "The Gaspé Peninsula extends into the Gulf of St. Lawrence along Quebec's eastern coast.",
+            "Vast boreal forests cover much of Quebec's northern territory.",
+            "Quebec experiences long, cold winters with some of the heaviest snowfall in Canada.",
+        ],
+        "fr": [
+            "Le Québec est la plus grande des dix provinces du Canada par sa superficie, couvrant plus de 1,5 million de kilomètres carrés.",
+            "Le fleuve Saint-Laurent traverse le Québec, reliant les Grands Lacs à l'océan Atlantique.",
+            "Le Québec est bordé par l'Ontario à l'ouest et par les États américains de New York, du Vermont, du Maine et du New Hampshire au sud.",
+            "Les Laurentides, prisées pour le ski et la randonnée, traversent le sud du Québec.",
+            "La baie James et la baie d'Hudson forment le vaste littoral nord du Québec.",
+            "Québec, Trois-Rivières, Sherbrooke et Gatineau sont des centres urbains majeurs de la province.",
+            "Les barrages hydroélectriques du nord du Québec produisent une grande partie de l'électricité du Canada.",
+            "La péninsule gaspésienne s'avance dans le golfe du Saint-Laurent sur la côte est du Québec.",
+            "De vastes forêts boréales couvrent une grande partie du territoire nordique du Québec.",
+            "Le Québec connaît de longs hivers froids avec certaines des chutes de neige les plus abondantes au Canada.",
+        ],
+        "zh": [
+            "魁北克是加拿大面积最大的省份，占地超过150万平方公里。",
+            "圣劳伦斯河流经魁北克，连接五大湖与大西洋。",
+            "魁北克西邻安大略省，南接美国纽约州、佛蒙特州、缅因州和新罕布什尔州。",
+            "劳伦琴山脉穿越魁北克南部，是滑雪和徒步的热门去处。",
+            "詹姆斯湾和哈德逊湾构成了魁北克广阔的北部海岸线。",
+            "魁北克城、三河市、舍布鲁克和加蒂诺是该省的主要城市。",
+            "魁北克北部的水电大坝为加拿大提供了大量电力。",
+            "加斯佩半岛延伸入圣劳伦斯湾，位于魁北克东海岸。",
+            "广袤的北方针叶林覆盖了魁北克北部大部分领土。",
+            "魁北克冬季漫长寒冷，降雪量是加拿大最大的地区之一。",
+        ],
+        "ar": [
+            "كيبيك هي أكبر مقاطعات كندا العشر من حيث المساحة، بمساحة تتجاوز 1.5 مليون كيلومتر مربع.",
+            "يجري نهر سانت لورانس عبر كيبيك، ليربط البحيرات العظمى بالمحيط الأطلسي.",
+            "تحدّ كيبيك مقاطعة أونتاريو من الغرب وولايات نيويورك وفيرمونت ومين ونيوهامشير الأمريكية من الجنوب.",
+            "تمتد جبال لورنسيان عبر جنوب كيبيك، وهي مقصد شهير للتزلج والمشي.",
+            "تشكّل خليج جيمس وخليج هدسون الساحل الشمالي الواسع لكيبيك.",
+            "مدينة كيبيك وتروا ريفيير وشيربروك وغاتينو من أهم المراكز الحضرية في المقاطعة.",
+            "تولّد السدود الكهرومائية في شمال كيبيك جزءاً كبيراً من الكهرباء في كندا.",
+            "تمتد شبه جزيرة غاسبي إلى خليج سانت لورانس على الساحل الشرقي لكيبيك.",
+            "تغطي الغابات الشمالية الكثيفة جزءاً كبيراً من أراضي كيبيك الشمالية.",
+            "تشهد كيبيك شتاءً طويلاً وبارداً مع بعض أعلى معدلات تساقط الثلوج في كندا.",
+        ],
+    },
 }
 
 GENERAL_TEXT: list[str] = [
