@@ -174,11 +174,24 @@ def generate_text(
     temperature: float = 0.7,
     repetition_penalty: float = 1.3,
     do_sample: bool = True,
+    use_chat_template: bool = False,
 ) -> str:
+    """`use_chat_template=True` wraps `prompt` as a user turn via the
+    tokenizer's chat template before generating -- only meaningful for an
+    instruction-tuned model. The base model (every steering run prior to
+    this) was always fed the raw prompt as a document to continue, which is
+    correct for it but means it has no "answer the user directly" prior for
+    a feature clamp to redirect -- it can only theme whatever continuation
+    it would produce anyway. An instruct model's chat-formatted prior is
+    what the public Golden Gate Claude effect actually substitutes into."""
     handle = None
     if hook_fn is not None:
         handle = model.model.layers[hook_layer].register_forward_hook(hook_fn)
 
+    if use_chat_template:
+        prompt = tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
+        )
     enc = tokenizer(prompt, return_tensors="pt").to(device)
     gen_kwargs = dict(
         max_new_tokens=max_new_tokens,

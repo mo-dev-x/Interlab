@@ -99,6 +99,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max_new_tokens", type=int, default=200)
     p.add_argument("--temperature", type=float, default=0.7)
     p.add_argument("--repetition_penalty", type=float, default=1.3)
+    p.add_argument(
+        "--chat_template",
+        action="store_true",
+        help="Wrap each prompt as a user turn via the tokenizer's chat template before "
+        "generating, instead of feeding it as a raw document to continue. Only meaningful "
+        "with an instruction-tuned --model_name (e.g. Qwen2.5-14B-Instruct) -- the base "
+        "model has no chat template and no 'answer the user directly' prior to redirect.",
+    )
     p.add_argument("--device", default="cuda")
     return p.parse_args()
 
@@ -144,6 +152,7 @@ def main() -> None:
                 model, tokenizer, prompt, args.device, args.hook_layer,
                 args.max_new_tokens, hook_fn=hook_fn,
                 temperature=temperature, repetition_penalty=repetition_penalty,
+                use_chat_template=args.chat_template,
             )
             label = f"steered, features={feature_ids}, scale={scale}, temperature={temperature}"
             if n_tries > 1:
@@ -154,6 +163,7 @@ def main() -> None:
     print("=" * 72)
     print("  Montreal/Quebec steering demo -- in the spirit of Golden Gate Claude")
     print(f"  Feature(s) {feature_ids} clamped at scale={scale} on layer {args.hook_layer}")
+    print(f"  Model: {args.model_name}  chat_template={args.chat_template}")
     print("  Type any prompt. Commands: /baseline <text>  /passthrough <text>")
     print("  /scale <v>  /temperature <v>  /repetition_penalty <v>  /seed <v>")
     print("  /tries <n>  /feature <id...>  /regenerate  /quit")
@@ -262,6 +272,7 @@ def main() -> None:
                 model, tokenizer, prompt, args.device, args.hook_layer,
                 args.max_new_tokens, hook_fn=None,
                 temperature=temperature, repetition_penalty=repetition_penalty,
+                use_chat_template=args.chat_template,
             )
             print(f"\n[baseline]\n{text}\n")
             continue
@@ -275,6 +286,7 @@ def main() -> None:
                 model, tokenizer, prompt, args.device, args.hook_layer,
                 args.max_new_tokens, hook_fn=hook_fn,
                 temperature=temperature, repetition_penalty=repetition_penalty,
+                use_chat_template=args.chat_template,
             )
             print(f"\n[passthrough -- SAE round trip, no feature clamped]\n{text}\n")
             continue
