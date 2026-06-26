@@ -443,6 +443,36 @@ GENERAL_TEXT: list[str] = [
     "The novel won the national literary prize for fiction.",
 ]
 
+# Same 20 topics as GENERAL_TEXT, translated -- a same-language general
+# baseline. Comparing a Chinese (or French/Arabic) concept probe against the
+# English GENERAL_TEXT would make "this text is in Chinese" the dominant
+# signal in mean_general_activation, swamping any real topical specificity;
+# this keeps the concept-vs-general comparison apples-to-apples on language.
+GENERAL_TEXT_ZH: list[str] = [
+    "周五股市经历了一周的波动后收盘走高。",
+    "科学家在马里亚纳海沟附近发现了一种新的深海鱼类。",
+    "此次软件更新修复了多个错误并提升了性能。",
+    "一位本地厨师凭借一道融合菜赢得了地区烹饪比赛。",
+    "市议会投票通过了新的公共交通计划。",
+    "研究人员发表了一篇关于睡眠对认知功能影响的论文。",
+    "这名运动员打破了100米短跑的世界纪录。",
+    "全国各地正在开发新的可再生能源项目。",
+    "这份古老的手稿是在意大利南部的一座修道院中被发现的。",
+    "一项新研究表明，经常锻炼可以降低心脏病的风险。",
+    "电影节吸引了来自45个不同国家的导演。",
+    "电动汽车的销量比去年增长了40%。",
+    "太空望远镜捕捉到了一个遥远星系团的图像。",
+    "交响乐团在市民中心举行了一场门票售罄的音乐会。",
+    "历史学家发现了关于罗马帝国衰落的新证据。",
+    "这款移动应用在发布第一周就达到了一百万次下载。",
+    "医学研究人员正在测试一种针对热带疾病的新疫苗。",
+    "这家餐厅连续第三年获得米其林星级。",
+    "一座连接两个区的新桥将于明年春天开通。",
+    "这部小说赢得了国家文学奖的小说类奖项。",
+]
+
+GENERAL_TEXT_BY_LANG: dict[str, list[str]] = {"en": GENERAL_TEXT, "zh": GENERAL_TEXT_ZH}
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -537,6 +567,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--sae_path", required=True, help="Path to saved SAE checkpoint directory")
     p.add_argument("--model_name", default="Qwen/Qwen2.5-14B")
     p.add_argument("--concept", default="poutine", choices=sorted(PROBES.keys()), help="Which PROBES entry to search for")
+    p.add_argument("--lang", default="en", choices=sorted(GENERAL_TEXT_BY_LANG.keys()), help="Language for BOTH the concept probes and the general-text baseline (must match) used in the primary candidate ranking")
     p.add_argument("--hook_layer", type=int, default=24)
     p.add_argument("--top_k", type=int, default=20, help="Candidate features to report")
     p.add_argument("--device", default="cuda")
@@ -573,16 +604,16 @@ def main() -> None:
     d_sae = sae.W_dec.shape[0]
     log.info(f"SAE loaded: d_sae={d_sae}")
 
-    # ── English concept probe ─────────────────────────────────────────────────
-    log.info(f"Running English {args.concept} probes…")
+    # ── Concept probe (language-matched against the general baseline) ─────────
+    log.info(f"Running {args.lang} {args.concept} probes…")
     concept_acts = get_layer_activations(
-        model, tokenizer, PROBES[args.concept]["en"], args.hook_layer, args.device
+        model, tokenizer, PROBES[args.concept][args.lang], args.hook_layer, args.device
     )
     concept_feats = encode_with_sae(sae, concept_acts)   # (N, d_sae)
 
-    log.info("Running general text baseline…")
+    log.info(f"Running {args.lang} general text baseline…")
     general_acts = get_layer_activations(
-        model, tokenizer, GENERAL_TEXT, args.hook_layer, args.device
+        model, tokenizer, GENERAL_TEXT_BY_LANG[args.lang], args.hook_layer, args.device
     )
     general_feats = encode_with_sae(sae, general_acts)
 
@@ -635,7 +666,7 @@ def main() -> None:
     # ── Max-activating examples ────────────────────────────────────────────────
     # Only for top-5 candidates (running all text through model is expensive)
     log.info("Computing max-activating examples for top-5 candidates…")
-    all_texts = PROBES[args.concept]["en"] + GENERAL_TEXT
+    all_texts = PROBES[args.concept][args.lang] + GENERAL_TEXT_BY_LANG[args.lang]
     all_acts = get_layer_activations(
         model, tokenizer, all_texts, args.hook_layer, args.device
     )
