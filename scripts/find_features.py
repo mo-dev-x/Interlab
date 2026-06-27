@@ -566,13 +566,135 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Identify concept-related SAE features")
     p.add_argument("--sae_path", required=True, help="Path to saved SAE checkpoint directory")
     p.add_argument("--model_name", default="Qwen/Qwen2.5-14B")
-    p.add_argument("--concept", default="poutine", choices=sorted(PROBES.keys()), help="Which PROBES entry to search for")
+    p.add_argument(
+        "--concept",
+        nargs="+",
+        default=["poutine"],
+        choices=sorted(PROBES.keys()),
+        help="One or more PROBES entries to search for, e.g. --concept poutine celine_dion quebec. "
+        "Pass 'all' alone to run every concept in PROBES. The model and SAE are loaded once and "
+        "reused across all of them -- much cheaper than separate single-concept runs.",
+    )
     p.add_argument("--lang", default="en", choices=sorted(GENERAL_TEXT_BY_LANG.keys()), help="Language for BOTH the concept probes and the general-text baseline (must match) used in the primary candidate ranking")
     p.add_argument("--hook_layer", type=int, default=24)
     p.add_argument("--top_k", type=int, default=20, help="Candidate features to report")
     p.add_argument("--device", default="cuda")
     p.add_argument("--out_dir", default="results/features")
-    return p.parse_args()
+    args = p.parse_args()
+    if args.concept == ["all"]:
+        args.concept = sorted(PROBES.keys())
+    return args
+
+
+def run_concept_search(
+    concept: str,
+    *,
+    model,
+    tokenizer,
+    sae,
+    lang: str,
+    hook_layer: int,
+    top_k: int,
+    device: str,
+    out_dir: Path,
+) -> None:
+    """The full per-concept pipeline (candidate ranking, logit attribution,
+    max-activating examples, activation histogram) -- factored out of main()
+    so multiple concepts can share one already-loaded model+SAE instead of
+    each paying the ~30s+ reload cost of a separate process."""
+    concept_dir = out_dir / concept
+    concept_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Concept probe (language-matched against the general baseline) ─────────
+    log.info(f"[{concept}] Running {lang} probes…")
+    concept_acts = get_layer_activations(model, tokenizer, PROBES[concept][lang], hook_layer, device)
+    concept_feats = encode_with_sae(sae, concept_acts)   # (N, d_sae)
+
+    log.info(f"[{concept}] Running {lang} general text baseline…")
+    general_acts = get_layer_activations(model, tokenizer, GENERAL_TEXT_BY_LANG[lang], hook_layer, device)
+    general_feats = encode_with_sae(sae, general_acts)
+
+    # Rank features: mean concept activation × specificity ratio
+    mean_concept = concept_feats.mean(dim=0)    # (d_sae,)
+    mean_general = general_feats.mean(dim=0)
+    specificity = mean_concept / (mean_general + 1e-8)
+    score = mean_concept * specificity
+
+    top_indices = score.argsort(descending=True)[:top_k].tolist()
+
+    candidates = [
+        {
+            "rank": rank + 1,
+            "feature_id": feat_id,
+            "mean_concept_activation": float(mean_concept[feat_id]),
+            "mean_general_activation": float(mean_general[feat_id]),
+            "specificity_ratio": float(specificity[feat_id]),
+            "score": float(score[feat_id]),
+        }
+        for rank, feat_id in enumerate(top_indices)
+    ]
+
+    candidates_path = concept_dir / f"{concept}_candidates.json"
+    with open(candidates_path, "w") as f:
+        json.dump(candidates, f, indent=2)
+    log.info(f"[{concept}] Saved {len(candidates)} candidates → {candidates_path}")
+    log.info(f"[{concept}] Top candidate: feature_id={candidates[0]['feature_id']}  "
+             f"specificity={candidates[0]['specificity_ratio']:.1f}x")
+
+    # ── Logit attribution ──────────────────────────────────────────────────────
+    log.info(f"[{concept}] Computing logit attribution…")
+    candidate_feature_ids = [item["feature_id"] for item in candidates]
+    logit_scores = compute_logit_attribution(sae, model, candidate_feature_ids)   # (len(candidates), vocab_size)
+
+    logit_attr_out: dict = {}
+    for row, item in enumerate(candidates):
+        feat_id = item["feature_id"]
+        feat_scores = logit_scores[row]
+        top_token_ids = feat_scores.argsort(descending=True)[:20].tolist()
+        logit_attr_out[feat_id] = [
+            (tokenizer.decode([tid]).strip(), float(feat_scores[tid]))
+            for tid in top_token_ids
+        ]
+
+    with open(concept_dir / "logit_attribution.json", "w", encoding="utf-8") as f:
+        json.dump(logit_attr_out, f, indent=2, ensure_ascii=False)
+    log.info(f"[{concept}] Saved logit attribution → {concept_dir / 'logit_attribution.json'}")
+
+    # ── Max-activating examples ────────────────────────────────────────────────
+    # Only for top-5 candidates (running all text through model is expensive)
+    log.info(f"[{concept}] Computing max-activating examples for top-5 candidates…")
+    all_texts = PROBES[concept][lang] + GENERAL_TEXT_BY_LANG[lang]
+    all_acts = get_layer_activations(model, tokenizer, all_texts, hook_layer, device)
+    all_feats = encode_with_sae(sae, all_acts)   # (N_tokens, d_sae)
+
+    top_examples_out: dict = {}
+    for item in candidates[:5]:
+        feat_id = item["feature_id"]
+        feat_column = all_feats[:, feat_id]
+        top_positions = feat_column.argsort(descending=True)[:20].tolist()
+        top_examples_out[feat_id] = [
+            {"token_idx": int(pos), "activation": float(feat_column[pos])}
+            for pos in top_positions
+        ]
+
+    with open(concept_dir / "top_feature_examples.json", "w") as f:
+        json.dump(top_examples_out, f, indent=2)
+    log.info(f"[{concept}] Saved max-activating examples → {concept_dir / 'top_feature_examples.json'}")
+
+    # ── Activation histogram ───────────────────────────────────────────────────
+    top_feat = candidates[0]["feature_id"]
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.hist(concept_feats[:, top_feat].numpy(), bins=50, alpha=0.7, label=f"{concept} text", color="tab:orange")
+    ax.hist(general_feats[:, top_feat].numpy(), bins=50, alpha=0.7, label="general text", color="tab:blue")
+    ax.set_xlabel("Feature activation")
+    ax.set_ylabel("Token count")
+    ax.set_title(f"Feature {top_feat} activation distribution (specificity={candidates[0]['specificity_ratio']:.1f}x)")
+    ax.legend()
+    plt.tight_layout()
+    hist_path = concept_dir / "feature_activation_histogram.png"
+    fig.savefig(hist_path, dpi=150)
+    plt.close()
+    log.info(f"[{concept}] Saved activation histogram → {hist_path}")
 
 
 def main() -> None:
@@ -604,102 +726,14 @@ def main() -> None:
     d_sae = sae.W_dec.shape[0]
     log.info(f"SAE loaded: d_sae={d_sae}")
 
-    # ── Concept probe (language-matched against the general baseline) ─────────
-    log.info(f"Running {args.lang} {args.concept} probes…")
-    concept_acts = get_layer_activations(
-        model, tokenizer, PROBES[args.concept][args.lang], args.hook_layer, args.device
-    )
-    concept_feats = encode_with_sae(sae, concept_acts)   # (N, d_sae)
-
-    log.info(f"Running {args.lang} general text baseline…")
-    general_acts = get_layer_activations(
-        model, tokenizer, GENERAL_TEXT_BY_LANG[args.lang], args.hook_layer, args.device
-    )
-    general_feats = encode_with_sae(sae, general_acts)
-
-    # Rank features: mean concept activation × specificity ratio
-    mean_concept = concept_feats.mean(dim=0)    # (d_sae,)
-    mean_general = general_feats.mean(dim=0)
-    specificity = mean_concept / (mean_general + 1e-8)
-    score = mean_concept * specificity
-
-    top_indices = score.argsort(descending=True)[: args.top_k].tolist()
-
-    candidates = [
-        {
-            "rank": rank + 1,
-            "feature_id": feat_id,
-            "mean_concept_activation": float(mean_concept[feat_id]),
-            "mean_general_activation": float(mean_general[feat_id]),
-            "specificity_ratio": float(specificity[feat_id]),
-            "score": float(score[feat_id]),
-        }
-        for rank, feat_id in enumerate(top_indices)
-    ]
-
-    candidates_path = out_dir / f"{args.concept}_candidates.json"
-    with open(candidates_path, "w") as f:
-        json.dump(candidates, f, indent=2)
-    log.info(f"Saved {len(candidates)} candidates → {candidates_path}")
-    log.info(f"Top candidate: feature_id={candidates[0]['feature_id']}  "
-             f"specificity={candidates[0]['specificity_ratio']:.1f}x")
-
-    # ── Logit attribution ──────────────────────────────────────────────────────
-    log.info("Computing logit attribution…")
-    candidate_feature_ids = [item["feature_id"] for item in candidates]
-    logit_scores = compute_logit_attribution(sae, model, candidate_feature_ids)   # (len(candidates), vocab_size)
-
-    logit_attr_out: dict = {}
-    for row, item in enumerate(candidates):
-        feat_id = item["feature_id"]
-        feat_scores = logit_scores[row]
-        top_token_ids = feat_scores.argsort(descending=True)[:20].tolist()
-        logit_attr_out[feat_id] = [
-            (tokenizer.decode([tid]).strip(), float(feat_scores[tid]))
-            for tid in top_token_ids
-        ]
-
-    with open(out_dir / "logit_attribution.json", "w", encoding="utf-8") as f:
-        json.dump(logit_attr_out, f, indent=2, ensure_ascii=False)
-    log.info(f"Saved logit attribution → {out_dir / 'logit_attribution.json'}")
-
-    # ── Max-activating examples ────────────────────────────────────────────────
-    # Only for top-5 candidates (running all text through model is expensive)
-    log.info("Computing max-activating examples for top-5 candidates…")
-    all_texts = PROBES[args.concept][args.lang] + GENERAL_TEXT_BY_LANG[args.lang]
-    all_acts = get_layer_activations(
-        model, tokenizer, all_texts, args.hook_layer, args.device
-    )
-    all_feats = encode_with_sae(sae, all_acts)   # (N_tokens, d_sae)
-
-    top_examples_out: dict = {}
-    for item in candidates[:5]:
-        feat_id = item["feature_id"]
-        feat_column = all_feats[:, feat_id]
-        top_positions = feat_column.argsort(descending=True)[:20].tolist()
-        top_examples_out[feat_id] = [
-            {"token_idx": int(pos), "activation": float(feat_column[pos])}
-            for pos in top_positions
-        ]
-
-    with open(out_dir / "top_feature_examples.json", "w") as f:
-        json.dump(top_examples_out, f, indent=2)
-    log.info(f"Saved max-activating examples → {out_dir / 'top_feature_examples.json'}")
-
-    # ── Activation histogram ───────────────────────────────────────────────────
-    top_feat = candidates[0]["feature_id"]
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.hist(concept_feats[:, top_feat].numpy(), bins=50, alpha=0.7, label=f"{args.concept} text", color="tab:orange")
-    ax.hist(general_feats[:, top_feat].numpy(), bins=50, alpha=0.7, label="general text", color="tab:blue")
-    ax.set_xlabel("Feature activation")
-    ax.set_ylabel("Token count")
-    ax.set_title(f"Feature {top_feat} activation distribution (specificity={candidates[0]['specificity_ratio']:.1f}x)")
-    ax.legend()
-    plt.tight_layout()
-    hist_path = out_dir / "feature_activation_histogram.png"
-    fig.savefig(hist_path, dpi=150)
-    plt.close()
-    log.info(f"Saved activation histogram → {hist_path}")
+    # ── Per-concept search, one already-loaded model+SAE shared across all ────
+    for concept in args.concept:
+        run_concept_search(
+            concept,
+            model=model, tokenizer=tokenizer, sae=sae,
+            lang=args.lang, hook_layer=args.hook_layer, top_k=args.top_k,
+            device=args.device, out_dir=out_dir,
+        )
 
     # ── Multilingual probes (Objective 2) ──────────────────────────────────────
     log.info("Running multilingual probes for all concepts and languages…")

@@ -1,0 +1,60 @@
+# Same architecture/hyperparameters as the proven v2 config (32x dict,
+# layer 28, 400M tokens, topk) -- only change is model_name, to test
+# section 24's finding: the v2 SAE was fit to the base model's residual-
+# stream geometry, and clamping its features in Qwen2.5-14B-Instruct's
+# (different) geometry at the same layer index produced no coherent
+# effect. This trains a fresh SAE directly on the instruct model's own
+# activations instead, so a feature found here should mean something in
+# the model we actually want the clean "I am X"-style chat response from.
+# Note: the training corpus is still plain FineWeb text, not chat-formatted
+# conversations -- isolates the model-checkpoint variable only, on purpose,
+# for direct comparison against v2's result on the same corpus.
+
+model_name: "Qwen/Qwen2.5-14B-Instruct"
+hook_name: "blocks.28.hook_resid_post"
+hook_layer: 28
+hook_head_index: null
+
+d_in: 5120
+expansion_factor: 32     # 163,840 features, same as v2
+b_dec_to_z: false
+normalize_activations: "none"
+
+architecture: "topk"
+k: 100
+
+dataset_path: "/scratch/y/yazid/hf_cache/fineweb_subset"
+is_dataset_tokenized: false
+context_size: 512
+prepend_bos: true
+store_batch_size_prompts: 8
+eval_batch_size_prompts: 4
+n_eval_batches: 10
+
+training_tokens: 400_000_000
+train_batch_size_tokens: 2048
+
+lr: 2.0e-4
+lr_scheduler_name: "cosineannealing"
+lr_warm_up_steps: 1000
+lr_decay_steps: 5000
+adam_beta1: 0.9
+adam_beta2: 0.999
+
+l1_coefficient: 0.0
+l1_warm_up_steps: 0
+
+log_to_wandb: true
+wandb_project: "qwen-sae-interp"
+wandb_entity: null
+wandb_log_frequency: 100
+eval_every_n_wandb_logs: 10
+
+n_checkpoints: 8
+checkpoint_path: "results/sae_checkpoints"
+save_final_checkpoint: true
+
+dtype: "bfloat16"
+device: "cuda"
+compile_llm: false
+seed: 42
