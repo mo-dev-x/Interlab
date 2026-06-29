@@ -107,7 +107,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lang", default="en")
     p.add_argument("--hook_layer", type=int, default=24)
     p.add_argument("--top_n", type=int, default=150, help="How many candidate features to catalog")
-    p.add_argument("--context", type=int, default=6, help="Tokens of context each side of the best example")
+    p.add_argument("--context", type=int, default=6, help="Tokens of context each side of each example")
+    p.add_argument("--top_examples", type=int, default=5, help="How many top-activating examples to decode per candidate")
     p.add_argument("--device", default="cuda")
     p.add_argument("--out_dir", default="results/feature_survey")
     return p.parse_args()
@@ -194,25 +195,32 @@ def main() -> None:
         ]
 
         column = feats_ranked[:, feat_id]
-        best_idx = int(kept_indices[int(column.argmax())])
-        text, label, local_pos, ids = token_index[best_idx]
-        lo = max(0, local_pos - args.context)
-        hi = min(len(ids), local_pos + args.context + 1)
-        before = tokenizer.decode(ids[lo:local_pos])
-        highlighted = tokenizer.decode([ids[local_pos]])
-        after = tokenizer.decode(ids[local_pos + 1 : hi])
-        context_str = f"{before}>>{highlighted}<<{after}".replace("\n", "\\n")
+        order = column.argsort(descending=True)
+        top_examples = []
+        for idx_in_ranked in order[: args.top_examples].tolist():
+            if column[idx_in_ranked] <= 0:
+                break
+            best_idx = int(kept_indices[idx_in_ranked])
+            text, label, local_pos, ids = token_index[best_idx]
+            lo = max(0, local_pos - args.context)
+            hi = min(len(ids), local_pos + args.context + 1)
+            before = tokenizer.decode(ids[lo:local_pos])
+            highlighted = tokenizer.decode([ids[local_pos]])
+            after = tokenizer.decode(ids[local_pos + 1 : hi])
+            context_str = f"{before}>>{highlighted}<<{after}".replace("\n", "\\n")
+            top_examples.append({
+                "activation": round(float(column[idx_in_ranked]), 4),
+                "source_bucket": label,
+                "context": context_str,
+                "source_text": text[:160],
+            })
 
         catalog.append({
             "feature_id": feat_id,
             "max_activation": round(float(max_act[feat_id]), 4),
             "nonzero_frac": round(float(nonzero_frac[feat_id]), 6),
             "logit_attribution_top10": logit_tokens,
-            "best_example": {
-                "source_bucket": label,
-                "context": context_str,
-                "source_text": text[:160],
-            },
+            "top_examples": top_examples,
         })
 
     out_path = out_dir / "feature_survey.json"
