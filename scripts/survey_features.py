@@ -142,8 +142,31 @@ def main() -> None:
     feats = encode_with_sae(sae, acts)   # (N_tokens, d_sae)
     print(f"Encoded {feats.shape[0]} tokens through the SAE")
 
-    max_act, _ = feats.max(dim=0)                      # peak activation per feature
-    nonzero_frac = (feats > 0).float().mean(dim=0)      # how often it fires at all
+    # A small number of token positions can have anomalously large
+    # residual-stream norm for reasons unrelated to their meaning (a known
+    # transformer phenomenon, sometimes called an "attention sink" /
+    # outlier-norm token). At those positions, huge numbers of unrelated SAE
+    # feature directions all get a large dot-product simply because the
+    # vector itself is large there -- not because they encode anything
+    # specific to that token. Left unfiltered, this drowns out genuine
+    # monosemantic candidates with dozens of copies of "whichever 1-2 tokens
+    # happen to have the biggest norm in the corpus." Exclude any token
+    # position whose norm is a strong outlier relative to the corpus median
+    # before computing peak activation / sparsity, so ranking reflects real
+    # per-feature selectivity instead of a handful of freak positions.
+    norms = acts.norm(dim=-1)
+    median_norm = norms.median()
+    outlier_mask = norms > (median_norm * 4)
+    n_outliers = int(outlier_mask.sum())
+    if n_outliers:
+        print(f"Excluding {n_outliers} outlier-norm token position(s) "
+              f"(norm > 4x median={median_norm:.1f}) from ranking")
+    keep_mask = ~outlier_mask
+    kept_indices = keep_mask.nonzero(as_tuple=True)[0]
+    feats_ranked = feats[keep_mask]
+
+    max_act, _ = feats_ranked.max(dim=0)             # peak activation per feature, outliers excluded
+    nonzero_frac = (feats_ranked > 0).float().mean(dim=0)  # how often it fires, outliers excluded
 
     # "Interesting" = fires strongly (high peak) but sparsely (low
     # nonzero_frac) -- dead features (never fire) and always-on features
@@ -170,8 +193,8 @@ def main() -> None:
             (tokenizer.decode([tid]).strip(), round(float(feat_scores[tid]), 4)) for tid in top_token_ids
         ]
 
-        column = feats[:, feat_id]
-        best_idx = int(column.argmax())
+        column = feats_ranked[:, feat_id]
+        best_idx = int(kept_indices[int(column.argmax())])
         text, label, local_pos, ids = token_index[best_idx]
         lo = max(0, local_pos - args.context)
         hi = min(len(ids), local_pos + args.context + 1)
