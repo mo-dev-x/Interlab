@@ -211,7 +211,9 @@ def generate_text(
         handle.remove()
 
     new_tokens = out[0][enc["input_ids"].shape[1]:]
-    return tokenizer.decode(new_tokens, skip_special_tokens=True)
+    # strip U+FFFD replacement chars that tokenizer.decode() produces at
+    # token-boundary multibyte splits -- they corrupt downstream judge prompts
+    return tokenizer.decode(new_tokens, skip_special_tokens=True).replace("�", "")
 
 
 # ── Step 4: Steering ───────────────────────────────────────────────────────────
