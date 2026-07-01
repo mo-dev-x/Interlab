@@ -10,19 +10,21 @@
 #SBATCH --gpus-per-node=h100:4
 #SBATCH --account=aip-chgag196
 
-# Usage: sbatch slurm/steering_sweep_instruct.sh <feature_id> <output_name> [random_feature_id]
+# Usage: sbatch slurm/steering_sweep_instruct.sh <feature_id> <output_name> [random_feature_id] [scales]
+# Example: sbatch slurm/steering_sweep_instruct.sh 9056 cheese_curds_mid 1 "45 50 55"
 FEATURE_ID="$1"
 OUTPUT_NAME="$2"
 RANDOM_FEATURE_ID="${3:-1}"
+SCALES="${4:-40 60 80 100 120 150}"
 if [ -z "$FEATURE_ID" ] || [ -z "$OUTPUT_NAME" ]; then
-    echo "Usage: sbatch steering_sweep_instruct.sh <feature_id> <output_name> [random_feature_id]" >&2
+    echo "Usage: sbatch steering_sweep_instruct.sh <feature_id> <output_name> [random_feature_id] [scales]" >&2
     exit 1
 fi
 
 echo "Job started: $(date)"
 echo "Node: $(hostname)"
 echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
-echo "Feature: $FEATURE_ID  Output: $OUTPUT_NAME  Random control: $RANDOM_FEATURE_ID"
+echo "Feature: $FEATURE_ID  Output: $OUTPUT_NAME  Random control: $RANDOM_FEATURE_ID  Scales: $SCALES"
 
 module purge
 module load python/3.11 arrow
@@ -58,7 +60,7 @@ python scripts/steering_experiment.py \
     --random_feature_id "$RANDOM_FEATURE_ID" \
     --hook_layer 28 \
     --mode steer \
-    --scales 40 60 80 100 120 150 \
+    --scales $SCALES \
     --temperature 0.7 \
     --repetition_penalty 1.3 \
     --max_new_tokens 200 \
