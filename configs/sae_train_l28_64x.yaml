@@ -1,0 +1,54 @@
+# Dictionary size comparison: 64x (327,680 features) vs baseline 32x (rwu04lpb).
+# All hyperparameters identical to sae_train_instruct.yaml -- only
+# expansion_factor changed. Batch size halved as a precaution for the
+# larger SAE parameter count (~6.7GB for SAE weights alone in bfloat16);
+# 4x H100-80GB nodes have headroom but margin is tighter at 64x.
+
+model_name: "Qwen/Qwen2.5-14B-Instruct"
+hook_name: "blocks.28.hook_resid_post"
+hook_layer: 28
+hook_head_index: null
+
+d_in: 5120
+expansion_factor: 64     # 327,680 features
+b_dec_to_z: false
+normalize_activations: "none"
+
+architecture: "topk"
+k: 100
+
+dataset_path: "/scratch/y/yazid/hf_cache/fineweb_subset"
+is_dataset_tokenized: false
+context_size: 512
+prepend_bos: true
+store_batch_size_prompts: 8
+eval_batch_size_prompts: 4
+n_eval_batches: 10
+
+training_tokens: 400_000_000
+train_batch_size_tokens: 1024   # halved vs 32x as precaution for larger SAE
+
+lr: 2.0e-4
+lr_scheduler_name: "cosineannealing"
+lr_warm_up_steps: 1000
+lr_decay_steps: 5000
+adam_beta1: 0.9
+adam_beta2: 0.999
+
+l1_coefficient: 0.0
+l1_warm_up_steps: 0
+
+log_to_wandb: true
+wandb_project: "qwen-sae-interp"
+wandb_entity: null
+wandb_log_frequency: 100
+eval_every_n_wandb_logs: 10
+
+n_checkpoints: 8
+checkpoint_path: "results/sae_checkpoints"
+save_final_checkpoint: true
+
+dtype: "bfloat16"
+device: "cuda"
+compile_llm: false
+seed: 42

@@ -36,7 +36,11 @@ export WANDB_MODE=offline
 
 mkdir -p slurm/logs results/sae_checkpoints
 
+# Usage: sbatch slurm/train_sae_instruct.sh [config]
+# Defaults to configs/sae_train_instruct.yaml (layer 28, 32x) if no arg given.
 # v2 and v3 both finished within ~14h on a 24h budget -- 20h keeps a
 # comfortable ~6h safety margin without requesting the full 24h (shorter
 # time requests can also schedule sooner under backfill).
-exec python scripts/train_sae.py --config configs/sae_train_instruct.yaml
+CONFIG="${1:-configs/sae_train_instruct.yaml}"
+echo "Config: $CONFIG"
+exec python scripts/train_sae.py --config "$CONFIG"
