@@ -10,19 +10,20 @@
 #SBATCH --gpus-per-node=h100:4
 #SBATCH --account=aip-chgag196
 
-# Usage: sbatch slurm/survey_features_instruct.sh <sae_checkpoint_path> [hook_layer] [out_dir]
+# Usage: sbatch slurm/survey_features_instruct.sh <sae_checkpoint_path> [hook_layer] [out_dir] [top_n]
 SAE_PATH="$1"
 HOOK_LAYER="${2:-28}"
 OUT_DIR="${3:-results/feature_survey_instruct}"
+TOP_N="${4:-150}"
 if [ -z "$SAE_PATH" ]; then
-    echo "Usage: sbatch survey_features_instruct.sh <sae_checkpoint_path> [hook_layer] [out_dir]" >&2
+    echo "Usage: sbatch survey_features_instruct.sh <sae_checkpoint_path> [hook_layer] [out_dir] [top_n]" >&2
     exit 1
 fi
 
 echo "Job started: $(date)"
 echo "Node: $(hostname)"
 echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
-echo "SAE checkpoint: $SAE_PATH  Hook layer: $HOOK_LAYER  Out dir: $OUT_DIR"
+echo "SAE checkpoint: $SAE_PATH  Hook layer: $HOOK_LAYER  Out dir: $OUT_DIR  Top N: $TOP_N"
 
 module purge
 module load python/3.11 arrow
@@ -46,7 +47,7 @@ python scripts/survey_features.py \
     --sae_path "$SAE_PATH" \
     --model_name Qwen/Qwen2.5-14B-Instruct \
     --hook_layer "$HOOK_LAYER" \
-    --top_n 150 \
+    --top_n "$TOP_N" \
     --out_dir "$OUT_DIR"
 
 echo "Job finished: $(date)"
