@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/configs/census_v1.schema.json",
+  "title": "census job config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "recipe", "docs_location", "tokenizer_location", "tokenizer_revision", "matcher", "case_folding", "boundary"],
+  "properties": {
+    "name": { "type": "string" },
+    "recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataset", "revision", "split", "subset_spec", "filters"],
+      "properties": {
+        "dataset": { "type": "string" },
+        "revision": { "type": "string" },
+        "split": { "type": "string" },
+        "subset_spec": { "type": ["string", "object", "null"] },
+        "filters": { "type": "object" }
+      }
+    },
+    "docs_location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+    "tokenizer_location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+    "tokenizer_revision": { "type": "string" },
+    "concepts_location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+    "matcher": { "enum": ["regex", "tokenizer"] },
+    "case_folding": { "type": "boolean" },
+    "boundary": { "enum": ["word", "substring"] },
+    "dedup_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+  }
+}

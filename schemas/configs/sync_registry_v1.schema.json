@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/configs/sync_registry_v1.schema.json",
+  "title": "sync_registry job config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["outbox_dir"],
+  "properties": {
+    "outbox_dir": {
+      "description": "Local filesystem path standing in for the cluster's $SCRATCH/interplab/outbox/ (§3.3). How bytes arrive at this path (rsync/scp/mount) is out of scope for this job.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

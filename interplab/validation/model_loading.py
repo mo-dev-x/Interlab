@@ -1,0 +1,57 @@
+"""Loads a local HF-format model directory into a
+`transformer_lens.HookedTransformer`, for `local:` URIs (§3.2).
+
+Duplicated from `interplab.characterization.model_loading` rather than
+imported: §1 restricts `validation -> characterization` to the SEARCH API
+ONLY (the frozen `FeatureIndex` interface) -- `model_loading` is
+characterization's internal implementation, not part of that interface.
+Ground Rule 2 (no subsystem imports another subsystem's internals) forbids
+reaching it directly; this follows the same duplicate-rather-than-import
+precedent WP4 established for `characterization.model_loading` itself
+(duplicated from `certification.model_loading`).
+
+`HookedTransformer.from_pretrained()`'s public entry point requires an
+"official" registered model name and rejects local paths; this uses the
+lower-level config + weight-conversion path instead. Architecture support
+is a small, explicit mapping (SS13: nothing may assume Qwen-only, so this
+dispatches on the HF config's own `architectures[0]` rather than hardcoding
+Qwen2 unconditionally) -- currently only `Qwen2ForCausalLM` has a mapped
+converter, since that's the only architecture available to test against
+here; add an entry to `_CONVERTERS` for others as needed.
+"""
+
+from __future__ import annotations
+
+import torch
+from transformer_lens import HookedTransformer
+from transformer_lens.loading_from_pretrained import get_pretrained_model_config
+from transformer_lens.pretrained.weight_conversions import convert_qwen2_weights
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+
+_CONVERTERS = {
+    "Qwen2ForCausalLM": convert_qwen2_weights,
+}
+
+
+def load_local_hooked_transformer(
+    model_dir: str, *, device: str = "cpu", dtype: torch.dtype = torch.float32
+) -> HookedTransformer:
+    hf_config = AutoConfig.from_pretrained(model_dir)
+    architecture = hf_config.architectures[0]
+    if architecture not in _CONVERTERS:
+        raise NotImplementedError(
+            f"no transformer_lens weight-conversion mapping for architecture {architecture!r}; "
+            f"known: {sorted(_CONVERTERS)}"
+        )
+
+    hf_model = AutoModelForCausalLM.from_pretrained(model_dir)
+    tokenizer = AutoTokenizer.from_pretrained(model_dir)
+    cfg = get_pretrained_model_config(model_dir, fold_ln=False, device=device, dtype=dtype)
+    state_dict = _CONVERTERS[architecture](hf_model, cfg)
+
+    model = HookedTransformer(cfg, tokenizer=tokenizer)
+    model.load_and_process_state_dict(
+        state_dict, fold_ln=False, center_writing_weights=False, center_unembed=False
+    )
+    model.eval()
+    return model

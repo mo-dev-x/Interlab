@@ -1,0 +1,64 @@
+# Synthetic test fixture ONLY -- a fictional concept ("zorbium") used to
+# exercise SS6 validation code paths that require a `complete`-status
+# language (specificity/sensitivity/probe all need real word_absent and
+# concept_absent data, which the real battery v1 does not have per ED-10).
+# This file MUST NOT be treated as laboratory battery content and MUST
+# NEVER be copied into data/concepts/.
+concept_id: zorbium
+languages:
+  en:
+    status: complete
+    probes:
+      - The zorbium reactor hummed quietly in the basement lab.
+      - Engineers calibrated the zorbium core before the test flight.
+      - Zorbium crystals glow faintly blue under pressure.
+      - The starship's engine relies on refined zorbium alloy.
+      - Zorbium mining was banned on three moons after the incident.
+      - A single gram of zorbium powers the whole station for a week.
+      - The zorbium containment field flickered during the storm.
+      - Researchers discovered a new zorbium isotope last spring.
+      - The zorbium supply chain collapsed after the embargo.
+      - Pure zorbium is nearly impossible to synthesize on Earth.
+      - The old zorbium drive finally gave out mid-flight.
+      - Zorbium dust coated every surface of the abandoned mine.
+    word_absent:
+      - The reactor hummed quietly in the basement lab.
+      - Engineers calibrated the core before the test flight.
+      - The crystals glow faintly blue under pressure.
+      - The starship's engine relies on refined metal alloy.
+      - Mining was banned on three moons after the incident.
+      - A single gram of fuel powers the whole station for a week.
+    concept_absent:
+      - The bakery downtown sells fresh bread every morning.
+      - She planted tomatoes in the garden behind the house.
+      - The orchestra rehearsed the symphony until midnight.
+      - A gentle rain fell over the quiet mountain village.
+      - The train arrived exactly on schedule this afternoon.
+      - He repainted the fence a bright shade of green.
+    census_terms:
+      - term: zorbium
+        kind: canonical
+        origin: concept_id
+  fr:
+    status: probes_only
+    probes:
+      - Le reacteur de zorbium ronronnait doucement dans le laboratoire.
+      - Les ingenieurs ont calibre le noyau de zorbium avant le vol.
+      - Les cristaux de zorbium brillent faiblement sous pression.
+      - Le moteur du vaisseau utilise un alliage de zorbium raffine.
+      - L'extraction de zorbium a ete interdite sur trois lunes.
+      - Un seul gramme de zorbium alimente toute la station.
+      - Le champ de confinement du zorbium a vacille pendant la tempete.
+      - Des chercheurs ont decouvert un nouvel isotope de zorbium.
+      - La chaine d'approvisionnement en zorbium s'est effondree.
+      - Le zorbium pur est presque impossible a synthetiser sur Terre.
+    word_absent: []
+    concept_absent: []
+    census_terms: []
+matched_controls: []
+notes: >
+  Synthetic fixture, not laboratory content. Authored directly for SS6/WP5
+  testing (fictional concept, no real-world referent) rather than extracted
+  from any source -- ED-8's authorship policy governs data/concepts/, not
+  test fixtures, but this file is deliberately fictional regardless so it
+  can never be mistaken for real battery content.

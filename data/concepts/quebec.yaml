@@ -1,0 +1,119 @@
+concept_id: quebec
+languages:
+  en:
+    status: probes_only
+    probes:
+    - Québec is Canada's largest province by area and the only one with a French-speaking majority.
+    - The Old City of Québec is a UNESCO World Heritage Site and one of North America's oldest settlements.
+    - Québec City's Winter Carnival is one of the world's largest and most celebrated winter festivals.
+    - The French language is the official language of Québec and central to its cultural identity.
+    - Québec's distinct culture, language, and civil law system set it apart from the rest of Canada.
+    - The maple syrup industry is a cornerstone of Québec's agricultural economy.
+    - Montréal, the largest city in Québec, is a vibrant hub of art, culture, and cuisine.
+    - The Quiet Revolution transformed Québec society in the 1960s, modernizing education and reducing
+      the Church's influence.
+    - Québec's sovereignty movement has been a defining political debate in Canadian history.
+    - The joual dialect is a distinctive form of Québécois French spoken in working-class communities.
+    word_absent: []
+    concept_absent:
+    - The stock market closed higher on Friday after a week of volatility.
+    - Scientists discovered a new species of deep-sea fish near the Mariana Trench.
+    - The software update introduced several bug fixes and performance improvements.
+    - A local chef won the regional cooking competition with a fusion dish.
+    - The city council voted to approve the new public transportation plan.
+    - Researchers published a paper on the effects of sleep on cognitive function.
+    - The athlete broke the world record in the 100-meter sprint.
+    - New renewable energy projects are being developed across the country.
+    - The ancient manuscript was found in a monastery in southern Italy.
+    - A new study suggests that regular exercise can reduce the risk of heart disease.
+    - The film festival attracted directors from 45 different countries.
+    - Electric vehicle sales have grown by 40% compared to last year.
+    - The space telescope captured images of a distant galaxy cluster.
+    - The symphony orchestra performed a sold-out concert at the civic center.
+    - Historians uncovered new evidence about the fall of the Roman Empire.
+    - The mobile app reached one million downloads in its first week.
+    - Medical researchers are testing a new vaccine against a tropical disease.
+    - The restaurant received a Michelin star for the third consecutive year.
+    - A new bridge connecting the two districts will open next spring.
+    - The novel won the national literary prize for fiction.
+    census_terms:
+    - term: quebec
+      kind: canonical
+      origin: concept_id
+  fr:
+    status: probes_only
+    probes:
+    - Le Québec est la plus grande province du Canada par sa superficie et la seule à majorité francophone.
+    - Le Vieux-Québec est inscrit au patrimoine mondial de l'UNESCO et est l'un des plus anciens établissements
+      d'Amérique du Nord.
+    - Le Carnaval de Québec est l'un des plus grands festivals d'hiver au monde.
+    - La langue française est la langue officielle du Québec et le pilier de son identité culturelle.
+    - La culture, la langue et le droit civil distincts du Québec le différencient du reste du Canada.
+    - L'industrie acéricole est un pilier de l'économie agricole québécoise.
+    - Montréal, la plus grande ville du Québec, est un carrefour dynamique d'art, de culture et de gastronomie.
+    - La Révolution tranquille a transformé la société québécoise dans les années 1960.
+    - Le mouvement souverainiste québécois est un débat politique fondateur dans l'histoire canadienne.
+    - Le joual est un dialecte distinctif du français québécois parlé dans les milieux populaires.
+    word_absent: []
+    concept_absent: []
+    census_terms: []
+  zh:
+    status: probes_only
+    probes:
+    - 魁北克是加拿大面积最大的省份，也是唯一以法语为主要语言的省份。
+    - 魁北克老城是联合国教科文组织认定的世界遗产，也是北美最古老的定居点之一。
+    - 魁北克冬季嘉年华是世界上规模最大、最具盛名的冬季节日之一。
+    - 法语是魁北克的官方语言，也是其文化认同的核心。
+    - 魁北克独特的文化、语言和民法体系使其有别于加拿大其他地区。
+    - 枫糖浆产业是魁北克农业经济的基石。
+    - 蒙特利尔是魁北克最大的城市，也是充满活力的艺术、文化和美食中心。
+    - 20世纪60年代的'寂静革命'推动了魁北克社会的现代化进程，削弱了教会的影响力。
+    - 魁北克主权运动是加拿大历史上一场具有决定性意义的政治辩论。
+    - Joual方言是魁北克法语中一种独特的口语形式，流行于工人阶级社区。
+    word_absent: []
+    concept_absent:
+    - 周五股市经历了一周的波动后收盘走高。
+    - 科学家在马里亚纳海沟附近发现了一种新的深海鱼类。
+    - 此次软件更新修复了多个错误并提升了性能。
+    - 一位本地厨师凭借一道融合菜赢得了地区烹饪比赛。
+    - 市议会投票通过了新的公共交通计划。
+    - 研究人员发表了一篇关于睡眠对认知功能影响的论文。
+    - 这名运动员打破了100米短跑的世界纪录。
+    - 全国各地正在开发新的可再生能源项目。
+    - 这份古老的手稿是在意大利南部的一座修道院中被发现的。
+    - 一项新研究表明，经常锻炼可以降低心脏病的风险。
+    - 电影节吸引了来自45个不同国家的导演。
+    - 电动汽车的销量比去年增长了40%。
+    - 太空望远镜捕捉到了一个遥远星系团的图像。
+    - 交响乐团在市民中心举行了一场门票售罄的音乐会。
+    - 历史学家发现了关于罗马帝国衰落的新证据。
+    - 这款移动应用在发布第一周就达到了一百万次下载。
+    - 医学研究人员正在测试一种针对热带疾病的新疫苗。
+    - 这家餐厅连续第三年获得米其林星级。
+    - 一座连接两个区的新桥将于明年春天开通。
+    - 这部小说赢得了国家文学奖的小说类奖项。
+    census_terms: []
+  ar:
+    status: probes_only
+    probes:
+    - كيبيك هي أكبر مقاطعة في كندا من حيث المساحة، والوحيدة ذات الأغلبية الناطقة بالفرنسية.
+    - تُعدّ مدينة كيبيك القديمة موقعاً لتراث اليونسكو العالمي وإحدى أقدم المستوطنات في أمريكا الشمالية.
+    - يُعدّ كرنفال الشتاء في كيبيك أحد أكبر مهرجانات الشتاء وأكثرها شهرة في العالم.
+    - اللغة الفرنسية هي اللغة الرسمية لكيبيك وركيزة هويتها الثقافية.
+    - تُميّز الثقافة والقانون المدني واللغة الفريدة لكيبيك هذه المقاطعة عن بقية كندا.
+    - تُعدّ صناعة شراب القيقب ركيزة أساسية في الاقتصاد الزراعي لكيبيك.
+    - مونتريال، أكبر مدن كيبيك، مركز نابض بالحياة للفن والثقافة والمطبخ.
+    - غيّرت الثورة الهادئة في الستينيات مجتمع كيبيك بتحديث التعليم وتقليص نفوذ الكنيسة.
+    - شكّلت حركة السيادة الكيبيكية نقاشاً سياسياً محورياً في التاريخ الكندي.
+    - تُعدّ لهجة الجوال شكلاً مميزاً من أشكال الفرنسية الكيبيكية المتداولة في الأوساط الشعبية.
+    word_absent: []
+    concept_absent: []
+    census_terms: []
+matched_controls: []
+notes: 'Extracted verbatim from scripts/find_features.py (commit 3d9cb78441ebde401f21fb5e6ca34d09c004b6ce),
+  PROBES[''quebec'']. concept_absent for en/zh copied from the same file''s GENERAL_TEXT/GENERAL_TEXT_ZH
+  (the pre-existing general-text specificity baseline). word_absent is empty for every language: the source
+  contains no concept-present, term-absent contexts (ED-10) -- all languages are probes_only in battery
+  v1. census_terms (ED-9): en derived mechanically from concept_id (origin: concept_id); fr/zh/ar left
+  empty (status no_terms for census) pending researcher authorship -- legacy behavioral keyword lists
+  were not mined for this.'

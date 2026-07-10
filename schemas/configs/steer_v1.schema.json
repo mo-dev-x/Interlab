@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/configs/steer_v1.schema.json",
+  "title": "steer job config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["checkpoint_hash", "characterization_manifest_hash", "feature_index", "prompts", "scales_in_max_units", "sampling", "generations_dir"],
+  "properties": {
+    "checkpoint_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "characterization_manifest_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "feature_index": { "type": "integer", "minimum": 0 },
+    "feature_certificate_hash": {
+      "description": "Claim mode iff present (§6.1: steer reads A8(claim-mode)) -- triggers the two hooked control arms (random_direction, random_feature) plus the prompt_baseline arm and A9's claim-mode invariant.",
+      "type": "string", "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "prompts": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "prompt_baseline_prompts": {
+      "description": "ED-22: researcher-authored scientific content for the prompt_baseline control arm, index-aligned one-to-one with prompts. NEVER mechanically derived from prompts. Generated with no intervention hook. Required in claim mode (feature_certificate_hash present); optional in explore mode -- enforced as a business rule in interplab.jobs.steer, not here, since it depends on feature_certificate_hash.",
+      "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }
+    },
+    "scales_in_max_units": { "type": "array", "minItems": 1, "items": { "type": "number" } },
+    "positions": { "enum": ["all", "generated_only"], "default": "all" },
+    "direction_seed": { "type": "integer", "default": 0 },
+    "matched_frequency_rng_seed": { "type": "integer", "default": 0 },
+    "matched_frequency_band": { "type": "number", "exclusiveMinimum": 1, "default": 3.0 },
+    "blinding_rng_seed": { "type": "integer", "default": 0 },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["temperature", "top_p", "max_new_tokens", "seed"],
+      "properties": {
+        "temperature": { "type": "number", "minimum": 0 },
+        "top_p": { "type": "number", "minimum": 0, "maximum": 1 },
+        "max_new_tokens": { "type": "integer", "minimum": 1 },
+        "seed": { "type": "integer" }
+      }
+    },
+    "generations_dir": { "type": "string" }
+  }
+}

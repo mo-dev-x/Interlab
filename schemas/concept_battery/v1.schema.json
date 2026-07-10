@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/concept_battery/v1.schema.json",
+  "title": "concept_battery source file v1 (A2) -- per-concept YAML under data/concepts/",
+  "description": "Not an envelope artifact: A2's identity is a content hash of the data/concepts/ file set (§2.2, §3.4). This schema validates one per-concept source file. ED-8: per-language status distinguishes 'complete' (probes + researcher-authored negative controls, usable for sensitivity) from 'probes_only' (probes exist but matching negatives do not yet -- descriptive use only, never dropped). ED-9: census_terms are researcher-authored scientific content (same authorship policy as ED-8), with one mechanical carve-out -- English terms may be derived from concept_id (origin: 'concept_id'). census_terms presence is orthogonal to status. ED-10: two negative instruments, never conflated -- word_absent (concept-present, term-absent; the sensitivity instrument that governs status) and concept_absent (unrelated baseline text; the specificity-denominator instrument, orthogonal to status like census_terms). GENERAL_TEXT-style baselines belong in concept_absent, never word_absent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["concept_id", "languages", "matched_controls", "notes"],
+  "properties": {
+    "concept_id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "languages": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "patternProperties": {
+        "^(en|fr|zh|ar)$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "probes", "word_absent", "concept_absent", "census_terms"],
+          "properties": {
+            "status": { "enum": ["complete", "probes_only"] },
+            "probes": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 10
+            },
+            "word_absent": {
+              "type": "array",
+              "description": "ED-10: concept-PRESENT, term-absent contexts only (the sensitivity instrument). MUST NOT contain unrelated baseline text -- that belongs in concept_absent.",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "concept_absent": {
+              "type": "array",
+              "description": "ED-10: unrelated baseline text (the specificity-denominator instrument). Orthogonal to status, like census_terms.",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "census_terms": {
+              "type": "array",
+              "description": "ED-9: researcher-authored (except English, which MAY be mechanically derived from concept_id, origin: 'concept_id'). Empty is valid -- a language with probes but no census_terms yet is measured as census status 'no_terms', not dropped.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["term", "kind", "origin"],
+                "properties": {
+                  "term": { "type": "string", "minLength": 1 },
+                  "kind": { "enum": ["canonical", "variant", "inflection", "transliteration"] },
+                  "origin": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "status": { "const": "complete" } } },
+              "then": { "properties": { "word_absent": { "minItems": 5 } } }
+            }
+          ]
+        }
+      }
+    },
+    "matched_controls": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" }
+    },
+    "notes": { "type": "string" }
+  }
+}

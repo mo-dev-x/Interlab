@@ -1,0 +1,119 @@
+concept_id: couscous
+languages:
+  en:
+    status: probes_only
+    probes:
+    - Couscous is a staple food made from semolina wheat, widely eaten across North Africa.
+    - A traditional Moroccan couscous is served with slow-cooked lamb, chickpeas, and vegetables.
+    - Every Friday in Morocco, families gather for a large couscous meal after prayers.
+    - Couscous was recognized as Intangible Cultural Heritage by UNESCO in 2020.
+    - The fluffy texture of properly steamed couscous requires multiple passes in a couscoussier.
+    - Harissa and preserved lemon are classic accompaniments to Moroccan couscous.
+    - The seven-vegetable couscous is a beloved dish across the Maghreb region.
+    - Moroccan street vendors serve couscous topped with caramelized onions and sweet raisins.
+    - Couscous has spread across the world and is now a popular dish in France and beyond.
+    - A proper couscous recipe requires hand-rolling the semolina and steaming it slowly over a rich stew.
+    word_absent: []
+    concept_absent:
+    - The stock market closed higher on Friday after a week of volatility.
+    - Scientists discovered a new species of deep-sea fish near the Mariana Trench.
+    - The software update introduced several bug fixes and performance improvements.
+    - A local chef won the regional cooking competition with a fusion dish.
+    - The city council voted to approve the new public transportation plan.
+    - Researchers published a paper on the effects of sleep on cognitive function.
+    - The athlete broke the world record in the 100-meter sprint.
+    - New renewable energy projects are being developed across the country.
+    - The ancient manuscript was found in a monastery in southern Italy.
+    - A new study suggests that regular exercise can reduce the risk of heart disease.
+    - The film festival attracted directors from 45 different countries.
+    - Electric vehicle sales have grown by 40% compared to last year.
+    - The space telescope captured images of a distant galaxy cluster.
+    - The symphony orchestra performed a sold-out concert at the civic center.
+    - Historians uncovered new evidence about the fall of the Roman Empire.
+    - The mobile app reached one million downloads in its first week.
+    - Medical researchers are testing a new vaccine against a tropical disease.
+    - The restaurant received a Michelin star for the third consecutive year.
+    - A new bridge connecting the two districts will open next spring.
+    - The novel won the national literary prize for fiction.
+    census_terms:
+    - term: couscous
+      kind: canonical
+      origin: concept_id
+  fr:
+    status: probes_only
+    probes:
+    - Le couscous est un aliment de base fait de semoule de blé, largement consommé en Afrique du Nord.
+    - Un couscous marocain traditionnel est servi avec de l'agneau mijoté, des pois chiches et des légumes.
+    - Chaque vendredi au Maroc, les familles se réunissent autour d'un grand plat de couscous après la
+      prière.
+    - Le couscous a été reconnu patrimoine culturel immatériel par l'UNESCO en 2020.
+    - La légèreté du couscous bien cuit vient de plusieurs passages à la vapeur dans un couscoussier.
+    - La harissa et le citron confit accompagnent traditionnellement le couscous marocain.
+    - Le couscous aux sept légumes est un plat emblématique de tout le Maghreb.
+    - Les vendeurs de rue marocains servent du couscous aux oignons caramélisés et aux raisins secs.
+    - Le couscous s'est répandu dans le monde entier et est devenu très populaire en France.
+    - Une bonne recette de couscous exige de rouler la semoule à la main et de la cuire à la vapeur sur
+      un ragoût.
+    word_absent: []
+    concept_absent: []
+    census_terms: []
+  zh:
+    status: probes_only
+    probes:
+    - 库斯库斯是一种由粗粒小麦粉制成的主食，在北非广泛食用。
+    - 传统摩洛哥库斯库斯搭配慢炖羊肉、鹰嘴豆和蔬菜一起食用。
+    - 在摩洛哥，每逢周五礼拜后，家人们聚在一起享用丰盛的库斯库斯大餐。
+    - 2020年，库斯库斯被联合国教科文组织列为非物质文化遗产。
+    - 蒸制正宗库斯库斯需要在蒸锅中多次蒸制，才能达到松软的口感。
+    - 哈里萨辣酱和腌制柠檬是摩洛哥库斯库斯经典的配料。
+    - 七蔬库斯库斯是马格里布地区深受喜爱的传统菜肴。
+    - 摩洛哥街头小贩供应配有焦糖洋葱和甜葡萄干的库斯库斯。
+    - 库斯库斯已传播至全球，在法国等地颇为流行。
+    - 制作正宗库斯库斯需要手工揉搓粗麦粉，并在炖菜上方慢慢蒸熟。
+    word_absent: []
+    concept_absent:
+    - 周五股市经历了一周的波动后收盘走高。
+    - 科学家在马里亚纳海沟附近发现了一种新的深海鱼类。
+    - 此次软件更新修复了多个错误并提升了性能。
+    - 一位本地厨师凭借一道融合菜赢得了地区烹饪比赛。
+    - 市议会投票通过了新的公共交通计划。
+    - 研究人员发表了一篇关于睡眠对认知功能影响的论文。
+    - 这名运动员打破了100米短跑的世界纪录。
+    - 全国各地正在开发新的可再生能源项目。
+    - 这份古老的手稿是在意大利南部的一座修道院中被发现的。
+    - 一项新研究表明，经常锻炼可以降低心脏病的风险。
+    - 电影节吸引了来自45个不同国家的导演。
+    - 电动汽车的销量比去年增长了40%。
+    - 太空望远镜捕捉到了一个遥远星系团的图像。
+    - 交响乐团在市民中心举行了一场门票售罄的音乐会。
+    - 历史学家发现了关于罗马帝国衰落的新证据。
+    - 这款移动应用在发布第一周就达到了一百万次下载。
+    - 医学研究人员正在测试一种针对热带疾病的新疫苗。
+    - 这家餐厅连续第三年获得米其林星级。
+    - 一座连接两个区的新桥将于明年春天开通。
+    - 这部小说赢得了国家文学奖的小说类奖项。
+    census_terms: []
+  ar:
+    status: probes_only
+    probes:
+    - الكسكس طعام أساسي مصنوع من سميد القمح، يُستهلك على نطاق واسع في شمال أفريقيا.
+    - يُقدَّم الكسكس المغربي التقليدي مع لحم الضأن المطهو ببطء والحمص والخضروات.
+    - في كل يوم جمعة بالمغرب، تجتمع العائلات على طبق كسكس كبير بعد صلاة الجمعة.
+    - اعترفت اليونسكو بالكسكس تراثاً ثقافياً غير مادي عام 2020.
+    - يستلزم الكسكس المطهو جيداً تكرار الطهو على البخار في إناء خاص للحصول على قوامه الهش.
+    - تُعدّ الهريسة والليمون المخلل من المرافقات التقليدية للكسكس المغربي.
+    - كسكس السبعة خضروات من أشهر الأطباق في منطقة المغرب العربي.
+    - يقدم باعة الشوارع المغاربة الكسكس مع البصل المكرمل والزبيب الحلو.
+    - انتشر الكسكس في أرجاء العالم وأصبح طبقاً شعبياً في فرنسا وخارجها.
+    - تتطلب وصفة الكسكس الأصيلة عجن السميد باليد وطهيه ببطء على البخار فوق يخنة غنية.
+    word_absent: []
+    concept_absent: []
+    census_terms: []
+matched_controls: []
+notes: 'Extracted verbatim from scripts/find_features.py (commit 3d9cb78441ebde401f21fb5e6ca34d09c004b6ce),
+  PROBES[''couscous'']. concept_absent for en/zh copied from the same file''s GENERAL_TEXT/GENERAL_TEXT_ZH
+  (the pre-existing general-text specificity baseline). word_absent is empty for every language: the source
+  contains no concept-present, term-absent contexts (ED-10) -- all languages are probes_only in battery
+  v1. census_terms (ED-9): en derived mechanically from concept_id (origin: concept_id); fr/zh/ar left
+  empty (status no_terms for census) pending researcher authorship -- legacy behavioral keyword lists
+  were not mined for this.'

@@ -1,0 +1,91 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "interplab"
+version = "0.1.0"
+description = "Interpretability Laboratory infrastructure for the Qwen SAE research program"
+readme = "readme.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Interpretability Laboratory contributors" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "numpy>=1.24,<3",
+  "pydantic>=2.10,<3",
+  "jsonschema>=4.23,<5",
+  "pyyaml>=6,<7",
+  "torch>=2.4,<3",
+  "transformers==4.44.0",
+  "accelerate==0.33.0",
+  "datasets==2.20.0",
+  "sae-lens==3.23.0",
+  "huggingface-hub==0.24.0",
+  "sentencepiece",
+  "tiktoken",
+  "einops",
+  "jaxtyping",
+  "wandb",
+  "rich",
+  "tqdm",
+  "matplotlib>=3.8,<4",
+  "scikit-learn>=1.4,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<9",
+  "ruff>=0.9,<1",
+  # WP5b (§8.2 test_stats_reference): independent cross-check used only by
+  # tests/golden/generate_stats_reference.py to produce pinned reference
+  # values -- interplab.stats itself stays pure-numpy, never imports scipy.
+  "scipy",
+]
+analysis = [
+  "pandas",
+  "seaborn",
+  "plotly",
+  "ipywidgets",
+  "jupyter",
+  "ipykernel",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["interplab"]
+
+[tool.hatch.build.targets.sdist]
+include = ["interplab", "tests", "schemas", "docs", "readme.md"]
+
+[tool.uv]
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+# ED-1: local + CI profile runs the CPU build of torch; the cluster profile
+# (slurm/setup_env.sh) installs CUDA torch separately from the Alliance
+# wheelhouse and does not go through this index.
+torch = { index = "pytorch-cpu" }
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers -m \"not nightly\""
+testpaths = ["tests"]
+markers = [
+  "nightly: slow/cluster-dependent tests excluded from the per-commit CI gate (§8.3)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/fixtures/canary/cheese_reference.schema.json",
+  "title": "ED-23 canary reference contract (cheese-9056)",
+  "description": "Researcher-authored after the first real production certification run (ED-23). Not a §4 artifact schema and not a job config schema -- deliberately kept outside schemas/ so it is never swept into the A1-A12 or job-config schema inventories (test_schema_validate.py). Validated directly via interplab.core._schema_registry.validate.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["checkpoint_hash", "feature_certificate_hash", "feature_index", "pinned_slice", "expected_metrics", "tolerances"],
+  "properties": {
+    "checkpoint_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "feature_certificate_hash": {
+      "description": "The real feature_certificate that established expected_metrics -- provenance, not something the comparator invents.",
+      "type": "string", "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "feature_index": { "type": "integer", "minimum": 0 },
+    "pinned_slice": {
+      "description": "Provenance pointer to the corpus slice the pinned characterization sample was drawn from.",
+      "type": "object", "additionalProperties": false,
+      "required": ["content_hash", "location"],
+      "properties": {
+        "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "location": { "type": "string" }
+      }
+    },
+    "expected_metrics": {
+      "description": "Flat dotted-path -> numeric value, e.g. 'sensitivity.word_absent_fire_rate'. Must cover exactly the same paths as tolerances (checked in code, not schema).",
+      "type": "object", "minProperties": 1,
+      "additionalProperties": { "type": "number" }
+    },
+    "tolerances": {
+      "description": "Same dotted paths as expected_metrics; absolute tolerance per metric.",
+      "type": "object", "minProperties": 1,
+      "additionalProperties": { "type": "number", "minimum": 0 }
+    }
+  }
+}

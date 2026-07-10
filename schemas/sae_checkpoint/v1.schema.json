@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/sae_checkpoint/v1.schema.json",
+  "title": "sae_checkpoint v1 (A5)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_type", "schema_version", "self_hash", "created_at", "created_by", "subject", "payload"],
+  "properties": {
+    "artifact_type": { "const": "sae_checkpoint" },
+    "schema_version": { "const": 1 },
+    "self_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "code_commit", "entrypoint", "host"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "code_commit": { "type": "string" },
+        "entrypoint": { "type": "string" },
+        "host": { "type": "string" }
+      }
+    },
+    "subject": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content_hash", "location", "role"],
+        "properties": {
+          "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+          "role": { "type": "string" }
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["config", "store_hash", "seed", "tokens_trained", "wandb", "telemetry_tail"],
+      "properties": {
+        "config": {
+          "type": "object",
+          "description": "the exact SAELens config that ran, serialized verbatim -- opaque here, never reconstructed from YAML"
+        },
+        "store_hash": {
+          "description": "ED-5: null only for legacy checkpoints trained via SAELens streaming before stores existed; the training corpus is then documented by payload.config.dataset_path plus a corpus_manifest reference in `subject`.",
+          "type": ["string", "null"],
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "seed": { "type": "integer" },
+        "tokens_trained": { "type": "integer", "minimum": 0 },
+        "wandb": { "type": ["string", "null"] },
+        "telemetry_tail": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["fvu", "dead_count"],
+          "properties": {
+            "fvu": { "type": "number" },
+            "dead_count": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/census_report/v1.schema.json",
+  "title": "census_report v1 (A3)",
+  "description": "ED-9: literal-matching only, against researcher-authored census_terms (A2). A language with probes but no census_terms is status 'no_terms' with null counts (never zero -- zero is a measurement, null is the absence of an instrument). per_term keeps dominant variants visible. boundary ('word'|'substring') is recorded so substring matching in unsegmented scripts stays auditable.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_type", "schema_version", "self_hash", "created_at", "created_by", "subject", "payload"],
+  "properties": {
+    "artifact_type": { "const": "census_report" },
+    "schema_version": { "const": 1 },
+    "self_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "code_commit", "entrypoint", "host"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "code_commit": { "type": "string" },
+        "entrypoint": { "type": "string" },
+        "host": { "type": "string" }
+      }
+    },
+    "subject": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content_hash", "location", "role"],
+        "properties": {
+          "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+          "role": { "type": "string" }
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "concepts"],
+      "properties": {
+        "method": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["matcher", "case_folding", "boundary"],
+          "properties": {
+            "matcher": { "enum": ["regex", "tokenizer"] },
+            "case_folding": { "type": "boolean" },
+            "boundary": { "enum": ["word", "substring"] }
+          }
+        },
+        "concepts": {
+          "type": "object",
+          "description": "keyed by concept_id",
+          "additionalProperties": {
+            "type": "object",
+            "description": "keyed by language code (en|fr|zh|ar); a language with probes is always a row, measured or no_terms, never an omission",
+            "additionalProperties": false,
+            "patternProperties": {
+              "^(en|fr|zh|ar)$": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["status", "per_term", "occurrences_total", "per_million_tokens", "doc_count"],
+                "properties": {
+                  "status": { "enum": ["measured", "no_terms"] },
+                  "per_term": {
+                    "type": ["array", "null"],
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["term", "occurrences", "token_split", "byte_fallback"],
+                      "properties": {
+                        "term": { "type": "string", "minLength": 1 },
+                        "occurrences": { "type": "integer", "minimum": 0 },
+                        "token_split": { "type": "array", "items": { "type": "string" } },
+                        "byte_fallback": { "type": "boolean" }
+                      }
+                    }
+                  },
+                  "occurrences_total": { "type": ["integer", "null"], "minimum": 0 },
+                  "per_million_tokens": { "type": ["number", "null"], "minimum": 0 },
+                  "doc_count": { "type": ["integer", "null"], "minimum": 0 }
+                },
+                "allOf": [
+                  {
+                    "if": { "properties": { "status": { "const": "no_terms" } } },
+                    "then": {
+                      "properties": {
+                        "per_term": { "const": null },
+                        "occurrences_total": { "const": null },
+                        "per_million_tokens": { "const": null },
+                        "doc_count": { "const": null }
+                      }
+                    }
+                  },
+                  {
+                    "if": { "properties": { "status": { "const": "measured" } } },
+                    "then": {
+                      "properties": {
+                        "per_term": { "type": "array" },
+                        "occurrences_total": { "type": "integer" },
+                        "per_million_tokens": { "type": "number" },
+                        "doc_count": { "type": "integer" }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

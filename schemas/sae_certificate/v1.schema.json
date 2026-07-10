@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/sae_certificate/v1.schema.json",
+  "title": "sae_certificate v1 (A6) -- GATE G1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_type", "schema_version", "self_hash", "created_at", "created_by", "subject", "payload"],
+  "properties": {
+    "artifact_type": { "const": "sae_certificate" },
+    "schema_version": { "const": 1 },
+    "self_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "code_commit", "entrypoint", "host"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "code_commit": { "type": "string" },
+        "entrypoint": { "type": "string" },
+        "host": { "type": "string" }
+      }
+    },
+    "subject": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content_hash", "location", "role"],
+        "properties": {
+          "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+          "role": { "type": "string" }
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eval_slice", "metrics", "bands_version", "verdict", "per_metric_verdicts"],
+      "properties": {
+        "eval_slice": {
+          "description": "ED-5: the slice is text, pinned by corpus reference + deterministic selection rule; certification collects activations fresh by running the model (never from a stored slice).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["corpus", "selection", "n_tokens", "disjointness"],
+          "properties": {
+            "corpus": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["content_hash", "location"],
+              "properties": {
+                "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" }
+              }
+            },
+            "selection": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["method", "params"],
+              "properties": {
+                "method": { "enum": ["holdout_split", "stream_offset"] },
+                "params": { "type": "object" }
+              }
+            },
+            "n_tokens": { "type": "integer", "minimum": 0 },
+            "disjointness": { "enum": ["by_construction", "by_offset_argument"] }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ce_recovered", "fvu", "dead_fraction", "density_histogram",
+            "max_decoder_cosine_p999", "per_position_fvu"
+          ],
+          "properties": {
+            "ce_recovered": { "type": "number" },
+            "fvu": { "type": "number" },
+            "dead_fraction": { "type": "number", "minimum": 0, "maximum": 1 },
+            "density_histogram": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["bin_edges_log10", "counts"],
+              "properties": {
+                "bin_edges_log10": { "type": "array", "items": { "type": "number" } },
+                "counts": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+              }
+            },
+            "max_decoder_cosine_p999": {
+              "description": "ED-5 metric pin: per feature, the max cosine to any other feature's decoder direction; the 99.9th percentile of that per-feature distribution, computed exactly (chunked matmul), never estimated by pair sampling.",
+              "type": "number"
+            },
+            "per_position_fvu": { "type": "array", "items": { "type": "number" } }
+          }
+        },
+        "bands_version": { "type": "integer", "minimum": 1 },
+        "verdict": { "enum": ["green", "amber", "red"] },
+        "per_metric_verdicts": {
+          "type": "object",
+          "additionalProperties": { "enum": ["green", "amber", "red"] }
+        }
+      }
+    }
+  }
+}

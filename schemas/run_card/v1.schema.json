@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/run_card/v1.schema.json",
+  "title": "run_card v1 (A10)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_type", "schema_version", "self_hash", "created_at", "created_by", "subject", "payload"],
+  "properties": {
+    "artifact_type": { "const": "run_card" },
+    "schema_version": { "const": 1 },
+    "self_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "code_commit", "entrypoint", "host"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "code_commit": { "type": "string" },
+        "entrypoint": { "type": "string" },
+        "host": { "type": "string" }
+      }
+    },
+    "subject": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content_hash", "location", "role"],
+        "properties": {
+          "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+          "role": { "type": "string" }
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id", "stage", "config_hash", "config_ref", "inputs", "outputs",
+        "status", "exit_code", "outcome_line", "slurm", "log_section"
+      ],
+      "properties": {
+        "run_id": { "type": "string", "pattern": "^r\\d{8}-\\d{4}-[0-9a-f]{4}$" },
+        "stage": {
+          "enum": ["census", "collect", "store_qa", "train", "backfill", "certify", "characterize", "validate", "steer", "judge", "report", "sync"]
+        },
+        "config_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "config_ref": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["content_hash", "location", "role"],
+            "properties": {
+              "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+              "role": { "type": "string" }
+            }
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["content_hash", "location", "role"],
+            "properties": {
+              "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+              "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+              "role": { "type": "string" }
+            }
+          }
+        },
+        "status": { "enum": ["completed", "failed", "gate_failed"] },
+        "exit_code": { "type": "integer" },
+        "outcome_line": { "type": "string", "maxLength": 200 },
+        "slurm": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["job_id", "nodes"],
+          "properties": {
+            "job_id": { "type": "string" },
+            "nodes": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "log_section": { "type": ["integer", "null"], "minimum": 1 },
+        "environment": {
+          "type": ["object", "null"],
+          "description": "optional, per ED-1 (§1.1) -- RunCards SHOULD record the producing environment",
+          "additionalProperties": false,
+          "required": ["profile", "python", "torch", "lock_hash"],
+          "properties": {
+            "profile": { "enum": ["local", "cluster"] },
+            "python": { "type": "string" },
+            "torch": { "type": "string" },
+            "lock_hash": { "type": ["string", "null"] }
+          }
+        }
+      }
+    }
+  }
+}

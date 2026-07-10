@@ -1,0 +1,9 @@
+{
+  "bands_version": 1,
+  "note": "PLACEHOLDER values only (ED-11: thresholds follow the SS4 bands pattern -- placeholder data file, calibrated on the first real store). Recalibration is a data change to this file plus a schema_version bump on store_manifest (D3), never a code change. chat_divergence is recorded evidence, never gate-bearing, and is intentionally not banded here.",
+  "metrics": {
+    "norm_by_position_cv": { "direction": "lower_is_better", "green_max": 0.1, "amber_max": 0.3 },
+    "special_token_fraction": { "direction": "lower_is_better", "green_max": 0.0, "amber_max": 0.01 },
+    "adjacent_autocorrelation": { "direction": "lower_is_better", "green_max": 0.2, "amber_max": 0.5 }
+  }
+}

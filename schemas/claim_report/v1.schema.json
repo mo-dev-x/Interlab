@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/claim_report/v1.schema.json",
+  "title": "claim_report v1 (A11) -- output of GATE G4 assembly",
+  "description": "Amended by ED-14/ED-15/ED-16/ED-17 (WP6): claim_spec.anchor pins the claim's terminal evidence by full hash (ED-14); required_links[].via declares traversal direction and require_instruments names SS6 instruments a feature_certificate link must carry in verdict_basis (ED-15/ED-16); chain[].status gains insufficient_evidence and chain[].note is always present (ED-15/ED-16); statistics is nullable and figures/rendered are content-addressed refs under repo-root reports/ (ED-17).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_type", "schema_version", "self_hash", "created_at", "created_by", "subject", "payload"],
+  "properties": {
+    "artifact_type": { "const": "claim_report" },
+    "schema_version": { "const": 1 },
+    "self_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "code_commit", "entrypoint", "host"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "code_commit": { "type": "string" },
+        "entrypoint": { "type": "string" },
+        "host": { "type": "string" }
+      }
+    },
+    "subject": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content_hash", "location", "role"],
+        "properties": {
+          "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+          "role": { "type": "string" }
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_spec", "chain", "stamp", "statistics", "figures", "rendered"],
+      "properties": {
+        "claim_spec": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["question", "anchor", "required_links", "eval_compat_version"],
+          "properties": {
+            "question": { "type": "string" },
+            "anchor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["artifact_type", "content_hashes"],
+              "description": "ED-14: pins the claim's terminal evidence artifact(s) by full hash. Scientific claim content, researcher-authored. >=1 hash, all of artifact_type; multiple hashes are replicates (e.g. per-seed intervention_results) and MUST resolve every non-anchor link identically -- divergence is a claim-spec authoring error (exit 3).",
+              "properties": {
+                "artifact_type": { "type": "string" },
+                "content_hashes": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+                }
+              }
+            },
+            "required_links": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["artifact_type", "subject_role", "via", "min_schema_version"],
+                "properties": {
+                  "artifact_type": { "type": "string" },
+                  "subject_role": { "type": "string" },
+                  "via": {
+                    "enum": ["subject_ref", "subject_of"],
+                    "description": "ED-15: subject_ref -- reached by following a subject[] entry (role == subject_role) on an already-resolved artifact. subject_of -- the link's own subject[] carries an already-resolved artifact of type == subject_role."
+                  },
+                  "min_schema_version": { "type": "integer", "minimum": 1 },
+                  "require_instruments": {
+                    "type": "array",
+                    "items": { "enum": ["specificity", "sensitivity", "selectivity", "probe"] },
+                    "description": "ED-16: legal only when artifact_type == feature_certificate. Instruments that MUST appear in the certificate's verdict_basis."
+                  }
+                },
+                "if": { "not": { "properties": { "artifact_type": { "const": "feature_certificate" } } } },
+                "then": { "properties": { "require_instruments": { "type": "null" } } }
+              }
+            },
+            "eval_compat_version": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "chain": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["link", "artifact_hash", "status", "note"],
+            "properties": {
+              "link": { "type": "string" },
+              "artifact_hash": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+              "status": {
+                "enum": ["ok", "missing", "stale_schema", "eval_incompatible", "red_verdict", "insufficient_evidence"]
+              },
+              "note": {
+                "type": ["string", "null"],
+                "description": "ED-15: disambiguation/failure detail, always present (null only when nothing needs explaining, e.g. an ordinary ok row)."
+              }
+            }
+          }
+        },
+        "stamp": { "enum": ["CERTIFIED", "DRAFT — UNCERTIFIED CHAIN"] },
+        "statistics": {
+          "type": ["object", "null"],
+          "description": "ED-17: null when no anchor payload carries per-prompt scores -- absence, never fabricated numbers (the ED-9 idiom). Keyed by an implementer-chosen metric/arm/scale-encoding string.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["estimate", "ci_low", "ci_high", "n_prompts", "n_seeds", "method"],
+            "properties": {
+              "estimate": { "type": "number" },
+              "ci_low": { "type": "number" },
+              "ci_high": { "type": "number" },
+              "n_prompts": { "type": "integer", "minimum": 0 },
+              "n_seeds": { "type": "integer", "minimum": 1 },
+              "method": { "type": "string" }
+            }
+          }
+        },
+        "figures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "ref"],
+            "properties": {
+              "name": { "type": "string" },
+              "ref": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["content_hash", "location"],
+                "properties": {
+                  "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                  "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" }
+                }
+              }
+            }
+          }
+        },
+        "rendered": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["md_ref", "html_ref"],
+          "properties": {
+            "md_ref": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["content_hash", "location"],
+              "properties": {
+                "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" }
+              }
+            },
+            "html_ref": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["content_hash", "location"],
+              "properties": {
+                "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

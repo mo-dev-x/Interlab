@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/feature_certificate/v1.schema.json",
+  "title": "feature_certificate v1 (A8) -- GATE G2",
+  "description": "ED-13 (extends ED-8/ED-10): sensitivity is status-bearing (measured iff >=1 complete language existed for the concept at validation time, aggregated over exactly those languages; unavailable carries nulls, never zeros -- the ED-9 idiom). cross_lingual_firing is a top-level, descriptive-only field from probes_only languages -- never feeds sensitivity or the verdict. verdict_basis lists exactly which instruments fed the verdict.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_type", "schema_version", "self_hash", "created_at", "created_by", "subject", "payload"],
+  "properties": {
+    "artifact_type": { "const": "feature_certificate" },
+    "schema_version": { "const": 1 },
+    "self_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "code_commit", "entrypoint", "host"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "code_commit": { "type": "string" },
+        "entrypoint": { "type": "string" },
+        "host": { "type": "string" }
+      }
+    },
+    "subject": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content_hash", "location", "role"],
+        "properties": {
+          "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+          "role": { "type": "string" }
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "feature_index", "concept_id", "specificity", "sensitivity", "cross_lingual_firing",
+        "selectivity", "probe", "verdict", "verdict_basis"
+      ],
+      "properties": {
+        "feature_index": { "type": "integer", "minimum": 0 },
+        "concept_id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "specificity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["decile_means", "rubric_version", "judge_model", "prompt_version"],
+          "properties": {
+            "decile_means": { "type": "array", "items": { "type": "number" } },
+            "rubric_version": { "type": "string" },
+            "judge_model": { "type": "string" },
+            "prompt_version": { "type": "string" }
+          }
+        },
+        "sensitivity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "word_absent_fire_rate", "per_language"],
+          "properties": {
+            "status": { "enum": ["measured", "unavailable"] },
+            "word_absent_fire_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "per_language": { "type": ["object", "null"] }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "status": { "const": "measured" } } },
+              "then": { "properties": { "word_absent_fire_rate": { "type": "number" }, "per_language": { "type": "object" } } }
+            },
+            {
+              "if": { "properties": { "status": { "const": "unavailable" } } },
+              "then": { "properties": { "word_absent_fire_rate": { "const": null }, "per_language": { "const": null } } }
+            }
+          ]
+        },
+        "cross_lingual_firing": {
+          "type": ["object", "null"],
+          "description": "ED-13: descriptive-only data from probes_only languages -- never feeds sensitivity or the verdict.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["probe_fire_rate"],
+            "properties": {
+              "probe_fire_rate": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        },
+        "selectivity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["neighbors"],
+          "properties": {
+            "neighbors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["index", "cosine", "note"],
+                "properties": {
+                  "index": { "type": "integer", "minimum": 0 },
+                  "cosine": { "type": "number", "minimum": -1, "maximum": 1 },
+                  "note": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "probe": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["auc", "feature_auc", "gap", "probe_config_hash"],
+          "properties": {
+            "auc": { "type": "number", "minimum": 0, "maximum": 1 },
+            "feature_auc": { "type": "number", "minimum": 0, "maximum": 1 },
+            "gap": { "type": "number" },
+            "probe_config_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+          }
+        },
+        "verdict": { "enum": ["green", "amber", "red"] },
+        "verdict_basis": {
+          "type": "array",
+          "description": "ED-13: exactly which instruments fed the verdict (e.g. ['specificity', 'selectivity', 'probe'], plus 'sensitivity' iff status == 'measured'). cross_lingual_firing never appears here.",
+          "items": { "enum": ["specificity", "sensitivity", "selectivity", "probe"] },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

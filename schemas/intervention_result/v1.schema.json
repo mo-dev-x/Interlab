@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/intervention_result/v1.schema.json",
+  "title": "intervention_result v1 (A9)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_type", "schema_version", "self_hash", "created_at", "created_by", "subject", "payload"],
+  "properties": {
+    "artifact_type": { "const": "intervention_result" },
+    "schema_version": { "const": 1 },
+    "self_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "code_commit", "entrypoint", "host"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "code_commit": { "type": "string" },
+        "entrypoint": { "type": "string" },
+        "host": { "type": "string" }
+      }
+    },
+    "subject": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content_hash", "location", "role"],
+        "properties": {
+          "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+          "role": { "type": "string" }
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spec", "arms", "blinding", "sampling", "lodestar", "capability_delta"],
+      "properties": {
+        "spec": {
+          "type": "object",
+          "description": "InterventionSpec (§5 SS7), serialized -- fixed shape, not delegable. direction_seed added per ED-3/ED-4.",
+          "additionalProperties": false,
+          "required": ["kind", "feature_index", "value_in_max_units", "corpus_max", "positions", "checkpoint_hash", "direction_seed"],
+          "properties": {
+            "kind": { "enum": ["noop", "clamp", "ablate", "add_direction"] },
+            "feature_index": { "type": ["integer", "null"], "minimum": 0 },
+            "value_in_max_units": { "type": ["number", "null"] },
+            "corpus_max": { "type": ["number", "null"] },
+            "positions": { "enum": ["all", "generated_only"] },
+            "checkpoint_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "direction_seed": { "type": ["integer", "null"] }
+          },
+          "if": { "properties": { "kind": { "const": "add_direction" } } },
+          "then": { "properties": { "direction_seed": { "type": "integer" } } },
+          "else": { "properties": { "direction_seed": { "type": "null" } } }
+        },
+        "arms": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["arm", "scales_in_max_units", "generations_ref"],
+            "properties": {
+              "arm": { "enum": ["steered", "baseline", "random_direction", "random_feature", "prompt_baseline"] },
+              "scales_in_max_units": { "type": "array", "items": { "type": "number" } },
+              "generations_ref": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["content_hash", "location"],
+                "properties": {
+                  "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                  "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" }
+                }
+              }
+            }
+          }
+        },
+        "blinding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["shuffled", "map_ref"],
+          "properties": {
+            "shuffled": { "type": "boolean" },
+            "map_ref": { "type": ["string", "null"], "pattern": "^(tamia|local|hf|wandb):.+$" }
+          }
+        },
+        "sampling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["temperature", "top_p", "max_new_tokens", "seed"],
+          "properties": {
+            "temperature": { "type": "number", "minimum": 0 },
+            "top_p": { "type": "number", "minimum": 0, "maximum": 1 },
+            "max_new_tokens": { "type": "integer", "minimum": 1 },
+            "seed": { "type": "integer" }
+          }
+        },
+        "lodestar": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["run_ref", "judge_model", "rubric_version"],
+          "properties": {
+            "run_ref": { "type": "string" },
+            "judge_model": { "type": "string" },
+            "rubric_version": { "type": "string" },
+            "per_prompt_scores": {
+              "description": "ED-17 (optional, D3-additive): the judge job materializes per-prompt scores here at ingestion so SS9 statistics are registry-pure -- chain assembly and stats never call Lodestar. null before judging; absent entirely for runs predating ED-17.",
+              "type": ["array", "null"],
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["prompt_id", "arm", "scale", "score"],
+                "properties": {
+                  "prompt_id": { "type": "string" },
+                  "arm": { "enum": ["steered", "baseline", "random_direction", "random_feature", "prompt_baseline"] },
+                  "scale": { "type": "number" },
+                  "score": { "type": "number" }
+                }
+              }
+            }
+          }
+        },
+        "capability_delta": {
+          "description": "ED-20: perplexity under each arm on a fixed pinned text slice, written by the judge job. Only perplexities are stored -- consumers derive deltas; statistics are never computed from this field (§5.SS9 statistics composition reads only lodestar.per_prompt_scores).",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["slice", "n_tokens", "per_arm"],
+          "properties": {
+            "slice": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["content_hash", "location"],
+              "properties": {
+                "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" }
+              }
+            },
+            "n_tokens": { "type": "integer", "minimum": 0 },
+            "per_arm": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["arm", "scale", "ppl"],
+                "properties": {
+                  "arm": { "enum": ["steered", "baseline", "random_direction", "random_feature", "prompt_baseline"] },
+                  "scale": {
+                    "description": "ED-20: baseline arm is included with scale = null.",
+                    "type": ["number", "null"]
+                  },
+                  "ppl": { "type": "number", "minimum": 0 }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

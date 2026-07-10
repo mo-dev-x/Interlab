@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/configs/report_v1.schema.json",
+  "title": "report job config v1 -- the claim spec (S7.2: the researcher-authored YAML IS the claim spec, persisted verbatim into A11 payload.claim_spec)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["question", "anchor", "required_links", "eval_compat_version"],
+  "properties": {
+    "question": { "type": "string", "minLength": 1 },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_type", "content_hashes"],
+      "properties": {
+        "artifact_type": { "type": "string" },
+        "content_hashes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "required_links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifact_type", "subject_role", "via", "min_schema_version"],
+        "properties": {
+          "artifact_type": { "type": "string" },
+          "subject_role": { "type": "string" },
+          "via": { "enum": ["subject_ref", "subject_of"] },
+          "min_schema_version": { "type": "integer", "minimum": 1 },
+          "require_instruments": {
+            "type": "array",
+            "items": { "enum": ["specificity", "sensitivity", "selectivity", "probe"] }
+          }
+        }
+      }
+    },
+    "eval_compat_version": { "type": "integer", "minimum": 1 }
+  }
+}

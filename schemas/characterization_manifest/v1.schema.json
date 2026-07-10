@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/characterization_manifest/v1.schema.json",
+  "title": "characterization_manifest v1 (A7)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_type", "schema_version", "self_hash", "created_at", "created_by", "subject", "payload"],
+  "properties": {
+    "artifact_type": { "const": "characterization_manifest" },
+    "schema_version": { "const": 1 },
+    "self_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "code_commit", "entrypoint", "host"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "code_commit": { "type": "string" },
+        "entrypoint": { "type": "string" },
+        "host": { "type": "string" }
+      }
+    },
+    "subject": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content_hash", "location", "role"],
+        "properties": {
+          "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+          "role": { "type": "string" }
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sample", "index_layout_version", "per_feature_columns", "judge"],
+      "properties": {
+        "sample": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["n_tokens", "chat_slice_tokens"],
+          "properties": {
+            "n_tokens": { "type": "integer", "minimum": 0 },
+            "chat_slice_tokens": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "index_layout_version": { "type": "integer", "minimum": 1 },
+        "per_feature_columns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "allOf": [
+            { "contains": { "const": "corpus_max" } },
+            { "contains": { "const": "firing_rate" } },
+            { "contains": { "const": "decile_boundaries" } },
+            { "contains": { "const": "logit_top_tokens" } },
+            { "contains": { "const": "autointerp_label" } },
+            { "contains": { "const": "autointerp_detection_score" } }
+          ]
+        },
+        "judge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model", "rubric_version", "prompt_version"],
+          "properties": {
+            "model": { "type": "string" },
+            "rubric_version": { "type": "string" },
+            "prompt_version": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

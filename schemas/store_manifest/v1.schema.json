@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/store_manifest/v1.schema.json",
+  "title": "store_manifest v1 (A4)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_type", "schema_version", "self_hash", "created_at", "created_by", "subject", "payload"],
+  "properties": {
+    "artifact_type": { "const": "store_manifest" },
+    "schema_version": { "const": 1 },
+    "self_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "code_commit", "entrypoint", "host"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "code_commit": { "type": "string" },
+        "entrypoint": { "type": "string" },
+        "host": { "type": "string" }
+      }
+    },
+    "subject": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content_hash", "location", "role"],
+        "properties": {
+          "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+          "role": { "type": "string" }
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model", "hook_name", "hook_layer", "context_size", "prepend_bos",
+        "dtype", "token_count", "position_policy", "eval_holdout", "qa"
+      ],
+      "properties": {
+        "model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "revision"],
+          "properties": {
+            "name": { "type": "string" },
+            "revision": { "type": "string" }
+          }
+        },
+        "hook_name": { "type": "string" },
+        "hook_layer": { "type": "integer", "minimum": 0 },
+        "context_size": { "type": "integer", "minimum": 1 },
+        "prepend_bos": { "type": "boolean" },
+        "dtype": { "type": "string" },
+        "token_count": { "type": "integer", "minimum": 0 },
+        "position_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["exclude_bos", "exclude_padding", "excluded_first_n"],
+          "properties": {
+            "exclude_bos": { "type": "boolean" },
+            "exclude_padding": { "type": "boolean" },
+            "excluded_first_n": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "eval_holdout": {
+          "description": "ED-5: documents matching the rule are excluded from the store at collection and reserved for certification. Null only for legacy stores predating this rule.",
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["method", "modulus", "residues"],
+          "properties": {
+            "method": { "const": "doc_hash_mod" },
+            "modulus": { "type": "integer", "minimum": 1 },
+            "residues": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+          }
+        },
+        "qa": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "norm_by_position", "special_token_fraction", "adjacent_autocorrelation",
+            "chat_divergence", "verdict"
+          ],
+          "properties": {
+            "norm_by_position": { "type": "array", "items": { "type": "number" } },
+            "special_token_fraction": { "type": "number", "minimum": 0, "maximum": 1 },
+            "adjacent_autocorrelation": { "type": "number" },
+            "chat_divergence": { "type": ["object", "null"] },
+            "verdict": { "enum": ["green", "amber", "red"] }
+          }
+        }
+      }
+    }
+  }
+}

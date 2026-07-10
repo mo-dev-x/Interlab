@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/configs/backfill_checkpoint_v1.schema.json",
+  "title": "backfill_checkpoint job config v1",
+  "description": "ED-5 legacy A5 backfill: registers a sae_checkpoint manifest for a pre-blueprint checkpoint. store_hash is always null; the training corpus is documented via a corpus_manifest reference in `subject`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "training_config_path", "weights_location", "model_location",
+    "corpus_manifest_hash", "tokens_trained", "seed", "telemetry_tail"
+  ],
+  "properties": {
+    "training_config_path": {
+      "description": "local: URI to the original SAELens training config YAML (repo-relative), serialized verbatim into A5.config.",
+      "type": "string",
+      "pattern": "^local:.+$"
+    },
+    "weights_dir_hash": {
+      "description": "Pre-computed directory hash (D1: MUST be computed on the machine holding the weights). If omitted, this job computes it locally -- only valid when weights_location is actually reachable from this machine.",
+      "type": ["string", "null"],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "weights_location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+    "model_dir_hash": {
+      "description": "Pre-computed directory hash of the base model, same rule as weights_dir_hash. If omitted, computed locally when model_location is reachable.",
+      "type": ["string", "null"],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "model_location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+    "corpus_manifest_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "tokens_trained": { "type": "integer", "minimum": 0 },
+    "seed": { "type": "integer" },
+    "wandb": { "type": ["string", "null"] },
+    "telemetry_tail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fvu", "dead_count"],
+      "properties": {
+        "fvu": { "type": "number" },
+        "dead_count": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

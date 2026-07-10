@@ -20,6 +20,9 @@ results/
 *.pt
 *.safetensors
 *.bin
+# ED-1 / §8.1: pinned test fixtures are the exception -- generated once and committed
+!tests/fixtures/tiny_model/*.safetensors
+!tests/fixtures/tiny_sae/*.safetensors
 
 # Jupyter
 .ipynb_checkpoints/
@@ -36,13 +39,10 @@ slurm/logs/
 hf_cache/
 
 # Personal / local docs (not for public repo)
-CLUSTER_GUIDE.md
-troubleshooting.md
-pipline.md
-EXECUTION_PLAN.md
-FEATURE_EXPERIMENT_LOG.md
-me
+docs/archive/
+.claude/
 
 # OS
 .DS_Store
 *.swp
+*.stackdump

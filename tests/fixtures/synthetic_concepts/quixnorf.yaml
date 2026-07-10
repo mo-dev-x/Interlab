@@ -1,0 +1,29 @@
+# Synthetic test fixture ONLY -- see zorbium.yaml's header note. This
+# concept is deliberately probes_only in every language (no word_absent
+# anywhere), used to exercise the "sensitivity unavailable" path (ED-13)
+# without needing to touch the real battery.
+concept_id: quixnorf
+languages:
+  en:
+    status: probes_only
+    probes:
+      - The quixnorf signal pulsed twice before fading into static.
+      - Nobody could explain the quixnorf anomaly on the old radar.
+      - The quixnorf field readings spiked at exactly midnight.
+      - Archivists catalogued every quixnorf sighting since 1971.
+      - The quixnorf hypothesis was quietly abandoned by the committee.
+      - A faint quixnorf trace lingered in the sensor logs.
+      - The quixnorf theory never gained traction among physicists.
+      - Local legends spoke of a quixnorf beneath the old quarry.
+      - The quixnorf reading vanished as suddenly as it appeared.
+      - Three separate stations recorded the same quixnorf burst.
+    word_absent: []
+    concept_absent: []
+    census_terms:
+      - term: quixnorf
+        kind: canonical
+        origin: concept_id
+matched_controls: []
+notes: >
+  Synthetic fixture, not laboratory content. Fictional concept, authored
+  directly for testing the sensitivity="unavailable" path.

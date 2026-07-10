@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/configs/validate_v1.schema.json",
+  "title": "validate job config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["characterization_manifest_hash", "census_report_hash", "concept_id", "feature_index", "specificity_judge"],
+  "properties": {
+    "characterization_manifest_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "census_report_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "concepts_location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+    "concept_id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "feature_index": { "type": "integer", "minimum": 0 },
+    "specificity_judge": {
+      "description": "D2 stub-judge resolution (continued from WP4): only 'stub' is implemented; 'none' produces null decile ratings (empty decile_means). Production rubric judging is researcher-gated, out of scope here.",
+      "enum": ["stub", "none"]
+    },
+    "stub_judge_marker_words": { "type": "array", "items": { "type": "string" } },
+    "selectivity_top_n": { "type": "integer", "minimum": 1 },
+    "probe_seed": { "type": "integer" },
+    "bands_version": { "type": "integer", "minimum": 1 }
+  }
+}

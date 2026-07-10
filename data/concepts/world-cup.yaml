@@ -1,0 +1,117 @@
+concept_id: world-cup
+languages:
+  en:
+    status: probes_only
+    probes:
+    - The FIFA World Cup is the most watched sporting event in the world.
+    - France won the 2018 World Cup final against Croatia in Moscow.
+    - Billions of people around the world tune in to watch the World Cup.
+    - Morocco became the first African nation to reach the World Cup semi-finals in 2022.
+    - The Brazilian national team has won the World Cup five times.
+    - The World Cup is held every four years and hosted by different nations.
+    - Argentina won the 2022 FIFA World Cup in Qatar, ending Messi's long quest for the title.
+    - The opening match of the World Cup drew record television audiences worldwide.
+    - Host nations always feel enormous pressure to perform well at the World Cup.
+    - The 2026 World Cup will be jointly hosted by the United States, Canada, and Mexico.
+    word_absent: []
+    concept_absent:
+    - The stock market closed higher on Friday after a week of volatility.
+    - Scientists discovered a new species of deep-sea fish near the Mariana Trench.
+    - The software update introduced several bug fixes and performance improvements.
+    - A local chef won the regional cooking competition with a fusion dish.
+    - The city council voted to approve the new public transportation plan.
+    - Researchers published a paper on the effects of sleep on cognitive function.
+    - The athlete broke the world record in the 100-meter sprint.
+    - New renewable energy projects are being developed across the country.
+    - The ancient manuscript was found in a monastery in southern Italy.
+    - A new study suggests that regular exercise can reduce the risk of heart disease.
+    - The film festival attracted directors from 45 different countries.
+    - Electric vehicle sales have grown by 40% compared to last year.
+    - The space telescope captured images of a distant galaxy cluster.
+    - The symphony orchestra performed a sold-out concert at the civic center.
+    - Historians uncovered new evidence about the fall of the Roman Empire.
+    - The mobile app reached one million downloads in its first week.
+    - Medical researchers are testing a new vaccine against a tropical disease.
+    - The restaurant received a Michelin star for the third consecutive year.
+    - A new bridge connecting the two districts will open next spring.
+    - The novel won the national literary prize for fiction.
+    census_terms:
+    - term: world cup
+      kind: canonical
+      origin: concept_id
+  fr:
+    status: probes_only
+    probes:
+    - La Coupe du Monde de la FIFA est l'événement sportif le plus regardé au monde.
+    - La France a remporté la finale de la Coupe du Monde 2018 contre la Croatie à Moscou.
+    - Des milliards de personnes à travers le monde regardent la Coupe du Monde.
+    - Le Maroc est devenu la première nation africaine à atteindre les demi-finales en 2022.
+    - L'équipe nationale brésilienne a remporté la Coupe du Monde cinq fois.
+    - La Coupe du Monde a lieu tous les quatre ans dans différents pays hôtes.
+    - L'Argentine a remporté la Coupe du Monde 2022 au Qatar.
+    - Le match d'ouverture de la Coupe du Monde a attiré des audiences télévisées record.
+    - Les nations hôtes ressentent toujours une énorme pression lors de la Coupe du Monde.
+    - La Coupe du Monde 2026 sera co-organisée par les États-Unis, le Canada et le Mexique.
+    word_absent: []
+    concept_absent: []
+    census_terms: []
+  zh:
+    status: probes_only
+    probes:
+    - 国际足联世界杯是全球观看人数最多的体育赛事。
+    - 法国队在2018年世界杯决赛中击败克罗地亚，夺得冠军。
+    - 全球数十亿人收看世界杯比赛。
+    - 2022年世界杯，摩洛哥成为首个闯入半决赛的非洲球队。
+    - 巴西国家队曾五次夺得世界杯冠军。
+    - 世界杯每四年举办一次，由不同国家承办。
+    - 阿根廷队在卡塔尔赢得了2022年世界杯冠军，梅西终圆冠军梦。
+    - 世界杯开幕赛吸引了全球创纪录的电视观众。
+    - 东道国在世界杯上总是承受着巨大的压力。
+    - 2026年世界杯将由美国、加拿大和墨西哥联合承办。
+    word_absent: []
+    concept_absent:
+    - 周五股市经历了一周的波动后收盘走高。
+    - 科学家在马里亚纳海沟附近发现了一种新的深海鱼类。
+    - 此次软件更新修复了多个错误并提升了性能。
+    - 一位本地厨师凭借一道融合菜赢得了地区烹饪比赛。
+    - 市议会投票通过了新的公共交通计划。
+    - 研究人员发表了一篇关于睡眠对认知功能影响的论文。
+    - 这名运动员打破了100米短跑的世界纪录。
+    - 全国各地正在开发新的可再生能源项目。
+    - 这份古老的手稿是在意大利南部的一座修道院中被发现的。
+    - 一项新研究表明，经常锻炼可以降低心脏病的风险。
+    - 电影节吸引了来自45个不同国家的导演。
+    - 电动汽车的销量比去年增长了40%。
+    - 太空望远镜捕捉到了一个遥远星系团的图像。
+    - 交响乐团在市民中心举行了一场门票售罄的音乐会。
+    - 历史学家发现了关于罗马帝国衰落的新证据。
+    - 这款移动应用在发布第一周就达到了一百万次下载。
+    - 医学研究人员正在测试一种针对热带疾病的新疫苗。
+    - 这家餐厅连续第三年获得米其林星级。
+    - 一座连接两个区的新桥将于明年春天开通。
+    - 这部小说赢得了国家文学奖的小说类奖项。
+    census_terms: []
+  ar:
+    status: probes_only
+    probes:
+    - كأس العالم لكرة القدم هو أكثر الأحداث الرياضية مشاهدةً في العالم.
+    - فازت فرنسا بنهائي كأس العالم 2018 أمام كرواتيا في موسكو.
+    - يتابع مليارات الأشخاص حول العالم مباريات كأس العالم.
+    - أصبح المغرب أول دولة أفريقية تبلغ نصف نهائي كأس العالم في 2022.
+    - فاز المنتخب البرازيلي بكأس العالم خمس مرات.
+    - تُقام كأس العالم كل أربع سنوات وتستضيفها دول مختلفة.
+    - فازت الأرجنتين بكأس العالم 2022 في قطر محققةً حلم ميسي.
+    - استقطب مباراة افتتاح كأس العالم أعداداً قياسية من المشاهدين حول العالم.
+    - تشعر الدول المضيفة دائماً بضغط هائل خلال كأس العالم.
+    - ستحتضن الولايات المتحدة وكندا والمكسيك مشتركةً كأس العالم 2026.
+    word_absent: []
+    concept_absent: []
+    census_terms: []
+matched_controls: []
+notes: 'Extracted verbatim from scripts/find_features.py (commit 3d9cb78441ebde401f21fb5e6ca34d09c004b6ce),
+  PROBES[''world_cup'']. concept_absent for en/zh copied from the same file''s GENERAL_TEXT/GENERAL_TEXT_ZH
+  (the pre-existing general-text specificity baseline). word_absent is empty for every language: the source
+  contains no concept-present, term-absent contexts (ED-10) -- all languages are probes_only in battery
+  v1. census_terms (ED-9): en derived mechanically from concept_id (origin: concept_id); fr/zh/ar left
+  empty (status no_terms for census) pending researcher authorship -- legacy behavioral keyword lists
+  were not mined for this.'

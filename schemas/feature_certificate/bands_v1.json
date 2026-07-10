@@ -1,0 +1,10 @@
+{
+  "bands_version": 1,
+  "note": "PLACEHOLDER values only (blueprint §10 item 1, same pattern as sae_certificate/bands_v1.json and store_manifest/qa_bands_v1.json): not yet calibrated on a real validation batch. Recalibration is a data change to this file plus a schema_version bump on feature_certificate (D3), never a code change. cross_lingual_firing is intentionally never banded (ED-13: descriptive only).",
+  "metrics": {
+    "specificity_top_decile_mean": { "direction": "higher_is_better", "green_min": 2.5, "amber_min": 1.5 },
+    "sensitivity_word_absent_fire_rate": { "direction": "higher_is_better", "green_min": 0.3, "amber_min": 0.1 },
+    "selectivity_max_neighbor_cosine": { "direction": "lower_is_better", "green_max": 0.7, "amber_max": 0.85 },
+    "probe_gap_abs": { "direction": "lower_is_better", "green_max": 0.1, "amber_max": 0.25 }
+  }
+}

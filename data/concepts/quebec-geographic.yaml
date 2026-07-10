@@ -1,0 +1,122 @@
+concept_id: quebec-geographic
+languages:
+  en:
+    status: probes_only
+    probes:
+    - Quebec is the largest of Canada's ten provinces by area, covering more than 1.5 million square kilometers.
+    - The St. Lawrence River flows through Quebec, linking the Great Lakes to the Atlantic Ocean.
+    - Quebec borders Ontario to the west and the U.S. states of New York, Vermont, Maine, and New Hampshire
+      to the south.
+    - The Laurentian Mountains, popular for skiing and hiking, run through southern Quebec.
+    - James Bay and Hudson Bay form the vast northern coastline of Quebec.
+    - Quebec City, Trois-Rivières, Sherbrooke, and Gatineau are major urban centers across the province.
+    - Hydroelectric dams in northern Quebec generate much of Canada's electricity supply.
+    - The Gaspé Peninsula extends into the Gulf of St. Lawrence along Quebec's eastern coast.
+    - Vast boreal forests cover much of Quebec's northern territory.
+    - Quebec experiences long, cold winters with some of the heaviest snowfall in Canada.
+    word_absent: []
+    concept_absent:
+    - The stock market closed higher on Friday after a week of volatility.
+    - Scientists discovered a new species of deep-sea fish near the Mariana Trench.
+    - The software update introduced several bug fixes and performance improvements.
+    - A local chef won the regional cooking competition with a fusion dish.
+    - The city council voted to approve the new public transportation plan.
+    - Researchers published a paper on the effects of sleep on cognitive function.
+    - The athlete broke the world record in the 100-meter sprint.
+    - New renewable energy projects are being developed across the country.
+    - The ancient manuscript was found in a monastery in southern Italy.
+    - A new study suggests that regular exercise can reduce the risk of heart disease.
+    - The film festival attracted directors from 45 different countries.
+    - Electric vehicle sales have grown by 40% compared to last year.
+    - The space telescope captured images of a distant galaxy cluster.
+    - The symphony orchestra performed a sold-out concert at the civic center.
+    - Historians uncovered new evidence about the fall of the Roman Empire.
+    - The mobile app reached one million downloads in its first week.
+    - Medical researchers are testing a new vaccine against a tropical disease.
+    - The restaurant received a Michelin star for the third consecutive year.
+    - A new bridge connecting the two districts will open next spring.
+    - The novel won the national literary prize for fiction.
+    census_terms:
+    - term: quebec geographic
+      kind: canonical
+      origin: concept_id
+  fr:
+    status: probes_only
+    probes:
+    - Le Québec est la plus grande des dix provinces du Canada par sa superficie, couvrant plus de 1,5
+      million de kilomètres carrés.
+    - Le fleuve Saint-Laurent traverse le Québec, reliant les Grands Lacs à l'océan Atlantique.
+    - Le Québec est bordé par l'Ontario à l'ouest et par les États américains de New York, du Vermont,
+      du Maine et du New Hampshire au sud.
+    - Les Laurentides, prisées pour le ski et la randonnée, traversent le sud du Québec.
+    - La baie James et la baie d'Hudson forment le vaste littoral nord du Québec.
+    - Québec, Trois-Rivières, Sherbrooke et Gatineau sont des centres urbains majeurs de la province.
+    - Les barrages hydroélectriques du nord du Québec produisent une grande partie de l'électricité du
+      Canada.
+    - La péninsule gaspésienne s'avance dans le golfe du Saint-Laurent sur la côte est du Québec.
+    - De vastes forêts boréales couvrent une grande partie du territoire nordique du Québec.
+    - Le Québec connaît de longs hivers froids avec certaines des chutes de neige les plus abondantes
+      au Canada.
+    word_absent: []
+    concept_absent: []
+    census_terms: []
+  zh:
+    status: probes_only
+    probes:
+    - 魁北克是加拿大面积最大的省份，占地超过150万平方公里。
+    - 圣劳伦斯河流经魁北克，连接五大湖与大西洋。
+    - 魁北克西邻安大略省，南接美国纽约州、佛蒙特州、缅因州和新罕布什尔州。
+    - 劳伦琴山脉穿越魁北克南部，是滑雪和徒步的热门去处。
+    - 詹姆斯湾和哈德逊湾构成了魁北克广阔的北部海岸线。
+    - 魁北克城、三河市、舍布鲁克和加蒂诺是该省的主要城市。
+    - 魁北克北部的水电大坝为加拿大提供了大量电力。
+    - 加斯佩半岛延伸入圣劳伦斯湾，位于魁北克东海岸。
+    - 广袤的北方针叶林覆盖了魁北克北部大部分领土。
+    - 魁北克冬季漫长寒冷，降雪量是加拿大最大的地区之一。
+    word_absent: []
+    concept_absent:
+    - 周五股市经历了一周的波动后收盘走高。
+    - 科学家在马里亚纳海沟附近发现了一种新的深海鱼类。
+    - 此次软件更新修复了多个错误并提升了性能。
+    - 一位本地厨师凭借一道融合菜赢得了地区烹饪比赛。
+    - 市议会投票通过了新的公共交通计划。
+    - 研究人员发表了一篇关于睡眠对认知功能影响的论文。
+    - 这名运动员打破了100米短跑的世界纪录。
+    - 全国各地正在开发新的可再生能源项目。
+    - 这份古老的手稿是在意大利南部的一座修道院中被发现的。
+    - 一项新研究表明，经常锻炼可以降低心脏病的风险。
+    - 电影节吸引了来自45个不同国家的导演。
+    - 电动汽车的销量比去年增长了40%。
+    - 太空望远镜捕捉到了一个遥远星系团的图像。
+    - 交响乐团在市民中心举行了一场门票售罄的音乐会。
+    - 历史学家发现了关于罗马帝国衰落的新证据。
+    - 这款移动应用在发布第一周就达到了一百万次下载。
+    - 医学研究人员正在测试一种针对热带疾病的新疫苗。
+    - 这家餐厅连续第三年获得米其林星级。
+    - 一座连接两个区的新桥将于明年春天开通。
+    - 这部小说赢得了国家文学奖的小说类奖项。
+    census_terms: []
+  ar:
+    status: probes_only
+    probes:
+    - كيبيك هي أكبر مقاطعات كندا العشر من حيث المساحة، بمساحة تتجاوز 1.5 مليون كيلومتر مربع.
+    - يجري نهر سانت لورانس عبر كيبيك، ليربط البحيرات العظمى بالمحيط الأطلسي.
+    - تحدّ كيبيك مقاطعة أونتاريو من الغرب وولايات نيويورك وفيرمونت ومين ونيوهامشير الأمريكية من الجنوب.
+    - تمتد جبال لورنسيان عبر جنوب كيبيك، وهي مقصد شهير للتزلج والمشي.
+    - تشكّل خليج جيمس وخليج هدسون الساحل الشمالي الواسع لكيبيك.
+    - مدينة كيبيك وتروا ريفيير وشيربروك وغاتينو من أهم المراكز الحضرية في المقاطعة.
+    - تولّد السدود الكهرومائية في شمال كيبيك جزءاً كبيراً من الكهرباء في كندا.
+    - تمتد شبه جزيرة غاسبي إلى خليج سانت لورانس على الساحل الشرقي لكيبيك.
+    - تغطي الغابات الشمالية الكثيفة جزءاً كبيراً من أراضي كيبيك الشمالية.
+    - تشهد كيبيك شتاءً طويلاً وبارداً مع بعض أعلى معدلات تساقط الثلوج في كندا.
+    word_absent: []
+    concept_absent: []
+    census_terms: []
+matched_controls: []
+notes: 'Extracted verbatim from scripts/find_features.py (commit 3d9cb78441ebde401f21fb5e6ca34d09c004b6ce),
+  PROBES[''quebec_geographic'']. concept_absent for en/zh copied from the same file''s GENERAL_TEXT/GENERAL_TEXT_ZH
+  (the pre-existing general-text specificity baseline). word_absent is empty for every language: the source
+  contains no concept-present, term-absent contexts (ED-10) -- all languages are probes_only in battery
+  v1. census_terms (ED-9): en derived mechanically from concept_id (origin: concept_id); fr/zh/ar left
+  empty (status no_terms for census) pending researcher authorship -- legacy behavioral keyword lists
+  were not mined for this.'

@@ -1,0 +1,31 @@
+name: CI
+
+# §8.3: "Every commit: all hard tests (< 5 min budget; fixtures are tiny)."
+# Nightly/cluster-only tests (identity-on-Qwen, canary_cheese) are excluded
+# by pyproject.toml's own pytest addopts (`-m "not nightly"`), not by this
+# workflow -- the same command a developer runs locally is what runs here.
+# This gate never launches a SLURM job (§8.3: "No commit gate runs SLURM
+# jobs.") and never touches the cluster.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  hard-tests:
+    name: ruff + hard test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync environment
+        run: uv sync --extra dev --frozen
+
+      - name: Ruff (interplab, tests, top-level scripts -- scripts/legacy is frozen and excluded)
+        run: uv run ruff check interplab tests scripts/*.py data/concepts/*.py
+
+      - name: Hard test suite
+        run: uv run pytest

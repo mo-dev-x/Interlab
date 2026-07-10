@@ -1,0 +1,117 @@
+concept_id: celine-dion
+languages:
+  en:
+    status: probes_only
+    probes:
+    - Celine Dion is one of the best-selling music artists of all time.
+    - Her song 'My Heart Will Go On' became the iconic theme for the film Titanic.
+    - Celine Dion was born in Charlemagne, Quebec, the youngest of fourteen children.
+    - She built a legendary residency show in Las Vegas that ran for over a decade.
+    - Celine Dion represented Switzerland at the Eurovision Song Contest in 1988.
+    - Her powerful voice and emotional ballads made her a global superstar.
+    - In 2022, Celine Dion revealed she had been diagnosed with Stiff Person Syndrome.
+    - She recorded hit albums in both French and English throughout her career.
+    - Celine Dion is widely regarded as Quebec's most famous singer.
+    - Her husband and longtime manager Rene Angelil guided her rise to stardom.
+    word_absent: []
+    concept_absent:
+    - The stock market closed higher on Friday after a week of volatility.
+    - Scientists discovered a new species of deep-sea fish near the Mariana Trench.
+    - The software update introduced several bug fixes and performance improvements.
+    - A local chef won the regional cooking competition with a fusion dish.
+    - The city council voted to approve the new public transportation plan.
+    - Researchers published a paper on the effects of sleep on cognitive function.
+    - The athlete broke the world record in the 100-meter sprint.
+    - New renewable energy projects are being developed across the country.
+    - The ancient manuscript was found in a monastery in southern Italy.
+    - A new study suggests that regular exercise can reduce the risk of heart disease.
+    - The film festival attracted directors from 45 different countries.
+    - Electric vehicle sales have grown by 40% compared to last year.
+    - The space telescope captured images of a distant galaxy cluster.
+    - The symphony orchestra performed a sold-out concert at the civic center.
+    - Historians uncovered new evidence about the fall of the Roman Empire.
+    - The mobile app reached one million downloads in its first week.
+    - Medical researchers are testing a new vaccine against a tropical disease.
+    - The restaurant received a Michelin star for the third consecutive year.
+    - A new bridge connecting the two districts will open next spring.
+    - The novel won the national literary prize for fiction.
+    census_terms:
+    - term: celine dion
+      kind: canonical
+      origin: concept_id
+  fr:
+    status: probes_only
+    probes:
+    - Céline Dion est l'une des artistes musicales les plus vendues de tous les temps.
+    - Sa chanson « My Heart Will Go On » est devenue le thème emblématique du film Titanic.
+    - Céline Dion est née à Charlemagne, au Québec, la cadette de quatorze enfants.
+    - Elle a connu un spectacle légendaire à Las Vegas qui a duré plus d'une décennie.
+    - Céline Dion a représenté la Suisse au Concours Eurovision de la chanson en 1988.
+    - Sa voix puissante et ses ballades émouvantes en ont fait une superstar mondiale.
+    - En 2022, Céline Dion a révélé qu'elle souffrait du syndrome de la personne raide.
+    - Elle a enregistré des albums à succès en français et en anglais tout au long de sa carrière.
+    - Céline Dion est largement considérée comme la chanteuse la plus célèbre du Québec.
+    - Son mari et imprésario de longue date René Angélil a guidé son ascension vers la célébrité.
+    word_absent: []
+    concept_absent: []
+    census_terms: []
+  zh:
+    status: probes_only
+    probes:
+    - 席琳·迪翁是有史以来最畅销的音乐艺人之一。
+    - 她的歌曲《我心永恒》成为电影《泰坦尼克号》的经典主题曲。
+    - 席琳·迪翁出生于魁北克的沙勒马涅，是十四个孩子中最小的一个。
+    - 她在拉斯维加斯举办了持续超过十年的传奇驻场演出。
+    - 1988年，席琳·迪翁代表瑞士参加了欧洲歌唱大赛。
+    - 她强大的嗓音和深情的抒情歌曲使她成为国际巨星。
+    - 2022年，席琳·迪翁透露自己被诊断患有僵硬人综合症。
+    - 在她的整个职业生涯中，她用法语和英语录制了热门专辑。
+    - 席琳·迪翁被广泛认为是魁北克最著名的歌手。
+    - 她的丈夫兼长期经纪人雷内·安杰利引导她走向巨星之路。
+    word_absent: []
+    concept_absent:
+    - 周五股市经历了一周的波动后收盘走高。
+    - 科学家在马里亚纳海沟附近发现了一种新的深海鱼类。
+    - 此次软件更新修复了多个错误并提升了性能。
+    - 一位本地厨师凭借一道融合菜赢得了地区烹饪比赛。
+    - 市议会投票通过了新的公共交通计划。
+    - 研究人员发表了一篇关于睡眠对认知功能影响的论文。
+    - 这名运动员打破了100米短跑的世界纪录。
+    - 全国各地正在开发新的可再生能源项目。
+    - 这份古老的手稿是在意大利南部的一座修道院中被发现的。
+    - 一项新研究表明，经常锻炼可以降低心脏病的风险。
+    - 电影节吸引了来自45个不同国家的导演。
+    - 电动汽车的销量比去年增长了40%。
+    - 太空望远镜捕捉到了一个遥远星系团的图像。
+    - 交响乐团在市民中心举行了一场门票售罄的音乐会。
+    - 历史学家发现了关于罗马帝国衰落的新证据。
+    - 这款移动应用在发布第一周就达到了一百万次下载。
+    - 医学研究人员正在测试一种针对热带疾病的新疫苗。
+    - 这家餐厅连续第三年获得米其林星级。
+    - 一座连接两个区的新桥将于明年春天开通。
+    - 这部小说赢得了国家文学奖的小说类奖项。
+    census_terms: []
+  ar:
+    status: probes_only
+    probes:
+    - سيلين ديون هي واحدة من أكثر الفنانات الموسيقيات مبيعاً على مر التاريخ.
+    - أصبحت أغنيتها 'My Heart Will Go On' الموسيقى الرئيسية الشهيرة لفيلم تايتانيك.
+    - وُلدت سيلين ديون في شارلمان بمقاطعة كيبيك، وهي الصغرى بين أربعة عشر طفلاً.
+    - قدّمت عرضاً أسطورياً في لاس فيغاس استمر لأكثر من عقد من الزمن.
+    - مثّلت سيلين ديون سويسرا في مسابقة يوروفيجن للأغاني عام 1988.
+    - صوتها القوي وأغانيها العاطفية جعلاها نجمة عالمية.
+    - في عام 2022، كشفت سيلين ديون أنها تعاني من متلازمة الشخص المتيبس.
+    - سجلت ألبومات ناجحة باللغتين الفرنسية والإنجليزية طوال مسيرتها.
+    - تُعتبر سيلين ديون على نطاق واسع المغنية الأكثر شهرة في كيبيك.
+    - زوجها ومديرها لفترة طويلة رينيه أنجيليل وجّه صعودها إلى النجومية.
+    word_absent: []
+    concept_absent: []
+    census_terms: []
+matched_controls: []
+notes: 'Extracted verbatim from scripts/find_features.py (commit 3d9cb78441ebde401f21fb5e6ca34d09c004b6ce),
+  PROBES[''celine_dion'']. concept_absent for en/zh copied from the same file''s GENERAL_TEXT/GENERAL_TEXT_ZH
+  (the pre-existing general-text specificity baseline). word_absent is empty for every language: the source
+  contains no concept-present, term-absent contexts (ED-10) -- all languages are probes_only in battery
+  v1. census_terms (ED-9): en derived mechanically from concept_id (origin: concept_id); fr/zh/ar left
+  empty (status no_terms for census) pending researcher authorship -- legacy behavioral keyword lists
+  were not mined for this.'

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/corpus_manifest/v1.schema.json",
+  "title": "corpus_manifest v1 (A1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_type", "schema_version", "self_hash", "created_at", "created_by", "subject", "payload"],
+  "properties": {
+    "artifact_type": { "const": "corpus_manifest" },
+    "schema_version": { "const": 1 },
+    "self_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "created_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "code_commit", "entrypoint", "host"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "code_commit": { "type": "string" },
+        "entrypoint": { "type": "string" },
+        "host": { "type": "string" }
+      }
+    },
+    "subject": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content_hash", "location", "role"],
+        "properties": {
+          "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+          "role": { "type": "string" }
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "recipe", "token_count", "doc_count", "dedup_rate", "tokenizer", "sample_checksum"],
+      "properties": {
+        "name": { "type": "string" },
+        "recipe": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dataset", "revision", "split", "subset_spec", "filters"],
+          "properties": {
+            "dataset": { "type": "string" },
+            "revision": { "type": "string" },
+            "split": { "type": "string" },
+            "subset_spec": { "type": ["string", "object", "null"] },
+            "filters": { "type": "object" }
+          }
+        },
+        "token_count": { "type": "integer", "minimum": 0 },
+        "doc_count": { "type": "integer", "minimum": 0 },
+        "dedup_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "tokenizer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "revision"],
+          "properties": {
+            "name": { "type": "string" },
+            "revision": { "type": "string" }
+          }
+        },
+        "sample_checksum": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

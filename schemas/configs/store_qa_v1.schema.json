@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/configs/store_qa_v1.schema.json",
+  "title": "store_qa job config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "store_location", "corpus_manifest_hash", "model", "hook_name", "hook_layer",
+    "context_size", "prepend_bos", "dtype", "position_policy", "special_token_ids"
+  ],
+  "properties": {
+    "store_location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+    "corpus_manifest_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "revision"],
+      "properties": {
+        "name": { "type": "string" },
+        "revision": { "type": "string" }
+      }
+    },
+    "hook_name": { "type": "string" },
+    "hook_layer": { "type": "integer", "minimum": 0 },
+    "context_size": { "type": "integer", "minimum": 1 },
+    "prepend_bos": { "type": "boolean" },
+    "dtype": { "type": "string" },
+    "position_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exclude_bos", "exclude_padding", "excluded_first_n"],
+      "properties": {
+        "exclude_bos": { "type": "boolean" },
+        "exclude_padding": { "type": "boolean" },
+        "excluded_first_n": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "eval_holdout": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["method", "modulus", "residues"],
+      "properties": {
+        "method": { "const": "doc_hash_mod" },
+        "modulus": { "type": "integer", "minimum": 1 },
+        "residues": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+      }
+    },
+    "special_token_ids": { "type": "array", "items": { "type": "integer" } },
+    "chat_slice_location": { "type": ["string", "null"], "pattern": "^(tamia|local|hf|wandb):.+$" },
+    "bands_version": { "type": "integer", "minimum": 1 }
+  }
+}

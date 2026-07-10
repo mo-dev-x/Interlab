@@ -1,0 +1,10 @@
+{
+  "bands_version": 1,
+  "note": "PLACEHOLDER values only (blueprint §10 item 1): not yet calibrated on a retro-certification batch. Calibration is explicitly out of scope for WP2. Recalibration is a data change to this file plus a schema_version bump on sae_certificate (D3), never a code change.",
+  "metrics": {
+    "ce_recovered": { "direction": "higher_is_better", "green_min": 0.95, "amber_min": 0.90 },
+    "dead_fraction": { "direction": "lower_is_better", "green_max": 0.05, "amber_max": 0.15 },
+    "fvu": { "direction": "lower_is_better", "green_max": 0.10, "amber_max": 0.20 },
+    "max_decoder_cosine_p999": { "direction": "lower_is_better", "green_max": 0.5, "amber_max": 0.8 }
+  }
+}
