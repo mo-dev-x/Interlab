@@ -474,7 +474,7 @@ Fixtures are **generated once and committed** (a few MB of safetensors), with th
 | Test | Blocking | Content |
 |---|---|---|
 | `test_identity` | **hard** | noop spec ⇒ bit-identical logits and generations on tiny fixture AND (nightly) on Qwen 1 prompt; ALSO `generated_only` with all positions masked ⇒ bit-identical (ED-4) |
-| `test_delta_golden` | **hard** | clamp on tiny fixture reproduces pinned delta tensor to 0 ulp in fp32 |
+| `test_delta_golden` | **hard** | clamp (and add_direction) on tiny fixture reproduces pinned delta tensor within 32 ULP in fp32 (ED-26: cross-platform CPU kernel rounding — measured max 8 ULP on Linux vs the Windows-generated golden, not a defect; golden bytes unchanged) |
 | `test_hook_hygiene` | hard | attach/detach leaves zero forward hooks |
 | `test_envelope_roundtrip` | hard | self-hash verify on every file under `registry/` (CI runs on the real registry) |
 | `test_schema_validate` | hard | every schema in `schemas/` compiles; every registry file validates against its declared version |
