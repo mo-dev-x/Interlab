@@ -36,7 +36,7 @@ try:
 except ImportError:
     yaml = None  # config.yaml parsing degrades to "not parsed" rather than crashing
 
-REPO_ROOT = Path(__file__).resolve().parent[2]
+REPO_ROOT = Path(__file__).resolve().parent
 CHECKPOINT_IDS = ["rwu04lpb", "d1bgp5v5", "o1cx1dow", "zf2o13m2"]
 MODEL_NAME_HINT = "Qwen2.5-14B-Instruct"
 
