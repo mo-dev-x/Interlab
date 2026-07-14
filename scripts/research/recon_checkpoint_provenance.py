@@ -36,7 +36,7 @@ try:
 except ImportError:
     yaml = None  # config.yaml parsing degrades to "not parsed" rather than crashing
 
-REPO_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parent[2]
 CHECKPOINT_IDS = ["rwu04lpb", "d1bgp5v5", "o1cx1dow", "zf2o13m2"]
 MODEL_NAME_HINT = "Qwen2.5-14B-Instruct"
 
@@ -74,7 +74,7 @@ def find_checkpoint_dir_candidates(ckpt_id: str) -> list[Path]:
     """All 'final_*' directories under results/sae_checkpoints/<ckpt_id>/,
     at any depth (the Montreal-era checkpoints nest one level deeper:
     <id>/<subrun>/final_*, so we don't assume a fixed depth)."""
-    base = Path("qwen-sae-interp") / "results" / "sae_checkpoints" / ckpt_id
+    base = REPO_ROOT / "results" / "sae_checkpoints" / ckpt_id
     if not base.exists():
         return []
     return sorted(p for p in base.rglob("final_*") if p.is_dir())
