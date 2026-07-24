@@ -71,6 +71,93 @@ def test_hash_directory_rejects_non_directory(tmp_path):
         hashing.hash_directory(p)
 
 
+def _write_checkpoint_dir(d, *, cfg=b"cfg", weights=b"weights"):
+    d.mkdir()
+    (d / "cfg.json").write_bytes(cfg)
+    (d / "sae_weights.safetensors").write_bytes(weights)
+
+
+def test_hash_checkpoint_dir_sensitive_to_cfg_content(tmp_path):
+    d = tmp_path / "d"
+    _write_checkpoint_dir(d)
+    before = hashing.hash_checkpoint_dir(d)
+    (d / "cfg.json").write_bytes(b"different cfg")
+    after = hashing.hash_checkpoint_dir(d)
+    assert before != after
+
+
+def test_hash_checkpoint_dir_sensitive_to_weights_content(tmp_path):
+    d = tmp_path / "d"
+    _write_checkpoint_dir(d)
+    before = hashing.hash_checkpoint_dir(d)
+    (d / "sae_weights.safetensors").write_bytes(b"different weights")
+    after = hashing.hash_checkpoint_dir(d)
+    assert before != after
+
+
+def test_hash_checkpoint_dir_ignores_auxiliary_files(tmp_path):
+    """ED-27: trainer_state.pt, runner_cfg.json, sparsity.safetensors, logs,
+    and any other auxiliary file MUST NOT affect checkpoint identity."""
+    d = tmp_path / "d"
+    _write_checkpoint_dir(d)
+    before = hashing.hash_checkpoint_dir(d)
+
+    (d / "trainer_state.pt").write_bytes(b"optimizer state")
+    (d / "runner_cfg.json").write_bytes(b'{"unrelated": true}')
+    (d / "sparsity.safetensors").write_bytes(b"derived stat")
+    (d / "train.log").write_bytes(b"log lines")
+    after = hashing.hash_checkpoint_dir(d)
+
+    assert before == after
+
+
+def test_hash_checkpoint_dir_differs_from_hash_directory_with_auxiliary_files(tmp_path):
+    """The whole point of ED-27: hash_directory() stays a whole-directory
+    hash (unchanged) and hash_checkpoint_dir() does not -- they MUST
+    diverge once an auxiliary file is present."""
+    d = tmp_path / "d"
+    _write_checkpoint_dir(d)
+    (d / "trainer_state.pt").write_bytes(b"optimizer state")
+
+    assert hashing.hash_checkpoint_dir(d) != hashing.hash_directory(d)
+
+
+def test_hash_checkpoint_dir_missing_cfg_json_is_hard_error(tmp_path):
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "sae_weights.safetensors").write_bytes(b"weights")
+    with pytest.raises(FileNotFoundError):
+        hashing.hash_checkpoint_dir(d)
+
+
+def test_hash_checkpoint_dir_missing_weights_file_is_hard_error(tmp_path):
+    d = tmp_path / "d"
+    d.mkdir()
+    (d / "cfg.json").write_bytes(b"cfg")
+    with pytest.raises(FileNotFoundError):
+        hashing.hash_checkpoint_dir(d)
+
+
+def test_hash_checkpoint_dir_missing_both_files_is_hard_error(tmp_path):
+    d = tmp_path / "d"
+    d.mkdir()
+    with pytest.raises(FileNotFoundError):
+        hashing.hash_checkpoint_dir(d)
+
+
+def test_hash_checkpoint_dir_rejects_non_directory(tmp_path):
+    p = tmp_path / "f.txt"
+    p.write_bytes(b"x")
+    with pytest.raises(NotADirectoryError):
+        hashing.hash_checkpoint_dir(p)
+
+
+def test_hash_checkpoint_dir_deterministic(tmp_path):
+    d = tmp_path / "d"
+    _write_checkpoint_dir(d)
+    assert hashing.hash_checkpoint_dir(d) == hashing.hash_checkpoint_dir(d)
+
+
 def _recipe(**overrides):
     base = {"dataset": "fineweb", "revision": "abc", "split": "train", "subset_spec": None, "filters": {}}
     base.update(overrides)

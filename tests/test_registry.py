@@ -97,7 +97,7 @@ def test_find_by_subject_hash(tmp_path, created_by):
                 "role": "corpus_manifest",
             }
         ],
-        payload={"method": {"matcher": "regex", "case_folding": True, "boundary": "word"}, "concepts": {}},
+        payload={"method": {"matcher": "regex", "case_folding": True, "boundary": "word", "coverage": "full"}, "concepts": {}},
     )
     registry.put(artifact, registry_root=tmp_path)
 

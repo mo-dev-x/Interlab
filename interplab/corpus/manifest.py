@@ -12,53 +12,46 @@ so `build_payload` accepts whatever `recipe` dict it's given without
 validating dataset/revision/split content -- `sample_checksum` remains
 mandatory and becomes the operative identity in that case, exactly as ED-8
 specifies.
+
+ED-28: `build_payload` takes precomputed `doc_count`/`token_count` and a
+bounded `sample_docs` (the first up to 1000 documents in stream order, per
+`hashing.hash_sample_checksum`'s own `n=1000` default) rather than a full
+`docs: list[str]` -- the caller (`interplab.jobs.census`, via
+`interplab.corpus.census.scan_stream`) produces these as a by-product of a
+single streaming pass over the corpus, since materializing the whole
+consumed stream in memory is exactly what ED-28 forbids. Document loading
+itself lives in `interplab.corpus.replay`, not here.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from interplab.core import hashing
-
-
-def load_docs_jsonl(path: str | Path) -> list[str]:
-    """Loads a `{"id": ..., "text": ...}`-per-line corpus file (the
-    `tests/fixtures/pinned_text.jsonl` convention)."""
-    docs = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                docs.append(json.loads(line)["text"])
-    return docs
-
-
-def count_tokens(docs: list[str], tokenizer) -> int:
-    return sum(len(tokenizer(doc)["input_ids"]) for doc in docs)
 
 
 def build_payload(
     *,
     name: str,
     recipe: dict,
-    docs: list[str],
+    doc_count: int,
+    sample_docs: list[str],
     tokenizer_name: str,
     tokenizer_revision: str,
     token_count: int,
     dedup_rate: float | None = None,
 ) -> dict:
-    """Assembles the A1 payload. Callers supply `token_count` explicitly
-    (via `count_tokens` for a fresh scan, or a recovered value for a legacy
-    corpus per ED-8) so this function stays free of any tokenizer-loading
-    concern -- `interplab.corpus` has no sanctioned dependency on a
-    tokenizer-loading library beyond what the caller already has in hand."""
+    """Assembles the A1 payload. Callers supply `token_count`/`doc_count`
+    explicitly (from a fresh streaming scan, or recovered values for a
+    legacy corpus per ED-8) so this function stays free of any
+    tokenizer-loading or stream-consuming concern. `sample_docs` MUST be
+    the first `doc_count` documents in stream order (or all of them, if
+    fewer than 1000) -- `sample_checksum`'s well-definedness depends on
+    that order being pinned (ED-28)."""
     return {
         "name": name,
         "recipe": recipe,
         "token_count": token_count,
-        "doc_count": len(docs),
+        "doc_count": doc_count,
         "dedup_rate": dedup_rate,
         "tokenizer": {"name": tokenizer_name, "revision": tokenizer_revision},
-        "sample_checksum": hashing.hash_sample_checksum(docs),
+        "sample_checksum": hashing.hash_sample_checksum(sample_docs),
     }

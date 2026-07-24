@@ -32,7 +32,7 @@ def _created_by():
 
 
 def _register_checkpoint(registry_root: Path) -> str:
-    weights_hash = hashing.hash_directory(FIXTURES_DIR / "tiny_sae")
+    weights_hash = hashing.hash_checkpoint_dir(FIXTURES_DIR / "tiny_sae")
     model_hash = hashing.hash_directory(FIXTURES_DIR / "tiny_model")
     checkpoint = envelope.dump(
         artifact_type="sae_checkpoint", schema_version=1, created_by=_created_by(),
@@ -42,7 +42,7 @@ def _register_checkpoint(registry_root: Path) -> str:
         ],
         payload={
             "config": {}, "store_hash": None, "seed": 0, "tokens_trained": 1000, "wandb": None,
-            "telemetry_tail": {"fvu": 0.1, "dead_count": 0},
+            "telemetry_tail": {"fvu": 0.1, "fvu_source": "training_eval", "dead_count": 0},
         },
     )
     return registry_put(checkpoint, registry_root=registry_root)

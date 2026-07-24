@@ -4,12 +4,28 @@ always null (these predate stores); the training corpus is documented via
 a `corpus_manifest` reference in `subject`, per ED-5.
 
 Directory hashing MUST happen on the machine holding the weights (D1). If
-`weights_dir_hash` is supplied in the config, it is trusted as already
-computed correctly there (e.g. via a small companion script on the
-cluster using the same sha256-over-sorted-lines algorithm as
-`core.hashing.hash_directory`). If omitted, this job computes it locally --
-only valid when `weights_location` is actually reachable from this
-machine (e.g. a `local:` fixture, not a real cluster path).
+`weights_dir_hash`/`model_dir_hash` are supplied in the config, they are
+trusted as already computed correctly there (e.g. via a small companion
+script on the cluster using the same algorithm as
+`core.hashing.hash_checkpoint_dir` for weights -- ED-27: restricted to
+exactly `{cfg.json, sae_weights.safetensors}`, never the whole directory --
+and `core.hashing.hash_directory` for the model). If omitted, this job
+computes them locally -- only valid when the location is actually
+reachable from this machine (e.g. a `local:` fixture, not a real cluster
+path).
+
+ED-29: `model_location` MUST be a revision-pinned `hf:<repo>@<commit-sha>`
+ref (schema-enforced) -- the base model is a *consumed* artifact, already
+identified upstream, unlike the checkpoint this job registers. Because
+that's never a `local:` URI, `model_dir_hash` MUST be supplied explicitly
+in every real invocation; `model_dir_hash` itself remains the unrestricted
+`hash_directory`, never `hash_checkpoint_dir`.
+
+ED-30: `telemetry_tail` is recovered training-run telemetry, never a
+certified metric (that's A6 `metrics.fvu`) -- passed through from the
+config verbatim, including its `fvu_source` discriminator and the
+nullability of `fvu`/`dead_count` for legacy rows that can't recover a
+value.
 """
 
 from __future__ import annotations
@@ -25,7 +41,13 @@ from interplab.registry.registry import put as registry_put
 from interplab.registry.run_card import new_run_card
 
 
-def _resolve_dir_hash(explicit_hash: str | None, location: str, field_name: str) -> str:
+def _resolve_dir_hash(
+    explicit_hash: str | None,
+    location: str,
+    field_name: str,
+    *,
+    hash_fn=hashing.hash_directory,
+) -> str:
     """`local:` URIs here always mean repo-relative to the REAL repo (§3.2)
     -- never the job's own (possibly test-injected) `repo_root`, which
     exists only to resolve the job's own config file location."""
@@ -37,10 +59,10 @@ def _resolve_dir_hash(explicit_hash: str | None, location: str, field_name: str)
         raise ContractViolationError(
             f"{field_name} was not supplied and its location is not a local: URI -- D1 requires "
             f"directory hashing to happen on the machine holding the data; compute it there "
-            f"(core.hashing.hash_directory) and supply {field_name} explicitly"
+            f"(core.hashing.{hash_fn.__name__}) and supply {field_name} explicitly"
         )
     path = uris.resolve_local(location)
-    return hashing.hash_directory(path)
+    return hash_fn(path)
 
 
 def run(
@@ -69,7 +91,8 @@ def run(
         training_config = yaml.safe_load(training_config_path.read_text(encoding="utf-8"))
 
         weights_hash = _resolve_dir_hash(
-            config.get("weights_dir_hash"), config["weights_location"], "weights_dir_hash"
+            config.get("weights_dir_hash"), config["weights_location"], "weights_dir_hash",
+            hash_fn=hashing.hash_checkpoint_dir,
         )
         model_hash = _resolve_dir_hash(config.get("model_dir_hash"), config["model_location"], "model_dir_hash")
 

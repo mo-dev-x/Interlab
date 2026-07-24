@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "schemas/census_report/v1.schema.json",
   "title": "census_report v1 (A3)",
-  "description": "ED-9: literal-matching only, against researcher-authored census_terms (A2). A language with probes but no census_terms is status 'no_terms' with null counts (never zero -- zero is a measurement, null is the absence of an instrument). per_term keeps dominant variants visible. boundary ('word'|'substring') is recorded so substring matching in unsegmented scripts stays auditable.",
+  "description": "ED-9: literal-matching only, against researcher-authored census_terms (A2). A language with probes but no census_terms is status 'no_terms' with null counts (never zero -- zero is a measurement, null is the absence of an instrument). per_term keeps dominant variants visible. boundary ('word'|'substring') is recorded so substring matching in unsegmented scripts stays auditable. ED-28: method.coverage records whether the census scanned exactly the stream its subject A1 defines ('full') or a prefix of it ('sampled', with method.sampling mandatory and affected rows status 'estimated'). An estimate is neither a measurement nor the absence of an instrument -- a third thing.",
   "type": "object",
   "additionalProperties": false,
   "required": ["artifact_type", "schema_version", "self_hash", "created_at", "created_by", "subject", "payload"],
@@ -43,19 +43,47 @@
         "method": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["matcher", "case_folding", "boundary"],
+          "required": ["matcher", "case_folding", "boundary", "coverage"],
           "properties": {
             "matcher": { "enum": ["regex", "tokenizer"] },
             "case_folding": { "type": "boolean" },
-            "boundary": { "enum": ["word", "substring"] }
-          }
+            "boundary": { "enum": ["word", "substring"] },
+            "coverage": {
+              "description": "ED-28: 'full' = the census scanned exactly the stream its subject A1 defines. 'sampled' = A1 still defines the full consumed stream, but this census scanned only a prefix of it (method.sampling mandatory).",
+              "enum": ["full", "sampled"]
+            },
+            "sampling": {
+              "type": ["object", "null"],
+              "additionalProperties": false,
+              "required": ["rule", "seed", "realized_docs", "realized_tokens"],
+              "properties": {
+                "rule": { "type": ["string", "null"] },
+                "seed": { "type": ["integer", "null"] },
+                "realized_docs": { "type": "integer", "minimum": 0 },
+                "realized_tokens": { "type": "integer", "minimum": 0 }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "coverage": { "const": "full" } } },
+              "then": { "properties": { "sampling": { "const": null } } }
+            },
+            {
+              "if": { "properties": { "coverage": { "const": "sampled" } } },
+              "then": {
+                "properties": { "sampling": { "type": "object" } },
+                "required": ["sampling"]
+              }
+            }
+          ]
         },
         "concepts": {
           "type": "object",
           "description": "keyed by concept_id",
           "additionalProperties": {
             "type": "object",
-            "description": "keyed by language code (en|fr|zh|ar); a language with probes is always a row, measured or no_terms, never an omission",
+            "description": "keyed by language code (en|fr|zh|ar); a language with probes is always a row, measured/estimated/no_terms, never an omission",
             "additionalProperties": false,
             "patternProperties": {
               "^(en|fr|zh|ar)$": {
@@ -63,7 +91,7 @@
                 "additionalProperties": false,
                 "required": ["status", "per_term", "occurrences_total", "per_million_tokens", "doc_count"],
                 "properties": {
-                  "status": { "enum": ["measured", "no_terms"] },
+                  "status": { "enum": ["measured", "estimated", "no_terms"] },
                   "per_term": {
                     "type": ["array", "null"],
                     "items": {
@@ -95,7 +123,7 @@
                     }
                   },
                   {
-                    "if": { "properties": { "status": { "const": "measured" } } },
+                    "if": { "properties": { "status": { "enum": ["measured", "estimated"] } } },
                     "then": {
                       "properties": {
                         "per_term": { "type": "array" },

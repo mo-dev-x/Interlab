@@ -26,6 +26,14 @@
     "matcher": { "enum": ["regex", "tokenizer"] },
     "case_folding": { "type": "boolean" },
     "boundary": { "enum": ["word", "substring"] },
-    "dedup_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+    "dedup_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "n_training_samples": {
+      "description": "ED-31: training-side telemetry (SAELens' packed/windowed token counter, e.g. WandB's details/n_training_samples), never an A1 identity target -- packing (BOS separators, concatenation, fixed-size windowing) is a training-time transformation applied to the corpus, not a property of it. If supplied, cross-checked advisory-only against the replayed document-stream token_count/doc_count within a structural sanity band derived from the known packing policy (interplab.corpus.replay.expected_packed_token_range): only a gross, order-of-magnitude mismatch fails the run -- the small delta packing legitimately introduces never does. Omit when there is no training run to reconcile against (fresh/exploratory corpus registration).",
+      "type": "integer", "minimum": 0
+    },
+    "census_sample_docs": {
+      "description": "ED-28 coverage: if supplied, the census only accumulates term matches over the first N documents of the (already subset_spec-bounded) stream -- coverage becomes 'sampled' and affected rows 'estimated'. A1's manifest is unaffected: it still reflects the whole consumed stream. Omit for coverage: 'full'.",
+      "type": "integer", "minimum": 1
+    }
   }
 }

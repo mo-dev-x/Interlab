@@ -22,23 +22,39 @@
     },
     "weights_location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
     "model_dir_hash": {
-      "description": "Pre-computed directory hash of the base model, same rule as weights_dir_hash. If omitted, computed locally when model_location is reachable.",
+      "description": "Pre-computed directory hash of the base model, same rule as weights_dir_hash -- unrestricted hash_directory (ED-29). If omitted, computed locally when model_location is reachable (never true for a revision-pinned hf: location; supply it explicitly).",
       "type": ["string", "null"],
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
-    "model_location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" },
+    "model_location": {
+      "description": "ED-29: the base model is a consumed artifact whose identity is already fixed upstream, so its ref MUST pin the revision -- 'hf:<repo>@<commit-sha>', never a mutable ref like '@main'.",
+      "type": "string",
+      "pattern": "^hf:[^@]+@[^@]+$"
+    },
     "corpus_manifest_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "tokens_trained": { "type": "integer", "minimum": 0 },
     "seed": { "type": "integer" },
     "wandb": { "type": ["string", "null"] },
     "telemetry_tail": {
+      "description": "ED-30: recovered training-run telemetry, never a certified metric. fvu_source null iff fvu is unrecoverable; dead_count follows the same nullability doctrine independently.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["fvu", "dead_count"],
+      "required": ["fvu", "fvu_source", "dead_count"],
       "properties": {
-        "fvu": { "type": "number" },
-        "dead_count": { "type": "integer", "minimum": 0 }
-      }
+        "fvu": { "type": ["number", "null"] },
+        "fvu_source": { "enum": ["training_eval", "training_step", null] },
+        "dead_count": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "fvu_source": { "const": null } } },
+          "then": { "properties": { "fvu": { "const": null } } }
+        },
+        {
+          "if": { "properties": { "fvu_source": { "enum": ["training_eval", "training_step"] } } },
+          "then": { "properties": { "fvu": { "type": "number" } }, "required": ["fvu"] }
+        }
+      ]
     }
   }
 }

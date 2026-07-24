@@ -83,7 +83,7 @@ def build_sae_checkpoint(registry_root: Path, store_manifest: dict | None) -> di
     payload = {
         "config": {"d_in": 64, "d_sae": 256}, "store_hash": store_manifest["self_hash"] if store_manifest else None,
         "seed": 0, "tokens_trained": 100_000, "wandb": None,
-        "telemetry_tail": {"fvu": 0.05, "dead_count": 0},
+        "telemetry_tail": {"fvu": 0.05, "fvu_source": "training_eval", "dead_count": 0},
     }
     subject = [
         {"content_hash": _HASH_WEIGHTS, "location": "local:tests/fixtures/tiny_sae", "role": "weights"},

@@ -40,7 +40,7 @@ def _sample(artifact_type: str) -> tuple[list[dict], dict]:
         "census_report": (
             [{"content_hash": _HASH_A, "location": "local:registry/corpus_manifest/abc.json", "role": "corpus_manifest"}],
             {
-                "method": {"matcher": "regex", "case_folding": True, "boundary": "word"},
+                "method": {"matcher": "regex", "case_folding": True, "boundary": "word", "coverage": "full"},
                 "concepts": {
                     "poutine": {
                         "en": {
@@ -90,7 +90,7 @@ def _sample(artifact_type: str) -> tuple[list[dict], dict]:
                 "seed": 42,
                 "tokens_trained": 500_000_000,
                 "wandb": None,
-                "telemetry_tail": {"fvu": 0.05, "dead_count": 120},
+                "telemetry_tail": {"fvu": 0.05, "fvu_source": "training_eval", "dead_count": 120},
             },
         ),
         "sae_certificate": (

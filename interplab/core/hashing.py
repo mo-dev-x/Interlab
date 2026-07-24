@@ -73,6 +73,45 @@ def hash_directory(
     return sha256_prefixed(manifest_bytes)
 
 
+CHECKPOINT_IDENTITY_FILES: tuple[str, ...] = ("cfg.json", "sae_weights.safetensors")
+
+
+def hash_checkpoint_dir(path: str | Path) -> str:
+    """§2.2 heavy-directory manifest restricted to the SAELens load closure
+    (ED-27, A5 identity): exactly `{cfg.json, sae_weights.safetensors}` --
+    the files `SAE.load_from_pretrained` reads to instantiate the function
+    a certificate speaks about. Same `"<relpath>\\0<sha256(file)>\\n"` sorted
+    line format as `hash_directory`, but over this fixed file set only.
+
+    Either file missing is a hard error, never a silently narrower subset.
+    `trainer_state.pt`, `runner_cfg.json`, `sparsity.safetensors`, logs, and
+    any other auxiliary or stray file are excluded from identity by
+    construction -- this function never looks at anything but the two
+    named files, regardless of what else is in `path`.
+
+    MUST be computed at creation/backfill, on the machine holding the
+    weights (D1) -- same discipline as `hash_directory`.
+    """
+    root = Path(path)
+    if not root.is_dir():
+        raise NotADirectoryError(root)
+
+    lines: list[str] = []
+    for name in CHECKPOINT_IDENTITY_FILES:
+        file_path = root / name
+        if not file_path.is_file():
+            raise FileNotFoundError(
+                f"checkpoint identity requires {name!r} in {root} (ED-27: the SAELens load "
+                f"closure is exactly {CHECKPOINT_IDENTITY_FILES}); found no such file"
+            )
+        file_hex = hash_file(file_path)[len(SHA256_PREFIX) :]
+        lines.append(f"{name}\0{file_hex}\n")
+
+    lines.sort()
+    manifest_bytes = "".join(lines).encode("utf-8")
+    return sha256_prefixed(manifest_bytes)
+
+
 def hash_recipe(recipe: dict) -> str:
     """§2.2 "External corpus" primary identity: sha256 of canonical JSON
     `{dataset, revision, split, subset_spec, filters}`."""

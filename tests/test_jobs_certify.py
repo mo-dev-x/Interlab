@@ -31,7 +31,7 @@ def _register_legacy_checkpoint(registry_root) -> str:
             "seed": 0,
             "tokens_trained": 1000,
             "wandb": None,
-            "telemetry_tail": {"fvu": 0.1, "dead_count": 5},
+            "telemetry_tail": {"fvu": 0.1, "fvu_source": "training_eval", "dead_count": 5},
         },
     )
     return put(a5, registry_root=registry_root)
@@ -72,7 +72,7 @@ def _register_store_backed_checkpoint(registry_root, *, eval_holdout) -> tuple[s
             "seed": 0,
             "tokens_trained": 1000,
             "wandb": None,
-            "telemetry_tail": {"fvu": 0.1, "dead_count": 5},
+            "telemetry_tail": {"fvu": 0.1, "fvu_source": "training_eval", "dead_count": 5},
         },
     )
     checkpoint_hash = put(a5, registry_root=registry_root)
@@ -218,7 +218,7 @@ def test_store_hash_mismatch_is_contract_violation(tmp_path):
         subject=[_WEIGHTS_REF, _MODEL_REF],
         payload={
             "config": {"model_name": "tiny"}, "store_hash": "sha256:" + "7" * 64, "seed": 0,
-            "tokens_trained": 1000, "wandb": None, "telemetry_tail": {"fvu": 0.1, "dead_count": 5},
+            "tokens_trained": 1000, "wandb": None, "telemetry_tail": {"fvu": 0.1, "fvu_source": "training_eval", "dead_count": 5},
         },
     )
     checkpoint_hash = put(a5, registry_root=registry_root)

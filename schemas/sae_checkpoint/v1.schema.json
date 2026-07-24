@@ -52,13 +52,25 @@
         "tokens_trained": { "type": "integer", "minimum": 0 },
         "wandb": { "type": ["string", "null"] },
         "telemetry_tail": {
+          "description": "ED-30: recovered training-run telemetry, never a certified metric -- the only FVU any claim, band evaluation, gate, or report may consume is A6 metrics.fvu. fvu_source records provenance; null iff fvu is unrecoverable from legacy data. dead_count follows the same nullability doctrine (ED-9: zero is a measurement, null is the absence of an instrument).",
           "type": "object",
           "additionalProperties": false,
-          "required": ["fvu", "dead_count"],
+          "required": ["fvu", "fvu_source", "dead_count"],
           "properties": {
-            "fvu": { "type": "number" },
-            "dead_count": { "type": "integer", "minimum": 0 }
-          }
+            "fvu": { "type": ["number", "null"] },
+            "fvu_source": { "enum": ["training_eval", "training_step", null] },
+            "dead_count": { "type": ["integer", "null"], "minimum": 0 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "fvu_source": { "const": null } } },
+              "then": { "properties": { "fvu": { "const": null } } }
+            },
+            {
+              "if": { "properties": { "fvu_source": { "enum": ["training_eval", "training_step"] } } },
+              "then": { "properties": { "fvu": { "type": "number" } }, "required": ["fvu"] }
+            }
+          ]
         }
       }
     }
