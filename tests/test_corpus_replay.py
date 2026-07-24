@@ -57,6 +57,64 @@ def test_open_stream_local_scheme():
     assert len(docs) == 200
 
 
+def test_iter_local_hf_dataset_calls_load_dataset_streaming_with_no_revision(tmp_path, monkeypatch):
+    """The real acquisition path used for this campaign's training corpus:
+    the same `load_dataset(path, split=..., streaming=True)` call SAELens
+    itself made against the local Arrow cache -- no `revision` (there is
+    none for a local path)."""
+    calls = {}
+
+    def fake_load_dataset(path, split=None, streaming=None):
+        calls["args"] = (path, split, streaming)
+        return [{"text": "doc one"}, {"text": "doc two"}]
+
+    import datasets
+
+    monkeypatch.setattr(datasets, "load_dataset", fake_load_dataset)
+    local_cache_dir = tmp_path / "fineweb_subset"
+    local_cache_dir.mkdir()
+
+    docs = list(replay.iter_local_hf_dataset(local_cache_dir, split="train"))
+
+    assert calls["args"] == (str(local_cache_dir), "train", True)
+    assert docs == ["doc one", "doc two"]
+
+
+def test_open_stream_local_scheme_dispatches_directories_to_hf_dataset_cache(tmp_path, monkeypatch):
+    """A local: location that resolves to a directory (not a file) is a
+    local HuggingFace dataset cache, not JSONL -- dispatched by what's
+    actually on disk, no separate format flag needed."""
+    def fake_load_dataset(path, split=None, streaming=None):
+        assert path.endswith("fineweb_subset")
+        assert split == "train"
+        assert streaming is True
+        return [{"text": "a"}, {"text": "b"}, {"text": "c"}]
+
+    import datasets
+
+    from interplab.core import uris
+
+    monkeypatch.setattr(datasets, "load_dataset", fake_load_dataset)
+    local_cache_dir = uris.REPO_ROOT / "results" / "_test_scratch" / "fineweb_subset"
+    local_cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        rel = local_cache_dir.relative_to(uris.REPO_ROOT).as_posix()
+        docs = list(replay.open_stream(f"local:{rel}", split="train", subset_spec=None))
+        assert docs == ["a", "b", "c"]
+    finally:
+        local_cache_dir.rmdir()
+
+
+def test_open_stream_local_scheme_still_dispatches_files_to_jsonl():
+    """A local: location resolving to a file stays JSONL -- the directory
+    dispatch added for local HF dataset caches doesn't change the existing
+    file-based fixture path."""
+    docs = list(replay.open_stream(
+        "local:tests/fixtures/pinned_text.jsonl", split="all", subset_spec=None,
+    ))
+    assert len(docs) == 200
+
+
 def test_open_stream_hf_scheme(monkeypatch):
     def fake_load_dataset(dataset, revision=None, split=None, streaming=None):
         return [{"text": "a"}, {"text": "b"}]

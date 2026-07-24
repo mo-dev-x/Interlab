@@ -1,9 +1,20 @@
 """interplab.corpus.replay (SS1, ED-28) -- replays the token stream an A1
 corpus_manifest's recipe defines. ED-28: "A1 describes a defined token
 stream, never an available dataset." `docs_location` says WHERE (a local:
-JSONL file or an hf: dataset); `recipe['subset_spec']` says HOW MUCH and in
-what order -- the consumption bound (`order`, `take_docs`/`take_tokens`,
+JSONL file, a local: HuggingFace Arrow dataset cache directory, or an hf:
+remote Hub dataset); `recipe['subset_spec']` says HOW MUCH and in what
+order -- the consumption bound (`order`, `take_docs`/`take_tokens`,
 `shuffle: {seed, buffer}`).
+
+`local:` resolves to a real filesystem path (`uris.resolve_local`) and is
+dispatched on what's actually there, not on any config-level format flag:
+a file is a JSONL document-per-line corpus (`iter_local_jsonl`); a
+directory is a local HuggingFace dataset cache (`iter_local_hf_dataset`)
+-- the on-disk format SAELens itself streamed from during real training,
+opened the same way SAELens did:
+`datasets.load_dataset(<local_path>, split=..., streaming=True)`, with no
+`revision` (a local cache has no Hub revision to pin; the directory
+contents ARE the pin, same as any other `local:` resource).
 
 This is the only place `interplab.corpus`/`interplab.jobs.census` reads
 document text from. Every function here is a generator (or wraps one):
@@ -62,6 +73,21 @@ def iter_local_jsonl(path: str | Path) -> Iterator[str]:
             line = line.strip()
             if line:
                 yield json.loads(line)["text"]
+
+
+def iter_local_hf_dataset(path: str | Path, *, split: str, text_field: str = "text") -> Iterator[str]:
+    """Streams a local HuggingFace dataset cache's `text_field`, one
+    document at a time, via the same acquisition method SAELens itself
+    used during real training (`datasets.load_dataset(<local_path>,
+    split=..., streaming=True)`) -- no `revision` (there is no Hub
+    revision for a local path; the directory's own content is the pin,
+    same as any other `local:` resource) and no download (the path is
+    already local)."""
+    from datasets import load_dataset
+
+    ds = load_dataset(str(path), split=split, streaming=True)
+    for row in ds:
+        yield row[text_field]
 
 
 def iter_hf_dataset(dataset: str, *, revision: str, split: str, text_field: str = "text") -> Iterator[str]:
@@ -161,10 +187,18 @@ def open_stream(
     `uris.parse` already enforces the `<dataset>@<revision>` shape for
     `hf:` locations (raising `URIError`, a `ValueError`), so this function
     does not re-validate it.
+
+    A `local:` location dispatches on what's actually at the resolved
+    path: a file streams as JSONL (`iter_local_jsonl`); a directory
+    streams as a local HuggingFace dataset cache (`iter_local_hf_dataset`)
+    -- the format SAELens itself trained from for this campaign's real
+    corpora, opened the same way it did (`load_dataset(path, split=...,
+    streaming=True)`, no `revision`).
     """
     parsed = uris.parse(location)
     if parsed.scheme == "local":
-        raw = iter_local_jsonl(uris.resolve_local(location))
+        resolved = uris.resolve_local(location)
+        raw = iter_local_hf_dataset(resolved, split=split) if resolved.is_dir() else iter_local_jsonl(resolved)
     elif parsed.scheme == "hf":
         dataset, _, revision = parsed.value.partition("@")
         raw = iter_hf_dataset(dataset, revision=revision, split=split)

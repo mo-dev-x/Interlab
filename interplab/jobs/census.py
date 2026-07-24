@@ -8,10 +8,11 @@ ED-9: census performs literal matching only, against researcher-authored
 artifact so results stay auditable (§6.1's job inventory row for `census`).
 
 ED-28: the document stream is opened once, via `interplab.corpus.replay`
-(local: JSONL or hf: streaming dataset, subject to `recipe.subset_spec`'s
-consumption bound), and scanned once (`interplab.corpus.census.scan_stream`,
-via `build_payload`) to produce BOTH A1's token/doc counts and A3's term
-occurrences -- never materialized as a `docs: list[str]`, never re-read.
+(local: JSONL, local: HuggingFace dataset cache, or hf: streaming Hub
+dataset, subject to `recipe.subset_spec`'s consumption bound), and scanned
+once (`interplab.corpus.census.scan_stream`, via `build_payload`) to
+produce BOTH A1's token/doc counts and A3's term occurrences -- never
+materialized as a `docs: list[str]`, never re-read.
 
 The replay self-check (ED-28, relaxed by ED-31) verifies *document-stream*
 reproducibility: `doc_count`/`token_count`/`sample_checksum` are recomputed
