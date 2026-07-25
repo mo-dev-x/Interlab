@@ -1,0 +1,34 @@
+{
+  "artifact_type": "corpus_manifest",
+  "created_at": "2026-07-25T03:00:58Z",
+  "created_by": {
+    "code_commit": "3cf1d5eb1c7cf67bc108d07404b190aedb39adbe",
+    "entrypoint": "interplab.jobs.census",
+    "host": "tamia",
+    "run_id": "r20260725-0231-97a7"
+  },
+  "payload": {
+    "dedup_rate": null,
+    "doc_count": 601369,
+    "name": "fineweb_subset_consumed_400M",
+    "recipe": {
+      "dataset": "HuggingFaceFW/fineweb",
+      "filters": {},
+      "revision": "unknown",
+      "split": "train",
+      "subset_spec": {
+        "order": "as_is",
+        "take_tokens": 400000000
+      }
+    },
+    "sample_checksum": "sha256:831261f24709cc1d0295f4bf307bf9743dd550ad786520fc1f68634859e492c7",
+    "token_count": 400000109,
+    "tokenizer": {
+      "name": "data/raw/qwen-tokenizer",
+      "revision": "cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8"
+    }
+  },
+  "schema_version": 1,
+  "self_hash": "sha256:88740b7463610b932917b5a0b0ebe81959cd4170cffe6b36fa229b0df64239dc",
+  "subject": []
+}

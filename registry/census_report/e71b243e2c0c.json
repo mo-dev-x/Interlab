@@ -1,0 +1,320 @@
+{
+  "artifact_type": "census_report",
+  "created_at": "2026-07-25T03:00:58Z",
+  "created_by": {
+    "code_commit": "3cf1d5eb1c7cf67bc108d07404b190aedb39adbe",
+    "entrypoint": "interplab.jobs.census",
+    "host": "tamia",
+    "run_id": "r20260725-0231-97a7"
+  },
+  "payload": {
+    "concepts": {
+      "celine-dion": {
+        "ar": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "en": {
+          "doc_count": 113,
+          "occurrences_total": 149,
+          "per_million_tokens": 0.3724998984937777,
+          "per_term": [
+            {
+              "byte_fallback": false,
+              "occurrences": 149,
+              "term": "celine dion",
+              "token_split": [
+                "cel",
+                "ine",
+                "Ġd",
+                "ion"
+              ]
+            }
+          ],
+          "status": "measured"
+        },
+        "fr": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "zh": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        }
+      },
+      "couscous": {
+        "ar": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "en": {
+          "doc_count": 165,
+          "occurrences_total": 334,
+          "per_million_tokens": 0.834999772462562,
+          "per_term": [
+            {
+              "byte_fallback": false,
+              "occurrences": 334,
+              "term": "couscous",
+              "token_split": [
+                "c",
+                "ous",
+                "c",
+                "ous"
+              ]
+            }
+          ],
+          "status": "measured"
+        },
+        "fr": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "zh": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        }
+      },
+      "montreal-place": {
+        "ar": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "en": {
+          "doc_count": 0,
+          "occurrences_total": 0,
+          "per_million_tokens": 0.0,
+          "per_term": [
+            {
+              "byte_fallback": false,
+              "occurrences": 0,
+              "term": "montreal place",
+              "token_split": [
+                "mont",
+                "real",
+                "Ġplace"
+              ]
+            }
+          ],
+          "status": "measured"
+        },
+        "fr": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "zh": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        }
+      },
+      "poutine": {
+        "ar": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "en": {
+          "doc_count": 45,
+          "occurrences_total": 68,
+          "per_million_tokens": 0.16999995367501264,
+          "per_term": [
+            {
+              "byte_fallback": false,
+              "occurrences": 68,
+              "term": "poutine",
+              "token_split": [
+                "p",
+                "outine"
+              ]
+            }
+          ],
+          "status": "measured"
+        },
+        "fr": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "zh": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        }
+      },
+      "quebec": {
+        "ar": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "en": {
+          "doc_count": 1182,
+          "occurrences_total": 2263,
+          "per_million_tokens": 5.65749845833167,
+          "per_term": [
+            {
+              "byte_fallback": false,
+              "occurrences": 2263,
+              "term": "quebec",
+              "token_split": [
+                "que",
+                "bec"
+              ]
+            }
+          ],
+          "status": "measured"
+        },
+        "fr": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "zh": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        }
+      },
+      "quebec-geographic": {
+        "ar": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "en": {
+          "doc_count": 0,
+          "occurrences_total": 0,
+          "per_million_tokens": 0.0,
+          "per_term": [
+            {
+              "byte_fallback": false,
+              "occurrences": 0,
+              "term": "quebec geographic",
+              "token_split": [
+                "que",
+                "bec",
+                "Ġgeographic"
+              ]
+            }
+          ],
+          "status": "measured"
+        },
+        "fr": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "zh": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        }
+      },
+      "world-cup": {
+        "ar": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "en": {
+          "doc_count": 2043,
+          "occurrences_total": 4592,
+          "per_million_tokens": 11.479996871700854,
+          "per_term": [
+            {
+              "byte_fallback": false,
+              "occurrences": 4592,
+              "term": "world cup",
+              "token_split": [
+                "world",
+                "Ġcup"
+              ]
+            }
+          ],
+          "status": "measured"
+        },
+        "fr": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        },
+        "zh": {
+          "doc_count": null,
+          "occurrences_total": null,
+          "per_million_tokens": null,
+          "per_term": null,
+          "status": "no_terms"
+        }
+      }
+    },
+    "method": {
+      "boundary": "word",
+      "case_folding": true,
+      "coverage": "full",
+      "matcher": "regex"
+    }
+  },
+  "schema_version": 1,
+  "self_hash": "sha256:e71b243e2c0c43cf2defd702ecbf79ce6fdf9d7c8f970b3e3ac19bf7a9e5d0ea",
+  "subject": [
+    {
+      "content_hash": "sha256:88740b7463610b932917b5a0b0ebe81959cd4170cffe6b36fa229b0df64239dc",
+      "location": "local:registry/corpus_manifest/88740b746361.json",
+      "role": "corpus_manifest"
+    },
+    {
+      "content_hash": "sha256:f27a0ee7eb5c65cfdbf431c1699cf930ff17345d2a251e6b45557d8993a7c796",
+      "location": "local:data/concepts",
+      "role": "concept_battery"
+    }
+  ]
+}

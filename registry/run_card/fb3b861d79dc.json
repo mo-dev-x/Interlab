@@ -1,0 +1,37 @@
+{
+  "artifact_type": "run_card",
+  "created_at": "2026-07-25T03:00:59Z",
+  "created_by": {
+    "code_commit": "3cf1d5eb1c7cf67bc108d07404b190aedb39adbe",
+    "entrypoint": "interplab.jobs.census",
+    "host": "tamia",
+    "run_id": "r20260725-0231-97a7"
+  },
+  "payload": {
+    "config_hash": "sha256:55f66d4c17662990a584207c1ef386924671d5fafa786cb845542201c1177c43",
+    "config_ref": "local:configs/census_fineweb_subset_400M.yaml",
+    "exit_code": 0,
+    "inputs": [],
+    "log_section": null,
+    "outcome_line": "corpus_manifest 88740b746361, census_report e71b243e2c0c over 601369 docs / 400000109 tokens (coverage=full)",
+    "outputs": [
+      {
+        "content_hash": "sha256:88740b7463610b932917b5a0b0ebe81959cd4170cffe6b36fa229b0df64239dc",
+        "location": "local:registry/corpus_manifest/88740b746361.json",
+        "role": "corpus_manifest"
+      },
+      {
+        "content_hash": "sha256:e71b243e2c0c43cf2defd702ecbf79ce6fdf9d7c8f970b3e3ac19bf7a9e5d0ea",
+        "location": "local:registry/census_report/e71b243e2c0c.json",
+        "role": "census_report"
+      }
+    ],
+    "run_id": "r20260725-0231-97a7",
+    "slurm": null,
+    "stage": "census",
+    "status": "completed"
+  },
+  "schema_version": 1,
+  "self_hash": "sha256:fb3b861d79dc74e34ce2fb14eb9e167c7c0bd6084d1ae7edb0cc47922aba91c4",
+  "subject": []
+}
