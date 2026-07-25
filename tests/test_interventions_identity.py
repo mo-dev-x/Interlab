@@ -51,14 +51,14 @@ def test_generated_only_steers_decode_steps_but_not_prefill(tiny_hooked_transfor
     decoding steps -- the prefill call (positions < prompt_lengths) must
     stay untouched while later single-token decode calls (positions >=
     prompt_lengths) get steered."""
-    from transformer_lens.past_key_value_caching import HookedTransformerKeyValueCache
+    from transformer_lens.cache.key_value_cache import TransformerLensKeyValueCache
 
     model = tiny_hooked_transformer
     ids = model.tokenizer(_PROMPT, return_tensors="pt")["input_ids"]
     prompt_len = ids.shape[1]
     next_token = torch.tensor([[7]])
 
-    baseline_cache = HookedTransformerKeyValueCache.init_cache(model.cfg, "cpu", 1)
+    baseline_cache = TransformerLensKeyValueCache.init_cache(model.cfg, "cpu", 1)
     with torch.no_grad():
         prefill_baseline = model(ids, past_kv_cache=baseline_cache)
         decode_baseline = model(next_token, past_kv_cache=baseline_cache)
@@ -67,7 +67,7 @@ def test_generated_only_steers_decode_steps_but_not_prefill(tiny_hooked_transfor
         kind="clamp", feature_index=0, value_in_max_units=5.0, corpus_max=1.0,
         positions="generated_only", checkpoint_hash=_HASH,
     )
-    steered_cache = HookedTransformerKeyValueCache.init_cache(model.cfg, "cpu", 1)
+    steered_cache = TransformerLensKeyValueCache.init_cache(model.cfg, "cpu", 1)
     with torch.no_grad(), attach(model, tiny_sae, spec, prompt_lengths=prompt_len):
         prefill_steered = model(ids, past_kv_cache=steered_cache)
         decode_steered = model(next_token, past_kv_cache=steered_cache)

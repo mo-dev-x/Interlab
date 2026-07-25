@@ -93,7 +93,7 @@ def fp32_copy(sae: SAE) -> SAE:
     """Non-mutating fp32 copy (same pattern as `certification.metrics.fp32_copy`,
     duplicated per §1's per-subsystem isolation)."""
     fp32_cfg = dataclasses.replace(sae.cfg, dtype="float32")
-    sae32 = SAE(fp32_cfg)
+    sae32 = type(sae)(fp32_cfg)
     sae32.load_state_dict({k: v.detach().to(torch.float32) for k, v in sae.state_dict().items()})
     return sae32.to(sae.W_dec.device)
 
@@ -219,7 +219,7 @@ def build_index(
     signature has no room for a caller-supplied model, so the index must be
     self-describing enough to resolve one itself."""
     sae32 = fp32_copy(sae)
-    hook_name = sae32.cfg.hook_name
+    hook_name = sae32.cfg.metadata.hook_name
     d_sae = sae32.W_dec.shape[0]
     rng = np.random.default_rng(rng_seed)
 

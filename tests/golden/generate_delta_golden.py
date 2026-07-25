@@ -48,7 +48,7 @@ def build_tiny_hooked_transformer() -> HookedTransformer:
 def main() -> None:
     model = build_tiny_hooked_transformer()
     sae = SAE.load_from_pretrained(str(TINY_SAE_DIR), device="cpu")
-    hook_name = sae.cfg.hook_name
+    hook_name = sae.cfg.metadata.hook_name
 
     ids = model.tokenizer(PROMPT, return_tensors="pt")["input_ids"]
 

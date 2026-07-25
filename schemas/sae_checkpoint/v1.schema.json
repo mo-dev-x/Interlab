@@ -37,11 +37,31 @@
     "payload": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["config", "store_hash", "seed", "tokens_trained", "wandb", "telemetry_tail"],
+      "required": [
+        "config", "store_hash", "seed", "tokens_trained", "wandb", "telemetry_tail",
+        "training_provenance", "cfg_schema_generation"
+      ],
       "properties": {
         "config": {
           "type": "object",
           "description": "the exact SAELens config that ran, serialized verbatim -- opaque here, never reconstructed from YAML"
+        },
+        "cfg_schema_generation": {
+          "description": "ED-33: which SAELens cfg.json schema generation this checkpoint's `config` was written in -- the identity-bearing structural fact (ED-27's logic, one level out) that determines which library version can load it, independent of any free-text version string. null iff genuinely undeterminable from available evidence.",
+          "enum": ["3.x", "6.x", null]
+        },
+        "training_provenance": {
+          "description": "ED-33: the SAE-stack library versions that actually trained this checkpoint, recorded distinctly from any resave/handling library (never blended, per ED-30's value-plus-provenance doctrine). Required-present with nullable sub-values -- an unrecoverable legacy checkpoint carries {sae_lens: null, ..., source: \"unknown\", confidence: \"unknown\"} rather than omitting the field (ED-9: null = no instrument, not zero).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sae_lens", "transformers", "transformer_lens", "source", "confidence"],
+          "properties": {
+            "sae_lens": { "type": ["string", "null"] },
+            "transformers": { "type": ["string", "null"] },
+            "transformer_lens": { "type": ["string", "null"] },
+            "source": { "enum": ["cfg_metadata", "runner_cfg", "wandb", "inferred", "unknown"] },
+            "confidence": { "enum": ["measured", "inferred", "unknown"] }
+          }
         },
         "store_hash": {
           "description": "ED-5: null only for legacy checkpoints trained via SAELens streaming before stores existed; the training corpus is then documented by payload.config.dataset_path plus a corpus_manifest reference in `subject`.",

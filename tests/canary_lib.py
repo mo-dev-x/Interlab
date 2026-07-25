@@ -144,7 +144,7 @@ def resolve_and_recompute(
             f"{feature_index_obj.n_features} features -- reference is stale for this checkpoint"
         )
     view = feature_index_obj.feature(target_feature)
-    hook_name = sae.cfg.hook_name
+    hook_name = sae.cfg.metadata.hook_name
 
     # Genuine science from here down -- NOT wrapped in the availability
     # catch above. A failure here is a real regression, not missing infra.

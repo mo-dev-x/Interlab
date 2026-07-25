@@ -84,6 +84,11 @@ def build_sae_checkpoint(registry_root: Path, store_manifest: dict | None) -> di
         "config": {"d_in": 64, "d_sae": 256}, "store_hash": store_manifest["self_hash"] if store_manifest else None,
         "seed": 0, "tokens_trained": 100_000, "wandb": None,
         "telemetry_tail": {"fvu": 0.05, "fvu_source": "training_eval", "dead_count": 0},
+        "training_provenance": {
+            "sae_lens": None, "transformers": None, "transformer_lens": None,
+            "source": "unknown", "confidence": "unknown",
+        },
+        "cfg_schema_generation": None,
     }
     subject = [
         {"content_hash": _HASH_WEIGHTS, "location": "local:tests/fixtures/tiny_sae", "role": "weights"},

@@ -7,7 +7,8 @@ import dataclasses
 import pytest
 import torch
 from sae_lens import SAE
-from sae_lens.sae import SAEConfig
+from sae_lens.saes.sae import SAEMetadata
+from sae_lens.saes.standard_sae import StandardSAE, StandardSAEConfig
 
 from interplab.certification.metrics import (
     compute_metrics,
@@ -17,14 +18,15 @@ from interplab.certification.metrics import (
 
 
 def _make_sae(d_in: int, d_sae: int, w_dec: torch.Tensor, *, hook_name: str = "blocks.1.hook_resid_post") -> SAE:
-    cfg = SAEConfig(
-        architecture="standard", d_in=d_in, d_sae=d_sae, activation_fn_str="relu",
-        activation_fn_kwargs={}, apply_b_dec_to_input=False, finetuning_scaling_factor=False,
-        context_size=16, model_name="test", hook_name=hook_name, hook_layer=1, hook_head_index=None,
-        prepend_bos=True, dataset_path="x", dataset_trust_remote_code=False,
-        normalize_activations="none", dtype="float32", device="cpu", sae_lens_training_version=None,
+    # ED-33: "standard" architecture always uses ReLU under sae-lens 6.x --
+    # no activation_fn_str/activation_fn_kwargs needed (those were the 3.x
+    # way to select an activation; StandardSAEConfig has no such fields).
+    cfg = StandardSAEConfig(
+        d_in=d_in, d_sae=d_sae, apply_b_dec_to_input=False,
+        normalize_activations="none", dtype="float32", device="cpu",
+        metadata=SAEMetadata(model_name="test", hook_name=hook_name, hook_layer=1, context_size=16),
     )
-    sae = SAE(cfg)
+    sae = StandardSAE(cfg)
     with torch.no_grad():
         sae.W_dec.copy_(w_dec)
     return sae
@@ -80,7 +82,7 @@ def test_compute_metrics_runs_and_returns_plausible_shapes(tiny_hooked_transform
     seq_len = 16
     batches = [torch.randint(0, model.cfg.d_vocab, (4, seq_len)) for _ in range(2)]
 
-    metrics = compute_metrics(model, tiny_sae, tiny_sae.cfg.hook_name, batches)
+    metrics = compute_metrics(model, tiny_sae, tiny_sae.cfg.metadata.hook_name, batches)
 
     assert 0.0 <= metrics.dead_fraction <= 1.0
     assert metrics.fvu >= 0.0
@@ -96,20 +98,20 @@ def test_compute_metrics_rejects_mismatched_sequence_lengths(tiny_hooked_transfo
     model = tiny_hooked_transformer
     batches = [torch.randint(0, model.cfg.d_vocab, (2, 16)), torch.randint(0, model.cfg.d_vocab, (2, 8))]
     with pytest.raises(ValueError):
-        compute_metrics(model, tiny_sae, tiny_sae.cfg.hook_name, batches)
+        compute_metrics(model, tiny_sae, tiny_sae.cfg.metadata.hook_name, batches)
 
 
 def test_compute_metrics_works_with_bf16_stored_sae(tiny_hooked_transformer, tiny_sae):
     """SS4 invariant: metrics computed in fp32 regardless of the checkpoint's
     native storage dtype."""
     bf16_cfg = dataclasses.replace(tiny_sae.cfg, dtype="bfloat16")
-    sae_bf16 = SAE(bf16_cfg)
+    sae_bf16 = type(tiny_sae)(bf16_cfg)
     sae_bf16.load_state_dict({k: v.to(torch.bfloat16) for k, v in tiny_sae.state_dict().items()})
 
     model = tiny_hooked_transformer
     torch.manual_seed(0)
     batches = [torch.randint(0, model.cfg.d_vocab, (2, 16))]
-    metrics = compute_metrics(model, sae_bf16, sae_bf16.cfg.hook_name, batches)
+    metrics = compute_metrics(model, sae_bf16, sae_bf16.cfg.metadata.hook_name, batches)
     assert isinstance(metrics.fvu, float)
 
 
@@ -119,19 +121,17 @@ def test_dead_fraction_is_one_when_no_features_ever_fire(tiny_hooked_transformer
     # with a very negative bias instead, guaranteeing every pre-activation is
     # negative and every feature is dead everywhere.
     d_in = tiny_hooked_transformer.cfg.d_model
-    cfg = SAEConfig(
-        architecture="standard", d_in=d_in, d_sae=16, activation_fn_str="relu",
-        activation_fn_kwargs={}, apply_b_dec_to_input=False, finetuning_scaling_factor=False,
-        context_size=16, model_name="test", hook_name="blocks.1.hook_resid_post", hook_layer=1,
-        hook_head_index=None, prepend_bos=True, dataset_path="x", dataset_trust_remote_code=False,
-        normalize_activations="none", dtype="float32", device="cpu", sae_lens_training_version=None,
+    cfg = StandardSAEConfig(
+        d_in=d_in, d_sae=16, apply_b_dec_to_input=False,
+        normalize_activations="none", dtype="float32", device="cpu",
+        metadata=SAEMetadata(model_name="test", hook_name="blocks.1.hook_resid_post", hook_layer=1, context_size=16),
     )
-    sae = SAE(cfg)
+    sae = StandardSAE(cfg)
     with torch.no_grad():
         sae.W_enc.zero_()
         sae.b_enc.fill_(-1000.0)
 
     torch.manual_seed(0)
     batches = [torch.randint(0, tiny_hooked_transformer.cfg.d_vocab, (2, 16))]
-    metrics = compute_metrics(tiny_hooked_transformer, sae, sae.cfg.hook_name, batches)
+    metrics = compute_metrics(tiny_hooked_transformer, sae, sae.cfg.metadata.hook_name, batches)
     assert metrics.dead_fraction == 1.0

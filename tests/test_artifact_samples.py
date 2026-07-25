@@ -91,6 +91,11 @@ def _sample(artifact_type: str) -> tuple[list[dict], dict]:
                 "tokens_trained": 500_000_000,
                 "wandb": None,
                 "telemetry_tail": {"fvu": 0.05, "fvu_source": "training_eval", "dead_count": 120},
+                "training_provenance": {
+                    "sae_lens": "6.44.2", "transformers": None, "transformer_lens": None,
+                    "source": "cfg_metadata", "confidence": "measured",
+                },
+                "cfg_schema_generation": "6.x",
             },
         ),
         "sae_certificate": (

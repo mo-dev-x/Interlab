@@ -34,13 +34,13 @@ def test_noop_never_registers_a_hook(tiny_hooked_transformer, tiny_sae):
 def test_hook_active_during_context_and_removed_after(tiny_hooked_transformer, tiny_sae, spec):
     assert _active_hooks(tiny_hooked_transformer) == []
     with attach(tiny_hooked_transformer, tiny_sae, spec):
-        assert _active_hooks(tiny_hooked_transformer) == [tiny_sae.cfg.hook_name]
+        assert _active_hooks(tiny_hooked_transformer) == [tiny_sae.cfg.metadata.hook_name]
     assert _active_hooks(tiny_hooked_transformer) == []
 
 
 def test_hooks_removed_even_when_body_raises(tiny_hooked_transformer, tiny_sae):
     spec = InterventionSpec(kind="ablate", feature_index=0, value_in_max_units=None, corpus_max=None, positions="all", checkpoint_hash=_HASH)
     with pytest.raises(RuntimeError), attach(tiny_hooked_transformer, tiny_sae, spec):
-        assert _active_hooks(tiny_hooked_transformer) == [tiny_sae.cfg.hook_name]
+        assert _active_hooks(tiny_hooked_transformer) == [tiny_sae.cfg.metadata.hook_name]
         raise RuntimeError("boom")
     assert _active_hooks(tiny_hooked_transformer) == []

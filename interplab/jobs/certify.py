@@ -168,7 +168,7 @@ def run(
             n_tokens=config["n_tokens"],
         )
 
-        metrics = compute_metrics(model, sae, sae.cfg.hook_name, batches)
+        metrics = compute_metrics(model, sae, sae.cfg.metadata.hook_name, batches)
 
         bands = load_bands(config["bands_version"])
         verdict, per_metric_verdicts = apply_bands(metrics, bands)

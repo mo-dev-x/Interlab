@@ -1,6 +1,6 @@
-"""interplab.core.environment (ED-1 §1.1, ED-32): environment detection for
-the A10 `environment` RunCard field, and the SAE-stack baseline fail-closed
-check for the certification lane.
+"""interplab.core.environment (ED-1 §1.1, ED-32, ED-33): environment
+detection for the A10 `environment` RunCard field, and the SAE-stack
+baseline fail-closed check for the certification lane.
 """
 
 from __future__ import annotations
@@ -78,16 +78,18 @@ def test_check_sae_stack_baseline_passes_for_the_real_installed_version():
 
 
 def test_check_sae_stack_baseline_raises_for_a_wrong_major_version():
-    with pytest.raises(EnvironmentBaselineError, match=r"6\.44\.2"):
+    # ED-33: the baseline is now 6.x (the checkpoints' verified real training
+    # library) -- 3.23.0, the old ED-32 premise, is now the mismatch case.
+    with pytest.raises(EnvironmentBaselineError, match=r"3\.23\.0"):
         environment.check_sae_stack_baseline(
-            {"sae_lens": "6.44.2", "transformers": "5.0.0", "transformer_lens": "3.0.0"}
+            {"sae_lens": "3.23.0", "transformers": "4.44.0", "transformer_lens": "2.15.4"}
         )
 
 
 def test_check_sae_stack_baseline_raises_when_sae_lens_is_not_installed():
     with pytest.raises(EnvironmentBaselineError, match="not installed"):
         environment.check_sae_stack_baseline(
-            {"sae_lens": None, "transformers": "4.44.0", "transformer_lens": "2.15.4"}
+            {"sae_lens": None, "transformers": "5.12.1", "transformer_lens": "3.2.1"}
         )
 
 
@@ -95,7 +97,7 @@ def test_check_sae_stack_baseline_does_not_gate_transformers_or_transformer_lens
     """ED-32's assertion clause names only sae-lens -- a mismatched
     transformers/transformer_lens version is recorded, never gated."""
     environment.check_sae_stack_baseline(
-        {"sae_lens": "3.23.0", "transformers": "999.0.0", "transformer_lens": "0.0.1"}
+        {"sae_lens": "6.44.2", "transformers": "999.0.0", "transformer_lens": "0.0.1"}
     )  # must not raise
 
 

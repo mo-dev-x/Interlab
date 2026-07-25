@@ -26,6 +26,11 @@ certified metric (that's A6 `metrics.fvu`) -- passed through from the
 config verbatim, including its `fvu_source` discriminator and the
 nullability of `fvu`/`dead_count` for legacy rows that can't recover a
 value.
+
+ED-33: `training_provenance`/`cfg_schema_generation` are passed through
+from the config verbatim, same discipline as `telemetry_tail` -- this job
+records what the caller already determined (from cfg.json metadata,
+runner_cfg, or WandB corroboration), it does not itself infer provenance.
 """
 
 from __future__ import annotations
@@ -103,6 +108,8 @@ def run(
             "tokens_trained": config["tokens_trained"],
             "wandb": config.get("wandb"),
             "telemetry_tail": config["telemetry_tail"],
+            "training_provenance": config["training_provenance"],
+            "cfg_schema_generation": config["cfg_schema_generation"],
         }
         subject = [
             {"content_hash": weights_hash, "location": config["weights_location"], "role": "weights"},

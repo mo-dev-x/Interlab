@@ -7,7 +7,8 @@
   "additionalProperties": false,
   "required": [
     "training_config_path", "weights_location", "model_location",
-    "corpus_manifest_hash", "tokens_trained", "seed", "telemetry_tail"
+    "corpus_manifest_hash", "tokens_trained", "seed", "telemetry_tail",
+    "training_provenance", "cfg_schema_generation"
   ],
   "properties": {
     "training_config_path": {
@@ -35,6 +36,23 @@
     "tokens_trained": { "type": "integer", "minimum": 0 },
     "seed": { "type": "integer" },
     "wandb": { "type": ["string", "null"] },
+    "cfg_schema_generation": {
+      "description": "ED-33: which SAELens cfg.json schema generation this checkpoint's config was written in -- the identity-bearing structural fact that determines which library version can load it, independent of any free-text version string. null iff genuinely undeterminable.",
+      "enum": ["3.x", "6.x", null]
+    },
+    "training_provenance": {
+      "description": "ED-33: the SAE-stack library versions that actually trained this checkpoint, recorded distinctly from any resave/handling library. Required-present with nullable sub-values -- an unrecoverable legacy checkpoint carries {sae_lens: null, ..., source: \"unknown\", confidence: \"unknown\"} rather than omitting the field (ED-9).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sae_lens", "transformers", "transformer_lens", "source", "confidence"],
+      "properties": {
+        "sae_lens": { "type": ["string", "null"] },
+        "transformers": { "type": ["string", "null"] },
+        "transformer_lens": { "type": ["string", "null"] },
+        "source": { "enum": ["cfg_metadata", "runner_cfg", "wandb", "inferred", "unknown"] },
+        "confidence": { "enum": ["measured", "inferred", "unknown"] }
+      }
+    },
     "telemetry_tail": {
       "description": "ED-30: recovered training-run telemetry, never a certified metric. fvu_source null iff fvu is unrecoverable; dead_count follows the same nullability doctrine independently.",
       "type": "object",

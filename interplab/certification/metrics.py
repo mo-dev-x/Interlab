@@ -36,7 +36,7 @@ def fp32_copy(sae: SAE) -> SAE:
     `interplab.interventions.hooks._fp32_copy`): certification MUST NOT
     depend on the checkpoint's native storage dtype."""
     fp32_cfg = dataclasses.replace(sae.cfg, dtype="float32")
-    sae32 = SAE(fp32_cfg)
+    sae32 = type(sae)(fp32_cfg)
     sae32.load_state_dict({k: v.detach().to(torch.float32) for k, v in sae.state_dict().items()})
     return sae32.to(sae.W_dec.device)
 

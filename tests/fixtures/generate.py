@@ -23,8 +23,8 @@ import random
 from pathlib import Path
 
 import torch
-from sae_lens import SAE
-from sae_lens.sae import SAEConfig
+from sae_lens.saes.sae import SAEMetadata
+from sae_lens.saes.topk_sae import TopKSAE, TopKSAEConfig
 from tokenizers import Tokenizer, decoders, pre_tokenizers, processors
 from tokenizers.models import BPE
 from transformers import PreTrainedTokenizerFast, Qwen2Config, Qwen2ForCausalLM
@@ -97,29 +97,33 @@ def build_tiny_model(vocab_size: int) -> Qwen2ForCausalLM:
     return Qwen2ForCausalLM(config)
 
 
-def build_tiny_sae() -> SAE:
-    cfg = SAEConfig(
-        architecture="standard",
-        d_in=HIDDEN_SIZE,
-        d_sae=256,
-        activation_fn_str="topk",
-        activation_fn_kwargs={"k": 8},
-        apply_b_dec_to_input=False,
-        finetuning_scaling_factor=False,
-        context_size=32,
+def build_tiny_sae() -> TopKSAE:
+    """ED-33: real P1 checkpoints are `architecture: "topk"` under sae-lens
+    6.x's `TopKSAEConfig` -- provenance/hook fields live under `metadata`
+    (a loose attribute bag, not a dataclass), not as flat top-level fields
+    like the pre-ED-33 3.x `SAEConfig` this fixture used to build."""
+    metadata = SAEMetadata(
         model_name="tiny_model",
         hook_name="blocks.1.hook_resid_post",
         hook_layer=1,
         hook_head_index=None,
+        context_size=32,
         prepend_bos=True,
         dataset_path="tests/fixtures/pinned_text.jsonl",
         dataset_trust_remote_code=False,
+        sae_lens_training_version=None,
+    )
+    cfg = TopKSAEConfig(
+        d_in=HIDDEN_SIZE,
+        d_sae=256,
+        k=8,
+        apply_b_dec_to_input=False,
         normalize_activations="none",
         dtype="float32",
         device="cpu",
-        sae_lens_training_version=None,
+        metadata=metadata,
     )
-    return SAE(cfg)
+    return TopKSAE(cfg)
 
 
 def build_pinned_text(n: int = N_DOCS) -> list[dict]:

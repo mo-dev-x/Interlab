@@ -119,7 +119,7 @@ def run(
             str(_load_local(weights_ref["location"], what="SAE weights")), device="cpu"
         )
         model = loader_mod.load_model(str(_load_local(model_ref["location"], what="the base model")))
-        hook_name = sae.cfg.hook_name
+        hook_name = sae.cfg.metadata.hook_name
 
         feature_index = loader_mod.open_feature_index(manifest_hash, registry_root=registry_root)
 

@@ -38,6 +38,11 @@ def _write_config(tmp_path, **overrides):
         "seed": 42,
         "wandb": None,
         "telemetry_tail": {"fvu": 0.08, "fvu_source": "training_eval", "dead_count": 200},
+        "training_provenance": {
+            "sae_lens": "6.44.2", "transformers": None, "transformer_lens": None,
+            "source": "cfg_metadata", "confidence": "measured",
+        },
+        "cfg_schema_generation": "6.x",
     }
     cfg.update(overrides)
     path = tmp_path / "backfill.yaml"
@@ -201,6 +206,72 @@ def test_telemetry_tail_records_training_step_source_when_that_is_what_is_availa
 
     checkpoint = json.loads(next((registry_root / "sae_checkpoint").glob("*.json")).read_text(encoding="utf-8"))
     assert checkpoint["payload"]["telemetry_tail"] == {"fvu": 0.12, "fvu_source": "training_step", "dead_count": 50}
+
+
+def test_training_provenance_and_cfg_schema_generation_pass_through_verbatim(tmp_path):
+    """ED-33: recorded exactly as the caller determined it (from cfg.json
+    metadata, in this case) -- the job records provenance, it does not
+    infer it."""
+    registry_root = tmp_path / "registry"
+    cfg_path = _write_config(tmp_path)
+    backfill_checkpoint.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+    checkpoint = json.loads(next((registry_root / "sae_checkpoint").glob("*.json")).read_text(encoding="utf-8"))
+    assert checkpoint["payload"]["training_provenance"] == {
+        "sae_lens": "6.44.2", "transformers": None, "transformer_lens": None,
+        "source": "cfg_metadata", "confidence": "measured",
+    }
+    assert checkpoint["payload"]["cfg_schema_generation"] == "6.x"
+
+
+def test_training_provenance_allows_fully_unrecoverable_legacy_checkpoint(tmp_path):
+    """ED-33/ED-9: present-but-null is the honest-absence pattern for a
+    checkpoint whose training library can no longer be determined --
+    omission would lose the distinction between "unknown" and "not
+    recorded"."""
+    registry_root = tmp_path / "registry"
+    cfg_path = _write_config(
+        tmp_path,
+        training_provenance={
+            "sae_lens": None, "transformers": None, "transformer_lens": None,
+            "source": "unknown", "confidence": "unknown",
+        },
+        cfg_schema_generation=None,
+    )
+    exit_code = backfill_checkpoint.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+    assert exit_code == 0
+
+    checkpoint = json.loads(next((registry_root / "sae_checkpoint").glob("*.json")).read_text(encoding="utf-8"))
+    assert checkpoint["payload"]["training_provenance"] == {
+        "sae_lens": None, "transformers": None, "transformer_lens": None,
+        "source": "unknown", "confidence": "unknown",
+    }
+    assert checkpoint["payload"]["cfg_schema_generation"] is None
+
+
+def test_training_provenance_is_required_present_not_omittable(tmp_path):
+    """ED-33/ED-9: training_provenance MUST be present (sub-values may be
+    null), never omitted -- an omitted field loses the honest-absence
+    signal a present-but-null object carries."""
+    from interplab.core._schema_registry import SchemaValidationError
+
+    registry_root = tmp_path / "registry"
+    cfg = {
+        "training_config_path": "local:configs/sae_train_l16_32x.yaml",
+        "weights_location": "local:tests/fixtures/tiny_sae",
+        "model_location": _MODEL_LOCATION,
+        "model_dir_hash": _MODEL_HASH,
+        "corpus_manifest_hash": _CORPUS_HASH,
+        "tokens_trained": 376_000_000,
+        "seed": 42,
+        "telemetry_tail": {"fvu": 0.08, "fvu_source": "training_eval", "dead_count": 200},
+        "cfg_schema_generation": "6.x",
+        # training_provenance deliberately omitted
+    }
+    path = tmp_path / "backfill_missing_provenance.yaml"
+    path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+    with pytest.raises(SchemaValidationError):
+        backfill_checkpoint.run(path, registry_root=registry_root, repo_root=tmp_path)
 
 
 def test_backfill_missing_checkpoint_identity_file_is_a_hard_error(tmp_path):

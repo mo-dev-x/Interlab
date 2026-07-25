@@ -75,7 +75,7 @@ def test_probe_config_hash_changes_with_seed():
 def test_train_probe_returns_result_with_valid_ranges(tiny_hooked_transformer, tiny_sae):
     zorbium = yaml.safe_load((FIXTURES_DIR / "zorbium.yaml").read_text(encoding="utf-8"))
     en = zorbium["languages"]["en"]
-    hook_name = tiny_sae.cfg.hook_name
+    hook_name = tiny_sae.cfg.metadata.hook_name
 
     result = train_probe(
         tiny_hooked_transformer, tiny_sae, hook_name, 0, en["probes"], en["concept_absent"], seed=0
@@ -90,7 +90,7 @@ def test_train_probe_returns_result_with_valid_ranges(tiny_hooked_transformer, t
 def test_train_probe_deterministic_for_fixed_seed(tiny_hooked_transformer, tiny_sae):
     zorbium = yaml.safe_load((FIXTURES_DIR / "zorbium.yaml").read_text(encoding="utf-8"))
     en = zorbium["languages"]["en"]
-    hook_name = tiny_sae.cfg.hook_name
+    hook_name = tiny_sae.cfg.metadata.hook_name
 
     a = train_probe(tiny_hooked_transformer, tiny_sae, hook_name, 0, en["probes"], en["concept_absent"], seed=3)
     b = train_probe(tiny_hooked_transformer, tiny_sae, hook_name, 0, en["probes"], en["concept_absent"], seed=3)

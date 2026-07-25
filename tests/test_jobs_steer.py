@@ -43,6 +43,11 @@ def _register_checkpoint(registry_root: Path) -> str:
         payload={
             "config": {}, "store_hash": None, "seed": 0, "tokens_trained": 1000, "wandb": None,
             "telemetry_tail": {"fvu": 0.1, "fvu_source": "training_eval", "dead_count": 0},
+            "training_provenance": {
+                "sae_lens": None, "transformers": None, "transformer_lens": None,
+                "source": "unknown", "confidence": "unknown",
+            },
+            "cfg_schema_generation": None,
         },
     )
     return registry_put(checkpoint, registry_root=registry_root)
@@ -226,7 +231,7 @@ def test_refuses_to_run_on_sae_lens_baseline_mismatch(tmp_path, shared_registry,
 
     monkeypatch.setattr(
         environment_module, "resolve_sae_stack_versions",
-        lambda: {"sae_lens": "6.44.2", "transformers": "5.0.0", "transformer_lens": "3.0.0"},
+        lambda: {"sae_lens": "3.23.0", "transformers": "4.44.0", "transformer_lens": "2.15.4"},
     )
 
     registry_root = tmp_path / "registry"
@@ -240,7 +245,7 @@ def test_refuses_to_run_on_sae_lens_baseline_mismatch(tmp_path, shared_registry,
     assert card["payload"]["status"] == "failed"
     assert card["payload"]["exit_code"] == 4
     assert "environment baseline violated" in card["payload"]["outcome_line"]
-    assert card["payload"]["environment"]["sae_lens"] == "6.44.2"
+    assert card["payload"]["environment"]["sae_lens"] == "3.23.0"
 
 
 def test_missing_checkpoint_is_contract_violation(tmp_path, shared_registry, gen_scratch_dir):

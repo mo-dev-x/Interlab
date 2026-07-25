@@ -81,7 +81,7 @@ def attach(
     else:
         raise ValueError(f"unknown InterventionSpec.kind: {spec.kind!r}")
 
-    inner_cm = model.hooks(fwd_hooks=[(sae.cfg.hook_name, hook_fn)])
+    inner_cm = model.hooks(fwd_hooks=[(sae.cfg.metadata.hook_name, hook_fn)])
     return AttachHandle(inner_cm, stats)
 
 
@@ -109,7 +109,7 @@ def _fp32_copy(sae: SAE) -> SAE:
     via a fresh SAE + state dict rather than `sae.float()` so the caller's
     live object is never mutated."""
     fp32_cfg = dataclasses.replace(sae.cfg, dtype="float32")
-    sae32 = SAE(fp32_cfg)
+    sae32 = type(sae)(fp32_cfg)
     sae32.load_state_dict({k: v.detach().to(torch.float32) for k, v in sae.state_dict().items()})
     return sae32.to(sae.W_dec.device)
 

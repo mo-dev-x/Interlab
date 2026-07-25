@@ -28,8 +28,8 @@ def test_tiny_sae_files_present():
 
     cfg = json.loads((d / "cfg.json").read_text(encoding="utf-8"))
     assert cfg["d_sae"] == 256
-    assert cfg["activation_fn_str"] == "topk"
-    assert cfg["activation_fn_kwargs"]["k"] == 8
+    assert cfg["architecture"] == "topk"
+    assert cfg["k"] == 8
 
 
 def test_pinned_text_has_200_documents():

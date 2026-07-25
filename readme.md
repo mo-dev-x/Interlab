@@ -58,15 +58,52 @@ uv run ruff check interplab tests scripts/*.py
 
 `scripts/legacy/` is intentionally excluded from lint — it's frozen, pre-refactor code kept for reference only.
 
-## Running a job
+## Running the jobs
 
-Every job is a module under `interplab.jobs`, invoked via its thin wrapper in `scripts/`, against a YAML config validated against `schemas/configs/<job>_v1.schema.json`:
+Every job shares one interface: a thin `scripts/` wrapper that validates its YAML config against `schemas/configs/<job>_v1.schema.json` **before** any heavy work, opens a RunCard, and finalizes it — even on failure.
 
 ```bash
-python scripts/<job>.py --config path/to/config.yaml
+uv run python scripts/<job>.py --config path/to/<job>.yaml
 ```
 
-On the cluster, use the matching launcher in `slurm/launch_<job>.sh <config> <run_id>` instead — it prints the `sbatch` command, a log-tail command, and a command to fetch the final RunCard once the job completes.
+There are no ready-made per-job configs in the repo (`configs/` holds the campaign's SAE-training configs only) — author each from its schema. The **exit code is the contract** (orchestration branches on it): `0` success · `2` gate ran, verdict red (artifact still written) · `3` missing/invalid input artifact · `4` environment failure. Every run leaves a card in `registry/run_card/`; its absence means the run never completed as a recorded fact.
+
+### End-to-end: corpus → certified claim
+
+The scientific pipeline is a fixed chain — each stage reads the previous stage's registry artifacts and writes its own. Run in order (field reference is each job's schema under `schemas/configs/`):
+
+1. **census** (SS1) — count concept-term frequency in the training corpus.
+   → reads corpus recipe + the A2 concept battery in `data/concepts/`, writes **A1** `corpus_manifest` + **A3** `census_report`. Local.
+2. **store_qa** (SS2) — QA an activation store against its corpus.
+   → reads store dir + A1, writes **A4** `store_manifest`. Local.
+3. **train** (SS3) — *researcher-gated, not built in this blueprint.* Produces **A5** `sae_checkpoint`. Existing/legacy checkpoints are registered via `backfill_checkpoint` instead (see Utilities).
+4. **certify** (SS4, **gate G1**) — measure CE-recovered / FVU / dead-fraction on a held-out slice, assign a band.
+   → reads A5 + eval-slice config, writes **A6** `sae_certificate`. GPU / cluster.
+5. **characterize** (SS5) — build the feature index + dashboards (max-activating examples, decoder stats).
+   → reads A5, A6, A1, writes **A7** `characterization_manifest` (+ index dir). GPU / cluster.
+6. **validate** (SS6, **gate G2**) — per-feature specificity / selectivity / probe.
+   → reads A7, A2, A3, writes **A8** `feature_certificate`. GPU / cluster.
+7. **steer** (SS7/8, **gate G3**) — run blinded intervention arms, log injected-delta vs residual norms.
+   → reads A7, A8, config, writes **A9** `intervention_result`. GPU / cluster.
+8. **report** (SS9, **gate G4**) — assemble the claim chain, stamp `CERTIFIED` / `DRAFT`.
+   → reads a claim-spec + the registry, writes **A11** `claim_report`. Local, read-only.
+
+The SS8 `judge` step (Lodestar capability + blinding boundary) runs through `interplab.evaluation`, not a standalone `scripts/` wrapper.
+
+### Utilities
+
+- **backfill_checkpoint** — register an A5 manifest for a pre-blueprint checkpoint (identity = hash of `{cfg.json, sae_weights.safetensors}`, per the blueprint's ED-27). Local.
+- **sync_registry** (SS10) — pull cluster-outbox artifacts into the local `registry/` tree. Local.
+
+### On the cluster
+
+The four GPU stages have SLURM launchers:
+
+```bash
+slurm/launch_<job>.sh <config> <run_id>    # certify · characterize · validate · steer
+```
+
+Each prints the `sbatch` line, a log-tail command, and the command to fetch the final RunCard once the job completes. `census`, `store_qa`, `report`, and `sync_registry` are I/O- or API-bound and run on the login node or locally — no allocation. The certification-lane stages (certify / characterize / validate / steer) assert the pinned `sae-lens` baseline at startup and refuse to run under a mismatched major version (see the blueprint's ED-32).
 
 ## Key references
 
