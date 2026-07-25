@@ -182,6 +182,10 @@ def _sample(artifact_type: str) -> tuple[list[dict], dict]:
                 "outcome_line": "green certificate",
                 "slurm": None,
                 "log_section": None,
+                "environment": {
+                    "profile": "local", "python": "3.12.0", "torch": "2.4.0", "lock_hash": None,
+                    "sae_lens": "3.23.0", "transformers": "4.44.0", "transformer_lens": "2.15.4",
+                },
             },
         ),
         "claim_report": (

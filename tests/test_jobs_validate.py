@@ -165,6 +165,53 @@ def test_writes_a_run_card(tmp_path, shared_registry):
     assert validate_cards[-1]["payload"]["exit_code"] in (0, 2)
 
 
+def test_environment_records_the_real_sae_stack_versions(tmp_path, shared_registry):
+    from importlib.metadata import version as pkg_version
+
+    cfg = _write_validate_config(
+        tmp_path, characterization_manifest_hash=shared_registry["manifest_hash"],
+        census_report_hash=shared_registry["census_hash"],
+    )
+    validate.run(cfg, registry_root=shared_registry["registry_root"], repo_root=tmp_path)
+
+    cards = [json.loads(c.read_text(encoding="utf-8")) for c in (shared_registry["registry_root"] / "run_card").glob("*.json")]
+    validate_cards = [c for c in cards if c["payload"]["stage"] == "validate"]
+    env = validate_cards[-1]["payload"]["environment"]
+    assert env["sae_lens"] == pkg_version("sae-lens")
+    assert env["transformers"] == pkg_version("transformers")
+    assert env["transformer_lens"] == pkg_version("transformer-lens")
+
+
+def test_refuses_to_run_on_sae_lens_baseline_mismatch(tmp_path, monkeypatch):
+    """ED-32 fail-closed: refuses before any registry/model access -- exit
+    4, no feature_certificate written, run card records the offending
+    version. Uses a fresh registry, not `shared_registry`, since the
+    refusal happens before any lookup and shouldn't touch the shared
+    module-scoped fixture."""
+    import interplab.core.environment as environment_module
+
+    monkeypatch.setattr(
+        environment_module, "resolve_sae_stack_versions",
+        lambda: {"sae_lens": "6.44.2", "transformers": "5.0.0", "transformer_lens": "3.0.0"},
+    )
+
+    registry_root = tmp_path / "registry"
+    cfg = _write_validate_config(
+        tmp_path, characterization_manifest_hash="sha256:" + "a" * 64,
+        census_report_hash="sha256:" + "b" * 64,
+    )
+    exit_code = validate.run(cfg, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 4
+    assert not list((registry_root / "feature_certificate").glob("*.json"))
+
+    card = json.loads(next((registry_root / "run_card").glob("*.json")).read_text(encoding="utf-8"))
+    assert card["payload"]["status"] == "failed"
+    assert card["payload"]["exit_code"] == 4
+    assert "environment baseline violated" in card["payload"]["outcome_line"]
+    assert card["payload"]["environment"]["sae_lens"] == "6.44.2"
+
+
 def test_no_complete_language_and_no_concept_absent_is_contract_violation(tmp_path, shared_registry):
     """quixnorf has zero concept_absent anywhere -- the probe comparator
     has no language-matched negative class, which is a genuine contract

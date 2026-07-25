@@ -19,7 +19,8 @@ from interplab.characterization import dashboards, indexer
 from interplab.characterization.feature_index import FeatureIndex
 from interplab.characterization.model_loading import load_local_hooked_transformer
 from interplab.core import configs, envelope, hashing, uris
-from interplab.core.errors import ContractViolationError
+from interplab.core import environment as environment_mod
+from interplab.core.errors import ContractViolationError, EnvironmentBaselineError
 from interplab.registry.registry import REGISTRY_ROOT, REPO_ROOT
 from interplab.registry.registry import get as registry_get
 from interplab.registry.registry import put as registry_put
@@ -93,8 +94,13 @@ def run(
 
     status, exit_code, outcome_line = "failed", 4, "unhandled error"
     outputs: list[dict] = []
+    environment: dict | None = None
 
     try:
+        # ED-32: asserted at startup, before any registry/model access.
+        environment = environment_mod.build_certification_environment()
+        environment_mod.check_sae_stack_baseline(environment)
+
         checkpoint = _get_or_raise(checkpoint_hash, registry_root=registry_root, role="sae_checkpoint")
         # existence check only -- A7's own required subject reference (§4 A7:
         # "Subject: sae_checkpoint + corpus_manifest(s) of the sample"; the
@@ -197,10 +203,13 @@ def run(
     except ContractViolationError as e:
         status, exit_code = "failed", 3
         outcome_line = str(e)
+    except EnvironmentBaselineError as e:  # ED-32: a designed refusal, not an unexpected failure
+        status, exit_code = "failed", 4
+        outcome_line = f"environment baseline violated: {e}"
     except Exception as e:  # deliberate catch-all mapping to exit 4 (§6.2)
         status, exit_code = "failed", 4
         outcome_line = f"unexpected error: {e}"
     finally:
-        handle.finalize(status, outputs, exit_code, outcome_line=outcome_line)
+        handle.finalize(status, outputs, exit_code, outcome_line=outcome_line, environment=environment)
 
     return exit_code

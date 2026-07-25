@@ -41,6 +41,8 @@ hf_cache/
 # Personal / local docs (not for public repo)
 docs/archive/
 .claude/
+docs/execution_roadmap.md
+docs/implementation_blueprint.md
 
 # OS
 .DS_Store

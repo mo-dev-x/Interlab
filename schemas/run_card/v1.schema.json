@@ -89,17 +89,35 @@
         "log_section": { "type": ["integer", "null"], "minimum": 1 },
         "environment": {
           "type": ["object", "null"],
-          "description": "optional, per ED-1 (§1.1) -- RunCards SHOULD record the producing environment",
+          "description": "ED-1 (§1.1): optional in general -- RunCards SHOULD record the producing environment. ED-32: MANDATORY (non-null, including sae_lens/transformers/transformer_lens) for the certification lane (certify/characterize/validate/steer stages) -- see the payload-level allOf below.",
           "additionalProperties": false,
           "required": ["profile", "python", "torch", "lock_hash"],
           "properties": {
             "profile": { "enum": ["local", "cluster"] },
             "python": { "type": "string" },
             "torch": { "type": "string" },
-            "lock_hash": { "type": ["string", "null"] }
+            "lock_hash": { "type": ["string", "null"] },
+            "sae_lens": { "type": ["string", "null"] },
+            "transformers": { "type": ["string", "null"] },
+            "transformer_lens": { "type": ["string", "null"] }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "description": "ED-32: certification-lane run cards MUST name the SAE-stack versions that gave the certified bytes their meaning.",
+          "if": { "properties": { "stage": { "enum": ["certify", "characterize", "validate", "steer"] } } },
+          "then": {
+            "required": ["environment"],
+            "properties": {
+              "environment": {
+                "type": "object",
+                "required": ["sae_lens", "transformers", "transformer_lens"]
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

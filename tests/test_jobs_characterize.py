@@ -139,6 +139,48 @@ def test_chat_slice_is_recorded_but_kept_separate(tmp_path, index_scratch_dir):
     assert any(f["chat_slice_max"] is not None for f in stats["features"])
 
 
+def test_environment_records_the_real_sae_stack_versions(tmp_path, index_scratch_dir):
+    from importlib.metadata import version as pkg_version
+
+    registry_root = tmp_path / "registry"
+    checkpoint_hash = _register_checkpoint(registry_root)
+    corpus_manifest_hash = _register_corpus_manifest(registry_root)
+    cfg = _write_config(tmp_path, checkpoint_hash, index_scratch_dir, corpus_manifest_hash=corpus_manifest_hash)
+    characterize.run(cfg, registry_root=registry_root, repo_root=tmp_path)
+
+    card = json.loads(next((registry_root / "run_card").glob("*.json")).read_text(encoding="utf-8"))
+    env = card["payload"]["environment"]
+    assert env["sae_lens"] == pkg_version("sae-lens")
+    assert env["transformers"] == pkg_version("transformers")
+    assert env["transformer_lens"] == pkg_version("transformer-lens")
+
+
+def test_refuses_to_run_on_sae_lens_baseline_mismatch(tmp_path, index_scratch_dir, monkeypatch):
+    """ED-32 fail-closed: refuses before any registry/model access -- exit
+    4, no manifest written, run card records the offending version."""
+    import interplab.core.environment as environment_module
+
+    monkeypatch.setattr(
+        environment_module, "resolve_sae_stack_versions",
+        lambda: {"sae_lens": "6.44.2", "transformers": "5.0.0", "transformer_lens": "3.0.0"},
+    )
+
+    registry_root = tmp_path / "registry"
+    fake_hash = "sha256:" + "a" * 64
+    cfg = _write_config(tmp_path, fake_hash, index_scratch_dir)
+
+    exit_code = characterize.run(cfg, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 4
+    assert not list((registry_root / "characterization_manifest").glob("*.json"))
+
+    card = json.loads(next((registry_root / "run_card").glob("*.json")).read_text(encoding="utf-8"))
+    assert card["payload"]["status"] == "failed"
+    assert card["payload"]["exit_code"] == 4
+    assert "environment baseline violated" in card["payload"]["outcome_line"]
+    assert card["payload"]["environment"]["sae_lens"] == "6.44.2"
+
+
 def test_missing_checkpoint_is_contract_violation(tmp_path, index_scratch_dir):
     registry_root = tmp_path / "registry"
     fake_hash = "sha256:" + "a" * 64

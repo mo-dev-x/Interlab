@@ -18,7 +18,8 @@ from interplab.certification.bands import apply_bands, load_bands
 from interplab.certification.metrics import compute_metrics
 from interplab.certification.model_loading import load_local_hooked_transformer
 from interplab.core import configs, envelope, hashing, uris
-from interplab.core.errors import ContractViolationError
+from interplab.core import environment as environment_mod
+from interplab.core.errors import ContractViolationError, EnvironmentBaselineError
 from interplab.registry.registry import REGISTRY_ROOT, REPO_ROOT
 from interplab.registry.registry import get as registry_get
 from interplab.registry.registry import put as registry_put
@@ -143,8 +144,13 @@ def run(
 
     status, exit_code, outcome_line = "failed", 4, "unhandled error"
     outputs: list[dict] = []
+    environment: dict | None = None
 
     try:
+        # ED-32: asserted at startup, before any registry/model access.
+        environment = environment_mod.build_certification_environment()
+        environment_mod.check_sae_stack_baseline(environment)
+
         checkpoint = _get_or_raise(checkpoint_hash, registry_root=registry_root, role="sae_checkpoint")
         store_hash = checkpoint["payload"]["store_hash"]
         store = (
@@ -219,10 +225,13 @@ def run(
     except ContractViolationError as e:
         status, exit_code = "failed", 3
         outcome_line = str(e)
+    except EnvironmentBaselineError as e:  # ED-32: a designed refusal, not an unexpected failure
+        status, exit_code = "failed", 4
+        outcome_line = f"environment baseline violated: {e}"
     except Exception as e:  # deliberate catch-all mapping to exit 4 (§6.2)
         status, exit_code = "failed", 4
         outcome_line = f"unexpected error: {e}"
     finally:
-        handle.finalize(status, outputs, exit_code, outcome_line=outcome_line)
+        handle.finalize(status, outputs, exit_code, outcome_line=outcome_line, environment=environment)
 
     return exit_code
