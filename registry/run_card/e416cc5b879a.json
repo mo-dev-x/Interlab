@@ -1,0 +1,32 @@
+{
+  "artifact_type": "run_card",
+  "created_at": "2026-07-25T23:17:01Z",
+  "created_by": {
+    "code_commit": "1d54b5256a8bf05951f3a44c635a729026f5930a",
+    "entrypoint": "interplab.jobs.backfill_checkpoint",
+    "host": "tamia",
+    "run_id": "r20260725-2317-0be8"
+  },
+  "payload": {
+    "config_hash": "sha256:8159f6ab2f7169896502079bef947b9004104ed637235bec7acab6bcd758562a",
+    "config_ref": "local:configs/backfill/o1cx1dow.yaml",
+    "exit_code": 0,
+    "inputs": [],
+    "log_section": null,
+    "outcome_line": "backfilled sae_checkpoint 6bcfca59f727 (tokens_trained=400000000)",
+    "outputs": [
+      {
+        "content_hash": "sha256:6bcfca59f72771458adbfba5cb52db45a74706238f9e94f271c972cbcc53afb3",
+        "location": "local:registry/sae_checkpoint/6bcfca59f727.json",
+        "role": "sae_checkpoint"
+      }
+    ],
+    "run_id": "r20260725-2317-0be8",
+    "slurm": null,
+    "stage": "backfill",
+    "status": "completed"
+  },
+  "schema_version": 1,
+  "self_hash": "sha256:e416cc5b879a0431643e0175c241fc5b21ac4213d32aee9c4f108e24e889dd7f",
+  "subject": []
+}

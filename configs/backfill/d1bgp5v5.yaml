@@ -1,0 +1,20 @@
+training_config_path: local:configs/backfill/inputs/d1bgp5v5_runner_cfg.json
+weights_location: tamia:sae_checkpoints/d1bgp5v5/final_400001024
+weights_dir_hash: sha256:4f9e6970aeaa95d27ac9e5381aecd2cb323a300beb094c7cebec103f05ef6632
+model_location: hf:Qwen/Qwen2.5-14B-Instruct@cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8
+model_dir_hash: sha256:8048b369f0a53642341b175c619db5996d69381599d4029938aafd92d2ab31ce
+corpus_manifest_hash: sha256:88740b7463610b932917b5a0b0ebe81959cd4170cffe6b36fa229b0df64239dc
+tokens_trained: 400001024
+seed: 42
+wandb: wandb:hstg7843
+cfg_schema_generation: 6.x
+training_provenance:
+  sae_lens: 6.44.2
+  transformers: 5.12.1
+  transformer_lens: 3.4.0
+  source: wandb
+  confidence: measured
+telemetry_tail:
+  fvu: 0.0234375
+  fvu_source: training_step
+  dead_count: 492

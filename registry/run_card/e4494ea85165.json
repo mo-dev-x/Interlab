@@ -1,0 +1,32 @@
+{
+  "artifact_type": "run_card",
+  "created_at": "2026-07-25T23:17:01Z",
+  "created_by": {
+    "code_commit": "1d54b5256a8bf05951f3a44c635a729026f5930a",
+    "entrypoint": "interplab.jobs.backfill_checkpoint",
+    "host": "tamia",
+    "run_id": "r20260725-2317-bc0c"
+  },
+  "payload": {
+    "config_hash": "sha256:940f27220019e7996887ca8bb9972541181c0c98cf8f0815fc1f42550d2514cd",
+    "config_ref": "local:configs/backfill/zf2o13m2.yaml",
+    "exit_code": 0,
+    "inputs": [],
+    "log_section": null,
+    "outcome_line": "backfilled sae_checkpoint 8bce0ef2790e (tokens_trained=400001024)",
+    "outputs": [
+      {
+        "content_hash": "sha256:8bce0ef2790e595de5e6c01ddee3a11aa24b45dd479f9030a9c4618588b9568d",
+        "location": "local:registry/sae_checkpoint/8bce0ef2790e.json",
+        "role": "sae_checkpoint"
+      }
+    ],
+    "run_id": "r20260725-2317-bc0c",
+    "slurm": null,
+    "stage": "backfill",
+    "status": "completed"
+  },
+  "schema_version": 1,
+  "self_hash": "sha256:e4494ea8516583349d2da16a06464c63eb811d1b609be1640b852ed06ccac480",
+  "subject": []
+}
