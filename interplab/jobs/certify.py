@@ -99,7 +99,12 @@ def _load_model(checkpoint: dict, store: dict | None):
             "checkpoint has no subject entry with role 'model' to locate the base transformer"
         )
     device, dtype = _certify_device_dtype()
-    return load_local_hooked_transformer(str(resolve_model_location(model_location)), device=device, dtype=dtype)
+    model = load_local_hooked_transformer(str(resolve_model_location(model_location)), device=device, dtype=dtype)
+    # Guarantee every parameter AND buffer lands on `device`: the manual
+    # convert-load path can leave rotary/attention buffers on CPU while the
+    # weights go to CUDA, which trips "tensors on cuda:0 and cpu" the moment a
+    # forward runs. .to(device) is idempotent when already colocated (CPU path).
+    return model.to(device)
 
 
 def _resolve_eval_slice(
