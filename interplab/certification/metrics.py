@@ -120,12 +120,16 @@ def compute_metrics(
 
             sq_error, sq_total = squared_error_and_total(x, recon)
 
-            pos_sq_error += sq_error.sum(dim=0).double()
-            pos_sq_total += sq_total.sum(dim=0).double()
+            # Accumulators live on CPU (float64, consumed by .numpy()/.tolist()
+            # at the end); the per-batch contributions come off the model/SAE
+            # device (CUDA on the cluster), so move them to CPU before adding --
+            # otherwise "tensors on cuda:0 and cpu". No-op on the CPU path.
+            pos_sq_error += sq_error.sum(dim=0).double().cpu()
+            pos_sq_total += sq_total.sum(dim=0).double().cpu()
             sq_error_total += float(sq_error.sum().item())
             sq_total_total += float(sq_total.sum().item())
 
-            fire_counts += (feats != 0).sum(dim=(0, 1)).double()
+            fire_counts += (feats != 0).sum(dim=(0, 1)).double().cpu()
             total_positions += batch * seq_len
 
     ce_clean = ce_clean_sum / n_ce_tokens
