@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import torch
 from sae_lens import SAE
 
 from interplab.certification import eval_slice, report_card
@@ -50,6 +51,19 @@ def _find_subject_ref(artifact: dict, role: str) -> dict:
     )
 
 
+def _certify_device_dtype() -> tuple[str, torch.dtype]:
+    """ED-7: production certification runs on the cluster GPU. Use CUDA in the
+    checkpoints' training precision (bf16 -- the SAE was trained observing bf16
+    activations; and a 14B model in fp32 both overflows a single GPU and needs
+    >56GB host RAM to load) when a GPU is present; fall back to CPU/fp32 for the
+    tiny-fixture CI path (no GPU). This is operational, not scientific: metrics
+    are computed in fp32 regardless (`metrics.fp32_copy` + `logits.to(float32)`),
+    so device/dtype here trade wall-clock/memory, never the certified numbers."""
+    if torch.cuda.is_available():
+        return "cuda", torch.bfloat16
+    return "cpu", torch.float32
+
+
 def _load_sae(checkpoint: dict) -> SAE:
     weights_ref = _find_subject_ref(checkpoint, "weights")
     location = weights_ref["location"]
@@ -60,7 +74,8 @@ def _load_sae(checkpoint: dict) -> SAE:
         path = uris.resolve_tamia(location)
     else:
         raise NotImplementedError(f"certify can only load SAE weights from local:/tamia: URIs; got {location!r}")
-    return SAE.load_from_pretrained(str(path), device="cpu")
+    device, _ = _certify_device_dtype()
+    return SAE.load_from_pretrained(str(path), device=device)
 
 
 def _load_model(checkpoint: dict, store: dict | None):
@@ -83,7 +98,8 @@ def _load_model(checkpoint: dict, store: dict | None):
         raise ContractViolationError(
             "checkpoint has no subject entry with role 'model' to locate the base transformer"
         )
-    return load_local_hooked_transformer(str(resolve_model_location(model_location)))
+    device, dtype = _certify_device_dtype()
+    return load_local_hooked_transformer(str(resolve_model_location(model_location)), device=device, dtype=dtype)
 
 
 def _resolve_eval_slice(
