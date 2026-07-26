@@ -91,3 +91,53 @@ legacy checkpoint (`store_hash: null`) certify REQUIRES `eval_slice.method/param
 Decision needed (researcher): confirm `stream_offset` past the training bound, and the
 offset/count. Recommendation: offset at the first document after 400M consumed tokens,
 count sized to `n_tokens` (e.g. a few M eval tokens).
+
+### Update 2026-07-25 (after ED-34)
+- **Gate 1: RESOLVED by ED-34** — `certify._load_sae` resolves `tamia:` (`uris.resolve_tamia`);
+  `_load_model` resolves the `hf:@rev` model via a pinned download into the single
+  fidelity-correct `load_local_hooked_transformer` (not a second build path).
+- **Gate 2: only one ED-5-valid option, offset is mechanically fixed.** `stream_offset` past
+  the training bound; `offset = 601369` (= A1 `doc_count`, the first untrained doc);
+  `corpus_manifest_hash = A1 88740b746361`. Proceeding with this unless vetoed.
+
+### Gate 3 — NEW, surfaced by ED-34's eager loader (→ Impl Eng)
+`interplab/certification/eval_slice.py::load_corpus_docs` (dir branch) does
+`return [row[text_field] for row in ds]` — it **materializes the entire corpus** before
+`select_stream_offset` slices `docs[offset:offset+count]`. Verified corpus scale:
+`fineweb_subset` = **32,589,370 docs / ~101 GB text** (434 arrow shards). Materializing that
+into a Python list OOMs on any node; `stream_offset` at doc 601369 is therefore unrunnable
+as written. No config knob avoids it (`_resolve_eval_slice` passes no `limit`, and the dir
+branch slices `docs[:limit]` only *after* full materialization).
+
+Required fix (mirrors the already-sanctioned `corpus.replay` generator pattern): make the
+`local:`/`tamia:` readers **stream** and push the positional bound down —
+`itertools.islice(rows, offset, offset + count)` — so `stream_offset` reads only
+`offset+count` docs and never builds the full list. `select_stream_offset` should consume an
+iterator with early stop rather than index a materialized list. Provenance is unchanged
+(`corpus_manifest = A1`, `method = stream_offset`, `params = {offset: 601369, count: …}`).
+Same eager-read latent in `select_holdout_split` (full scan) — not on our path today but the
+same class.
+
+### Gate 3 — RESOLVED (researcher-blessed islice fix, implemented 2026-07-25)
+Blessed as provenance-safe/byte-identical and implemented in `interplab/certification/eval_slice.py`:
+- `_iter_local_jsonl` / `_iter_local_hf_dataset` are now **generators** (mirror the `replay` twins).
+- New lazy primitive `iter_corpus_docs()`; `load_corpus_docs()` kept as a materializing wrapper
+  (backward-compatible list return — `holdout_split` path + all existing tests unchanged).
+- `select_stream_offset()` now `list(itertools.islice(docs, offset, offset+count))` — byte-identical
+  to `docs[offset:offset+count]` for a list, and over the lazy iterator materializes only `count`.
+- `certify._resolve_eval_slice`: `stream_offset` consumes `iter_corpus_docs` lazily; `holdout_split`
+  still uses `load_corpus_docs` (its eager scan is the deferred sibling below).
+Tests: 29 pass (eval_slice + certify), incl. a new laziness test proving an unbounded source is
+consumed to exactly `offset+count` then stopped.
+
+**Deferred sibling (logged, not fixed — researcher-directed):** `select_holdout_split` still scans a
+materialized list. It is reached only by store-backed checkpoints (SS3 `train`, unbuilt/researcher-gated);
+all 4 current checkpoints are legacy/`stream_offset`. Its fix is a streaming residue filter
+(scan rows, materialize only hash-mod matches) when SS3 lands.
+
+### Gate 2 — RESOLVED (researcher ruling): `stream_offset`, offset = 601369 (A1 doc_count = training bound).
+Eval params (researcher-approved): `n_tokens = 10_000_000` (unbiased `dead_fraction` for 163k–327k-feature
+SAEs; bands are placeholders but metrics stored raw), `batch_size = 8` (→16 if node headroom;
+batch-size-invariant metrics), `seq_len = 512`, `count = 25000` docs (~16.6M tokens available, capped to
+n_tokens), `corpus_location = local:data/raw/fineweb_subset`, `corpus_manifest = A1 88740b746361`,
+`bands_version = 1`.

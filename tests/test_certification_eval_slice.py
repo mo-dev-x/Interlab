@@ -5,6 +5,7 @@ import pytest
 
 from interplab.certification.eval_slice import (
     doc_hash_mod,
+    iter_corpus_docs,
     load_corpus_docs,
     select_holdout_split,
     select_stream_offset,
@@ -150,3 +151,38 @@ def test_load_corpus_docs_tamia_without_scratch_raises_clearly(monkeypatch):
     monkeypatch.delenv("SCRATCH", raising=False)
     with pytest.raises(Exception, match="SCRATCH"):
         load_corpus_docs("tamia:eval_corpus/docs.jsonl")
+
+
+# ED-34 Gate-3: lazy iter_corpus_docs + stream_offset that never materializes the corpus.
+
+
+def test_iter_corpus_docs_matches_eager_load():
+    eager = load_corpus_docs("local:tests/fixtures/pinned_text.jsonl")
+    lazy = list(iter_corpus_docs("local:tests/fixtures/pinned_text.jsonl"))
+    assert lazy == eager
+
+
+def test_stream_offset_over_iterator_is_byte_identical_to_list_slice():
+    eager = load_corpus_docs("local:tests/fixtures/pinned_text.jsonl")
+    lazy_slice = select_stream_offset(
+        iter_corpus_docs("local:tests/fixtures/pinned_text.jsonl"), offset=10, count=5
+    )
+    assert lazy_slice == eager[10:15]
+
+
+def test_stream_offset_materializes_only_offset_plus_count_from_lazy_source():
+    """The core Gate-3 guarantee: islice stops after offset+count and never
+    consumes (nor materializes) the rest of the stream -- proven here against
+    an unbounded generator that would hang/OOM if fully consumed."""
+    produced = {"n": 0}
+
+    def unbounded():
+        i = 0
+        while True:
+            produced["n"] += 1
+            yield f"doc {i}"
+            i += 1
+
+    selected = select_stream_offset(unbounded(), offset=5, count=3)
+    assert selected == [f"doc {i}" for i in range(5, 8)]
+    assert produced["n"] == 8  # exactly offset+count consumed, then stopped

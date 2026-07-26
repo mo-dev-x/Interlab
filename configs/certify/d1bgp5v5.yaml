@@ -1,0 +1,12 @@
+checkpoint_hash: sha256:09e7d4744cfa5fa4aeece0eb2aedc200a7ef889433ad477d14e9511582029665
+n_tokens: 10000000
+seq_len: 512
+batch_size: 8
+bands_version: 1
+eval_slice:
+  corpus_manifest_hash: sha256:88740b7463610b932917b5a0b0ebe81959cd4170cffe6b36fa229b0df64239dc
+  corpus_location: local:data/raw/fineweb_subset
+  method: stream_offset
+  params:
+    offset: 601369
+    count: 25000

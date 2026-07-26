@@ -91,7 +91,7 @@ def _resolve_eval_slice(
 ) -> tuple[list[str], str, dict, str]:
     """Returns (selected_docs, method, params, disjointness)."""
     eval_slice_cfg = config["eval_slice"]
-    docs = eval_slice.load_corpus_docs(eval_slice_cfg["corpus_location"])
+    corpus_location = eval_slice_cfg["corpus_location"]
 
     method = eval_slice_cfg.get("method")
     params = eval_slice_cfg.get("params")
@@ -107,9 +107,17 @@ def _resolve_eval_slice(
         params = {"modulus": holdout["modulus"], "residues": holdout["residues"]}
 
     if method == "holdout_split":
+        # store-backed path: the residue filter must scan the whole corpus, so a
+        # materialized list is unavoidable here (ED-34 Gate-3 follow-up: still eager,
+        # deferred -- reached only by store-backed SS3 checkpoints, none exist yet).
+        docs = eval_slice.load_corpus_docs(corpus_location)
         selected = eval_slice.select_holdout_split(docs, modulus=params["modulus"], residues=params["residues"])
         disjointness = "by_construction"
     elif method == "stream_offset":
+        # ED-34 Gate-3: consume the corpus lazily -- select_stream_offset islices the
+        # generator, so only the selected `count` docs are materialized (never the
+        # full 32.6M-doc / ~101GB corpus). Byte-identical slice to the eager version.
+        docs = eval_slice.iter_corpus_docs(corpus_location)
         selected = eval_slice.select_stream_offset(docs, offset=params["offset"], count=params["count"])
         disjointness = "by_offset_argument"
     else:
