@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 import torch
 
@@ -40,33 +41,68 @@ def select_stream_offset(docs: list[str], *, offset: int, count: int) -> list[st
     return docs[offset : offset + count]
 
 
-def load_corpus_docs(location: str, *, text_field: str = "text", limit: int | None = None) -> list[str]:
-    """Loads raw document text from a `local:` (JSONL, one `{"text": ...}`
-    per line -- the same shape as tests/fixtures/pinned_text.jsonl) or
-    `hf:` (streamed via `datasets`) URI. `tamia:` is not resolvable here
-    (no `$SCRATCH` mount in this environment); `wandb:` is not a text
+def _iter_local_jsonl(path: Path) -> list[str]:
+    """Duplicated from `interplab.corpus.replay.iter_local_jsonl` (Ground
+    Rule 2: `certification` may only import `core`, `registry` -- not
+    `corpus`). Streams a `{"id": ..., "text": ...}`-per-line file's `text`
+    field."""
+    docs = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                docs.append(json.loads(line)["text"])
+    return docs
+
+
+def _iter_local_hf_dataset(path: Path, *, split: str, text_field: str = "text") -> list[str]:
+    """Duplicated from `interplab.corpus.replay.iter_local_hf_dataset`
+    (Ground Rule 2, same as above -- `replay.iter_local_hf_dataset` depends
+    on `datasets`, so it cannot be promoted to `core` either, which is
+    stdlib/numpy/pydantic/jsonschema only). Same acquisition method
+    SAELens itself used at training time: `datasets.load_dataset(path,
+    split=..., streaming=True)`, no `revision` -- the directory's own
+    content is the pin, same as any other `local:`/`tamia:` resource."""
+    from datasets import load_dataset
+
+    ds = load_dataset(str(path), split=split, streaming=True)
+    return [row[text_field] for row in ds]
+
+
+def load_corpus_docs(
+    location: str, *, split: str = "train", text_field: str = "text", limit: int | None = None
+) -> list[str]:
+    """Loads raw document text from a `local:`/`tamia:` location or a
+    remote `hf:` (streamed via `datasets`) URI. `wandb:` is not a text
     source.
+
+    ED-34: `local:`/`tamia:` dispatch on what's actually at the resolved
+    path -- a file streams as JSONL (the same shape as
+    tests/fixtures/pinned_text.jsonl); a directory streams as a local
+    HuggingFace dataset cache (`_iter_local_hf_dataset`), the format the
+    real training corpus is stored in (per A5 `config.dataset_path`).
+    Mirrors `corpus.replay.open_stream`'s own file-vs-directory dispatch,
+    duplicated rather than imported (cross-referenced as sanctioned twins,
+    ED-34) -- `eval_slice`'s `local:` branch previously handled JSONL only,
+    which would have failed against a local HF dataset cache directory even
+    under `local:`; this fixes that too, for both schemes.
     """
     parsed = uris.parse(location)
 
-    if parsed.scheme == "local":
-        path = uris.resolve_local(location)
-        docs: list[str] = []
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                docs.append(json.loads(line)[text_field])
-                if limit is not None and len(docs) >= limit:
-                    break
-        return docs
+    if parsed.scheme in ("local", "tamia"):
+        path = uris.resolve_local(location) if parsed.scheme == "local" else uris.resolve_tamia(location)
+        docs = (
+            _iter_local_hf_dataset(path, split=split, text_field=text_field)
+            if path.is_dir()
+            else _iter_local_jsonl(path)
+        )
+        return docs[:limit] if limit is not None else docs
 
     if parsed.scheme == "hf":
         import datasets
 
         dataset_name, _, revision = parsed.value.partition("@")
-        ds = datasets.load_dataset(dataset_name, revision=revision, split="train", streaming=True)
+        ds = datasets.load_dataset(dataset_name, revision=revision, split=split, streaming=True)
         docs = []
         for row in ds:
             docs.append(row[text_field])

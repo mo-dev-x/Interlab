@@ -3,8 +3,13 @@ held-out slice, applies bands, emits the certificate + report card.
 
 Reads A5 (+ A4 if the checkpoint has a store), collects activations fresh
 through the model (ED-5, never from a stored slice), and writes A6 directly
-to `registry/` (§7.1: "directly to registry/ when local" -- this job never
-runs on the cluster in this environment, so the outbox path is unused).
+to whatever `registry_root` it's given -- `registry/` when local, or a
+cluster outbox dir when the launcher passes one (§7.1: "directly to
+registry/ when local"; ED-7: production certify runs on the cluster under
+a GPU allocation). ED-34: checkpoint weights resolve via `local:`/`tamia:`,
+the base model via `local:`/`tamia:`/`hf:` (a pinned-download acquisition
+step for `hf:`, never a second construction path -- see
+`certification.model_loading`).
 """
 
 from __future__ import annotations
@@ -16,7 +21,10 @@ from sae_lens import SAE
 from interplab.certification import eval_slice, report_card
 from interplab.certification.bands import apply_bands, load_bands
 from interplab.certification.metrics import compute_metrics
-from interplab.certification.model_loading import load_local_hooked_transformer
+from interplab.certification.model_loading import (
+    load_local_hooked_transformer,
+    resolve_model_location,
+)
 from interplab.core import configs, envelope, hashing, uris
 from interplab.core import environment as environment_mod
 from interplab.core.errors import ContractViolationError, EnvironmentBaselineError
@@ -46,11 +54,12 @@ def _load_sae(checkpoint: dict) -> SAE:
     weights_ref = _find_subject_ref(checkpoint, "weights")
     location = weights_ref["location"]
     parsed = uris.parse(location)
-    if parsed.scheme != "local":
-        raise NotImplementedError(
-            f"certify can only load SAE weights from local: URIs in this environment; got {location!r}"
-        )
-    path = uris.resolve_local(location)
+    if parsed.scheme == "local":
+        path = uris.resolve_local(location)
+    elif parsed.scheme == "tamia":
+        path = uris.resolve_tamia(location)
+    else:
+        raise NotImplementedError(f"certify can only load SAE weights from local:/tamia: URIs; got {location!r}")
     return SAE.load_from_pretrained(str(path), device="cpu")
 
 
@@ -74,12 +83,7 @@ def _load_model(checkpoint: dict, store: dict | None):
         raise ContractViolationError(
             "checkpoint has no subject entry with role 'model' to locate the base transformer"
         )
-    parsed = uris.parse(model_location)
-    if parsed.scheme != "local":
-        raise NotImplementedError(
-            f"certify can only load the base model from local: URIs in this environment; got {model_location!r}"
-        )
-    return load_local_hooked_transformer(str(uris.resolve_local(model_location)))
+    return load_local_hooked_transformer(str(resolve_model_location(model_location)))
 
 
 def _resolve_eval_slice(

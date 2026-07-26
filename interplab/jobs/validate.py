@@ -4,7 +4,12 @@ for one (checkpoint, feature_index, concept_id), applies bands, emits A8.
 
 Reads A7 (+ the sae_checkpoint and index it references), A2 (one concept
 file), A3 (existence-checked, linked for provenance); writes A8 directly to
-`registry/` (§7.1, same as `certify`/`characterize`/`store_qa`).
+whatever `registry_root` it's given -- `registry/` when local, or a cluster
+outbox dir when the launcher passes one (§7.1, same as
+`certify`/`characterize`/`store_qa`; ED-7: this GPU stage runs on the
+cluster for production checkpoints). ED-34: checkpoint weights resolve via
+`local:`/`tamia:`, the base model via `local:`/`tamia:`/`hf:` (see
+`validation.model_loading`).
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from interplab.registry.registry import put as registry_put
 from interplab.registry.run_card import new_run_card
 from interplab.validation import bands as bands_mod
 from interplab.validation import loader as loader_mod
+from interplab.validation import model_loading as model_loading_mod
 from interplab.validation import probe as probe_mod
 from interplab.validation import selectivity as selectivity_mod
 from interplab.validation import sensitivity as sensitivity_mod
@@ -54,11 +60,11 @@ def _find_subject_ref(artifact: dict, role: str) -> dict:
 
 def _load_local(location: str, *, what: str) -> Path:
     parsed = uris.parse(location)
-    if parsed.scheme != "local":
-        raise NotImplementedError(
-            f"validate can only load {what} from local: URIs in this environment; got {location!r}"
-        )
-    return uris.resolve_local(location)
+    if parsed.scheme == "local":
+        return uris.resolve_local(location)
+    if parsed.scheme == "tamia":
+        return uris.resolve_tamia(location)
+    raise NotImplementedError(f"validate can only load {what} from local:/tamia: URIs; got {location!r}")
 
 
 def _load_concept(concepts_dir: Path, concept_id: str) -> dict:
@@ -118,7 +124,7 @@ def run(
         sae = SAE.load_from_pretrained(
             str(_load_local(weights_ref["location"], what="SAE weights")), device="cpu"
         )
-        model = loader_mod.load_model(str(_load_local(model_ref["location"], what="the base model")))
+        model = loader_mod.load_model(str(model_loading_mod.resolve_model_location(model_ref["location"])))
         hook_name = sae.cfg.metadata.hook_name
 
         feature_index = loader_mod.open_feature_index(manifest_hash, registry_root=registry_root)

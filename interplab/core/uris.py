@@ -6,6 +6,7 @@ cross-machine reference goes through a URI validated here.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -78,3 +79,22 @@ def resolve_local(uri: str, *, repo_root: Path = REPO_ROOT) -> Path:
     if parsed.scheme != "local":
         raise URIError(f"resolve_local only accepts 'local:' URIs, got {uri!r}")
     return repo_root / parsed.value
+
+
+def resolve_tamia(uri: str) -> Path:
+    """Resolve a `tamia:` URI to a real filesystem path via `$SCRATCH`
+    (ED-34) -- only meaningful on a machine where the cluster's scratch
+    filesystem is mounted (a compute or login node); `$SCRATCH` is simply
+    absent everywhere else, so this fails clearly rather than guessing a
+    root the way `resolve_local` never needs to (its root, `REPO_ROOT`, is
+    always available)."""
+    parsed = parse(uri)
+    if parsed.scheme != "tamia":
+        raise URIError(f"resolve_tamia only accepts 'tamia:' URIs, got {uri!r}")
+    scratch = os.environ.get("SCRATCH")
+    if not scratch:
+        raise URIError(
+            f"cannot resolve {uri!r}: $SCRATCH is not set in this environment -- tamia: URIs are "
+            "only resolvable on a machine with the cluster scratch filesystem mounted"
+        )
+    return Path(scratch) / "interplab" / parsed.value

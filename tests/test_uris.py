@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from interplab.core import uris
@@ -63,3 +65,21 @@ def test_resolve_local_rejects_non_local_scheme():
 def test_resolve_local_against_real_repo_root_finds_tiny_sae_fixture():
     resolved = uris.resolve_local("local:tests/fixtures/tiny_sae")
     assert resolved.is_dir()
+
+
+def test_resolve_tamia_joins_scratch_and_interplab(monkeypatch):
+    monkeypatch.setenv("SCRATCH", "/scratch/y/yazid")
+    resolved = uris.resolve_tamia("tamia:sae_checkpoints/rwu04lpb/final_400001024")
+    assert resolved == Path("/scratch/y/yazid") / "interplab" / "sae_checkpoints/rwu04lpb/final_400001024"
+
+
+def test_resolve_tamia_rejects_non_tamia_scheme(monkeypatch):
+    monkeypatch.setenv("SCRATCH", "/scratch/y/yazid")
+    with pytest.raises(uris.URIError):
+        uris.resolve_tamia("local:tests/fixtures/tiny_sae")
+
+
+def test_resolve_tamia_without_scratch_raises_clearly(monkeypatch):
+    monkeypatch.delenv("SCRATCH", raising=False)
+    with pytest.raises(uris.URIError, match="SCRATCH"):
+        uris.resolve_tamia("tamia:sae_checkpoints/rwu04lpb/final_400001024")

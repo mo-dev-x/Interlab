@@ -4,8 +4,12 @@ the CharacterizationIndex directory + A7 manifest, and renders dashboards.
 
 Reads A5 (+ A6 soft -- a red/missing certificate does not block
 characterization, per §5.SS5's "soft" blocking tier) + a corpus text
-source; writes A7 (+ index dir, dashboards) directly to `registry/` (§7.1,
-same as `certify`: this job never runs on the cluster in this environment).
+source; writes A7 (+ index dir, dashboards) directly to whatever
+`registry_root` it's given -- `registry/` when local, or a cluster outbox
+dir when the launcher passes one (§7.1, same as `certify`; ED-7: this GPU
+stage runs on the cluster for production checkpoints). ED-34: checkpoint
+weights resolve via `local:`/`tamia:`, the base model via
+`local:`/`tamia:`/`hf:` (see `characterization.model_loading`).
 """
 
 from __future__ import annotations
@@ -17,7 +21,10 @@ from sae_lens import SAE
 
 from interplab.characterization import dashboards, indexer
 from interplab.characterization.feature_index import FeatureIndex
-from interplab.characterization.model_loading import load_local_hooked_transformer
+from interplab.characterization.model_loading import (
+    load_local_hooked_transformer,
+    resolve_model_location,
+)
 from interplab.core import configs, envelope, hashing, uris
 from interplab.core import environment as environment_mod
 from interplab.core.errors import ContractViolationError, EnvironmentBaselineError
@@ -30,7 +37,7 @@ _JUDGES = {"stub": indexer.StubJudge, "none": indexer.NoOpJudge}
 
 
 def _load_docs_jsonl(path: Path) -> list[str]:
-    """Duplicated from `interplab.corpus.manifest.load_docs_jsonl` (§1
+    """Duplicated from `interplab.corpus.replay.iter_local_jsonl` (§1
     Ground Rule 2: `jobs.characterize` may only import `core`, `registry`,
     and `characterization` -- not `corpus`)."""
     docs = []
@@ -40,6 +47,29 @@ def _load_docs_jsonl(path: Path) -> list[str]:
             if line:
                 docs.append(json.loads(line)["text"])
     return docs
+
+
+def _load_docs_local_hf_dataset(path: Path, *, split: str = "train", text_field: str = "text") -> list[str]:
+    """Duplicated from `interplab.corpus.replay.iter_local_hf_dataset` (same
+    Ground Rule 2 boundary as `_load_docs_jsonl` -- `replay`'s version
+    depends on `datasets`, so it cannot be promoted to `core` either, which
+    is stdlib/numpy/pydantic/jsonschema only). Same acquisition method
+    SAELens itself used at training time: `datasets.load_dataset(path,
+    split=..., streaming=True)`, no `revision`."""
+    from datasets import load_dataset
+
+    ds = load_dataset(str(path), split=split, streaming=True)
+    return [row[text_field] for row in ds]
+
+
+def _load_docs(path: Path) -> list[str]:
+    """ED-34: dispatches on what's actually at the resolved path -- a file
+    streams as JSONL, a directory streams as a local HuggingFace dataset
+    cache (the format the real training corpus is stored in). Mirrors
+    `corpus.replay.open_stream`'s own file-vs-directory dispatch (and
+    `certification.eval_slice.load_corpus_docs`'s identical fix), cross-
+    referenced as sanctioned twins."""
+    return _load_docs_local_hf_dataset(path) if path.is_dir() else _load_docs_jsonl(path)
 
 
 def _get_or_raise(content_hash: str, *, registry_root: Path, role: str) -> dict:
@@ -60,11 +90,11 @@ def _find_subject_ref(artifact: dict, role: str) -> dict:
 
 def _load_local(location: str, *, what: str) -> Path:
     parsed = uris.parse(location)
-    if parsed.scheme != "local":
-        raise NotImplementedError(
-            f"characterize can only load {what} from local: URIs in this environment; got {location!r}"
-        )
-    return uris.resolve_local(location)
+    if parsed.scheme == "local":
+        return uris.resolve_local(location)
+    if parsed.scheme == "tamia":
+        return uris.resolve_tamia(location)
+    raise NotImplementedError(f"characterize can only load {what} from local:/tamia: URIs; got {location!r}")
 
 
 def run(
@@ -110,12 +140,12 @@ def run(
         model_ref = _find_subject_ref(checkpoint, "model")
 
         weights_path = _load_local(weights_ref["location"], what="SAE weights")
-        model_path = _load_local(model_ref["location"], what="the base model")
+        model_path = resolve_model_location(model_ref["location"])
         sae = SAE.load_from_pretrained(str(weights_path), device="cpu")
         model = load_local_hooked_transformer(str(model_path))
 
         corpus_path = _load_local(config["corpus_location"], what="the corpus")
-        docs = _load_docs_jsonl(corpus_path)
+        docs = _load_docs(corpus_path)
         n_docs = config.get("n_docs")
         if n_docs is not None:
             docs = docs[:n_docs]
@@ -125,7 +155,7 @@ def run(
         chat_docs = None
         if config.get("chat_slice_location"):
             chat_path = _load_local(config["chat_slice_location"], what="the chat slice")
-            chat_docs = _load_docs_jsonl(chat_path)
+            chat_docs = _load_docs(chat_path)
             n_chat = config.get("n_chat_docs")
             if n_chat is not None:
                 chat_docs = chat_docs[:n_chat]

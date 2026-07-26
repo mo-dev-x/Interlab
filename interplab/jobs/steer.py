@@ -18,8 +18,13 @@ default results/ path.
 
 Reads A5 (+ its `weights`/`model` subject refs), A7 (opened via
 `FeatureIndex`, search API only), A8 when claim-mode; writes A9 (+
-generations dir) directly to `registry/` (§7.1, same pattern as every other
-job in this environment).
+generations dir) directly to whatever `registry_root` it's given --
+`registry/` when local, or a cluster outbox dir when the launcher passes
+one (§7.1, same pattern as every other cert-lane job; ED-7: this GPU stage
+runs on the cluster for production checkpoints). ED-34: checkpoint weights
+resolve via `local:`/`tamia:`, the base model via `local:`/`tamia:`/`hf:`
+(a pinned-download acquisition step for `hf:`, never a second construction
+path).
 
 Blinding is implemented inline, not via `interplab.evaluation.blinding`:
 §1's dependency edges give `jobs.steer` only `core, registry, interventions,
@@ -32,6 +37,7 @@ judge-facing step a future `jobs.judge` uses.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -57,9 +63,10 @@ def _load_local_hooked_transformer(model_dir: str, *, device: str = "cpu", dtype
     """Duplicated from `interplab.certification.model_loading` (§1 Ground
     Rule 2: `jobs.steer` may only import `core`, `registry`,
     `interventions`, and `characterization` [search API only] -- not
-    `certification`). Third duplicate of this loader in the codebase
-    (`characterization.model_loading`, `validation.model_loading` are the
-    other two); no package `jobs.steer` is allowed to import exposes it."""
+    `certification`). Fourth duplicate of this loader in the codebase
+    (`characterization.model_loading`, `validation.model_loading`,
+    `certification.model_loading` are the other three); no package
+    `jobs.steer` is allowed to import exposes it."""
     from transformer_lens import HookedTransformer
     from transformer_lens.loading_from_pretrained import get_pretrained_model_config
     from transformer_lens.pretrained.weight_conversions import convert_qwen2_weights
@@ -85,6 +92,46 @@ def _load_local_hooked_transformer(model_dir: str, *, device: str = "cpu", dtype
     return model
 
 
+def _resolve_hf_model_snapshot(location: str) -> Path:
+    """ED-34: `hf:` is an acquisition scheme, never a second construction
+    path -- `HookedTransformer.from_pretrained`'s processing defaults
+    (`fold_ln=True`, ...) diverge from `_load_local_hooked_transformer`'s
+    deliberate `fold_ln=False`/`center_writing_weights=False`/
+    `center_unembed=False`, which would silently change `hook_resid_post`.
+    So this only downloads the pinned revision to a local directory, fed
+    unchanged to the one loader above. Duplicated per the same Ground Rule
+    2 boundary as `_load_local_hooked_transformer` itself."""
+    from huggingface_hub import snapshot_download
+
+    parsed = uris.parse(location)
+    if parsed.scheme != "hf":
+        raise uris.URIError(f"_resolve_hf_model_snapshot only accepts 'hf:' URIs, got {location!r}")
+    repo, _, revision = parsed.value.partition("@")
+
+    scratch = os.environ.get("SCRATCH")
+    if not scratch:
+        raise uris.URIError(
+            f"cannot resolve {location!r}: $SCRATCH is not set -- hf: model acquisition downloads "
+            "into $SCRATCH/hf_cache, only meaningful on a machine with the cluster scratch mounted"
+        )
+    cache_dir = Path(scratch) / "hf_cache"
+    snapshot_dir = snapshot_download(
+        repo_id=repo, revision=revision, cache_dir=str(cache_dir), local_files_only=True
+    )
+    return Path(snapshot_dir)
+
+
+def _resolve_model_location(location: str) -> Path:
+    parsed = uris.parse(location)
+    if parsed.scheme == "local":
+        return uris.resolve_local(location)
+    if parsed.scheme == "tamia":
+        return uris.resolve_tamia(location)
+    if parsed.scheme == "hf":
+        return _resolve_hf_model_snapshot(location)
+    raise NotImplementedError(f"cannot resolve model location scheme {parsed.scheme!r}: {location!r}")
+
+
 def _get_or_raise(content_hash: str, *, registry_root: Path, role: str) -> dict:
     try:
         return registry_get(content_hash, registry_root=registry_root)
@@ -103,9 +150,11 @@ def _find_subject_ref(artifact: dict, role: str) -> dict:
 
 def _load_local(location: str, *, what: str) -> Path:
     parsed = uris.parse(location)
+    if parsed.scheme == "tamia":
+        return uris.resolve_tamia(location)
     if parsed.scheme != "local":
         raise NotImplementedError(
-            f"steer can only load {what} from local: URIs in this environment; got {location!r}"
+            f"steer can only load {what} from local:/tamia: URIs; got {location!r}"
         )
     return uris.resolve_local(location)
 
@@ -173,7 +222,7 @@ def run(
         weights_ref = _find_subject_ref(checkpoint, "weights")
         model_ref = _find_subject_ref(checkpoint, "model")
         sae = SAE.load_from_pretrained(str(_load_local(weights_ref["location"], what="SAE weights")), device="cpu")
-        model = _load_local_hooked_transformer(str(_load_local(model_ref["location"], what="the base model")))
+        model = _load_local_hooked_transformer(str(_resolve_model_location(model_ref["location"])))
 
         _get_or_raise(manifest_hash, registry_root=registry_root, role="characterization_manifest")
         feature_index_obj = FeatureIndex.open(manifest_hash, registry_root=registry_root)

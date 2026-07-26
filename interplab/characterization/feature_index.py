@@ -70,12 +70,14 @@ def _resolve_index_dir(manifest: PathOrHash, *, registry_root: Path) -> Path:
         for ref in artifact["subject"]:
             if ref["role"] == "index":
                 parsed = uris.parse(ref["location"])
-                if parsed.scheme != "local":
-                    raise NotImplementedError(
-                        f"FeatureIndex.open can only resolve local: index locations in this "
-                        f"environment; got {ref['location']!r}"
-                    )
-                return uris.resolve_local(ref["location"])
+                if parsed.scheme == "local":
+                    return uris.resolve_local(ref["location"])
+                if parsed.scheme == "tamia":
+                    return uris.resolve_tamia(ref["location"])
+                raise NotImplementedError(
+                    f"FeatureIndex.open can only resolve local:/tamia: index locations; "
+                    f"got {ref['location']!r}"
+                )
         raise ValueError(f"characterization_manifest {manifest_str!r} has no subject entry with role 'index'")
 
     raise ValueError(f"not a directory and not a sha256: hash: {manifest!r}")
@@ -151,17 +153,25 @@ class FeatureIndex:
 
         from sae_lens import SAE
 
-        from interplab.characterization.model_loading import load_local_hooked_transformer
+        from interplab.characterization.model_loading import (
+            load_local_hooked_transformer,
+            resolve_model_location,
+        )
 
         weights_location = self._columnar["weights_location"]
         model_location = self._columnar["model_location"]
-        if uris.parse(weights_location).scheme != "local" or uris.parse(model_location).scheme != "local":
+        weights_scheme = uris.parse(weights_location).scheme
+        if weights_scheme == "local":
+            weights_path = uris.resolve_local(weights_location)
+        elif weights_scheme == "tamia":
+            weights_path = uris.resolve_tamia(weights_location)
+        else:
             raise NotImplementedError(
-                "search_by_activation can only lazily load local: model/weights locations in this "
-                f"environment; got {weights_location!r} / {model_location!r}"
+                f"search_by_activation can only lazily load SAE weights from local:/tamia: URIs; "
+                f"got {weights_location!r}"
             )
-        self._sae = SAE.load_from_pretrained(str(uris.resolve_local(weights_location)), device="cpu")
-        self._model = load_local_hooked_transformer(str(uris.resolve_local(model_location)))
+        self._sae = SAE.load_from_pretrained(str(weights_path), device="cpu")
+        self._model = load_local_hooked_transformer(str(resolve_model_location(model_location)))
         return self._model, self._sae
 
     def search_by_activation(self, texts: list[str], top_n: int) -> list[Hit]:

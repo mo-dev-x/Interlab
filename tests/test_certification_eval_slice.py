@@ -91,3 +91,62 @@ def test_load_corpus_docs_respects_limit():
 def test_load_corpus_docs_rejects_unsupported_scheme():
     with pytest.raises(ValueError):
         load_corpus_docs("wandb:some-run")
+
+
+def test_load_corpus_docs_dispatches_local_directories_to_hf_dataset_cache(tmp_path, monkeypatch):
+    """ED-34: a local: location resolving to a directory is a local
+    HuggingFace dataset cache, not JSONL -- eval_slice's local: branch used
+    to handle JSONL only, which is exactly the deeper defect ED-34 named."""
+    from interplab.core import uris
+
+    def fake_load_dataset(path, split=None, streaming=None):
+        assert path.endswith("fineweb_subset")
+        assert split == "train"
+        assert streaming is True
+        return [{"text": "a"}, {"text": "b"}, {"text": "c"}]
+
+    import datasets
+
+    monkeypatch.setattr(datasets, "load_dataset", fake_load_dataset)
+    local_cache_dir = uris.REPO_ROOT / "results" / "_test_scratch" / "fineweb_subset"
+    local_cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        rel = local_cache_dir.relative_to(uris.REPO_ROOT).as_posix()
+        docs = load_corpus_docs(f"local:{rel}")
+        assert docs == ["a", "b", "c"]
+    finally:
+        local_cache_dir.rmdir()
+
+
+def test_load_corpus_docs_resolves_tamia_jsonl_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRATCH", str(tmp_path))
+    corpus_dir = tmp_path / "interplab" / "eval_corpus"
+    corpus_dir.mkdir(parents=True)
+    (corpus_dir / "docs.jsonl").write_text('{"id": 0, "text": "hello"}\n{"id": 1, "text": "world"}\n', encoding="utf-8")
+
+    docs = load_corpus_docs("tamia:eval_corpus/docs.jsonl")
+    assert docs == ["hello", "world"]
+
+
+def test_load_corpus_docs_dispatches_tamia_directories_to_hf_dataset_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRATCH", str(tmp_path))
+    cache_dir = tmp_path / "interplab" / "hf_cache" / "fineweb_subset"
+    cache_dir.mkdir(parents=True)
+
+    def fake_load_dataset(path, split=None, streaming=None):
+        assert path.endswith("fineweb_subset")
+        assert split == "train"
+        assert streaming is True
+        return [{"text": "x"}, {"text": "y"}]
+
+    import datasets
+
+    monkeypatch.setattr(datasets, "load_dataset", fake_load_dataset)
+    docs = load_corpus_docs("tamia:hf_cache/fineweb_subset")
+    assert docs == ["x", "y"]
+
+
+def test_load_corpus_docs_tamia_without_scratch_raises_clearly(monkeypatch):
+    monkeypatch.delenv("SCRATCH", raising=False)
+    with pytest.raises(Exception, match="SCRATCH"):
+        load_corpus_docs("tamia:eval_corpus/docs.jsonl")

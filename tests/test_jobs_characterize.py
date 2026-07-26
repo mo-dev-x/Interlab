@@ -241,3 +241,42 @@ def test_config_schema_validation_failure_raises(tmp_path):
     cfg_path.write_text(yaml.safe_dump({"checkpoint_hash": "not-a-hash"}), encoding="utf-8")
     with pytest.raises(SchemaValidationError):
         characterize.run(cfg_path, registry_root=tmp_path / "registry", repo_root=tmp_path)
+
+
+def test_load_docs_dispatches_local_directories_to_hf_dataset_cache(tmp_path, monkeypatch):
+    """ED-34: `_load_docs` (like `certification.eval_slice.load_corpus_docs`,
+    its sanctioned twin) dispatches on what's actually at the resolved
+    path -- a directory is a local HuggingFace dataset cache, not JSONL."""
+    def fake_load_dataset(path, split=None, streaming=None):
+        assert path.endswith("fineweb_subset")
+        assert split == "train"
+        assert streaming is True
+        return [{"text": "a"}, {"text": "b"}]
+
+    import datasets
+
+    monkeypatch.setattr(datasets, "load_dataset", fake_load_dataset)
+    cache_dir = tmp_path / "fineweb_subset"
+    cache_dir.mkdir()
+
+    docs = characterize._load_docs(cache_dir)
+    assert docs == ["a", "b"]
+
+
+def test_load_docs_dispatches_files_to_jsonl(tmp_path):
+    jsonl_path = tmp_path / "docs.jsonl"
+    jsonl_path.write_text('{"id": 0, "text": "hello"}\n{"id": 1, "text": "world"}\n', encoding="utf-8")
+
+    docs = characterize._load_docs(jsonl_path)
+    assert docs == ["hello", "world"]
+
+
+def test_load_local_resolves_tamia_corpus_location(tmp_path, monkeypatch):
+    """ED-34: characterize's own `_load_local` (weights/corpus/chat_slice
+    guard) resolves `tamia:` via `$SCRATCH`, same as the other four sites."""
+    monkeypatch.setenv("SCRATCH", str(tmp_path))
+    corpus_dir = tmp_path / "interplab" / "eval_corpus"
+    corpus_dir.mkdir(parents=True)
+
+    resolved = characterize._load_local("tamia:eval_corpus", what="the corpus")
+    assert resolved == corpus_dir

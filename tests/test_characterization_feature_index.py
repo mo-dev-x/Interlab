@@ -276,3 +276,46 @@ def test_index_open_by_content_hash_via_registry(tmp_path):
         assert fi.n_features == 1
     finally:
         shutil.rmtree(real_index_dir, ignore_errors=True)
+
+
+def test_index_open_by_content_hash_via_registry_resolves_tamia_location(tmp_path, monkeypatch):
+    """ED-34: the registry-ref branch resolves a `tamia:` index location via
+    `$SCRATCH`, same as the `local:` case above -- the degraded bare-local-
+    directory branch (`test_open_from_local_directory`) is untouched by this
+    fix by construction, since it short-circuits before any URI parsing."""
+    from interplab.core import envelope
+    from interplab.registry.registry import put as registry_put
+
+    scratch = tmp_path / "scratch"
+    monkeypatch.setenv("SCRATCH", str(scratch))
+    index_dir = scratch / "interplab" / "characterization_indexes" / "abc123"
+    index_dir.parent.mkdir(parents=True)
+    _write_index(index_dir.parent, [_feature_row(0)])
+    (index_dir.parent / "index").rename(index_dir)
+
+    created_by = {"run_id": "r20260709-0000-abcd", "code_commit": "0" * 40, "entrypoint": "test", "host": "tamia"}
+    manifest = envelope.dump(
+        artifact_type="characterization_manifest", schema_version=1, created_by=created_by,
+        subject=[
+            {"content_hash": "sha256:" + "a" * 64, "location": "local:x", "role": "sae_checkpoint"},
+            {
+                "content_hash": "sha256:" + "b" * 64,
+                "location": "tamia:characterization_indexes/abc123",
+                "role": "index",
+            },
+        ],
+        payload={
+            "sample": {"n_tokens": 10, "chat_slice_tokens": 0},
+            "index_layout_version": 1,
+            "per_feature_columns": [
+                "corpus_max", "firing_rate", "decile_boundaries", "logit_top_tokens",
+                "autointerp_label", "autointerp_detection_score",
+            ],
+            "judge": {"model": "none", "rubric_version": "none", "prompt_version": "none"},
+        },
+    )
+    registry_root = tmp_path / "registry"
+    manifest_hash = registry_put(manifest, registry_root=registry_root)
+
+    fi = FeatureIndex.open(manifest_hash, registry_root=registry_root)
+    assert fi.n_features == 1
