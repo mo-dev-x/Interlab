@@ -141,3 +141,24 @@ SAEs; bands are placeholders but metrics stored raw), `batch_size = 8` (→16 if
 batch-size-invariant metrics), `seq_len = 512`, `count = 25000` docs (~16.6M tokens available, capped to
 n_tokens), `corpus_location = local:data/raw/fineweb_subset`, `corpus_manifest = A1 88740b746361`,
 `bands_version = 1`.
+
+### T0.3 — COMPLETE: 4 A6 sae_certificate artifacts recorded (GATE G1).
+All four certified on the Tamia H100 node (whole-node `h100:4`, ED-7 GPU path), fresh fp32 metrics over the
+held-out 10M-token slice (offset 601369, count 25000). Five never-run-GPU-path defects cleared to get here:
+URI resolution (ED-34), lazy corpus streaming (ED-34 Gate-3, ~101GB→islice), GPU device/dtype
+(`_certify_device_dtype` CUDA+bf16), model buffer colocation (`model.to(device)`), and the metrics-accumulator
+device mismatch (`.double().cpu()` in `metrics.py`, CPU-invisible → CI-invisible). o1cx1dow (64× SAE) OOM'd at
+batch_size 8 → halved to 4 (batch-invariant metrics, not in cert payload; commit 7b9478d). All `self_hash`
+verified, filename-consistent, n_tokens 9,999,872.
+
+| SAE | Layer×Exp | job | cert (A6) | verdict | fvu | ce_recovered | dead_fraction |
+|-----|-----------|-----|-----------|---------|-----|--------------|---------------|
+| d1bgp5v5 | L16×32 | 383669 | ed82c7245ca7 | amber | 0.0076 | 0.9938 | 0.0020 |
+| rwu04lpb | L28×32 | 383528 | 0a572198764d | amber | 0.0103 | 0.9884 | 0.0008 |
+| zf2o13m2 | L40×32 | 383670 | 1167ac6f099a | amber | 0.0441 | 0.9785 | 0.0000 |
+| o1cx1dow | L28×64 | 383685 | fbdd53715b12 | green | 0.0162 | 0.9884 | 0.0012 |
+
+Verdicts sit on placeholder bands (v1); the raw metrics are the deliverable. Certify-slice FVU differs from
+T0.2 training-telemetry FVU (fresh held-out fp32 eval vs training-step telemetry); dead_fraction is near-zero
+by design of the 10M-token unbiased override. Report cards on cluster at
+`results/certificates/<hash12>/report_card.md` (not copied — human-facing, not provenance).
