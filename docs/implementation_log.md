@@ -172,3 +172,15 @@ JSON/PNG out; no registry writes/dashboards). **Cycle 1 passed** (job 383755, CO
 `results/characterize_lite/rwu04lpb/`. Headline: 9056 (cheese, max 47.5) and 47735 (UNESCO, max 40.75) are
 clean monosemantic; 44189 (Eurovision, max 8.5, incoherent top examples) empirically weak — confirms the
 roadmap pre-flag. characterize.py, Gemma, circuits, dashboards untouched per directive.
+
+### T1.1 multilingual rerun — COMPLETE (final production run, 1 cycle, no fix needed).
+User directive: last cluster experiment under credit budget (91%), max 1 debug cycle. Built ad hoc
+`scripts/multilingual_rerun.py` (reuses certify GPU/bf16 loaders; same probe sentences; faithful
+mean-activation top-20 + overlap-matrix method from legacy find_features.py, but on rwu04lpb's own
+hook_resid_post via transformer_lens and with BOS excluded). **Cycle 1 passed** (job 383758, COMPLETED
+2m21s, exit 0). Replaces the degenerate stale base-SAE matrix (which had identical 20 "shared" features for
+every concept). New differentiated result: world_cup 13/20 shared (Jaccard 0.66), quebec 12/20 (0.62),
+poutine 10/20 (0.51), couscous 4/20 (0.38). Restores a valid Qwen cross-language side. Results in
+`docs/multilingual_findings_rwu04lpb.md` + `results/features/multilingual_rwu04lpb/`. Report assets
+(fig_sae_certification, fig_feature_selectivity, fig_multilingual_overlap, docs/report_tables.md) built
+locally from existing results. **Recommend freezing the experimental phase here.**
