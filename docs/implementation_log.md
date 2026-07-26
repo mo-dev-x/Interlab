@@ -162,3 +162,13 @@ Verdicts sit on placeholder bands (v1); the raw metrics are the deliverable. Cer
 T0.2 training-telemetry FVU (fresh held-out fp32 eval vs training-step telemetry); dead_fraction is near-zero
 by design of the 10M-token unbiased override. Report cards on cluster at
 `results/certificates/<hash12>/report_card.md` (not copied — human-facing, not provenance).
+
+### Characterize-Lite — COMPLETE (roadmap T0.2, ad hoc; NOT characterize.py).
+User directive under credit budget: do NOT fix the full characterization pipeline; build a minimal ad hoc
+script for report-critical evidence only, max 2 cluster debug cycles. Built `scripts/characterize_lite.py`
+(reuses certify GPU/bf16 + `certification.model_loading` + `eval_slice.load_corpus_docs` islice; plain
+JSON/PNG out; no registry writes/dashboards). **Cycle 1 passed** (job 383755, COMPLETED 14m32s, exit 0):
+5,000 FineWeb docs → 1,712,777 positions on rwu04lpb. Results in `docs/characterize_lite_findings.md` +
+`results/characterize_lite/rwu04lpb/`. Headline: 9056 (cheese, max 47.5) and 47735 (UNESCO, max 40.75) are
+clean monosemantic; 44189 (Eurovision, max 8.5, incoherent top examples) empirically weak — confirms the
+roadmap pre-flag. characterize.py, Gemma, circuits, dashboards untouched per directive.
