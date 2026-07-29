@@ -9,8 +9,8 @@
 #
 # Prints the sbatch command, the log-tail command, and the final-result
 # command together (the repository's established submission convention),
-# then submits. Resource request is a starting placeholder pending
-# calibration on the first real certification run (§10 Open Items 2).
+# then submits. Resource request is calibrated to Tamia's whole-node H100
+# policy and the four prior successful certification runs.
 set -euo pipefail
 
 CONFIG="${1:?usage: launch_certify.sh <config.yaml> <run_id>}"
@@ -26,8 +26,8 @@ SBATCH_ARGS=(
   --output="slurm/logs/%j_certify_${RUN_ID}.out"
   --error="slurm/logs/%j_certify_${RUN_ID}.err"
   --time=02:00:00
-  --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=48G
-  --gpus-per-node=h100:1
+  --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=0
+  --gpus-per-node=h100:4
   --account=aip-chgag196
   --wrap="$REMOTE_CMD"
 )
