@@ -1,0 +1,20 @@
+training_config_path: local:configs/backfill/inputs/hm03l7yz_runner_cfg.json
+weights_location: tamia:sae_checkpoints/hm03l7yz/final_400001024
+weights_dir_hash: sha256:0f8670c078e843cb1db3691565126c353f1c65ee87d6e3c8ce8253eaab6da85e
+model_location: hf:Qwen/Qwen2.5-14B-Instruct@cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8
+model_dir_hash: sha256:8048b369f0a53642341b175c619db5996d69381599d4029938aafd92d2ab31ce
+corpus_manifest_hash: sha256:88740b7463610b932917b5a0b0ebe81959cd4170cffe6b36fa229b0df64239dc
+tokens_trained: 400001024
+seed: 42
+wandb: null
+cfg_schema_generation: 6.x
+training_provenance:
+  sae_lens: 6.44.2
+  transformers: null
+  transformer_lens: null
+  source: runner_cfg
+  confidence: measured
+telemetry_tail:
+  fvu: null
+  fvu_source: null
+  dead_count: null
