@@ -19,6 +19,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "$REPO_ROOT/slurm/logs"
 
 REMOTE_CMD="module purge && module load python/3.11 arrow && source \"\${INTERPLAB_VENV_DIR:-\$HOME/interplab-venv}/bin/activate\" && cd \"$REPO_ROOT\" && python scripts/certify.py --config \"$CONFIG\""
+# Tamia's generated `sbatch --wrap` script runs under `/bin/sh`, so the
+# module/source-heavy remote payload must cross that boundary explicitly via
+# login Bash without submit-host expansion of the remote venv fallback.
+printf -v WRAP_CMD 'bash -lc %q' "$REMOTE_CMD"
 
 SBATCH_ARGS=(
   --parsable
@@ -29,7 +33,7 @@ SBATCH_ARGS=(
   --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=0
   --gpus-per-node=h100:4
   --account=aip-chgag196
-  --wrap="$REMOTE_CMD"
+  --wrap="$WRAP_CMD"
 )
 
 SBATCH_LINE="sbatch"
