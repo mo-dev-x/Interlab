@@ -4,7 +4,7 @@
 # preflight gates pass; Stage 1b seeds 42/123 wait for ED-19/A12 readiness and
 # environment-homogeneous replay against seed 0's A10.
 # See docs/ablation_9056_spec.md. NOT RUNNABLE until:
-#   (1) the science-ready environment milestone (R6-V5A plus A-006→C7→V5B / ED-36) is met,
+#   (1) the science-ready environment milestone (R6-C7-ED36-FINAL-LOCAL-CLOSURE -> R6-V5B / ED-36) is met,
 #   (2) the accepted parked R7 launcher fixes are integrated, and
 #   (3) characterize.py + validate.py have emitted the A7 characterization_manifest
 #       and DRAFT A8 feature_certificate for 9056; then replace the placeholders below.

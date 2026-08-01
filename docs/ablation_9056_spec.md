@@ -6,8 +6,9 @@ writes, or scientific-result generation are authorized from this packet alone.
 
 Current execution gates:
 
-1. R6 remains open at `R6-V5A-ED36-REMAINDER-ACCEPTANCE`; exact-byte execution
-   remains blocked on `A-006 → C7 → V5B`.
+1. `R6-A006` is accepted without an ED amendment. R6 now remains open at
+   `R6-C7-ED36-FINAL-LOCAL-CLOSURE`, with exact-byte execution still blocked on
+   `R6-C7 -> R6-V5B`.
 2. R7 launcher propagation is accepted in isolation on
    `r7-launcher-propagation` but parked until R6 stabilizes; this packet must
    not imply launcher readiness in the active tree.
@@ -49,7 +50,7 @@ Important boundary rules:
   FineWeb lineage underlying A1 `88740b746361` and A3 `e71b243e2c0c`:
   full coverage, no concept-level narrowing, `local:data/concepts`,
   `matcher=regex`, `case_folding=true`, `boundary=word`.
-- `configs/characterize/rwu04lpb.yaml` is the canonical A7 precursor.
+- `configs/characterize/rwu04lpb.yaml` is the canonical A7 producer.
 - `configs/validate/cheese_9056.yaml` is a DRAFT A8 precursor with zero A3/A7
   placeholders and the researcher-approved cheese marker words.
 - `configs/steer/ablation_9056_seed{0,42,123}.yaml` are claim-mode seed
@@ -122,7 +123,8 @@ Per-seed acceptance:
 
 The present repo-state blockers are mechanical, not scientific:
 
-- R6 is still gated by `R6-V5A` plus `A-006 → C7 → V5B`.
+- `R6-A006` is accepted without an ED amendment; the current local gate is
+  `R6-C7-ED36-FINAL-LOCAL-CLOSURE -> R6-V5B`.
 - R7 launcher fixes are accepted in the parked worktree
   `D:\qwen-sae-interp-r7-launchers` and must be integrated only after R6
   stabilization.

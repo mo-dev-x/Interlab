@@ -1,8 +1,9 @@
 # DRAFT — canonical characterization of rwu04lpb. Roadmap T0.2 and the
-# prerequisite for the 9056 ablation (docs/ablation_9056_spec.md): emits the A7
-# characterization_manifest (corpus_max per feature, used by steer) and the A8
-# feature_certificate per feature (9056/47735/44189). GPU-gated: run only after
-# the science-ready environment milestone (R6-V5A plus A-006→C7→V5B / ED-36).
+# prerequisite for the 9056 ablation (docs/ablation_9056_spec.md): emits only
+# the A7 characterization_manifest (corpus_max per feature, used by steer).
+# validate.py later consumes A7 plus census A3 and emits the DRAFT A8
+# feature_certificate for 9056. GPU-gated: run only after the science-ready
+# environment milestone (R6-C7-ED36-FINAL-LOCAL-CLOSURE -> R6-V5B / ED-36).
 #
 # corpus_manifest_hash + corpus_location mirror the consumed FineWeb subset used
 # for certification so characterization and validation share one corpus lineage.
@@ -11,8 +12,9 @@ checkpoint_hash: "sha256:95db17aa38771e25a9ec6138f96ad857c04b82b26b0f962f5f0b64e
 corpus_manifest_hash: "sha256:88740b7463610b932917b5a0b0ebe81959cd4170cffe6b36fa229b0df64239dc"
 corpus_location: "local:data/raw/fineweb_subset"
 
-# researcher-tunable: characterize_lite used 5k docs (~1.7M token positions);
-# a canonical certificate can use more. Confirm before running.
+# Researcher-approved for the canonical packet: characterize_lite used 5k docs
+# (~1.7M token positions), and T1.2 explicitly fixes the canonical A7 run at
+# n_docs: 20000.
 n_docs: 20000
 
 # 'stub' is the only implemented judge; production autointerp is researcher-gated
