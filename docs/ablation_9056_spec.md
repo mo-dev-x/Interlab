@@ -6,9 +6,8 @@ writes, or scientific-result generation are authorized from this packet alone.
 
 Current execution gates:
 
-1. `R6-A006` is accepted without an ED amendment. R6 now remains open at
-   `R6-C7-ED36-FINAL-LOCAL-CLOSURE`, with exact-byte execution still blocked on
-   `R6-C7 -> R6-V5B`.
+1. R6/ED-36 local environment implementation and independent verification must
+   be accepted before cluster execution.
 2. R7 launcher propagation is accepted in isolation on
    `r7-launcher-propagation` but parked until R6 stabilizes; this packet must
    not imply launcher readiness in the active tree.
@@ -123,8 +122,8 @@ Per-seed acceptance:
 
 The present repo-state blockers are mechanical, not scientific:
 
-- `R6-A006` is accepted without an ED amendment; the current local gate is
-  `R6-C7-ED36-FINAL-LOCAL-CLOSURE -> R6-V5B`.
+- R6/ED-36 local environment implementation and independent verification must
+  be accepted before cluster execution.
 - R7 launcher fixes are accepted in the parked worktree
   `D:\qwen-sae-interp-r7-launchers` and must be integrated only after R6
   stabilization.

@@ -2,8 +2,9 @@
 # prerequisite for the 9056 ablation (docs/ablation_9056_spec.md): emits only
 # the A7 characterization_manifest (corpus_max per feature, used by steer).
 # validate.py later consumes A7 plus census A3 and emits the DRAFT A8
-# feature_certificate for 9056. GPU-gated: run only after the science-ready
-# environment milestone (R6-C7-ED36-FINAL-LOCAL-CLOSURE -> R6-V5B / ED-36).
+# feature_certificate for 9056. GPU-gated: R6/ED-36 local environment
+# implementation and independent verification must be accepted before cluster
+# execution.
 #
 # corpus_manifest_hash + corpus_location mirror the consumed FineWeb subset used
 # for certification so characterization and validation share one corpus lineage.
