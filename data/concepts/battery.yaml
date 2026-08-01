@@ -1,5 +1,13 @@
-battery_version: 1.0.0
+battery_version: 1.1.0
 provenance:
   extracted_from: scripts/find_features.py
   commit: 3d9cb78441ebde401f21fb5e6ca34d09c004b6ce
   extraction_script: data/concepts/extract_from_find_features.py
+changelog:
+  - version: 1.1.0
+    author: Mohamed El Yazid — IID
+    change: Added the researcher-authored English cheese concept (status probes_only; 12 probes, word_absent empty, GENERAL_TEXT concept_absent, census term derived from concept_id) for T1.2 feature-9056 validation.
+  - version: 1.0.0
+    extracted_from: scripts/find_features.py
+    commit: 3d9cb78441ebde401f21fb5e6ca34d09c004b6ce
+    extraction_script: data/concepts/extract_from_find_features.py

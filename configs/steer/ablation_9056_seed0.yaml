@@ -1,0 +1,74 @@
+# DRAFT — necessity/ablation of feature 9056 (cheese) on rwu04lpb. Roadmap T1.2.
+# SEED 0 of the prepared 3-seed packet (0, 42, 123). Per the authority packet,
+# Stage 1a may run seed 0 only after all environment, launcher, A3/A7/A8, and
+# preflight gates pass; Stage 1b seeds 42/123 wait for ED-19/A12 readiness and
+# environment-homogeneous replay against seed 0's A10.
+# See docs/ablation_9056_spec.md. NOT RUNNABLE until:
+#   (1) the science-ready environment milestone (R6-V5A plus A-006→C7→V5B / ED-36) is met,
+#   (2) the accepted parked R7 launcher fixes are integrated, and
+#   (3) characterize.py + validate.py have emitted the A7 characterization_manifest
+#       and DRAFT A8 feature_certificate for 9056; then replace the placeholders below.
+# Claim mode (feature_certificate_hash present) => auto control arms
+# (random_direction[degenerate at 0], random_feature) + prompt_baseline.
+# The steered arm at scale 0.0 clamps 9056 to 0.0 * corpus_max = 0 (ablation),
+# so this config is invariant to the exact corpus_max in A7.
+
+checkpoint_hash: "sha256:95db17aa38771e25a9ec6138f96ad857c04b82b26b0f962f5f0b64e86e215ce4"
+
+# PLACEHOLDER — replace with the A7 characterization_manifest hash from
+# characterize.py on rwu04lpb. Zero-hash is intentional: a premature run fails
+# loudly at registry lookup instead of silently using the wrong manifest.
+characterization_manifest_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+feature_index: 9056
+
+# PLACEHOLDER — replace with the DRAFT A8 feature_certificate hash for 9056 from
+# validate.py on the same characterize/census lineage. Presence of this key selects claim mode.
+feature_certificate_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+# scale 0.0 == clamp-to-zero == ablation (necessity). Keep this focused on 0.0;
+# the positive sufficiency anchor lives in the separate steering config.
+scales_in_max_units: [0.0]
+
+positions: all
+
+# cheese-eliciting prompts: baseline should naturally produce cheese content so
+# ablation has something to remove.
+prompts:
+  - "My favorite thing to buy at a French market is"
+  - "The best part of a wine and charcuterie board is the"
+  - "When I visit a fromagerie, the first thing I look for is"
+  - "A traditional Alpine dish that everyone should try is"
+  - "For a perfect grilled sandwich, the most important ingredient is"
+  - "The aging cellar was lined with wheels of"
+  - "Describe the flavor of a well-aged Comté:"
+  - "What pairs best with a crusty baguette and a glass of red wine?"
+  - "In Normandy, the local specialty that the region is famous for is"
+  - "The recipe called for a generous amount of melted"
+
+# ED-22: researcher-authored, index-aligned 1:1 with prompts, not derived from
+# them; neighbouring food domain but not cheese-eliciting.
+prompt_baseline_prompts:
+  - "My favorite thing to bake on a Sunday morning is"
+  - "The best part of planning a summer picnic is choosing the"
+  - "When I visit a bakery, the first thing I look for is"
+  - "A traditional seaside dish that everyone should try is"
+  - "For a perfect green salad, the most important ingredient is"
+  - "The pantry shelf was lined with jars of"
+  - "Describe the flavor of a freshly pressed olive oil:"
+  - "What pairs best with a bowl of ripe summer tomatoes?"
+  - "In Provence, the local specialty that the region is famous for is"
+  - "The recipe called for a generous amount of chopped"
+
+sampling:
+  temperature: 0.7
+  top_p: 0.9
+  max_new_tokens: 128
+  seed: 0
+
+direction_seed: 0
+matched_frequency_rng_seed: 0
+matched_frequency_band: 3.0
+blinding_rng_seed: 0
+
+generations_dir: "results/steer/ablation_9056_seed0"

@@ -1,3 +1,5 @@
+# Historical one-shot extractor for battery v1.0.0 only; later battery
+# revisions are researcher-authored updates to the checked-in YAML files.
 """One-time extraction script (ED-8): mechanically migrates the ConceptBattery
 source material out of `scripts/find_features.py`'s `PROBES`/`GENERAL_TEXT`/
 `GENERAL_TEXT_ZH` constants into `data/concepts/*.yaml`.

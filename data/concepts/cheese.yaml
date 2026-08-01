@@ -1,0 +1,45 @@
+concept_id: cheese
+languages:
+  en:
+    status: probes_only
+    probes:
+      - Cheese is a dairy product made by coagulating milk proteins and separating the curds from the whey.
+      - An aged sheep's-milk cheese develops a crystalline texture and a concentrated nutty flavour after many months of maturation.
+      - France produces hundreds of distinct cheese varieties, from soft bloomy rinds to hard alpine wheels.
+      - The cheesemonger cut a wedge of blue cheese veined with Penicillium roqueforti mould.
+      - Mozzarella is a fresh cheese traditionally made from the milk of Italian water buffalo.
+      - Raw-milk cheese production is regulated far more strictly in North America than in most of Europe.
+      - Parmigiano Reggiano is a hard Italian cheese aged for a minimum of twelve months.
+      - Cheese stretches when heated because the casein protein network loosens and begins to flow.
+      - Cheddar cheese takes its name from the village of Cheddar in Somerset, England.
+      - A traditional fondue combines Gruyère and Emmental cheese with white wine and a clove of garlic.
+      - Goat cheese has a tangy, slightly acidic character that distinguishes it from cow's-milk cheese.
+      - More than two hundred regional cheese varieties hold protected designation of origin status in the European Union.
+    word_absent: []
+    concept_absent:
+      - The stock market closed higher on Friday after a week of volatility.
+      - Scientists discovered a new species of deep-sea fish near the Mariana Trench.
+      - The software update introduced several bug fixes and performance improvements.
+      - A local chef won the regional cooking competition with a fusion dish.
+      - The city council voted to approve the new public transportation plan.
+      - Researchers published a paper on the effects of sleep on cognitive function.
+      - The athlete broke the world record in the 100-meter sprint.
+      - New renewable energy projects are being developed across the country.
+      - The ancient manuscript was found in a monastery in southern Italy.
+      - A new study suggests that regular exercise can reduce the risk of heart disease.
+      - The film festival attracted directors from 45 different countries.
+      - Electric vehicle sales have grown by 40% compared to last year.
+      - The space telescope captured images of a distant galaxy cluster.
+      - The symphony orchestra performed a sold-out concert at the civic center.
+      - Historians uncovered new evidence about the fall of the Roman Empire.
+      - The mobile app reached one million downloads in its first week.
+      - Medical researchers are testing a new vaccine against a tropical disease.
+      - The restaurant received a Michelin star for the third consecutive year.
+      - A new bridge connecting the two districts will open next spring.
+      - The novel won the national literary prize for fiction.
+    census_terms:
+      - term: cheese
+        kind: canonical
+        origin: concept_id
+matched_controls: []
+notes: Researcher-authored English cheese concept for T1.2 feature-9056 validation; GENERAL_TEXT concept_absent copied verbatim from data/concepts/couscous.yaml, word_absent intentionally empty (probes_only), and the census term is derived mechanically from concept_id per ED-9.

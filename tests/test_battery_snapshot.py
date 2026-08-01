@@ -59,7 +59,7 @@ def test_live_tokenization_matches_pinned_snapshot():
 
 
 def test_snapshot_records_battery_version():
-    assert _snapshot()["battery_version"] == "1.0.0"
+    assert _snapshot()["battery_version"] == "1.1.0"
 
 
 def test_snapshot_word_absent_is_empty_everywhere():

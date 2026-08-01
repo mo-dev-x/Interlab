@@ -1,0 +1,49 @@
+# DRAFT — validate feature 9056 against the researcher-authored cheese concept.
+# Replace the two zero hashes only after the canonical A3 census and A7
+# characterize runs exist.
+
+characterization_manifest_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+census_report_hash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+concept_id: cheese
+feature_index: 9056
+specificity_judge: stub
+stub_judge_marker_words:
+  - cheese
+  - cheeses
+  - cheesy
+  - cheesemaker
+  - cheesemonger
+  - fromage
+  - fromagerie
+  - curd
+  - curds
+  - whey
+  - rennet
+  - casein
+  - rind
+  - rinds
+  - brie
+  - burrata
+  - camembert
+  - cheddar
+  - comte
+  - comté
+  - emmental
+  - feta
+  - fondue
+  - gorgonzola
+  - gouda
+  - gruyere
+  - gruyère
+  - halloumi
+  - manchego
+  - mascarpone
+  - mozzarella
+  - parmesan
+  - parmigiano
+  - pecorino
+  - provolone
+  - raclette
+  - ricotta
+  - roquefort
+  - stilton

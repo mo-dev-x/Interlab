@@ -17,7 +17,7 @@ from pathlib import Path
 
 from transformers import AutoTokenizer
 
-from interplab.corpus.battery import load_battery
+from interplab.corpus.battery import battery_version, load_battery
 
 GOLDEN_DIR = Path(__file__).resolve().parent
 REPO_ROOT = GOLDEN_DIR.parents[1]
@@ -43,7 +43,7 @@ def main() -> None:
 
     payload = {
         "tokenizer_revision": "tests/fixtures/tiny_model (pinned, §8.1)",
-        "battery_version": "1.0.0",
+        "battery_version": battery_version(CONCEPTS_DIR),
         "concepts": snapshot,
     }
     OUTPUT_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")

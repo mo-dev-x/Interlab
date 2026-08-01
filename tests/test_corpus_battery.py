@@ -103,5 +103,5 @@ def test_real_battery_non_english_census_terms_are_empty():
         assert concepts["poutine"]["languages"][lang]["census_terms"] == []
 
 
-def test_real_battery_version_is_v1():
-    assert battery_version(REAL_CONCEPTS_DIR) == "1.0.0"
+def test_real_battery_version_is_v1_1():
+    assert battery_version(REAL_CONCEPTS_DIR) == "1.1.0"

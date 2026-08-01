@@ -1,0 +1,20 @@
+# DRAFT — battery-wide full census over the consumed 400M-token FineWeb subset
+# that underlies A1 88740b746361 and A3 e71b243e2c0c.
+
+name: fineweb_subset_consumed_400M
+recipe:
+  dataset: HuggingFaceFW/fineweb
+  revision: unknown
+  split: train
+  subset_spec:
+    order: as_is
+    take_tokens: 400000000
+  filters: {}
+
+docs_location: local:data/raw/fineweb_subset
+tokenizer_location: local:data/raw/qwen-tokenizer
+tokenizer_revision: cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8
+concepts_location: local:data/concepts
+matcher: regex
+case_folding: true
+boundary: word
