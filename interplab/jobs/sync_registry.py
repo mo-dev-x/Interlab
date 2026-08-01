@@ -13,13 +13,13 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from interplab.core import configs, envelope, hashing
+from interplab.core import envelope, hashing
 from interplab.core._schema_registry import SchemaValidationError
 from interplab.core.envelope import EnvelopeHashMismatchError
 from interplab.core.errors import ContractViolationError
+from interplab.registry.config_lifecycle import prepare_job_run
 from interplab.registry.registry import REGISTRY_ROOT, REPO_ROOT
 from interplab.registry.registry import put as registry_put
-from interplab.registry.run_card import new_run_card
 
 
 def run(
@@ -27,10 +27,17 @@ def run(
 ) -> int:
     """Validates config, opens a RunCard, syncs the outbox, finalizes the
     RunCard from `finally`, and returns the process exit code (§6.2)."""
-    config = configs.load_and_validate(config_path, "sync_registry")
+    prepared = prepare_job_run(
+        stage="sync",
+        job_name="sync_registry",
+        config_path=config_path,
+        registry_root=registry_root,
+        repo_root=repo_root,
+    )
+    if prepared is None:
+        return 3
+    config, handle = prepared
     outbox_dir = Path(config["outbox_dir"])
-
-    handle = new_run_card("sync", config_path, registry_root=registry_root, repo_root=repo_root)
     outputs: list[dict] = []
     status = "failed"
     exit_code = 4

@@ -9,9 +9,17 @@ from pathlib import Path
 import pytest
 import yaml
 
-from interplab.core import envelope
+from interplab.core import envelope, environment_bundle
 from interplab.jobs import certify
 from interplab.registry.registry import put
+from tests.job_test_helpers import (
+    TEST_REPO_REVISION,
+    assert_failed_environment_run_card,
+    assert_failed_invalid_config_run_card,
+    assert_only_run_card_written,
+    patch_alliance_torch_runtime,
+    write_cert_lane_environment_files,
+)
 
 _CREATED_BY = {"run_id": "r20260101-0000-aaaa", "code_commit": "x", "entrypoint": "test", "host": "local"}
 _WEIGHTS_REF = {"content_hash": "sha256:" + "1" * 64, "location": "local:tests/fixtures/tiny_sae", "role": "weights"}
@@ -106,6 +114,10 @@ def _write_config(tmp_path, **overrides) -> Path:
     path = tmp_path / "certify.yaml"
     path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
     return path
+
+
+def _write_r5_x2_config(_tmp_path: Path) -> Path:
+    return environment_bundle._R5_X2_AUTHORITATIVE_CONFIG_PATH
 
 
 def test_legacy_checkpoint_full_run_writes_certificate_and_report_card(tmp_path):
@@ -220,6 +232,52 @@ def test_config_must_validate_against_schema(tmp_path):
         certify.run(tmp_path / "does_not_exist.yaml", registry_root=tmp_path / "registry", repo_root=tmp_path)
 
 
+def test_readable_invalid_config_writes_failed_run_card_and_exits_3(tmp_path, monkeypatch):
+    monkeypatch.setenv("CC_CLUSTER", "1")
+    monkeypatch.delenv("INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH", raising=False)
+    monkeypatch.delenv("INTERPLAB_ENV_INSTALL_MANIFEST_PATH", raising=False)
+
+    registry_root = tmp_path / "registry"
+    cfg_path = tmp_path / "bad.yaml"
+    cfg_path.write_text(yaml.safe_dump({"checkpoint_hash": "not-a-hash"}), encoding="utf-8")
+
+    exit_code = certify.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 3
+    assert not list((registry_root / "sae_certificate").glob("*.json"))
+    assert not list((tmp_path / "results").rglob("report_card.md"))
+    assert not list((tmp_path / "results").rglob("report_card.png"))
+    assert_only_run_card_written(registry_root)
+    assert_failed_invalid_config_run_card(
+        registry_root, stage="certify", config_path=cfg_path, repo_root=tmp_path, expect_environment=True
+    )
+
+
+def test_missing_cluster_environment_evidence_fails_before_heavy_work(tmp_path, monkeypatch):
+    monkeypatch.setenv("CC_CLUSTER", "1")
+    monkeypatch.delenv("INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH", raising=False)
+    monkeypatch.delenv("INTERPLAB_ENV_INSTALL_MANIFEST_PATH", raising=False)
+    monkeypatch.setattr(certify, "_get_or_raise", lambda *args, **kwargs: pytest.fail("registry access should not start"))
+
+    registry_root = tmp_path / "registry"
+    checkpoint_hash = _register_legacy_checkpoint(registry_root)
+    cfg_path = _write_config(tmp_path, checkpoint_hash=checkpoint_hash)
+
+    exit_code = certify.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 4
+    assert not list((registry_root / "sae_certificate").glob("*.json"))
+    assert not list((tmp_path / "results").rglob("report_card.md"))
+    assert not list((tmp_path / "results").rglob("report_card.png"))
+    assert_failed_environment_run_card(
+        registry_root,
+        stage="certify",
+        config_path=cfg_path,
+        repo_root=tmp_path,
+        expected_roles={"sae_checkpoint"},
+    )
+
+
 def test_environment_records_the_real_sae_stack_versions(tmp_path):
     from importlib.metadata import version as pkg_version
 
@@ -260,6 +318,65 @@ def test_refuses_to_run_on_sae_lens_baseline_mismatch(tmp_path, monkeypatch):
     assert card["payload"]["exit_code"] == 4
     assert "environment baseline violated" in card["payload"]["outcome_line"]
     assert card["payload"]["environment"]["sae_lens"] == "3.23.0"
+
+
+def test_cluster_environment_inputs_are_recorded_when_manifest_paths_are_present(tmp_path, monkeypatch):
+    registry_root = tmp_path / "registry"
+    checkpoint_hash = _register_legacy_checkpoint(registry_root)
+    cfg_path = _write_config(tmp_path, checkpoint_hash=checkpoint_hash)
+    scratch_dir, acquisition, install = write_cert_lane_environment_files("jobs_certify_env_inputs")
+
+    try:
+        monkeypatch.setattr(environment_bundle, "_clean_git_head", lambda repo_root: TEST_REPO_REVISION)
+        patch_alliance_torch_runtime(monkeypatch)
+        monkeypatch.setenv("INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH", str(acquisition))
+        monkeypatch.setenv("INTERPLAB_ENV_INSTALL_MANIFEST_PATH", str(install))
+
+        certify.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+        card = json.loads(next((registry_root / "run_card").glob("*.json")).read_text(encoding="utf-8"))
+        roles = [entry["role"] for entry in card["payload"]["inputs"]]
+        assert roles.count("sae_checkpoint") == 1
+        assert roles.count("cluster_requirements") == 1
+        assert roles.count("environment_acquisition_manifest") == 1
+        assert roles.count("environment_install_manifest") == 1
+    finally:
+        import shutil
+
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+
+def test_r5_x2_requires_equivalence_report_before_heavy_work(tmp_path, monkeypatch):
+    monkeypatch.setattr(certify, "_get_or_raise", lambda *args, **kwargs: pytest.fail("registry access should not start"))
+    registry_root = tmp_path / "registry"
+    cfg_path = _write_r5_x2_config(tmp_path)
+    scratch_dir, acquisition, install = write_cert_lane_environment_files("jobs_certify_missing_equivalence")
+
+    try:
+        monkeypatch.setattr(environment_bundle, "_clean_git_head", lambda repo_root: TEST_REPO_REVISION)
+        patch_alliance_torch_runtime(monkeypatch)
+        monkeypatch.setenv("INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH", str(acquisition))
+        monkeypatch.setenv("INTERPLAB_ENV_INSTALL_MANIFEST_PATH", str(install))
+        monkeypatch.delenv("INTERPLAB_TRANSFORMER_LENS_EQUIVALENCE_REPORT_PATH", raising=False)
+
+        exit_code = certify.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+        assert exit_code == 4
+        assert not list((registry_root / "sae_certificate").glob("*.json"))
+        assert_only_run_card_written(registry_root)
+        assert_failed_environment_run_card(
+            registry_root,
+            stage="certify",
+            config_path=cfg_path,
+            repo_root=tmp_path,
+            expected_roles={"sae_checkpoint"},
+        )
+        card = json.loads(next((registry_root / "run_card").glob("*.json")).read_text(encoding="utf-8"))
+        assert card["payload"]["config_ref"] == "local:configs/certify/hm03l7yz.yaml"
+    finally:
+        import shutil
+
+        shutil.rmtree(scratch_dir, ignore_errors=True)
 
 
 def test_store_hash_mismatch_is_contract_violation(tmp_path):

@@ -7,6 +7,10 @@ import pytest
 
 from interplab.core import envelope
 from interplab.jobs import sync_registry
+from tests.job_test_helpers import (
+    assert_failed_invalid_config_run_card,
+    assert_only_run_card_written,
+)
 
 
 def _write_config(tmp_path, outbox_dir):
@@ -105,3 +109,17 @@ def test_writes_a_run_card(tmp_path):
 def test_config_validates_against_schema(tmp_path):
     with pytest.raises(FileNotFoundError):
         sync_registry.run(tmp_path / "nonexistent_config.yaml", registry_root=tmp_path / "registry")
+
+
+def test_readable_malformed_yaml_writes_failed_run_card_and_exits_3(tmp_path):
+    registry_root = tmp_path / "registry"
+    cfg = tmp_path / "sync.yaml"
+    cfg.write_text("outbox_dir: [\n", encoding="utf-8")
+
+    exit_code = sync_registry.run(cfg, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 3
+    assert_only_run_card_written(registry_root)
+    assert_failed_invalid_config_run_card(
+        registry_root, stage="sync", config_path=cfg, repo_root=tmp_path
+    )

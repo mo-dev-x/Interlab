@@ -10,9 +10,12 @@ import pytest
 import yaml
 
 from interplab.core import envelope, uris
-from interplab.core._schema_registry import SchemaValidationError
 from interplab.jobs import store_qa
 from interplab.registry.registry import put as registry_put
+from tests.job_test_helpers import (
+    assert_failed_invalid_config_run_card,
+    assert_only_run_card_written,
+)
 
 
 def _write_shard(store_dir: Path, name: str, activations: np.ndarray, input_ids: np.ndarray) -> None:
@@ -188,8 +191,16 @@ def test_non_local_store_location_is_not_implemented(tmp_path):
     assert exit_code == 4
 
 
-def test_config_schema_validation_failure_raises(tmp_path):
+def test_config_schema_validation_failure_writes_failed_run_card(tmp_path):
+    registry_root = tmp_path / "registry"
     cfg_path = tmp_path / "bad.yaml"
     cfg_path.write_text(yaml.safe_dump({"store_location": "not-a-uri"}), encoding="utf-8")
-    with pytest.raises(SchemaValidationError):
-        store_qa.run(cfg_path, registry_root=tmp_path / "registry", repo_root=tmp_path)
+
+    exit_code = store_qa.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 3
+    assert not list((registry_root / "store_manifest").glob("*.json"))
+    assert_only_run_card_written(registry_root)
+    assert_failed_invalid_config_run_card(
+        registry_root, stage="store_qa", config_path=cfg_path, repo_root=tmp_path
+    )

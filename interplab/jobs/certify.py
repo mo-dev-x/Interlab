@@ -26,13 +26,13 @@ from interplab.certification.model_loading import (
     load_local_hooked_transformer,
     resolve_model_location,
 )
-from interplab.core import configs, envelope, hashing, uris
+from interplab.core import envelope, hashing, uris
 from interplab.core import environment as environment_mod
 from interplab.core.errors import ContractViolationError, EnvironmentBaselineError
+from interplab.registry.config_lifecycle import PreparedJobRunFailed, prepare_job_run
 from interplab.registry.registry import REGISTRY_ROOT, REPO_ROOT
 from interplab.registry.registry import get as registry_get
 from interplab.registry.registry import put as registry_put
-from interplab.registry.run_card import new_run_card
 
 
 def _get_or_raise(content_hash: str, *, registry_root: Path, role: str) -> dict:
@@ -150,15 +150,8 @@ def _resolve_eval_slice(
     return selected, method, params, disjointness
 
 
-def run(
-    config_path: str | Path,
-    *,
-    registry_root: Path = REGISTRY_ROOT,
-    repo_root: Path = REPO_ROOT,
-) -> int:
-    config = configs.load_and_validate(config_path, "certify")
-    checkpoint_hash = config["checkpoint_hash"]
-    checkpoint_ref = {
+def _checkpoint_ref(checkpoint_hash: str) -> dict:
+    return {
         "content_hash": checkpoint_hash,
         "location": f"local:registry/sae_checkpoint/{hashing.short_hash(checkpoint_hash)}.json",
         # ED-15 (WP6): role MUST equal the referenced artifact's own type for
@@ -167,13 +160,30 @@ def run(
         "role": "sae_checkpoint",
     }
 
-    handle = new_run_card(
-        "certify",
-        config_path,
-        registry_root=registry_root,
-        repo_root=repo_root,
-        inputs=[checkpoint_ref],
-    )
+
+def run(
+    config_path: str | Path,
+    *,
+    registry_root: Path = REGISTRY_ROOT,
+    repo_root: Path = REPO_ROOT,
+) -> int:
+    try:
+        prepared = prepare_job_run(
+            stage="certify",
+            job_name="certify",
+            config_path=config_path,
+            build_inputs=lambda config: [_checkpoint_ref(config["checkpoint_hash"])],
+            build_environment=environment_mod.build_certification_environment,
+            registry_root=registry_root,
+            repo_root=repo_root,
+        )
+    except PreparedJobRunFailed as error:
+        return error.exit_code
+    if prepared is None:
+        return 3
+    config, handle = prepared
+    checkpoint_hash = config["checkpoint_hash"]
+    checkpoint_ref = _checkpoint_ref(checkpoint_hash)
 
     status, exit_code, outcome_line = "failed", 4, "unhandled error"
     outputs: list[dict] = []

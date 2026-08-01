@@ -39,11 +39,11 @@ from pathlib import Path
 
 import yaml
 
-from interplab.core import configs, envelope, hashing, uris
+from interplab.core import envelope, hashing, uris
 from interplab.core.errors import ContractViolationError
+from interplab.registry.config_lifecycle import prepare_job_run
 from interplab.registry.registry import REGISTRY_ROOT, REPO_ROOT
 from interplab.registry.registry import put as registry_put
-from interplab.registry.run_card import new_run_card
 
 
 def _resolve_dir_hash(
@@ -76,15 +76,17 @@ def run(
     registry_root: Path = REGISTRY_ROOT,
     repo_root: Path = REPO_ROOT,
 ) -> int:
-    config = configs.load_and_validate(config_path, "backfill_checkpoint")
-
-    handle = new_run_card(
-        "backfill",
-        config_path,
+    prepared = prepare_job_run(
+        stage="backfill",
+        job_name="backfill_checkpoint",
+        config_path=config_path,
         registry_root=registry_root,
         repo_root=repo_root,
         entrypoint="interplab.jobs.backfill_checkpoint",
     )
+    if prepared is None:
+        return 3
+    config, handle = prepared
 
     status, exit_code, outcome_line = "failed", 4, "unhandled error"
     outputs: list[dict] = []

@@ -25,13 +25,13 @@ from interplab.characterization.model_loading import (
     load_local_hooked_transformer,
     resolve_model_location,
 )
-from interplab.core import configs, envelope, hashing, uris
+from interplab.core import envelope, hashing, uris
 from interplab.core import environment as environment_mod
 from interplab.core.errors import ContractViolationError, EnvironmentBaselineError
+from interplab.registry.config_lifecycle import PreparedJobRunFailed, prepare_job_run
 from interplab.registry.registry import REGISTRY_ROOT, REPO_ROOT
 from interplab.registry.registry import get as registry_get
 from interplab.registry.registry import put as registry_put
-from interplab.registry.run_card import new_run_card
 
 _JUDGES = {"stub": indexer.StubJudge, "none": indexer.NoOpJudge}
 
@@ -97,30 +97,47 @@ def _load_local(location: str, *, what: str) -> Path:
     raise NotImplementedError(f"characterize can only load {what} from local:/tamia: URIs; got {location!r}")
 
 
+def _characterize_inputs(config: dict) -> list[dict]:
+    checkpoint_hash = config["checkpoint_hash"]
+    corpus_manifest_hash = config["corpus_manifest_hash"]
+    return [
+        {
+            "content_hash": checkpoint_hash,
+            "location": f"local:registry/sae_checkpoint/{hashing.short_hash(checkpoint_hash)}.json",
+            "role": "sae_checkpoint",
+        },
+        {
+            "content_hash": corpus_manifest_hash,
+            "location": f"local:registry/corpus_manifest/{hashing.short_hash(corpus_manifest_hash)}.json",
+            "role": "corpus_manifest",
+        },
+    ]
+
+
 def run(
     config_path: str | Path,
     *,
     registry_root: Path = REGISTRY_ROOT,
     repo_root: Path = REPO_ROOT,
 ) -> int:
-    config = configs.load_and_validate(config_path, "characterize")
-    checkpoint_hash = config["checkpoint_hash"]
-    checkpoint_ref = {
-        "content_hash": checkpoint_hash,
-        "location": f"local:registry/sae_checkpoint/{hashing.short_hash(checkpoint_hash)}.json",
-        "role": "sae_checkpoint",
-    }
-    corpus_manifest_hash = config["corpus_manifest_hash"]
-    corpus_manifest_ref = {
-        "content_hash": corpus_manifest_hash,
-        "location": f"local:registry/corpus_manifest/{hashing.short_hash(corpus_manifest_hash)}.json",
-        "role": "corpus_manifest",
-    }
-
-    handle = new_run_card(
-        "characterize", config_path, registry_root=registry_root, repo_root=repo_root,
-        inputs=[checkpoint_ref, corpus_manifest_ref],
-    )
+    try:
+        prepared = prepare_job_run(
+            stage="characterize",
+            job_name="characterize",
+            config_path=config_path,
+            build_inputs=_characterize_inputs,
+            build_environment=environment_mod.build_certification_environment,
+            registry_root=registry_root,
+            repo_root=repo_root,
+        )
+    except PreparedJobRunFailed as error:
+        return error.exit_code
+    if prepared is None:
+        return 3
+    config, handle = prepared
+    checkpoint_ref, corpus_manifest_ref = _characterize_inputs(config)
+    checkpoint_hash = checkpoint_ref["content_hash"]
+    corpus_manifest_hash = corpus_manifest_ref["content_hash"]
 
     status, exit_code, outcome_line = "failed", 4, "unhandled error"
     outputs: list[dict] = []

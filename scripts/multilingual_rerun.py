@@ -30,7 +30,6 @@ import json
 from pathlib import Path
 
 import torch
-
 from sae_lens import SAE
 
 from interplab.certification.model_loading import (
@@ -125,7 +124,7 @@ def main() -> int:
         shared = set.intersection(*sets.values()) if sets else set()
         overlap[concept] = {"shared_all_languages": sorted(shared)}
         for lang in langs:
-            others = set().union(*(sets[l] for l in langs if l != lang))
+            others = set().union(*(sets[other_lang] for other_lang in langs if other_lang != lang))
             overlap[concept][f"unique_to_{lang}"] = sorted(sets[lang] - others)
         # pairwise Jaccard for the report figure
         pair_jac = {}

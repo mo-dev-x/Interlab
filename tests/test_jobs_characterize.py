@@ -8,10 +8,17 @@ from pathlib import Path
 import pytest
 import yaml
 
-from interplab.core import envelope, hashing, uris
-from interplab.core._schema_registry import SchemaValidationError
+from interplab.core import envelope, environment_bundle, hashing, uris
 from interplab.jobs import characterize
 from interplab.registry.registry import put as registry_put
+from tests.job_test_helpers import (
+    TEST_REPO_REVISION,
+    assert_failed_environment_run_card,
+    assert_failed_invalid_config_run_card,
+    assert_only_run_card_written,
+    patch_alliance_torch_runtime,
+    write_cert_lane_environment_files,
+)
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 
@@ -186,6 +193,36 @@ def test_refuses_to_run_on_sae_lens_baseline_mismatch(tmp_path, index_scratch_di
     assert card["payload"]["environment"]["sae_lens"] == "3.23.0"
 
 
+def test_cluster_environment_inputs_are_recorded_when_manifest_paths_are_present(
+    tmp_path, index_scratch_dir, monkeypatch
+):
+    registry_root = tmp_path / "registry"
+    checkpoint_hash = _register_checkpoint(registry_root)
+    corpus_manifest_hash = _register_corpus_manifest(registry_root)
+    cfg = _write_config(tmp_path, checkpoint_hash, index_scratch_dir, corpus_manifest_hash=corpus_manifest_hash)
+    scratch_dir, acquisition, install = write_cert_lane_environment_files("jobs_characterize_env_inputs")
+
+    try:
+        monkeypatch.setattr(environment_bundle, "_clean_git_head", lambda repo_root: TEST_REPO_REVISION)
+        patch_alliance_torch_runtime(monkeypatch)
+        monkeypatch.setenv("INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH", str(acquisition))
+        monkeypatch.setenv("INTERPLAB_ENV_INSTALL_MANIFEST_PATH", str(install))
+
+        characterize.run(cfg, registry_root=registry_root, repo_root=tmp_path)
+
+        card = json.loads(next((registry_root / "run_card").glob("*.json")).read_text(encoding="utf-8"))
+        roles = {entry["role"] for entry in card["payload"]["inputs"]}
+        assert {
+            "sae_checkpoint",
+            "corpus_manifest",
+            "cluster_requirements",
+            "environment_acquisition_manifest",
+            "environment_install_manifest",
+        } <= roles
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+
 def test_missing_checkpoint_is_contract_violation(tmp_path, index_scratch_dir):
     registry_root = tmp_path / "registry"
     fake_hash = "sha256:" + "a" * 64
@@ -236,11 +273,62 @@ def test_index_dir_outside_repo_root_is_contract_violation(tmp_path):
     assert exit_code == 3
 
 
-def test_config_schema_validation_failure_raises(tmp_path):
+def test_config_schema_validation_failure_writes_failed_run_card_and_skips_heavy_work(tmp_path, monkeypatch):
+    monkeypatch.setenv("CC_CLUSTER", "1")
+    monkeypatch.delenv("INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH", raising=False)
+    monkeypatch.delenv("INTERPLAB_ENV_INSTALL_MANIFEST_PATH", raising=False)
+    monkeypatch.setattr(characterize, "_get_or_raise", lambda *args, **kwargs: pytest.fail("registry access should not start"))
+    monkeypatch.setattr(characterize, "_load_docs", lambda *args, **kwargs: pytest.fail("corpus loading should not start"))
+
+    registry_root = tmp_path / "registry"
     cfg_path = tmp_path / "bad.yaml"
     cfg_path.write_text(yaml.safe_dump({"checkpoint_hash": "not-a-hash"}), encoding="utf-8")
-    with pytest.raises(SchemaValidationError):
-        characterize.run(cfg_path, registry_root=tmp_path / "registry", repo_root=tmp_path)
+
+    exit_code = characterize.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 3
+    assert not list((registry_root / "characterization_manifest").glob("*.json"))
+    assert_only_run_card_written(registry_root)
+    assert_failed_invalid_config_run_card(
+        registry_root,
+        stage="characterize",
+        config_path=cfg_path,
+        repo_root=tmp_path,
+        expect_environment=True,
+    )
+
+
+def test_missing_cluster_environment_evidence_fails_before_heavy_work(
+    tmp_path,
+    index_scratch_dir,
+    monkeypatch,
+):
+    monkeypatch.setenv("CC_CLUSTER", "1")
+    monkeypatch.delenv("INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH", raising=False)
+    monkeypatch.delenv("INTERPLAB_ENV_INSTALL_MANIFEST_PATH", raising=False)
+    monkeypatch.setattr(characterize, "_get_or_raise", lambda *args, **kwargs: pytest.fail("registry access should not start"))
+    monkeypatch.setattr(characterize, "_load_docs", lambda *args, **kwargs: pytest.fail("corpus loading should not start"))
+
+    registry_root = tmp_path / "registry"
+    cfg = _write_config(
+        tmp_path,
+        "sha256:" + "a" * 64,
+        index_scratch_dir,
+        corpus_manifest_hash="sha256:" + "b" * 64,
+    )
+
+    exit_code = characterize.run(cfg, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 4
+    assert not list((registry_root / "characterization_manifest").glob("*.json"))
+    assert_only_run_card_written(registry_root)
+    assert_failed_environment_run_card(
+        registry_root,
+        stage="characterize",
+        config_path=cfg,
+        repo_root=tmp_path,
+        expected_roles={"sae_checkpoint", "corpus_manifest"},
+    )
 
 
 def test_load_docs_dispatches_local_directories_to_hf_dataset_cache(tmp_path, monkeypatch):

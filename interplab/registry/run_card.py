@@ -67,6 +67,17 @@ def _draft_dir() -> Path:
     return d
 
 
+def _config_ref_for_path(config_path: Path, *, repo_root: Path) -> str:
+    candidate_roots: list[Path] = []
+    for candidate in (repo_root.resolve(), REPO_ROOT.resolve()):
+        if candidate not in candidate_roots:
+            candidate_roots.append(candidate)
+    for candidate_root in candidate_roots:
+        if config_path == candidate_root or candidate_root in config_path.parents:
+            return f"local:{config_path.relative_to(candidate_root).as_posix()}"
+    raise ValueError(f"config path {config_path} is not under repo roots {candidate_roots}")
+
+
 class RunCardHandle:
     def __init__(
         self,
@@ -151,7 +162,7 @@ def new_run_card(
     repo_root = Path(repo_root).resolve()
     run_id = _generate_run_id()
     config_hash = hashing.hash_file(config_path)
-    config_ref = f"local:{config_path.relative_to(repo_root).as_posix()}"
+    config_ref = _config_ref_for_path(config_path, repo_root=repo_root)
     created_by = {
         "run_id": run_id,
         "code_commit": _detect_code_commit(),

@@ -37,9 +37,9 @@ ALLOWED_EDGES: dict[str, set[str]] = {
 
 # §1: jobs.<stage> -> core, registry, + that stage's package only (plus the
 # named exceptions for jobs.steer and jobs.validate). Keyed by job module
-# name (interplab/jobs/<name>.py); pre-populated for jobs that don't exist
-# yet, same style as ALLOWED_EDGES above -- harmless since the checker only
-# iterates modules that actually exist.
+# name (interplab/jobs/<name>.py); pre-populated for present and future job
+# names alike, same style as ALLOWED_EDGES above -- harmless since the
+# checker only iterates modules that actually exist.
 JOBS_ALLOWED_EDGES: dict[str, set[str]] = {
     "census": {"corpus"},
     "store_qa": {"store_qa"},
@@ -180,10 +180,8 @@ def _py_files_under(target: Path) -> list[Path]:
 # WP5 established this for `validation -> characterization`; WP7 extends
 # the same mechanism to `jobs.steer -> characterization` (§1: "jobs.steer
 # -> also interventions AND characterization [SEARCH API ONLY ...]").
-# `jobs/steer.py` does not exist yet (SS7/SS8's batch job hasn't been built
-# by any work package) -- `_py_files_under` returns `[]` for it until then,
-# so this entry is dormant, not vacuous-pass-by-omission: the moment the
-# file lands, it's checked automatically, nobody has to remember to add it.
+# `jobs/steer.py` now exists, so this edge is exercised on every run of this
+# test without any special-case wiring.
 SEARCH_API_ONLY_EDGES: list[tuple[str, Path, str, frozenset[str]]] = [
     (
         "validation -> characterization",
@@ -231,6 +229,23 @@ def _lodestar_imports(path: Path) -> set[str]:
     return modules
 
 
+def _stdlib_or_builtin_top_level_names() -> set[str]:
+    stdlib = set(getattr(__import__("sys"), "stdlib_module_names", ()))
+    return stdlib | {"__future__"}
+
+
+def _top_level_import_names(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.name)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+    return names
+
+
 def test_only_evaluation_imports_lodestar():
     """§1: "Lodestar remains a separate installable package (lodestar-eval);
     only interplab.evaluation may import it." Scans every .py file under
@@ -241,6 +256,42 @@ def test_only_evaluation_imports_lodestar():
             continue
         for module in _lodestar_imports(py_file):
             violations.append(f"{py_file}: imports {module!r} -- only interplab.evaluation may import lodestar")
+    assert not violations, "\n".join(violations)
+
+
+def test_thin_cli_wrappers_only_import_stdlib_and_their_job_module():
+    """§6.1 / README wrapper contract: each public CLI wrapper under
+    scripts/ is thin arg-parse -> interplab.jobs.<stage>, with no extra
+    interplab dependencies hidden in the script layer itself."""
+    wrappers = [
+        "backfill_checkpoint",
+        "census",
+        "certify",
+        "characterize",
+        "judge",
+        "report",
+        "steer",
+        "store_qa",
+        "sync_registry",
+        "validate",
+    ]
+    allowed_stdlib = _stdlib_or_builtin_top_level_names()
+    violations = []
+    scripts_dir = INTERPLAB_ROOT.parents[0] / "scripts"
+    for wrapper in wrappers:
+        path = scripts_dir / f"{wrapper}.py"
+        imports = _top_level_import_names(path)
+        expected_job_import = "interplab.jobs"
+        for name in imports:
+            top = name.split(".", 1)[0]
+            if top == "interplab":
+                if name != expected_job_import:
+                    violations.append(
+                        f"{path}: imports {name!r}; wrappers may only import {expected_job_import!r} from interplab"
+                    )
+                continue
+            if top not in allowed_stdlib:
+                violations.append(f"{path}: imports non-stdlib module {name!r}")
     assert not violations, "\n".join(violations)
 
 

@@ -42,15 +42,15 @@ from pathlib import Path
 
 from transformers import AutoTokenizer
 
-from interplab.core import configs, envelope, hashing, uris
+from interplab.core import envelope, hashing, uris
 from interplab.core.errors import ContractViolationError
 from interplab.corpus import battery as battery_mod
 from interplab.corpus import census as census_mod
 from interplab.corpus import manifest as manifest_mod
 from interplab.corpus import replay as replay_mod
+from interplab.registry.config_lifecycle import prepare_job_run
 from interplab.registry.registry import REGISTRY_ROOT, REPO_ROOT
 from interplab.registry.registry import put as registry_put
-from interplab.registry.run_card import new_run_card
 
 DEFAULT_CONCEPTS_LOCATION = "local:data/concepts"
 
@@ -61,9 +61,16 @@ def run(
     registry_root: Path = REGISTRY_ROOT,
     repo_root: Path = REPO_ROOT,
 ) -> int:
-    config = configs.load_and_validate(config_path, "census")
-
-    handle = new_run_card("census", config_path, registry_root=registry_root, repo_root=repo_root)
+    prepared = prepare_job_run(
+        stage="census",
+        job_name="census",
+        config_path=config_path,
+        registry_root=registry_root,
+        repo_root=repo_root,
+    )
+    if prepared is None:
+        return 3
+    config, handle = prepared
 
     status, exit_code, outcome_line = "failed", 4, "unhandled error"
     outputs: list[dict] = []

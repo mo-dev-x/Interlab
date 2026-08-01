@@ -3,19 +3,15 @@
 #
 # Usage: bash slurm/launch_steer.sh <config.yaml> <run_id>
 #
-# NOTE: `interplab.jobs.steer` / `scripts/steer.py` have not been built by
-# any work package yet -- SS7 (`interplab.interventions`) exists (WP1) but
-# the batch job wrapping it, with control-arm assembly and corpus_max
-# resolution, does not. This launcher is correct, ready-to-use SS12
-# infrastructure per §6.3's explicit four-launcher list, targeting the
-# job's expected future location -- the same forward-declaration pattern
-# already used for `jobs.steer`'s qualified-import-contract entry (§1,
-# extended this work package). It will fail at the `python scripts/steer.py`
-# step until that job lands in a future work package.
+# NOTE: `interplab.jobs.steer` / `scripts/steer.py` are present; this
+# launcher is the SS12 entry point for that implemented job. The resource
+# request below is still a starting placeholder inherited from the historical
+# steering sweeps and should be recalibrated against real production runs
+# before relying on it as a tuned cluster profile.
 #
 # Resource request mirrors the historical (pre-blueprint) single-config
-# steering sweep scripts; placeholder pending recalibration once the real
-# job exists (§10 Open Items 2). Multi-config sweeps use the existing
+# steering sweep scripts; placeholder pending recalibration against real
+# production runs (§10 Open Items 2). Multi-config sweeps use the existing
 # N-node `srun --exclusive` pattern (§6.3) -- out of scope for this
 # single-config launcher.
 set -euo pipefail

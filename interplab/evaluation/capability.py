@@ -12,13 +12,10 @@ forward pass under each arm's intervention, which needs
 `interplab.interventions.attach` -- but §1 only grants `interplab.evaluation`
 `core, registry, stats` (not `interventions`). Assembling this field is
 therefore split: whatever job eventually writes it (ED-20: "Judge writes
-this field") must compute per-arm perplexities itself, in a context that
-legally has `interventions` access, and hand them here only to be packaged
-into ED-20's exact shape. As of WP8 no job has both an `interventions` edge
-and a `capability_delta`-writing mandate at once (`jobs.steer` has the
-former; ED-20 assigns the latter to `jobs.judge`, which per §1's current
-edges has neither `interventions` nor a path to it) -- flagged in the WP8
-completion report as a gap for whichever future package builds `jobs.judge`.
+this field") must obtain per-arm perplexities externally, then hand them
+here only to be packaged into ED-20's exact shape. `jobs.judge` does that
+through the isolated evaluation runtime boundary rather than by importing
+`interplab.interventions` into this package.
 """
 
 from __future__ import annotations

@@ -19,6 +19,10 @@ import yaml
 
 from interplab.core import envelope
 from interplab.jobs import backfill_checkpoint
+from tests.job_test_helpers import (
+    assert_failed_invalid_config_run_card,
+    assert_only_run_card_written,
+)
 
 _CORPUS_HASH = "sha256:" + "4" * 64
 
@@ -137,47 +141,63 @@ def test_resolve_dir_hash_defaults_to_unrestricted_hash_directory_for_model(tmp_
 def test_model_location_must_be_hf_scheme(tmp_path):
     """ED-29: the model ref is a consumed artifact whose identity is already
     fixed upstream -- its location MUST be hf:, not local:/tamia:/wandb:."""
-    from interplab.core._schema_registry import SchemaValidationError
-
     registry_root = tmp_path / "registry"
     cfg_path = _write_config(tmp_path, model_location="local:tests/fixtures/tiny_model")
-    with pytest.raises(SchemaValidationError):
-        backfill_checkpoint.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+    exit_code = backfill_checkpoint.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 3
+    assert not list((registry_root / "sae_checkpoint").glob("*.json"))
+    assert_only_run_card_written(registry_root)
+    assert_failed_invalid_config_run_card(
+        registry_root, stage="backfill", config_path=cfg_path, repo_root=tmp_path
+    )
 
 
 def test_model_location_without_revision_pin_is_schema_invalid(tmp_path):
     """ED-29: 'hf:<repo>' with no '@<commit-sha>' is not revision-pinned."""
-    from interplab.core._schema_registry import SchemaValidationError
-
     registry_root = tmp_path / "registry"
     cfg_path = _write_config(tmp_path, model_location="hf:Qwen/Qwen2.5-14B")
-    with pytest.raises(SchemaValidationError):
-        backfill_checkpoint.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+    exit_code = backfill_checkpoint.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 3
+    assert not list((registry_root / "sae_checkpoint").glob("*.json"))
+    assert_only_run_card_written(registry_root)
+    assert_failed_invalid_config_run_card(
+        registry_root, stage="backfill", config_path=cfg_path, repo_root=tmp_path
+    )
 
 
 def test_telemetry_tail_null_fvu_source_requires_null_fvu(tmp_path):
     """ED-30: fvu_source null iff fvu is unrecoverable -- a number can't be
     recorded with no stated provenance."""
-    from interplab.core._schema_registry import SchemaValidationError
-
     registry_root = tmp_path / "registry"
     cfg_path = _write_config(
         tmp_path, telemetry_tail={"fvu": 0.1, "fvu_source": None, "dead_count": 0}
     )
-    with pytest.raises(SchemaValidationError):
-        backfill_checkpoint.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+    exit_code = backfill_checkpoint.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 3
+    assert not list((registry_root / "sae_checkpoint").glob("*.json"))
+    assert_only_run_card_written(registry_root)
+    assert_failed_invalid_config_run_card(
+        registry_root, stage="backfill", config_path=cfg_path, repo_root=tmp_path
+    )
 
 
 def test_telemetry_tail_fvu_source_requires_non_null_fvu(tmp_path):
     """ED-30: a stated provenance requires an actual recorded value."""
-    from interplab.core._schema_registry import SchemaValidationError
-
     registry_root = tmp_path / "registry"
     cfg_path = _write_config(
         tmp_path, telemetry_tail={"fvu": None, "fvu_source": "training_step", "dead_count": 0}
     )
-    with pytest.raises(SchemaValidationError):
-        backfill_checkpoint.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+    exit_code = backfill_checkpoint.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 3
+    assert not list((registry_root / "sae_checkpoint").glob("*.json"))
+    assert_only_run_card_written(registry_root)
+    assert_failed_invalid_config_run_card(
+        registry_root, stage="backfill", config_path=cfg_path, repo_root=tmp_path
+    )
 
 
 def test_telemetry_tail_allows_fully_unrecoverable_legacy_row(tmp_path):
@@ -253,8 +273,6 @@ def test_training_provenance_is_required_present_not_omittable(tmp_path):
     """ED-33/ED-9: training_provenance MUST be present (sub-values may be
     null), never omitted -- an omitted field loses the honest-absence
     signal a present-but-null object carries."""
-    from interplab.core._schema_registry import SchemaValidationError
-
     registry_root = tmp_path / "registry"
     cfg = {
         "training_config_path": "local:configs/sae_train_l16_32x.yaml",
@@ -270,8 +288,14 @@ def test_training_provenance_is_required_present_not_omittable(tmp_path):
     }
     path = tmp_path / "backfill_missing_provenance.yaml"
     path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
-    with pytest.raises(SchemaValidationError):
-        backfill_checkpoint.run(path, registry_root=registry_root, repo_root=tmp_path)
+    exit_code = backfill_checkpoint.run(path, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 3
+    assert not list((registry_root / "sae_checkpoint").glob("*.json"))
+    assert_only_run_card_written(registry_root)
+    assert_failed_invalid_config_run_card(
+        registry_root, stage="backfill", config_path=path, repo_root=tmp_path
+    )
 
 
 def test_backfill_missing_checkpoint_identity_file_is_a_hard_error(tmp_path):

@@ -15,7 +15,6 @@ interplab/            # the package: core plumbing + one subpackage per subsyste
 ├── core/              # envelope, hashing, canonical JSON, URIs, config loading, schema validation
 ├── corpus/             # corpus manifests, concept battery, census
 ├── store_qa/           # activation-store QA
-├── training/            # SAELens training wrappers (researcher-gated, not built)
 ├── certification/       # SAE certification (metrics, bands, report cards)
 ├── characterization/    # feature indexing, search API, dashboards
 ├── validation/          # per-feature specificity/sensitivity/selectivity/probe
@@ -66,7 +65,7 @@ Every job shares one interface: a thin `scripts/` wrapper that validates its YAM
 uv run python scripts/<job>.py --config path/to/<job>.yaml
 ```
 
-There are no ready-made per-job configs in the repo (`configs/` holds the campaign's SAE-training configs only) — author each from its schema. The **exit code is the contract** (orchestration branches on it): `0` success · `2` gate ran, verdict red (artifact still written) · `3` missing/invalid input artifact · `4` environment failure. Every run leaves a card in `registry/run_card/`; its absence means the run never completed as a recorded fact.
+The repo includes ready-made configs for the implemented `backfill_checkpoint` and `certify` jobs under `configs/backfill/` and `configs/certify/`; author other job configs from their schemas. The **exit code is the contract** (orchestration branches on it): `0` success · `2` gate ran, verdict red (artifact still written) · `3` missing/invalid input artifact · `4` environment failure. Every run leaves a card in `registry/run_card/`; its absence means the run never completed as a recorded fact.
 
 ### End-to-end: corpus → certified claim
 
@@ -88,7 +87,7 @@ The scientific pipeline is a fixed chain — each stage reads the previous stage
 8. **report** (SS9, **gate G4**) — assemble the claim chain, stamp `CERTIFIED` / `DRAFT`.
    → reads a claim-spec + the registry, writes **A11** `claim_report`. Local, read-only.
 
-The SS8 `judge` step (Lodestar capability + blinding boundary) runs through `interplab.evaluation`, not a standalone `scripts/` wrapper.
+The SS8 `judge` step now has a local `interplab.jobs.judge` / `scripts/judge.py` producer for immutable A9 → A9′ ingestion. Its live Lodestar-backed runtime remains paused under ED-19, so the default path fails closed unless a future optional Lodestar adapter is made available in the environment.
 
 ### Utilities
 

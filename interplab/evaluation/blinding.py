@@ -13,9 +13,9 @@ Distinct from `jobs.steer`'s own inline shuffle, which produces A9's
 `blinding.shuffled = true` at creation time (§1: `jobs.steer`'s allowed
 edges are core/registry/interventions/characterization only -- it cannot
 import this package, so it duplicates the minimal shuffle itself, Ground
-Rule 2). This module is the judge-facing blinding step: what a future
-`jobs.judge` uses to build the data an external judge actually sees, kept
-correct and tested here independent of whether that job exists yet.
+Rule 2). This module is the judge-facing blinding step: what `jobs.judge`
+uses to build the data an external judge actually sees, kept correct and
+tested here independently of any live Lodestar availability.
 """
 
 from __future__ import annotations

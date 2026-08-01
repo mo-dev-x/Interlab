@@ -35,6 +35,8 @@ def test_expected_a1_a12_schema_files_present():
         "run_card/v1.schema.json",
         "claim_report/v1.schema.json",
         "eval_compat_map/v1.schema.json",
+        "environment_acquisition_manifest/v1.schema.json",
+        "environment_install_manifest/v1.schema.json",
     }
     # Scoped to the §4 artifact-type schemas -- schemas/configs/*.schema.json
     # (job config schemas, landing one per job's own work package) are a
@@ -55,6 +57,7 @@ def test_expected_config_schema_files_present():
         "configs/backfill_checkpoint_v1.schema.json",
         "configs/census_v1.schema.json",
         "configs/characterize_v1.schema.json",
+        "configs/judge_v1.schema.json",
         "configs/store_qa_v1.schema.json",
         "configs/validate_v1.schema.json",
         "configs/report_v1.schema.json",

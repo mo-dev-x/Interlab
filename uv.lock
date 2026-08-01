@@ -1184,6 +1184,7 @@ dependencies = [
     { name = "torch", version = "2.13.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
     { name = "tqdm" },
+    { name = "transformer-lens" },
     { name = "transformers" },
     { name = "wandb" },
 ]
@@ -1232,6 +1233,7 @@ requires-dist = [
     { name = "tiktoken" },
     { name = "torch", specifier = ">=2.4,<3", index = "https://download.pytorch.org/whl/cpu" },
     { name = "tqdm" },
+    { name = "transformer-lens", specifier = "==3.2.1" },
     { name = "transformers", specifier = "==5.12.1" },
     { name = "wandb" },
 ]

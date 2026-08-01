@@ -45,16 +45,16 @@ import torch
 from sae_lens import SAE
 
 from interplab.characterization.feature_index import FeatureIndex
-from interplab.core import configs, envelope, hashing, uris
+from interplab.core import envelope, hashing, uris
 from interplab.core import environment as environment_mod
 from interplab.core.errors import ContractViolationError, EnvironmentBaselineError
 from interplab.interventions.control import control_arms
 from interplab.interventions.hooks import attach
 from interplab.interventions.spec import InterventionSpec, to_dict
+from interplab.registry.config_lifecycle import PreparedJobRunFailed, prepare_job_run
 from interplab.registry.registry import REGISTRY_ROOT, REPO_ROOT
 from interplab.registry.registry import get as registry_get
 from interplab.registry.registry import put as registry_put
-from interplab.registry.run_card import new_run_card
 
 _ARM_ORDER = ["steered", "baseline", "random_direction", "random_feature", "prompt_baseline"]
 
@@ -175,39 +175,60 @@ def _generate(model, sae, spec: InterventionSpec, prompt: str, sampling: dict) -
     return model.to_string(output[0, tokens.shape[1] :])
 
 
+def _steer_inputs(config: dict) -> list[dict]:
+    checkpoint_hash = config["checkpoint_hash"]
+    manifest_hash = config["characterization_manifest_hash"]
+    inputs = [
+        {
+            "content_hash": checkpoint_hash,
+            "location": f"local:registry/sae_checkpoint/{hashing.short_hash(checkpoint_hash)}.json",
+            "role": "sae_checkpoint",
+        },
+        {
+            "content_hash": manifest_hash,
+            "location": f"local:registry/characterization_manifest/{hashing.short_hash(manifest_hash)}.json",
+            "role": "characterization_manifest",
+        },
+    ]
+    feature_cert_hash = config.get("feature_certificate_hash")
+    if feature_cert_hash is not None:
+        inputs.append(
+            {
+                "content_hash": feature_cert_hash,
+                "location": f"local:registry/feature_certificate/{hashing.short_hash(feature_cert_hash)}.json",
+                "role": "feature_certificate",
+            }
+        )
+    return inputs
+
+
 def run(
     config_path: str | Path,
     *,
     registry_root: Path = REGISTRY_ROOT,
     repo_root: Path = REPO_ROOT,
 ) -> int:
-    config = configs.load_and_validate(config_path, "steer")
+    try:
+        prepared = prepare_job_run(
+            stage="steer",
+            job_name="steer",
+            config_path=config_path,
+            build_inputs=_steer_inputs,
+            build_environment=environment_mod.build_certification_environment,
+            registry_root=registry_root,
+            repo_root=repo_root,
+        )
+    except PreparedJobRunFailed as error:
+        return error.exit_code
+    if prepared is None:
+        return 3
+    config, handle = prepared
     checkpoint_hash = config["checkpoint_hash"]
     manifest_hash = config["characterization_manifest_hash"]
     feature_cert_hash = config.get("feature_certificate_hash")
     claim_mode = feature_cert_hash is not None
-
-    checkpoint_ref = {
-        "content_hash": checkpoint_hash,
-        "location": f"local:registry/sae_checkpoint/{hashing.short_hash(checkpoint_hash)}.json",
-        "role": "sae_checkpoint",
-    }
-    manifest_ref = {
-        "content_hash": manifest_hash,
-        "location": f"local:registry/characterization_manifest/{hashing.short_hash(manifest_hash)}.json",
-        "role": "characterization_manifest",
-    }
-    inputs = [checkpoint_ref, manifest_ref]
-    feature_cert_ref = None
-    if claim_mode:
-        feature_cert_ref = {
-            "content_hash": feature_cert_hash,
-            "location": f"local:registry/feature_certificate/{hashing.short_hash(feature_cert_hash)}.json",
-            "role": "feature_certificate",
-        }
-        inputs.append(feature_cert_ref)
-
-    handle = new_run_card("steer", config_path, registry_root=registry_root, repo_root=repo_root, inputs=inputs)
+    checkpoint_ref, _manifest_ref, *extra_inputs = _steer_inputs(config)
+    feature_cert_ref = extra_inputs[0] if extra_inputs else None
 
     status, exit_code, outcome_line = "failed", 4, "unhandled error"
     outputs: list[dict] = []

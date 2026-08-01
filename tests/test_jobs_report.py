@@ -13,9 +13,12 @@ import pytest
 import yaml
 
 from interplab.core import envelope, hashing, uris
-from interplab.core._schema_registry import SchemaValidationError
 from interplab.jobs import report
 from tests.fixtures.synthetic_chains import builder
+from tests.job_test_helpers import (
+    assert_failed_invalid_config_run_card,
+    assert_only_run_card_written,
+)
 
 REPORTS_ROOT = uris.REPO_ROOT / "reports"
 
@@ -125,8 +128,16 @@ def test_writes_a_run_card(tmp_path, cleanup_report_dirs):
     assert report_cards[-1]["payload"]["exit_code"] == 0
 
 
-def test_config_schema_validation_failure_raises(tmp_path):
+def test_config_schema_validation_failure_writes_failed_run_card(tmp_path, cleanup_report_dirs):
+    registry_root = tmp_path / "registry"
     cfg_path = tmp_path / "bad.yaml"
     cfg_path.write_text(yaml.safe_dump({"question": "?"}), encoding="utf-8")
-    with pytest.raises(SchemaValidationError):
-        report.run(cfg_path, registry_root=tmp_path / "registry", repo_root=tmp_path)
+
+    exit_code = report.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 3
+    assert not list((registry_root / "claim_report").glob("*.json"))
+    assert_only_run_card_written(registry_root)
+    assert_failed_invalid_config_run_card(
+        registry_root, stage="report", config_path=cfg_path, repo_root=tmp_path
+    )

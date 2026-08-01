@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/environment_install_manifest/v1.schema.json",
+  "title": "environment_install_manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_type",
+    "schema_version",
+    "created_at",
+    "acquisition_manifest_hash",
+    "repo_revision",
+    "source_hashes",
+    "target",
+    "loaded_modules",
+    "installer_versions",
+    "torch",
+    "verified_imports",
+    "installed_distributions"
+  ],
+  "properties": {
+    "manifest_type": { "const": "environment_install_manifest" },
+    "schema_version": { "const": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "acquisition_manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "repo_revision": { "type": "string", "minLength": 1 },
+    "source_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pyproject", "uv_lock", "cluster_requirements"],
+      "properties": {
+        "pyproject": { "$ref": "#/$defs/source_file" },
+        "uv_lock": { "$ref": "#/$defs/source_file" },
+        "cluster_requirements": { "$ref": "#/$defs/source_file" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "architecture", "python", "abi"],
+      "properties": {
+        "os": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "minLength": 1 },
+        "python": { "type": "string", "minLength": 1 },
+        "abi": { "type": "string", "minLength": 1 }
+      }
+    },
+    "loaded_modules": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "installer_versions": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "torch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["distribution", "version", "cuda", "cuda_available"],
+      "properties": {
+        "distribution": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+        "version": { "type": "string", "minLength": 1 },
+        "cuda": { "type": ["string", "null"] },
+        "cuda_available": { "type": "boolean" }
+      }
+    },
+    "verified_imports": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "installed_distributions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["distribution", "version"],
+        "properties": {
+          "distribution": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+          "version": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "source_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

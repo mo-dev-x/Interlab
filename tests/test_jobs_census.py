@@ -13,6 +13,10 @@ import yaml
 
 from interplab.core import envelope
 from interplab.jobs import census
+from tests.job_test_helpers import (
+    assert_failed_invalid_config_run_card,
+    assert_only_run_card_written,
+)
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 PINNED_TEXT = FIXTURES_DIR / "pinned_text.jsonl"
@@ -235,3 +239,19 @@ def test_census_sample_docs_produces_sampled_coverage(tmp_path):
 def test_config_schema_validation_failure_raises():
     with pytest.raises(FileNotFoundError):
         census.run("nonexistent_config.yaml", registry_root=Path("unused"))
+
+
+def test_readable_non_mapping_config_writes_failed_run_card_and_exits_3(tmp_path):
+    registry_root = tmp_path / "registry"
+    cfg_path = tmp_path / "bad.yaml"
+    cfg_path.write_text("- not a mapping\n", encoding="utf-8")
+
+    exit_code = census.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 3
+    assert not list((registry_root / "corpus_manifest").glob("*.json"))
+    assert not list((registry_root / "census_report").glob("*.json"))
+    assert_only_run_card_written(registry_root)
+    assert_failed_invalid_config_run_card(
+        registry_root, stage="census", config_path=cfg_path, repo_root=tmp_path
+    )

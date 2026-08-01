@@ -17,10 +17,17 @@ from pathlib import Path
 import pytest
 import yaml
 
-from interplab.core import envelope, hashing, uris
-from interplab.core._schema_registry import SchemaValidationError
+from interplab.core import envelope, environment_bundle, hashing, uris
 from interplab.jobs import characterize, validate
 from interplab.registry.registry import put as registry_put
+from tests.job_test_helpers import (
+    TEST_REPO_REVISION,
+    assert_failed_environment_run_card,
+    assert_failed_invalid_config_run_card,
+    assert_only_run_card_written,
+    patch_alliance_torch_runtime,
+    write_cert_lane_environment_files,
+)
 
 FIXTURES_DIR = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 
@@ -217,6 +224,46 @@ def test_refuses_to_run_on_sae_lens_baseline_mismatch(tmp_path, monkeypatch):
     assert card["payload"]["environment"]["sae_lens"] == "3.23.0"
 
 
+def test_cluster_environment_inputs_are_recorded_when_manifest_paths_are_present(tmp_path, shared_registry, monkeypatch):
+    cfg = _write_validate_config(
+        tmp_path,
+        characterization_manifest_hash=shared_registry["manifest_hash"],
+        census_report_hash=shared_registry["census_hash"],
+    )
+    scratch_dir, acquisition, install = write_cert_lane_environment_files("jobs_validate_env_inputs")
+
+    try:
+        monkeypatch.setattr(environment_bundle, "_clean_git_head", lambda repo_root: TEST_REPO_REVISION)
+        patch_alliance_torch_runtime(monkeypatch)
+        monkeypatch.setenv("INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH", str(acquisition))
+        monkeypatch.setenv("INTERPLAB_ENV_INSTALL_MANIFEST_PATH", str(install))
+
+        validate.run(cfg, registry_root=shared_registry["registry_root"], repo_root=tmp_path)
+
+        cards = [
+            json.loads(c.read_text(encoding="utf-8"))
+            for c in (shared_registry["registry_root"] / "run_card").glob("*.json")
+        ]
+        candidate_roles = [
+            {entry["role"] for entry in c["payload"]["inputs"]}
+            for c in cards
+            if c["payload"]["stage"] == "validate"
+            and c["payload"]["config_hash"] == hashing.hash_file(cfg)
+        ]
+        assert any(
+            {
+                "characterization_manifest",
+                "census_report",
+                "cluster_requirements",
+                "environment_acquisition_manifest",
+                "environment_install_manifest",
+            } <= roles
+            for roles in candidate_roles
+        )
+    finally:
+        shutil.rmtree(scratch_dir, ignore_errors=True)
+
+
 def test_no_complete_language_and_no_concept_absent_is_contract_violation(tmp_path, shared_registry):
     """quixnorf has zero concept_absent anywhere -- the probe comparator
     has no language-matched negative class, which is a genuine contract
@@ -268,8 +315,44 @@ def test_out_of_range_feature_index_is_contract_violation(tmp_path, shared_regis
     assert exit_code == 3
 
 
-def test_config_schema_validation_failure_raises(tmp_path):
+def test_config_schema_validation_failure_writes_failed_run_card(tmp_path, monkeypatch):
+    monkeypatch.setenv("CC_CLUSTER", "1")
+    monkeypatch.delenv("INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH", raising=False)
+    monkeypatch.delenv("INTERPLAB_ENV_INSTALL_MANIFEST_PATH", raising=False)
+    registry_root = tmp_path / "registry"
     cfg_path = tmp_path / "bad.yaml"
     cfg_path.write_text(yaml.safe_dump({"feature_index": 0}), encoding="utf-8")
-    with pytest.raises(SchemaValidationError):
-        validate.run(cfg_path, registry_root=tmp_path / "registry", repo_root=tmp_path)
+
+    exit_code = validate.run(cfg_path, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 3
+    assert not list((registry_root / "feature_certificate").glob("*.json"))
+    assert_only_run_card_written(registry_root)
+    assert_failed_invalid_config_run_card(
+        registry_root, stage="validate", config_path=cfg_path, repo_root=tmp_path, expect_environment=True
+    )
+
+
+def test_missing_cluster_environment_evidence_fails_before_heavy_work(tmp_path, monkeypatch):
+    monkeypatch.setenv("CC_CLUSTER", "1")
+    monkeypatch.delenv("INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH", raising=False)
+    monkeypatch.delenv("INTERPLAB_ENV_INSTALL_MANIFEST_PATH", raising=False)
+    monkeypatch.setattr(validate, "_get_or_raise", lambda *args, **kwargs: pytest.fail("registry access should not start"))
+
+    registry_root = tmp_path / "registry"
+    cfg = _write_validate_config(
+        tmp_path,
+        characterization_manifest_hash="sha256:" + "a" * 64,
+        census_report_hash="sha256:" + "b" * 64,
+    )
+    exit_code = validate.run(cfg, registry_root=registry_root, repo_root=tmp_path)
+
+    assert exit_code == 4
+    assert_only_run_card_written(registry_root)
+    assert_failed_environment_run_card(
+        registry_root,
+        stage="validate",
+        config_path=cfg,
+        repo_root=tmp_path,
+        expected_roles={"characterization_manifest", "census_report"},
+    )

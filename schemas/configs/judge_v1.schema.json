@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/configs/judge_v1.schema.json",
+  "title": "judge job config v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["intervention_result_hash", "capability_slice"],
+  "properties": {
+    "intervention_result_hash": {
+      "description": "Unjudged A9 source artifact to ingest into a distinct immutable A9′.",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "capability_slice": {
+      "description": "ED-20 fixed pinned text slice whose perplexities are measured under each arm. The job validates the content hash before any write.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content_hash", "location"],
+      "properties": {
+        "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "location": { "type": "string", "pattern": "^(tamia|local|hf|wandb):.+$" }
+      }
+    }
+  }
+}

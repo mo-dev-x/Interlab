@@ -12,14 +12,26 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from interplab.core import configs, envelope, hashing, uris
+from interplab.core import envelope, hashing, uris
 from interplab.core.errors import ContractViolationError
+from interplab.registry.config_lifecycle import prepare_job_run
 from interplab.registry.registry import REGISTRY_ROOT, REPO_ROOT
 from interplab.registry.registry import put as registry_put
-from interplab.registry.run_card import new_run_card
 from interplab.reports import chain as chain_mod
 from interplab.reports import render as render_mod
 from interplab.reports import statistics as statistics_mod
+
+
+def _anchor_refs(claim_spec: dict) -> list[dict]:
+    anchor_type = claim_spec["anchor"]["artifact_type"]
+    return [
+        {
+            "content_hash": content_hash,
+            "location": f"local:registry/{anchor_type}/{hashing.short_hash(content_hash)}.json",
+            "role": anchor_type,
+        }
+        for content_hash in claim_spec["anchor"]["content_hashes"]
+    ]
 
 
 def run(
@@ -28,21 +40,19 @@ def run(
     registry_root: Path = REGISTRY_ROOT,
     repo_root: Path = REPO_ROOT,
 ) -> int:
-    claim_spec = configs.load_and_validate(config_path, "report")
-
-    anchor_type = claim_spec["anchor"]["artifact_type"]
-    anchor_refs = [
-        {
-            "content_hash": h,
-            "location": f"local:registry/{anchor_type}/{hashing.short_hash(h)}.json",
-            "role": anchor_type,
-        }
-        for h in claim_spec["anchor"]["content_hashes"]
-    ]
-
-    handle = new_run_card(
-        "report", config_path, registry_root=registry_root, repo_root=repo_root, inputs=anchor_refs,
+    prepared = prepare_job_run(
+        stage="report",
+        job_name="report",
+        config_path=config_path,
+        build_inputs=_anchor_refs,
+        registry_root=registry_root,
+        repo_root=repo_root,
     )
+    if prepared is None:
+        return 3
+    claim_spec, handle = prepared
+    anchor_type = claim_spec["anchor"]["artifact_type"]
+    anchor_refs = _anchor_refs(claim_spec)
 
     status, exit_code, outcome_line = "failed", 4, "unhandled error"
     outputs: list[dict] = []

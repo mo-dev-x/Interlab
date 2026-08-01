@@ -30,23 +30,21 @@ import argparse
 import json
 from pathlib import Path
 
+import matplotlib
 import numpy as np
 import torch
 
-import matplotlib
-
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
+from sae_lens import SAE
 
-from sae_lens import SAE  # noqa: E402
-
-from interplab.certification import eval_slice  # noqa: E402
-from interplab.certification.model_loading import (  # noqa: E402
+from interplab.certification import eval_slice
+from interplab.certification.model_loading import (
     load_local_hooked_transformer,
     resolve_model_location,
 )
-from interplab.core import uris  # noqa: E402
-from interplab.registry.registry import get as registry_get  # noqa: E402
+from interplab.core import uris
+from interplab.registry.registry import get as registry_get
 
 _HIST_MIN_LOG10 = -4.0
 _HIST_MAX_LOG10 = 2.0

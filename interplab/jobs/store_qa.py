@@ -11,12 +11,12 @@ from pathlib import Path
 
 import numpy as np
 
-from interplab.core import configs, envelope, hashing, uris
+from interplab.core import envelope, hashing, uris
 from interplab.core.errors import ContractViolationError
+from interplab.registry.config_lifecycle import prepare_job_run
 from interplab.registry.registry import REGISTRY_ROOT, REPO_ROOT
 from interplab.registry.registry import get as registry_get
 from interplab.registry.registry import put as registry_put
-from interplab.registry.run_card import new_run_card
 from interplab.store_qa.bands import apply_bands, load_bands
 from interplab.store_qa.qa import compute_metrics, load_store_shards
 
@@ -36,23 +36,36 @@ def _get_or_raise(content_hash: str, *, registry_root: Path, role: str) -> dict:
         raise ContractViolationError(f"could not resolve {role} {content_hash!r}: {e}") from e
 
 
+def _store_qa_inputs(config: dict) -> list[dict]:
+    corpus_manifest_hash = config["corpus_manifest_hash"]
+    return [
+        {
+            "content_hash": corpus_manifest_hash,
+            "location": f"local:registry/corpus_manifest/{hashing.short_hash(corpus_manifest_hash)}.json",
+            "role": "corpus_manifest",
+        }
+    ]
+
+
 def run(
     config_path: str | Path,
     *,
     registry_root: Path = REGISTRY_ROOT,
     repo_root: Path = REPO_ROOT,
 ) -> int:
-    config = configs.load_and_validate(config_path, "store_qa")
-    corpus_manifest_hash = config["corpus_manifest_hash"]
-    corpus_ref = {
-        "content_hash": corpus_manifest_hash,
-        "location": f"local:registry/corpus_manifest/{hashing.short_hash(corpus_manifest_hash)}.json",
-        "role": "corpus_manifest",
-    }
-
-    handle = new_run_card(
-        "store_qa", config_path, registry_root=registry_root, repo_root=repo_root, inputs=[corpus_ref]
+    prepared = prepare_job_run(
+        stage="store_qa",
+        job_name="store_qa",
+        config_path=config_path,
+        build_inputs=_store_qa_inputs,
+        registry_root=registry_root,
+        repo_root=repo_root,
     )
+    if prepared is None:
+        return 3
+    config, handle = prepared
+    corpus_ref = _store_qa_inputs(config)[0]
+    corpus_manifest_hash = corpus_ref["content_hash"]
 
     status, exit_code, outcome_line = "failed", 4, "unhandled error"
     outputs: list[dict] = []
