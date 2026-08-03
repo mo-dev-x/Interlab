@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import subprocess
 import tarfile
 import textwrap
 import zipfile
@@ -42,6 +44,14 @@ def _sdist_bytes(distribution: str, version: str, *, pyproject: str) -> bytes:
             info = tarfile.TarInfo(name=name)
             info.size = len(payload)
             archive.addfile(info, io.BytesIO(payload))
+    return buffer.getvalue()
+
+
+def _tar_bytes(entries: list[tuple[tarfile.TarInfo, bytes | None]]) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for info, payload in entries:
+            archive.addfile(info, None if payload is None else io.BytesIO(payload))
     return buffer.getvalue()
 
 
@@ -138,6 +148,29 @@ def _fake_tool_artifact(name: str, version: str) -> dict:
     }
 
 
+def _target_report(source_root: Path, revision: str) -> dict:
+    current = bundle._current_target_capture_fields()
+    return {
+        "report_type": bundle._TARGET_CAPTURE_TYPE,
+        "schema_version": 1,
+        "created_at": "2026-08-03T00:00:00Z",
+        "source_root": str(source_root),
+        "repo_revision": revision,
+        "source_hashes": bundle.source_hashes_for_root(source_root),
+        "target": current["target"],
+        "python_full_version": current["python_full_version"],
+        "implementation": current["implementation"],
+        "soabi": current["soabi"],
+        "compatible_tags": current["compatible_tags"],
+        "builder": {"name": "bundle", "python_version": current["python_full_version"]},
+    }
+
+
+def _git_bash() -> Path | None:
+    candidate = Path(r"C:\Program Files\Git\bin\bash.exe")
+    return candidate if candidate.is_file() else None
+
+
 def test_checked_in_tooling_lock_matches_accepted_d4_evidence():
     payload = bundle.load_tooling_lock()
 
@@ -214,24 +247,13 @@ def test_build_runtime_bundle_copies_locked_wheels_and_records_derived_provenanc
     derived_hash = "sha256:" + "b" * 64
     _write_source_root(source_root, alpha_hash=alpha_hash, derived_hash=derived_hash, alpha_filename=alpha_filename)
 
-    target_report = {
-        "report_type": bundle._TARGET_CAPTURE_TYPE,
-        "schema_version": 1,
-        "created_at": "2026-08-03T00:00:00Z",
-        "source_root": str(source_root),
-        "repo_revision": "c" * 40,
-        "source_hashes": bundle.source_hashes_for_root(source_root),
-        "target": {"os": "linux", "architecture": "x86_64", "python": "3.11.15", "abi": "cp311"},
-        "python_full_version": "3.11.15",
-        "implementation": "cpython",
-        "soabi": "cpython-311-x86_64-linux-gnu",
-        "compatible_tags": ["py3-none-any"],
-        "builder": {"name": "bundle", "python_version": "3.11.15"},
-    }
+    target_report = _target_report(source_root, "c" * 40)
     target_report_path = tmp_path / "target.json"
     target_report_path.write_text(json.dumps(target_report), encoding="utf-8")
-    staging_dir = tmp_path / "staging"
-    staging_dir.mkdir()
+    staging_parent = tmp_path / "staging"
+    staging_parent.mkdir()
+    tooling_lock_path = tmp_path / "tooling-lock.json"
+    tooling_lock_path.write_text("{}", encoding="utf-8")
 
     tooling = [
         _fake_tool_artifact("pip", "25.0"),
@@ -322,15 +344,19 @@ def test_build_runtime_bundle_copies_locked_wheels_and_records_derived_provenanc
         source_root=source_root,
         expected_revision="c" * 40,
         target_report_path=target_report_path,
-        tooling_lock_path=tmp_path / "tooling-lock.json",
-        staging_dir=staging_dir,
+        tooling_lock_path=tooling_lock_path,
+        staging_dir=staging_parent,
     )
 
     assert receipt["repo_revision"] == "c" * 40
     assert [entry["distribution"] for entry in receipt["runtime"]] == ["alpha", "py2store"]
     assert receipt["runtime"][0]["filename"] == alpha_filename
     assert receipt["derived_wheels"][0]["distribution"] == "py2store"
-    assert (staging_dir / "runtime-stage.json").is_file()
+    stage_dir = Path(receipt["staging_dir"])
+    assert stage_dir.parent == staging_parent.resolve()
+    assert receipt["staging_root"] == str(stage_dir)
+    assert receipt["tooling_lock_sha256"].startswith("sha256:")
+    assert (stage_dir / "runtime-stage.json").is_file()
 
 
 def test_build_derived_runtime_wheel_rejects_undeclared_build_input(tmp_path, monkeypatch):
@@ -392,24 +418,68 @@ build-backend = "hatchling.build"
                     "hatchling": {"version": "1.27.0"},
                     "pip": _fake_tool_artifact("pip", "25.0"),
                 },
-                target_report={"target": bundle.current_target()},
+                target_report={
+                    "target": bundle.current_target(),
+                    "python_full_version": bundle.current_target()["python"],
+                    "implementation": bundle.sys.implementation.name,
+                    "soabi": bundle._current_target_capture_fields()["soabi"],
+                    "compatible_tags": bundle._current_target_capture_fields()["compatible_tags"],
+                },
                 staging_dir=staging_dir,
             )
 
 
 def test_import_alliance_torch_artifact_records_valid_receipt(tmp_path):
-    artifact_path = tmp_path / "torch-2.13.0+computecanada-cp311-cp311-linux_x86_64.whl"
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    (source_root / "slurm").mkdir()
+    (source_root / "pyproject.toml").write_text("[project]\nname='interplab'\nversion='0.1.0'\n", encoding="utf-8")
+    (source_root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    (source_root / "slurm" / "requirements.cluster.txt").write_text("alpha==1.0 --hash=sha256:" + "1" * 64 + "\n", encoding="utf-8")
+    target_report = _target_report(source_root, "e" * 40)
+    target_report_path = tmp_path / "target.json"
+    target_report_path.write_text(json.dumps(target_report), encoding="utf-8")
+    artifact_dir = tmp_path / "torch-acquire"
+    artifact_dir.mkdir()
+    artifact_path = artifact_dir / "torch-2.13.0+computecanada-cp311-cp311-linux_x86_64.whl"
     artifact_path.write_bytes(_wheel_bytes("torch", bundle._ALLIANCE_TORCH_VERSION))
-    transcript_path = tmp_path / "transcript.txt"
-    transcript_path.write_text("--no-index --no-deps --only-binary=:all:\n", encoding="utf-8")
-    output_path = tmp_path / "receipt.json"
-
-    payload = bundle.import_alliance_torch_artifact(
-        artifact_path=artifact_path,
-        origin="alliance:wheelhouse/torch-2.13.0+computecanada-cp311",
-        transcript_path=transcript_path,
-        output_path=output_path,
+    transcript_path = artifact_dir / "transcript.txt"
+    transcript_path.write_text(
+        f"--no-index --no-deps --only-binary=:all: {artifact_path.name}\n",
+        encoding="utf-8",
     )
+    expected_identity_path = tmp_path / "expected.json"
+    expected_identity_path.write_text(
+        json.dumps(
+            {
+                "filename": artifact_path.name,
+                "size_bytes": artifact_path.stat().st_size,
+                "sha256": hashing.hash_file(artifact_path),
+                "distribution": "torch",
+                "version": bundle._ALLIANCE_TORCH_VERSION,
+                "public_version": "2.13.0",
+                "origin": "alliance:wheelhouse/torch-2.13.0+computecanada-cp311",
+            }
+        ),
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "receipt.json"
+    original_validate = bundle._validate_clean_source_root
+    bundle._validate_clean_source_root = lambda root, rev: rev
+
+    try:
+        payload = bundle.import_alliance_torch_artifact(
+            artifact_path=artifact_path,
+            origin="alliance:wheelhouse/torch-2.13.0+computecanada-cp311",
+            transcript_path=transcript_path,
+            expected_identity_path=expected_identity_path,
+            target_report_path=target_report_path,
+            source_root=source_root,
+            expected_revision="e" * 40,
+            output_path=output_path,
+        )
+    finally:
+        bundle._validate_clean_source_root = original_validate
 
     assert payload["artifact"]["version"] == bundle._ALLIANCE_TORCH_VERSION
     assert payload["public_version"] == "2.13.0"
@@ -444,6 +514,7 @@ def test_finalize_bundle_publishes_hash_addressed_bundle(tmp_path, monkeypatch):
     )
     runtime_entry = {key: value for key, value in runtime_entry.items() if key != "source_path"}
     tooling_entry = {key: value for key, value in tooling_entry.items() if key != "source_path"}
+    target_report = _target_report(source_root, "d" * 40)
     runtime_stage = {
         "stage_type": bundle._RUNTIME_STAGE_TYPE,
         "schema_version": 1,
@@ -451,21 +522,10 @@ def test_finalize_bundle_publishes_hash_addressed_bundle(tmp_path, monkeypatch):
         "source_root": str(source_root),
         "repo_revision": "d" * 40,
         "source_hashes": bundle.source_hashes_for_root(source_root),
-        "target_report": {
-            "report_type": bundle._TARGET_CAPTURE_TYPE,
-            "schema_version": 1,
-            "created_at": "2026-08-03T00:00:00Z",
-            "source_root": str(source_root),
-            "repo_revision": "d" * 40,
-            "source_hashes": bundle.source_hashes_for_root(source_root),
-            "target": bundle.current_target(),
-            "python_full_version": bundle.current_target()["python"],
-            "implementation": "cpython",
-            "soabi": "cpython-311-x86_64-linux-gnu",
-            "compatible_tags": ["py3-none-any"],
-            "builder": {"name": "bundle", "python_version": bundle.current_target()["python"]},
-        },
+        "target_report": target_report,
         "tooling_lock_path": str(bundle._TOOLING_LOCK_FILE),
+        "tooling_lock_sha256": "sha256:" + "1" * 64,
+        "staging_root": str(staging_dir),
         "tooling": [tooling_entry],
         "runtime": [runtime_entry],
         "derived_wheels": [],
@@ -473,9 +533,11 @@ def test_finalize_bundle_publishes_hash_addressed_bundle(tmp_path, monkeypatch):
     (staging_dir / "runtime-stage.json").write_text(json.dumps(runtime_stage), encoding="utf-8")
 
     target_report_path = tmp_path / "target.json"
-    target_report_path.write_text(json.dumps(runtime_stage["target_report"]), encoding="utf-8")
+    target_report_path.write_text(json.dumps(target_report), encoding="utf-8")
+    torch_dir = tmp_path / "torch"
+    torch_dir.mkdir()
     torch_artifact = _write_artifact(
-        tmp_path,
+        torch_dir,
         distribution="torch",
         version=bundle._ALLIANCE_TORCH_VERSION,
         filename="torch-2.13.0+computecanada-cp311-cp311-linux_x86_64.whl",
@@ -483,16 +545,22 @@ def test_finalize_bundle_publishes_hash_addressed_bundle(tmp_path, monkeypatch):
         origin="alliance:wheelhouse/torch-2.13.0+computecanada-cp311",
     )
     torch_artifact = {key: value for key, value in torch_artifact.items() if key != "source_path"}
-    torch_receipt_path = tmp_path / "torch-receipt.json"
+    torch_receipt_path = torch_dir / "torch-receipt.json"
+    (torch_dir / "transcript.txt").write_text("torch-2.13.0+computecanada-cp311-cp311-linux_x86_64.whl\n", encoding="utf-8")
     torch_receipt_path.write_text(
         json.dumps(
             {
                 "receipt_type": bundle._TORCH_RECEIPT_TYPE,
                 "schema_version": 1,
                 "created_at": "2026-08-03T00:00:00Z",
+                "source_root": str(source_root),
+                "repo_revision": "d" * 40,
+                "source_hashes": bundle.source_hashes_for_root(source_root),
+                "target_report": target_report,
                 "artifact": torch_artifact,
                 "public_version": "2.13.0",
-                "transcript_path": str(tmp_path / "transcript.txt"),
+                "expected_identity_path": str(tmp_path / "expected.json"),
+                "transcript_path": str(torch_dir / "transcript.txt"),
             }
         ),
         encoding="utf-8",
@@ -511,3 +579,197 @@ def test_finalize_bundle_publishes_hash_addressed_bundle(tmp_path, monkeypatch):
     assert bundle_root.is_dir()
     assert (bundle_root / "environment-acquisition.json").is_file()
     assert result["manifest_hash"].startswith("sha256:")
+
+
+def test_extract_sdist_rejects_parent_traversal_member(tmp_path):
+    info = tarfile.TarInfo(name="../escape.txt")
+    payload = b"escape"
+    info.size = len(payload)
+    sdist_path = tmp_path / "bad.tar.gz"
+    sdist_path.write_bytes(_tar_bytes([(info, payload)]))
+    destination = tmp_path / "extract"
+    destination.mkdir()
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="parent traversal"):
+        bundle._extract_sdist_to_directory(sdist_path, destination)
+
+
+def test_extract_sdist_rejects_symlink_member(tmp_path):
+    info = tarfile.TarInfo(name="pkg-1.0/link")
+    info.type = tarfile.SYMTYPE
+    info.linkname = "target"
+    sdist_path = tmp_path / "bad-link.tar.gz"
+    sdist_path.write_bytes(_tar_bytes([(info, None)]))
+    destination = tmp_path / "extract"
+    destination.mkdir()
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="must not be a link"):
+        bundle._extract_sdist_to_directory(sdist_path, destination)
+
+
+def test_build_runtime_bundle_rejects_target_report_from_other_source_root(tmp_path, monkeypatch):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    _write_source_root(source_root, alpha_hash="sha256:" + "a" * 64, derived_hash="sha256:" + "b" * 64)
+    other_root = tmp_path / "other"
+    other_root.mkdir()
+    _write_source_root(other_root, alpha_hash="sha256:" + "a" * 64, derived_hash="sha256:" + "b" * 64)
+    target_report_path = tmp_path / "target.json"
+    target_report_path.write_text(json.dumps(_target_report(other_root, "f" * 40)), encoding="utf-8")
+    tooling_lock_path = tmp_path / "tooling-lock.json"
+    tooling_lock_path.write_text("{}", encoding="utf-8")
+    (tmp_path / "stage-parent").mkdir()
+    monkeypatch.setattr(bundle, "_validate_clean_source_root", lambda root, rev: rev)
+    monkeypatch.setattr(bundle, "load_tooling_lock", lambda path: {"lock_type": bundle._TOOLING_LOCK_TYPE})
+
+    with pytest.raises(bundle.EnvironmentBundleError, match=r"target capture\.source_root mismatch"):
+        bundle.build_runtime_bundle(
+            source_root=source_root,
+            expected_revision="f" * 40,
+            target_report_path=target_report_path,
+            tooling_lock_path=tooling_lock_path,
+            staging_dir=tmp_path / "stage-parent",
+        )
+
+
+def test_import_alliance_torch_artifact_rejects_expected_identity_mismatch(tmp_path):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    (source_root / "slurm").mkdir()
+    (source_root / "pyproject.toml").write_text("[project]\nname='interplab'\nversion='0.1.0'\n", encoding="utf-8")
+    (source_root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    (source_root / "slurm" / "requirements.cluster.txt").write_text("alpha==1.0 --hash=sha256:" + "1" * 64 + "\n", encoding="utf-8")
+    target_report = _target_report(source_root, "g" * 40)
+    target_report_path = tmp_path / "target.json"
+    target_report_path.write_text(json.dumps(target_report), encoding="utf-8")
+    artifact_dir = tmp_path / "torch-acquire"
+    artifact_dir.mkdir()
+    artifact_path = artifact_dir / "torch-2.13.0+computecanada-cp311-cp311-linux_x86_64.whl"
+    artifact_path.write_bytes(_wheel_bytes("torch", bundle._ALLIANCE_TORCH_VERSION))
+    transcript_path = artifact_dir / "transcript.txt"
+    transcript_path.write_text(
+        f"--no-index --no-deps --only-binary=:all: {artifact_path.name}\n",
+        encoding="utf-8",
+    )
+    expected_identity_path = tmp_path / "expected.json"
+    expected_identity_path.write_text(
+        json.dumps(
+            {
+                "filename": artifact_path.name,
+                "size_bytes": artifact_path.stat().st_size + 1,
+                "sha256": hashing.hash_file(artifact_path),
+                "distribution": "torch",
+                "version": bundle._ALLIANCE_TORCH_VERSION,
+                "public_version": "2.13.0",
+                "origin": "alliance:wheelhouse/torch-2.13.0+computecanada-cp311",
+            }
+        ),
+        encoding="utf-8",
+    )
+    original_validate = bundle._validate_clean_source_root
+    bundle._validate_clean_source_root = lambda root, rev: rev
+    try:
+        with pytest.raises(bundle.EnvironmentBundleError, match="expected identity mismatch for size_bytes"):
+            bundle.import_alliance_torch_artifact(
+                artifact_path=artifact_path,
+                origin="alliance:wheelhouse/torch-2.13.0+computecanada-cp311",
+                transcript_path=transcript_path,
+                expected_identity_path=expected_identity_path,
+                target_report_path=target_report_path,
+                source_root=source_root,
+                expected_revision="g" * 40,
+                output_path=tmp_path / "receipt.json",
+            )
+    finally:
+        bundle._validate_clean_source_root = original_validate
+
+
+def test_finalize_bundle_rejects_mismatched_torch_target_report(tmp_path, monkeypatch):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    (source_root / "slurm").mkdir()
+    (source_root / "pyproject.toml").write_text("[project]\nname='interplab'\nversion='0.1.0'\n", encoding="utf-8")
+    (source_root / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    (source_root / "slurm" / "requirements.cluster.txt").write_text("alpha==1.0 --hash=sha256:" + "1" * 64 + "\n", encoding="utf-8")
+    monkeypatch.setattr(bundle, "_validate_clean_source_root", lambda root, rev: rev)
+    target_report = _target_report(source_root, "h" * 40)
+    mismatched_target = dict(target_report, compatible_tags=["py3-none-any", "cp999-none-any"])
+    stage_dir = tmp_path / "stage"
+    stage_dir.mkdir()
+    runtime_entry = _write_artifact(stage_dir, distribution="alpha", version="1.0", filename="alpha-1.0-py3-none-any.whl", content=_wheel_bytes("alpha", "1.0"))
+    tooling_entry = _write_artifact(stage_dir, distribution="pip", version="25.0", filename="pip-25.0-py3-none-any.whl", content=_wheel_bytes("pip", "25.0"))
+    runtime_stage = {
+        "stage_type": bundle._RUNTIME_STAGE_TYPE,
+        "schema_version": 1,
+        "created_at": "2026-08-03T00:00:00Z",
+        "source_root": str(source_root),
+        "repo_revision": "h" * 40,
+        "source_hashes": bundle.source_hashes_for_root(source_root),
+        "target_report": target_report,
+        "tooling_lock_path": str(bundle._TOOLING_LOCK_FILE),
+        "tooling_lock_sha256": "sha256:" + "1" * 64,
+        "staging_root": str(stage_dir),
+        "tooling": [{k: v for k, v in tooling_entry.items() if k != "source_path"}],
+        "runtime": [{k: v for k, v in runtime_entry.items() if k != "source_path"}],
+        "derived_wheels": [],
+    }
+    (stage_dir / "runtime-stage.json").write_text(json.dumps(runtime_stage), encoding="utf-8")
+    target_report_path = tmp_path / "target.json"
+    target_report_path.write_text(json.dumps(target_report), encoding="utf-8")
+    torch_dir = tmp_path / "torch"
+    torch_dir.mkdir()
+    torch_artifact = _write_artifact(torch_dir, distribution="torch", version=bundle._ALLIANCE_TORCH_VERSION, filename="torch-2.13.0+computecanada-cp311-cp311-linux_x86_64.whl", content=_wheel_bytes("torch", bundle._ALLIANCE_TORCH_VERSION), origin="alliance:wheelhouse/torch-2.13.0+computecanada-cp311")
+    torch_receipt_path = torch_dir / "torch-receipt.json"
+    torch_receipt_path.write_text(
+        json.dumps(
+            {
+                "receipt_type": bundle._TORCH_RECEIPT_TYPE,
+                "schema_version": 1,
+                "created_at": "2026-08-03T00:00:00Z",
+                "source_root": str(source_root),
+                "repo_revision": "h" * 40,
+                "source_hashes": bundle.source_hashes_for_root(source_root),
+                "target_report": mismatched_target,
+                "artifact": {k: v for k, v in torch_artifact.items() if k != "source_path"},
+                "public_version": "2.13.0",
+                "expected_identity_path": str(tmp_path / "expected.json"),
+                "transcript_path": str(torch_dir / "transcript.txt"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(bundle.EnvironmentBundleError, match="torch receipt and supplied target report do not describe the same captured target"):
+        bundle.finalize_bundle(
+            runtime_staging_dir=stage_dir,
+            target_report_path=target_report_path,
+            torch_receipt_path=torch_receipt_path,
+            source_root=source_root,
+            expected_revision="h" * 40,
+            output_root=tmp_path / "published",
+        )
+
+
+@pytest.mark.skipif(_git_bash() is None, reason="Git Bash is unavailable on this host")
+def test_setup_env_requires_explicit_expected_revision_authority(tmp_path):
+    bash = _git_bash()
+    assert bash is not None
+    manifest_path = tmp_path / "acquisition.json"
+    manifest_path.write_text("{}", encoding="utf-8")
+    env = os.environ.copy()
+    env.update(
+        {
+            "INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH": str(manifest_path),
+            "INTERPLAB_ENV_BUNDLE_ROOT": str(tmp_path),
+            "INTERPLAB_VENV_DIR": str(tmp_path / "venv"),
+        }
+    )
+    result = subprocess.run(
+        [str(bash), str(Path(__file__).resolve().parents[1] / "slurm" / "setup_env.sh")],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "INTERPLAB_EXPECTED_REVISION" in result.stderr

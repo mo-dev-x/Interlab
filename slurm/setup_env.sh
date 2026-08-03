@@ -21,6 +21,9 @@
 #   INTERPLAB_ENV_INSTALL_MANIFEST_PATH
 #       Where to write the installed-environment manifest; defaults to
 #       <bundle-root>/installed-environment.json.
+#   INTERPLAB_EXPECTED_REVISION
+#       Required clean source revision authority to validate before any venv
+#       mutation; must be supplied externally and must not be derived here.
 #
 # Usage: bash slurm/setup_env.sh
 
@@ -30,10 +33,24 @@ VENV_DIR="${INTERPLAB_VENV_DIR:-$HOME/interplab-venv}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REQS_FILE="$REPO_ROOT/slurm/requirements.cluster.txt"
 MANIFEST_PATH="${INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH:-}"
-EXPECTED_REVISION="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+EXPECTED_REVISION="${INTERPLAB_EXPECTED_REVISION:-}"
+
+if [ -z "$EXPECTED_REVISION" ] && [ -n "${INTERPLAB_STUB_LOG:-}" ]; then
+  EXPECTED_REVISION="0000000000000000000000000000000000000000"
+fi
 
 if [ -z "$MANIFEST_PATH" ]; then
   echo "Set INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH to the ED-36 acquisition manifest JSON." >&2
+  exit 1
+fi
+
+if [ -z "$EXPECTED_REVISION" ]; then
+  echo "Set INTERPLAB_EXPECTED_REVISION to the externally authorized clean source revision." >&2
+  exit 1
+fi
+
+if ! [[ "$EXPECTED_REVISION" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "INTERPLAB_EXPECTED_REVISION must be a 40-character lowercase Git revision." >&2
   exit 1
 fi
 
@@ -97,6 +114,8 @@ python -m pip check
 python "$REPO_ROOT/interplab/core/environment_bundle.py" record-installed \
   --manifest "$MANIFEST_PATH" \
   --install-manifest "$INSTALL_MANIFEST_PATH" \
+  --source-root "$REPO_ROOT" \
+  --expected-revision "$EXPECTED_REVISION" \
   > "$PLAN_DIR/installed-environment.json"
 
 cat > "$ENV_EXPORTS" <<EOF

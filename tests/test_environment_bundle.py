@@ -56,6 +56,41 @@ def _wheel_bytes(distribution: str, version: str) -> bytes:
             f"Metadata-Version: 2.1\nName: {distribution}\nVersion: {version}\n",
         )
         wheel.writestr(f"{normalized}-{version}.dist-info/WHEEL", "Wheel-Version: 1.0\nTag: py3-none-any\n")
+        if distribution == "pip":
+            wheel.writestr("pip/__init__.py", "__version__ = '25.0'\n")
+            wheel.writestr(
+                "pip/__main__.py",
+                textwrap.dedent(
+                    """
+                    from pip._internal.cli.main import main
+
+                    if __name__ == "__main__":
+                        raise SystemExit(main())
+                    """
+                ).strip()
+                + "\n",
+            )
+            wheel.writestr("pip/_internal/__init__.py", "")
+            wheel.writestr("pip/_internal/cli/__init__.py", "")
+            wheel.writestr(
+                "pip/_internal/cli/main.py",
+                textwrap.dedent(
+                    """
+                    from __future__ import annotations
+
+                    import pathlib
+                    import sys
+
+                    def main() -> int:
+                        target = pathlib.Path(sys.argv[-1])
+                        destination = pathlib.Path(sys.prefix) / "Lib" / "site-packages" / target.name
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        destination.write_bytes(target.read_bytes())
+                        return 0
+                    """
+                ).strip()
+                + "\n",
+            )
     return buffer.getvalue()
 
 

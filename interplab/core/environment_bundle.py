@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
+import ctypes
+import errno
 import io
 import json
 import os
@@ -22,7 +25,7 @@ from email.parser import BytesParser
 from importlib import import_module
 from importlib.metadata import distributions
 from importlib.metadata import version as dist_version
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
 from urllib.request import urlopen
@@ -95,6 +98,18 @@ _EXPECTED_VIRTUALENV_SEED_WHEELS = (
     ("wheel", "0.42.0", "wheel-0.42.0-py3-none-any.whl", "sha256:177f9c9b0d45c47873b619f5b650346d632cdc35fb5e4d25058e09c9e581433d"),
     ("wheel", "0.43.0", "wheel-0.43.0-py3-none-any.whl", "sha256:55c570405f142630c6b9f72fe09d9b67cf1477fcf543ae5b8dcb1f5b7377da81"),
 )
+_APPROVED_SOURCE_BUILD_BACKENDS = {
+    "py2store": {
+        "backend": "hatchling.build",
+        "backend_distribution": "hatchling",
+        "backend_path": [],
+    },
+    "transformers-stream-generator": {
+        "backend": "hatchling.build",
+        "backend_distribution": "hatchling",
+        "backend_path": [],
+    },
+}
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DISTRIBUTION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
 
@@ -213,6 +228,238 @@ def source_hashes_for_root(source_root: str | Path) -> dict[str, dict[str, str]]
         },
     }
 
+
+def _current_target_capture_fields() -> dict[str, Any]:
+    soabi = (
+        sysconfig.get_config_var("SOABI")
+        or sysconfig.get_config_var("SO")
+        or sys.implementation.cache_tag
+    )
+    if not isinstance(soabi, str) or not soabi:
+        raise EnvironmentBundleError("could not determine the exact SOABI for target capture")
+    return {
+        "target": current_target(),
+        "python_full_version": ".".join(str(part) for part in sys.version_info[:3]),
+        "implementation": sys.implementation.name,
+        "soabi": soabi,
+        "compatible_tags": [str(tag) for tag in packaging_tags.sys_tags()],
+    }
+
+
+def _source_binding_fields(
+    source_root: Path,
+    *,
+    revision: str,
+    source_hashes: dict[str, dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    resolved = Path(source_root).resolve()
+    return {
+        "source_root": str(resolved),
+        "repo_revision": revision,
+        "source_hashes": json.loads(
+            json.dumps(source_hashes if source_hashes is not None else source_hashes_for_root(resolved))
+        ),
+    }
+
+
+def _assert_source_binding(
+    payload: dict[str, Any],
+    *,
+    source_root: Path,
+    revision: str,
+    source_hashes: dict[str, dict[str, str]],
+    context: str,
+) -> None:
+    expected_root = str(Path(source_root).resolve())
+    actual_root = _require_string(payload, "source_root", context=context)
+    if actual_root != expected_root:
+        raise EnvironmentBundleError(
+            f"{context}.source_root mismatch: expected {expected_root!r}, got {actual_root!r}"
+        )
+    actual_revision = _require_string(payload, "repo_revision", context=context)
+    if actual_revision != revision:
+        raise EnvironmentBundleError(
+            f"{context}.repo_revision mismatch: expected {revision!r}, got {actual_revision!r}"
+        )
+    actual_hashes = _require_mapping(payload, "source_hashes", context=context)
+    if actual_hashes != source_hashes:
+        raise EnvironmentBundleError(f"{context}.source_hashes do not match the required clean source bytes")
+
+
+def _assert_target_capture_matches_current_source(
+    payload: dict[str, Any],
+    *,
+    source_root: Path,
+    revision: str,
+    source_hashes: dict[str, dict[str, str]],
+    context: str,
+) -> None:
+    validate_target_capture_report(payload)
+    _assert_source_binding(
+        payload,
+        source_root=source_root,
+        revision=revision,
+        source_hashes=source_hashes,
+        context=context,
+    )
+
+
+def _assert_target_host_compatibility(payload: dict[str, Any], *, context: str) -> None:
+    current = _current_target_capture_fields()
+    for field in ("target", "python_full_version", "implementation", "soabi", "compatible_tags"):
+        if payload[field] != current[field]:
+            raise EnvironmentBundleError(
+                f"{context} host mismatch for {field}: expected {payload[field]!r}, got {current[field]!r}"
+            )
+
+
+def _artifact_stat_identity(path: Path) -> dict[str, Any]:
+    stat_result = os.stat(path)
+    return {
+        "st_dev": getattr(stat_result, "st_dev", None),
+        "st_ino": getattr(stat_result, "st_ino", None),
+        "st_mode": stat.S_IMODE(stat_result.st_mode),
+        "st_size": stat_result.st_size,
+        "sha256": hashing.hash_file(path),
+    }
+
+
+def _assert_artifact_identity(path: Path, expected: dict[str, Any], *, context: str) -> None:
+    measured = _artifact_stat_identity(path)
+    for field, expected_value in expected.items():
+        if measured.get(field) != expected_value:
+            raise EnvironmentBundleError(
+                f"{context} {field} mismatch: expected {expected_value!r}, got {measured.get(field)!r}"
+            )
+
+
+def _open_exclusive_binary(path: Path, *, mode: int = 0o600) -> int:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    no_follow = getattr(os, "O_NOFOLLOW", 0)
+    if no_follow:
+        flags |= no_follow
+    return os.open(path, flags, mode)
+
+
+def _write_bytes_noclobber(path: Path, payload: bytes, *, mode: int = 0o600) -> None:
+    fd = _open_exclusive_binary(path, mode=mode)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.close(fd)
+        raise
+    with contextlib.suppress(OSError):
+        os.chmod(path, mode)
+
+
+def _write_text_noclobber(path: Path, text: str, *, mode: int = 0o600) -> None:
+    _write_bytes_noclobber(path, text.encode("utf-8"), mode=mode)
+
+
+def _allocate_owned_directory(parent: Path, *, prefix: str, mode: int = 0o700) -> Path:
+    parent_path = Path(parent).resolve()
+    if not parent_path.is_dir():
+        raise EnvironmentBundleError(f"staging parent {parent_path} is not a directory")
+    _reject_reparse_or_symlink_path(parent_path, parent_path.parent if parent_path.parent.exists() else parent_path)
+    for _ in range(64):
+        candidate = (parent_path / f"{prefix}{uuid.uuid4().hex[:12]}").resolve()
+        try:
+            candidate.mkdir(mode=mode)
+        except FileExistsError:
+            continue
+        with contextlib.suppress(OSError):
+            os.chmod(candidate, mode)
+        return candidate
+    raise EnvironmentBundleError(f"could not allocate a fresh owned directory beneath {parent_path}")
+
+
+def _atomic_write_json_noclobber(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_text_noclobber(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def _atomic_promote_directory_noclobber(source: Path, destination: Path) -> None:
+    source_path = Path(source).resolve()
+    destination_path = Path(destination).resolve()
+    if not source_path.is_dir():
+        raise EnvironmentBundleError(f"atomic promotion source {source_path} is not a directory")
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        move_file_ex = ctypes.windll.kernel32.MoveFileExW
+        move_file_ex.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+        move_file_ex.restype = ctypes.c_int
+        if move_file_ex(str(source_path), str(destination_path), 0x00000008):
+            return
+        error_code = ctypes.windll.kernel32.GetLastError()
+        if error_code in {80, 183}:
+            raise EnvironmentBundleError(f"final destination already exists: {destination_path}")
+        raise EnvironmentBundleError(
+            f"platform atomic no-clobber directory promotion failed with Windows error {error_code}"
+        )
+    if sys.platform.startswith("linux"):
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = getattr(libc, "renameat2", None)
+        if renameat2 is None:
+            raise EnvironmentBundleError("platform cannot provide atomic non-overwriting directory promotion")
+        renameat2.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        renameat2.restype = ctypes.c_int
+        rename_noreplace = 1
+        at_fdcwd = -100
+        result = renameat2(
+            at_fdcwd,
+            os.fsencode(str(source_path)),
+            at_fdcwd,
+            os.fsencode(str(destination_path)),
+            rename_noreplace,
+        )
+        if result == 0:
+            return
+        error_code = ctypes.get_errno()
+        if error_code == errno.EEXIST:
+            raise EnvironmentBundleError(f"final destination already exists: {destination_path}")
+        raise EnvironmentBundleError(
+            f"platform atomic no-clobber directory promotion failed with errno {error_code}"
+        )
+    raise EnvironmentBundleError("platform cannot provide atomic non-overwriting directory promotion")
+
+
+def _transformer_lens_version_from_entry(entry: dict[str, Any]) -> str | None:
+    if normalize_distribution_name(entry.get("distribution", "")) != "transformer-lens":
+        return None
+    return _require_string(entry, "version", context="transformer-lens entry")
+
+
+def _reject_transformer_lens_contamination(
+    entries: list[dict[str, Any]],
+    *,
+    context: str,
+    require_exact_runtime: bool = False,
+) -> None:
+    versions = [
+        version
+        for entry in entries
+        if (version := _transformer_lens_version_from_entry(entry)) is not None
+    ]
+    if any(version == _R5_X2_TRANSFORMER_LENS_COMPARISON for version in versions):
+        raise EnvironmentBundleError(
+            f"{context} contains forbidden transformer-lens {_R5_X2_TRANSFORMER_LENS_COMPARISON}"
+        )
+    if any(version != _R5_X2_TRANSFORMER_LENS_BASELINE for version in versions):
+        raise EnvironmentBundleError(
+            f"{context} contains an unexpected transformer-lens version: {versions!r}"
+        )
+    if require_exact_runtime and versions != [_R5_X2_TRANSFORMER_LENS_BASELINE]:
+        raise EnvironmentBundleError(
+            f"{context} must contain exactly one transformer-lens=={_R5_X2_TRANSFORMER_LENS_BASELINE} artifact"
+        )
 
 def load_tooling_lock(path: str | Path = _TOOLING_LOCK_FILE) -> dict[str, Any]:
     payload = _load_json_payload(path, context="tooling lock")
@@ -731,25 +978,205 @@ def _derived_wheel_command(
     return [
         str(env_python),
         "-I",
-        "-m",
-        "build",
-        "--wheel",
-        "--no-isolation",
-        "--outdir",
+        "-c",
+        _build_no_network_child_source(),
         str(out_dir),
         str(sdist_path),
     ]
 
 
+def _build_no_network_child_source() -> str:
+    return """
+import os
+import runpy
+import socket
+import sys
+import urllib.request
+
+def _deny(*args, **kwargs):
+    raise RuntimeError("network access is forbidden during offline derived-wheel construction")
+
+socket.create_connection = _deny
+socket.getaddrinfo = _deny
+socket.gethostbyname = _deny
+socket.gethostbyname_ex = _deny
+socket.gethostbyaddr = _deny
+urllib.request.urlopen = _deny
+
+class _DeniedSocket(socket.socket):
+    def connect(self, *args, **kwargs):
+        _deny(*args, **kwargs)
+
+    def connect_ex(self, *args, **kwargs):
+        _deny(*args, **kwargs)
+
+socket.socket = _DeniedSocket
+sys.argv = [
+    "build",
+    "--wheel",
+    "--no-isolation",
+    "--outdir",
+    sys.argv[1],
+    sys.argv[2],
+]
+runpy.run_module("build", run_name="__main__")
+"""
+
+
+def _derived_build_subprocess_kwargs() -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    if os.name != "nt" and hasattr(os, "unshare") and hasattr(os, "CLONE_NEWNET"):
+        def _preexec() -> None:
+            os.unshare(os.CLONE_NEWNET)
+
+        kwargs["preexec_fn"] = _preexec
+    return kwargs
+
+
+def _safe_extract_member_path(member_name: str, destination: Path) -> Path:
+    pure = PurePosixPath(member_name)
+    if pure.is_absolute():
+        raise EnvironmentBundleError(f"source archive member {member_name!r} must not be absolute")
+    if any(part == ".." for part in pure.parts):
+        raise EnvironmentBundleError(f"source archive member {member_name!r} must not contain parent traversal")
+    candidate = destination.joinpath(*pure.parts)
+    resolved = candidate.resolve(strict=False)
+    if resolved != destination and destination not in resolved.parents:
+        raise EnvironmentBundleError(f"source archive member {member_name!r} escapes the extraction root")
+    return candidate
+
+
 def _extract_sdist_to_directory(sdist_path: Path, destination: Path) -> Path:
-    with tarfile.open(sdist_path, "r:gz") as archive:
-        archive.extractall(destination)
+    seen: dict[str, str] = {}
+    try:
+        with tarfile.open(sdist_path, "r:gz") as archive:
+            for member in archive.getmembers():
+                relative_name = member.name.rstrip("/")
+                if not relative_name:
+                    continue
+                if member.issym() or member.islnk():
+                    raise EnvironmentBundleError(f"source archive member {member.name!r} must not be a link")
+                if member.isdev() or member.ischr() or member.isblk() or member.isfifo():
+                    raise EnvironmentBundleError(
+                        f"source archive member {member.name!r} uses an unsupported special file type"
+                    )
+                if not (member.isdir() or member.isfile()):
+                    raise EnvironmentBundleError(
+                        f"source archive member {member.name!r} uses an unsupported archive entry type"
+                    )
+                target = _safe_extract_member_path(relative_name, destination)
+                relative_key = str(target.relative_to(destination)).replace("\\", "/")
+                entry_type = "dir" if member.isdir() else "file"
+                previous = seen.get(relative_key)
+                if previous is not None and previous != entry_type:
+                    raise EnvironmentBundleError(
+                        f"source archive member {member.name!r} conflicts with an existing extracted path"
+                    )
+                seen[relative_key] = entry_type
+                if member.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                source = archive.extractfile(member)
+                if source is None:
+                    raise EnvironmentBundleError(
+                        f"source archive member {member.name!r} could not be read as a regular file"
+                    )
+                with source, open(target, "xb") as handle:
+                    shutil.copyfileobj(source, handle)
+    except Exception:
+        _rollback_partial_path(destination)
+        raise
     roots = [path for path in destination.iterdir() if path.is_dir()]
     if len(roots) != 1:
+        _rollback_partial_path(destination)
         raise EnvironmentBundleError(
             f"source distribution {sdist_path.name!r} must unpack to exactly one top-level directory"
         )
     return roots[0]
+
+
+def _normalize_build_requirement(raw_requirement: str, *, target_env: dict[str, str], context: str) -> PackagingRequirement | None:
+    requirement = PackagingRequirement(_require_nonempty_string(raw_requirement, context=context))
+    if requirement.marker is not None and not requirement.marker.evaluate(environment=target_env):
+        return None
+    return requirement
+
+
+def _validate_build_system_contract(
+    distribution: str,
+    *,
+    build_system: dict[str, Any],
+    build_inputs: list[dict[str, Any]],
+    target_report: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    approved_contract = _APPROVED_SOURCE_BUILD_BACKENDS.get(distribution)
+    if approved_contract is None:
+        raise EnvironmentBundleError(f"derived wheel {distribution!r} has no approved build backend contract")
+    requires = build_system.get("requires")
+    if not isinstance(requires, list) or not requires:
+        raise EnvironmentBundleError(f"derived wheel source {distribution!r} must declare build-system.requires")
+    target_env = marker_environment_for_target(target_report["target"])
+    approved_inputs = {
+        normalize_distribution_name(entry["distribution"]): entry for entry in build_inputs
+    }
+    active_requirements: list[PackagingRequirement] = []
+    seen_requirements: set[str] = set()
+    for raw_requirement in requires:
+        parsed = _normalize_build_requirement(
+            _require_nonempty_string(raw_requirement, context=f"{distribution} build-system.requires"),
+            target_env=target_env,
+            context=f"{distribution} build-system.requires",
+        )
+        if parsed is None:
+            continue
+        normalized_name = normalize_distribution_name(parsed.name)
+        if normalized_name in seen_requirements:
+            raise EnvironmentBundleError(f"derived wheel {distribution!r} declares duplicate build requirement {normalized_name!r}")
+        seen_requirements.add(normalized_name)
+        if normalized_name not in approved_inputs:
+            raise EnvironmentBundleError(
+                f"derived wheel {distribution!r} declares undeclared build requirement {normalized_name!r}"
+            )
+        if not parsed.specifier:
+            raise EnvironmentBundleError(
+                f"derived wheel {distribution!r} build requirement {normalized_name!r} must pin an exact approved version"
+            )
+        approved_entry = approved_inputs[normalized_name]
+        if approved_entry["version"] not in parsed.specifier:
+            raise EnvironmentBundleError(
+                f"derived wheel {distribution!r} build requirement {normalized_name!r} does not admit approved version {approved_entry['version']!r}"
+            )
+        active_requirements.append(parsed)
+    backend = _require_nonempty_string(
+        build_system.get("build-backend", ""),
+        context=f"{distribution} build-system.build-backend",
+    )
+    if backend != approved_contract["backend"]:
+        raise EnvironmentBundleError(
+            f"derived wheel {distribution!r} build backend mismatch: expected {approved_contract['backend']!r}, got {backend!r}"
+        )
+    backend_path = build_system.get("backend-path", [])
+    if backend_path is None:
+        backend_path = []
+    if not isinstance(backend_path, list) or any(not isinstance(item, str) or not item for item in backend_path):
+        raise EnvironmentBundleError(f"derived wheel {distribution!r} build-system.backend-path must be a list of strings")
+    if backend_path != approved_contract["backend_path"]:
+        raise EnvironmentBundleError(
+            f"derived wheel {distribution!r} backend-path mismatch: expected {approved_contract['backend_path']!r}, got {backend_path!r}"
+        )
+    backend_distribution = approved_contract["backend_distribution"]
+    if backend_distribution not in seen_requirements:
+        raise EnvironmentBundleError(
+            f"derived wheel {distribution!r} build-system.requires is missing backend provider {backend_distribution!r}"
+        )
+    build_receipt_backend = {
+        "name": backend_distribution,
+        "version": approved_inputs[backend_distribution]["version"],
+        "module": backend,
+        "backend_path": list(backend_path),
+    }
+    return [approved_inputs[normalize_distribution_name(requirement.name)] for requirement in active_requirements], build_receipt_backend
 
 
 def _measure_venv_inventory(venv_path: Path) -> dict[str, Any]:
@@ -837,22 +1264,36 @@ def _pip_bootstrap_child_source() -> str:
     return """
 import hashlib
 import json
-import os
 import pathlib
 import runpy
 import stat
 import sys
 
-snapshot_path, expected_hash = sys.argv[1], sys.argv[2]
+snapshot_path, expected_json = sys.argv[1], sys.argv[2]
 snapshot = pathlib.Path(snapshot_path)
+expected = json.loads(expected_json)
 before = snapshot.stat()
 snapshot_bytes = snapshot.read_bytes()
 actual_hash = "sha256:" + hashlib.sha256(snapshot_bytes).hexdigest()
-if actual_hash != expected_hash:
+actual = {
+    "st_dev": getattr(before, "st_dev", None),
+    "st_ino": getattr(before, "st_ino", None),
+    "st_mode": stat.S_IMODE(before.st_mode),
+    "st_size": before.st_size,
+    "sha256": actual_hash,
+}
+if actual != expected:
     raise SystemExit(
-        f"pip snapshot hash mismatch: expected {expected_hash}, got {actual_hash}"
+        f"pip snapshot identity mismatch: expected {expected}, got {actual}"
     )
 sys.path.insert(0, str(snapshot))
+import pip
+from pip._internal.cli.main import main as pip_main
+normalized_snapshot = snapshot.as_posix()
+for origin in (getattr(pip, "__file__", ""), getattr(pip_main, "__code__", None) and pip_main.__code__.co_filename):
+    normalized_origin = str(origin).replace("\\\\", "/")
+    if not normalized_origin.startswith(normalized_snapshot):
+        raise SystemExit(f"pip loaded from an unexpected origin: {origin}")
 sys.argv = [
     "pip",
     "install",
@@ -870,9 +1311,9 @@ for field in ("st_dev", "st_ino", "st_mode", "st_size"):
     if getattr(before, field, None) != getattr(after, field, None):
         raise SystemExit(f"pip snapshot {field} changed during bootstrap")
 after_hash = "sha256:" + hashlib.sha256(snapshot.read_bytes()).hexdigest()
-if after_hash != expected_hash:
+if after_hash != expected["sha256"]:
     raise SystemExit(
-        f"pip snapshot hash mismatch: expected {expected_hash}, got {after_hash}"
+        f"pip snapshot hash mismatch: expected {expected['sha256']}, got {after_hash}"
     )
 print(json.dumps({
     "st_dev": getattr(after, "st_dev", None),
@@ -890,7 +1331,7 @@ def _bootstrap_private_pip(
     pip_entry: dict[str, Any],
     bundle_root: Path,
 ) -> None:
-    _wheel_path, pip_bytes = _validated_artifact_bytes(pip_entry, bundle_root=bundle_root)
+    wheel_path, pip_bytes = _validated_artifact_bytes(pip_entry, bundle_root=bundle_root)
     pip_identity = _read_wheel_identity_from_bytes(
         pip_bytes,
         filename=pip_entry["filename"],
@@ -900,11 +1341,11 @@ def _bootstrap_private_pip(
         raise EnvironmentBundleError("pip bootstrap artifact metadata Name does not identify pip")
     if pip_identity["metadata_version"] != pip_entry["version"]:
         raise EnvironmentBundleError("pip bootstrap artifact metadata Version does not match the manifest")
-    snapshot_path = (
-        venv_path.parent / f"{venv_path.name}.{Path(pip_entry['filename']).name}"
-    ).resolve()
-    snapshot_path.write_bytes(pip_bytes)
-    expected_hash = hashing.sha256_prefixed(pip_bytes)
+    original_identity = _artifact_stat_identity(wheel_path)
+    private_root = _allocate_owned_directory(venv_path.parent, prefix=f".{venv_path.name}.pip-private-")
+    snapshot_path = (private_root / Path(pip_entry["filename"]).name).resolve()
+    _write_bytes_noclobber(snapshot_path, pip_bytes, mode=0o400)
+    expected_identity = _artifact_stat_identity(snapshot_path)
     try:
         subprocess.run(
             [
@@ -913,7 +1354,7 @@ def _bootstrap_private_pip(
                 "-c",
                 _pip_bootstrap_child_source(),
                 str(snapshot_path),
-                expected_hash,
+                json.dumps(expected_identity, sort_keys=True),
             ],
             capture_output=True,
             text=True,
@@ -924,7 +1365,11 @@ def _bootstrap_private_pip(
         detail = (exc.stderr or exc.stdout or "").strip() or "no stderr/stdout"
         raise EnvironmentBundleError(f"private pip bootstrap failed: {detail}") from exc
     finally:
-        _rollback_partial_path(snapshot_path)
+        try:
+            _assert_artifact_identity(snapshot_path, expected_identity, context="private pip snapshot")
+            _assert_artifact_identity(wheel_path, original_identity, context="retained original pip artifact")
+        finally:
+            _rollback_partial_path(private_root)
 
 
 def _build_derived_runtime_wheel(
@@ -935,13 +1380,8 @@ def _build_derived_runtime_wheel(
     target_report: dict[str, Any],
     staging_dir: Path,
 ) -> dict[str, Any]:
+    _assert_target_host_compatibility(target_report, context="derived wheel build")
     target = target_report["target"]
-    current = current_target()
-    for field in ("os", "architecture", "python", "abi"):
-        if target[field] != current[field]:
-            raise EnvironmentBundleError(
-                f"derived wheels may only be built on a target-matching host; {field} expected {target[field]!r}, got {current[field]!r}"
-            )
     normalized = requirement.distribution
     if normalized not in _SOURCE_ONLY_RUNTIME_DISTRIBUTIONS:
         raise EnvironmentBundleError(f"runtime sdists are forbidden outside the approved derived-wheel path: {normalized}")
@@ -978,6 +1418,7 @@ def _build_derived_runtime_wheel(
     build_inputs = _tooling_install_plan(include_build=True, include_pip=False, include_uv=False)
     requirements_path = evidence_root / "build-inputs.requirements.txt"
     _write_requirements_file(requirements_path, build_inputs)
+    _reject_transformer_lens_contamination(build_inputs, context=f"{normalized} build inputs")
     try:
         subprocess.run(
             [
@@ -1016,19 +1457,12 @@ def _build_derived_runtime_wheel(
     build_system = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8")).get("build-system")
     if not isinstance(build_system, dict):
         raise EnvironmentBundleError(f"derived wheel source {normalized!r} is missing [build-system]")
-    requires = build_system.get("requires")
-    if not isinstance(requires, list) or not requires:
-        raise EnvironmentBundleError(f"derived wheel source {normalized!r} must declare build-system.requires")
-    approved_inputs = {
-        normalize_distribution_name(entry["distribution"]): entry for entry in build_inputs
-    }
-    for raw_requirement in requires:
-        requirement_obj = PackagingRequirement(_require_nonempty_string(raw_requirement, context=f"{normalized} build-system.requires"))
-        required_name = normalize_distribution_name(requirement_obj.name)
-        if required_name not in approved_inputs:
-            raise EnvironmentBundleError(
-                f"derived wheel {normalized!r} declares undeclared build requirement {required_name!r}"
-            )
+    active_build_inputs, backend_record = _validate_build_system_contract(
+        normalized,
+        build_system=build_system,
+        build_inputs=build_inputs,
+        target_report=target_report,
+    )
 
     command = _derived_wheel_command(
         env_python=_venv_python_path(build_env),
@@ -1047,7 +1481,9 @@ def _build_derived_runtime_wheel(
                 "PIP_NO_INDEX": "1",
                 "PIP_NO_CACHE_DIR": "1",
                 "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+                "INTERPLAB_NETWORK_DENIED": "1",
             },
+            **_derived_build_subprocess_kwargs(),
         )
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or "").strip() or "no stderr/stdout"
@@ -1069,6 +1505,10 @@ def _build_derived_runtime_wheel(
         "type": "wheel",
     }
     _validate_wheel_metadata(built_wheel, wheel_entry)
+    if wheel_entry["sha256"] not in requirement.hashes:
+        raise EnvironmentBundleError(
+            f"derived wheel {normalized!r} hash mismatch: {wheel_entry['sha256']} is not authorized by the export"
+        )
     final_wheel_path = staging_dir / built_wheel.name
     if final_wheel_path.exists():
         raise EnvironmentBundleError(f"derived wheel destination already exists: {final_wheel_path}")
@@ -1088,15 +1528,16 @@ def _build_derived_runtime_wheel(
         "version": requirement.version,
         "wheel": dict(wheel_entry),
         "source_sdist": sdist_entry,
-        "build_inputs": [dict(entry) for entry in build_inputs],
+        "build_inputs": [dict(entry) for entry in active_build_inputs],
         "builder": dict(target),
         "frontend": {"name": "build", "version": tooling_by_name["build"]["version"]},
-        "backend": {
-            "name": normalize_distribution_name(str(build_system.get("build-backend", "hatchling")).split(".", 1)[0]),
-            "version": tooling_by_name["hatchling"]["version"],
-        },
+        "backend": backend_record,
         "command": command,
     }
+    _atomic_write_json_noclobber(evidence_root / "build-receipt.json", provenance)
+    shutil.rmtree(build_env, ignore_errors=False)
+    shutil.rmtree(build_out, ignore_errors=False)
+    _rollback_partial_path(unpack_root)
     return {
         "wheel": wheel_entry,
         "source_sdist": sdist_entry,
@@ -1112,29 +1553,21 @@ def capture_target_report(
 ) -> dict[str, Any]:
     source_root_path = Path(source_root).resolve()
     revision = _validate_clean_source_root(source_root_path, expected_revision)
+    source_hashes = source_hashes_for_root(source_root_path)
     output = Path(output_path)
     if output.exists():
         raise EnvironmentBundleError(f"target capture output {output} already exists")
-    soabi = (
-        sysconfig.get_config_var("SOABI")
-        or sysconfig.get_config_var("SO")
-        or sys.implementation.cache_tag
-    )
-    if not isinstance(soabi, str) or not soabi:
-        raise EnvironmentBundleError("could not determine the exact SOABI for target capture")
-    compatible_tags = [str(tag) for tag in packaging_tags.sys_tags()]
+    current = _current_target_capture_fields()
     payload = {
         "report_type": _TARGET_CAPTURE_TYPE,
         "schema_version": 1,
         "created_at": _utcnow(),
-        "source_root": str(source_root_path),
-        "repo_revision": revision,
-        "source_hashes": source_hashes_for_root(source_root_path),
-        "target": current_target(),
-        "python_full_version": ".".join(str(part) for part in sys.version_info[:3]),
-        "implementation": sys.implementation.name,
-        "soabi": soabi,
-        "compatible_tags": compatible_tags,
+        **_source_binding_fields(source_root_path, revision=revision, source_hashes=source_hashes),
+        "target": current["target"],
+        "python_full_version": current["python_full_version"],
+        "implementation": current["implementation"],
+        "soabi": current["soabi"],
+        "compatible_tags": current["compatible_tags"],
         "builder": {
             "name": "interplab.core.environment_bundle",
             "python_version": sys.version.split()[0],
@@ -1142,7 +1575,7 @@ def capture_target_report(
     }
     validate_target_capture_report(payload)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_text_noclobber(output, json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return payload
 
 
@@ -1201,14 +1634,18 @@ def build_runtime_bundle(
 ) -> dict[str, Any]:
     source_root_path = Path(source_root).resolve()
     revision = _validate_clean_source_root(source_root_path, expected_revision)
+    source_hashes = source_hashes_for_root(source_root_path)
     target_report = _load_json_payload(target_report_path, context="target capture")
-    validate_target_capture_report(target_report)
+    _assert_target_capture_matches_current_source(
+        target_report,
+        source_root=source_root_path,
+        revision=revision,
+        source_hashes=source_hashes,
+        context="target capture",
+    )
     load_tooling_lock(tooling_lock_path)
-    staging_path = Path(staging_dir).resolve()
-    if not staging_path.exists():
-        raise EnvironmentBundleError(f"runtime staging directory {staging_path} must exist and be empty")
-    if any(staging_path.iterdir()):
-        raise EnvironmentBundleError(f"runtime staging directory {staging_path} must be empty")
+    staging_parent = Path(staging_dir).resolve()
+    staging_path = _allocate_owned_directory(staging_parent, prefix="runtime-staging-")
 
     requirements = parse_requirements_export(source_root_path / "slurm" / "requirements.cluster.txt")
     lock_packages = load_lock_packages(source_root_path / "uv.lock")
@@ -1216,123 +1653,122 @@ def build_runtime_bundle(
         {"target": target_report["target"]},
         requirements,
     )
+    if len({requirement.distribution for requirement in runtime_requirements}) != len(runtime_requirements):
+        raise EnvironmentBundleError("runtime export contains duplicate normalized distribution names")
+    transformer_lens_requirements = [
+        requirement.version
+        for requirement in runtime_requirements
+        if requirement.distribution == "transformer-lens"
+    ]
+    if source_hashes == _real_repo_source_hashes() and transformer_lens_requirements != [_R5_X2_TRANSFORMER_LENS_BASELINE]:
+        raise EnvironmentBundleError(
+            "runtime export selection must contain exactly one transformer-lens==3.2.1 requirement"
+        )
     source_only = [
         requirement
         for requirement in runtime_requirements
         if not (lock_packages[requirement.distribution].get("wheels") or [])
     ]
     _enforce_real_repo_runtime_expectations(
-        source_hashes_for_root(source_root_path),
+        source_hashes,
         runtime_requirements,
         source_only,
     )
 
     tooling_artifacts = tooling_lock_artifacts(tooling_lock_path, include_build=True)
+    _reject_transformer_lens_contamination(tooling_artifacts, context="tooling lock artifacts")
     tooling_by_name = {
         normalize_distribution_name(entry["distribution"]): entry for entry in tooling_artifacts
     }
     runtime_entries: list[dict[str, Any]] = []
     derived_wheels: list[dict[str, Any]] = []
-    copied_files: list[str] = []
 
-    for artifact in tooling_artifacts:
-        file_path = staging_path / artifact["filename"]
-        _download_and_verify_artifact(artifact, destination=file_path)
-        copied_files.append(file_path.name)
+    try:
+        for artifact in tooling_artifacts:
+            file_path = staging_path / artifact["filename"]
+            _download_and_verify_artifact(artifact, destination=file_path)
 
-    for requirement in runtime_requirements:
-        package = lock_packages.get(requirement.distribution)
-        if package is None:
-            raise EnvironmentBundleError(f"uv.lock is missing runtime package {requirement.distribution!r}")
-        lock_version = package.get("version")
-        if lock_version != requirement.version:
-            raise EnvironmentBundleError(
-                f"runtime package {requirement.distribution!r} version mismatch: export requires {requirement.version}, lock has {lock_version}"
-            )
-        wheels = package.get("wheels") or []
-        if wheels:
-            selected = _select_locked_wheel_for_target(
-                requirement.distribution,
-                requirement.version,
-                wheels,
-                target_report["compatible_tags"],
-            )
-            runtime_entry = _manifest_entry_from_selected_artifact(
-                requirement.distribution,
-                requirement.version,
-                selected,
-            )
-            if runtime_entry["sha256"] not in requirement.hashes:
+        for requirement in runtime_requirements:
+            package = lock_packages.get(requirement.distribution)
+            if package is None:
+                raise EnvironmentBundleError(f"uv.lock is missing runtime package {requirement.distribution!r}")
+            lock_version = package.get("version")
+            if lock_version != requirement.version:
                 raise EnvironmentBundleError(
-                    f"runtime hash mismatch for {requirement.distribution!r}: {runtime_entry['sha256']} not authorized by the export"
+                    f"runtime package {requirement.distribution!r} version mismatch: export requires {requirement.version}, lock has {lock_version}"
                 )
-            overlap_name = normalize_distribution_name(requirement.distribution)
-            if overlap_name in _TOOLING_LOCK_RUNTIME_OVERLAPS:
-                tooling_artifact = tooling_by_name[overlap_name]
-                for field, tooling_field in (("filename", "filename"), ("origin", "origin_url"), ("size_bytes", "size_bytes"), ("sha256", "sha256")):
-                    if runtime_entry[field] != tooling_artifact[tooling_field]:
-                        raise EnvironmentBundleError(
-                            f"runtime/tooling overlap for {overlap_name!r} must use the identical accepted artifact identity"
-                        )
-            runtime_entries.append(runtime_entry)
-            runtime_file = staging_path / runtime_entry["filename"]
-            if not runtime_file.exists():
-                _download_and_verify_artifact(selected, destination=runtime_file)
-                copied_files.append(runtime_file.name)
-            continue
+            wheels = package.get("wheels") or []
+            if wheels:
+                selected = _select_locked_wheel_for_target(
+                    requirement.distribution,
+                    requirement.version,
+                    wheels,
+                    target_report["compatible_tags"],
+                )
+                runtime_entry = _manifest_entry_from_selected_artifact(
+                    requirement.distribution,
+                    requirement.version,
+                    selected,
+                )
+                if runtime_entry["sha256"] not in requirement.hashes:
+                    raise EnvironmentBundleError(
+                        f"runtime hash mismatch for {requirement.distribution!r}: {runtime_entry['sha256']} not authorized by the export"
+                    )
+                overlap_name = normalize_distribution_name(requirement.distribution)
+                if overlap_name in _TOOLING_LOCK_RUNTIME_OVERLAPS:
+                    tooling_artifact = tooling_by_name[overlap_name]
+                    for field, tooling_field in (("filename", "filename"), ("origin", "origin_url"), ("size_bytes", "size_bytes"), ("sha256", "sha256")):
+                        if runtime_entry[field] != tooling_artifact[tooling_field]:
+                            raise EnvironmentBundleError(
+                                f"runtime/tooling overlap for {overlap_name!r} must use the identical accepted artifact identity"
+                            )
+                runtime_entries.append(runtime_entry)
+                runtime_file = staging_path / runtime_entry["filename"]
+                if not runtime_file.exists():
+                    _download_and_verify_artifact(selected, destination=runtime_file)
+                continue
 
-        sdist_info = package.get("sdist")
-        if not isinstance(sdist_info, dict):
-            raise EnvironmentBundleError(f"source-only runtime package {requirement.distribution!r} has no locked sdist")
-        derived = _build_derived_runtime_wheel(
-            requirement=requirement,
-            source_sdist=sdist_info,
-            tooling_by_name=tooling_by_name,
-            target_report=target_report,
-            staging_dir=staging_path,
+            sdist_info = package.get("sdist")
+            if not isinstance(sdist_info, dict):
+                raise EnvironmentBundleError(f"source-only runtime package {requirement.distribution!r} has no locked sdist")
+            derived = _build_derived_runtime_wheel(
+                requirement=requirement,
+                source_sdist=sdist_info,
+                tooling_by_name=tooling_by_name,
+                target_report=target_report,
+                staging_dir=staging_path,
+            )
+            runtime_entries.append(derived["wheel"])
+            derived_wheels.append(derived["provenance"])
+
+        _reject_transformer_lens_contamination(
+            runtime_entries,
+            context="runtime staging runtime",
+            require_exact_runtime=source_hashes == _real_repo_source_hashes(),
         )
-        runtime_entries.append(derived["wheel"])
-        derived_wheels.append(derived["provenance"])
-        copied_files.extend(path for path in (derived["wheel"]["filename"], derived["source_sdist"]["relative_path"]) if path not in copied_files)
-
-    extra_installable = {
-        path.name
-        for path in staging_path.iterdir()
-        if path.is_file() and path.suffix in {".whl", ".gz"}
-    }
-    expected_installable = {
-        entry["filename"] for entry in runtime_entries
-    } | {
-        artifact["filename"] for artifact in tooling_artifacts
-    } | {
-        provenance["source_sdist"]["relative_path"] for provenance in derived_wheels
-    }
-    unexpected = sorted(extra_installable - expected_installable)
-    if unexpected:
-        raise EnvironmentBundleError(f"runtime staging contains unexpected installable artifacts: {unexpected}")
-
-    receipt = {
-        "stage_type": _RUNTIME_STAGE_TYPE,
-        "schema_version": 1,
-        "created_at": _utcnow(),
-        "source_root": str(source_root_path),
-        "repo_revision": revision,
-        "source_hashes": source_hashes_for_root(source_root_path),
-        "target_report": json.loads(json.dumps(target_report)),
-        "tooling_lock_path": str(Path(tooling_lock_path).resolve()),
-        "tooling": [
-            _manifest_entry_from_tooling_lock_artifact(artifact)
-            for artifact in tooling_artifacts
-        ],
-        "runtime": runtime_entries,
-        "derived_wheels": derived_wheels,
-    }
-    validate_runtime_stage_receipt(receipt)
-    (staging_path / "runtime-stage.json").write_text(
-        json.dumps(receipt, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return receipt
+        receipt = {
+            "stage_type": _RUNTIME_STAGE_TYPE,
+            "schema_version": 1,
+            "created_at": _utcnow(),
+            **_source_binding_fields(source_root_path, revision=revision, source_hashes=source_hashes),
+            "target_report": json.loads(json.dumps(target_report)),
+            "tooling_lock_path": str(Path(tooling_lock_path).resolve()),
+            "tooling_lock_sha256": hashing.hash_file(tooling_lock_path),
+            "staging_root": str(staging_path),
+            "tooling": [
+                _manifest_entry_from_tooling_lock_artifact(artifact)
+                for artifact in tooling_artifacts
+            ],
+            "runtime": runtime_entries,
+            "derived_wheels": derived_wheels,
+        }
+        validate_runtime_stage_receipt(receipt)
+        _atomic_write_json_noclobber(staging_path / "runtime-stage.json", receipt)
+        receipt["staging_dir"] = str(staging_path)
+        return receipt
+    except Exception:
+        _rollback_partial_path(staging_path)
+        raise
 
 
 def validate_runtime_stage_receipt(payload: dict[str, Any]) -> None:
@@ -1348,6 +1784,8 @@ def validate_runtime_stage_receipt(payload: dict[str, Any]) -> None:
             "source_hashes",
             "target_report",
             "tooling_lock_path",
+            "tooling_lock_sha256",
+            "staging_root",
             "tooling",
             "runtime",
             "derived_wheels",
@@ -1362,12 +1800,24 @@ def validate_runtime_stage_receipt(payload: dict[str, Any]) -> None:
     _validate_source_hashes(_require_mapping(payload, "source_hashes", context="runtime stage"), repo_root=Path(payload["source_root"]))
     validate_target_capture_report(_require_mapping(payload, "target_report", context="runtime stage"))
     _require_string(payload, "tooling_lock_path", context="runtime stage")
+    _require_sha(payload, "tooling_lock_sha256", context="runtime stage")
+    _require_string(payload, "staging_root", context="runtime stage")
     for index, entry in enumerate(_require_list(payload, "tooling", context="runtime stage")):
         _validate_manifest_entry_shape(entry, context=f"runtime stage.tooling[{index}]")
     for index, entry in enumerate(_require_list(payload, "runtime", context="runtime stage")):
         _validate_manifest_entry_shape(entry, context=f"runtime stage.runtime[{index}]")
     for index, entry in enumerate(_require_list(payload, "derived_wheels", context="runtime stage")):
         _validate_derived_entry_shape(entry, context=f"runtime stage.derived_wheels[{index}]")
+    _reject_transformer_lens_contamination(
+        _require_list(payload, "tooling", context="runtime stage"),
+        context="runtime stage.tooling",
+    )
+    _reject_transformer_lens_contamination(
+        _require_list(payload, "runtime", context="runtime stage"),
+        context="runtime stage.runtime",
+        require_exact_runtime=_require_mapping(payload, "source_hashes", context="runtime stage")
+        == _real_repo_source_hashes(),
+    )
 
 
 def import_alliance_torch_artifact(
@@ -1375,19 +1825,43 @@ def import_alliance_torch_artifact(
     artifact_path: str | Path,
     origin: str,
     transcript_path: str | Path,
+    expected_identity_path: str | Path,
+    target_report_path: str | Path,
+    source_root: str | Path,
+    expected_revision: str,
     output_path: str | Path,
 ) -> dict[str, Any]:
+    source_root_path = Path(source_root).resolve()
+    revision = _validate_clean_source_root(source_root_path, expected_revision)
+    source_hashes = source_hashes_for_root(source_root_path)
+    target_report = _load_json_payload(target_report_path, context="target capture")
+    _assert_target_capture_matches_current_source(
+        target_report,
+        source_root=source_root_path,
+        revision=revision,
+        source_hashes=source_hashes,
+        context="target capture",
+    )
     artifact = Path(artifact_path).resolve()
     if not artifact.is_file():
         raise EnvironmentBundleError(f"Alliance torch artifact {artifact} is missing")
     receipt_path = Path(output_path)
     if receipt_path.exists():
         raise EnvironmentBundleError(f"torch receipt output {receipt_path} already exists")
+    acquisition_root = artifact.parent.resolve()
+    entries = sorted(path.name for path in acquisition_root.iterdir())
+    if entries != sorted([artifact.name, Path(transcript_path).name]):
+        raise EnvironmentBundleError(
+            f"Alliance torch acquisition directory must contain exactly the artifact and transcript, got {entries!r}"
+        )
     transcript = Path(transcript_path).read_text(encoding="utf-8")
     if "no-index" not in transcript or "no-deps" not in transcript or "only-binary" not in transcript:
         raise EnvironmentBundleError("Alliance torch transcript must record no-index/no-deps/only-binary acquisition controls")
     if not origin.startswith(_ALLIANCE_TORCH_ORIGIN_PREFIX):
         raise EnvironmentBundleError("Alliance torch origin must use the approved Alliance wheelhouse prefix")
+    if artifact.name not in transcript:
+        raise EnvironmentBundleError("Alliance torch transcript must name exactly the retained artifact")
+    expected_identity = _load_json_payload(expected_identity_path, context="torch expected identity")
     identity = _read_wheel_metadata(artifact)
     if normalize_distribution_name(identity["metadata_name"]) != "torch":
         raise EnvironmentBundleError("Alliance torch artifact metadata Name does not identify torch")
@@ -1395,26 +1869,45 @@ def import_alliance_torch_artifact(
         raise EnvironmentBundleError("Alliance torch artifact metadata Version does not match the sanctioned Alliance build")
     if _public_version(identity["metadata_version"]) != _ALLIANCE_TORCH_PUBLIC_VERSION:
         raise EnvironmentBundleError("Alliance torch artifact must preserve the locked public torch version")
+    measured_hash = hashing.hash_file(artifact)
+    measured_size = artifact.stat().st_size
+    expected_fields = {
+        "filename": artifact.name,
+        "size_bytes": measured_size,
+        "sha256": measured_hash,
+        "distribution": "torch",
+        "version": identity["metadata_version"],
+        "public_version": _ALLIANCE_TORCH_PUBLIC_VERSION,
+        "origin": origin,
+    }
+    for field, measured_value in expected_fields.items():
+        if expected_identity.get(field) != measured_value:
+            raise EnvironmentBundleError(
+                f"Alliance torch expected identity mismatch for {field}: expected {expected_identity.get(field)!r}, got {measured_value!r}"
+            )
     payload = {
         "receipt_type": _TORCH_RECEIPT_TYPE,
         "schema_version": 1,
         "created_at": _utcnow(),
+        **_source_binding_fields(source_root_path, revision=revision, source_hashes=source_hashes),
+        "target_report": json.loads(json.dumps(target_report)),
         "artifact": {
             "distribution": "torch",
             "version": identity["metadata_version"],
             "filename": artifact.name,
             "relative_path": artifact.name,
-            "size_bytes": artifact.stat().st_size,
+            "size_bytes": measured_size,
             "origin": origin,
-            "sha256": hashing.hash_file(artifact),
+            "sha256": measured_hash,
             "type": "wheel",
             "import_name": "torch",
         },
         "public_version": _ALLIANCE_TORCH_PUBLIC_VERSION,
+        "expected_identity_path": str(Path(expected_identity_path).resolve()),
         "transcript_path": str(Path(transcript_path).resolve()),
     }
     receipt_path.parent.mkdir(parents=True, exist_ok=True)
-    receipt_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_text_noclobber(receipt_path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return payload
 
 
@@ -1429,16 +1922,41 @@ def finalize_bundle(
 ) -> dict[str, Any]:
     source_root_path = Path(source_root).resolve()
     revision = _validate_clean_source_root(source_root_path, expected_revision)
+    source_hashes = source_hashes_for_root(source_root_path)
     runtime_stage_path = Path(runtime_staging_dir).resolve()
     if not runtime_stage_path.is_dir():
         raise EnvironmentBundleError(f"runtime staging directory {runtime_stage_path} is missing")
     target_report = _load_json_payload(target_report_path, context="target capture")
-    validate_target_capture_report(target_report)
+    _assert_target_capture_matches_current_source(
+        target_report,
+        source_root=source_root_path,
+        revision=revision,
+        source_hashes=source_hashes,
+        context="target capture",
+    )
     runtime_stage = _load_json_payload(runtime_stage_path / "runtime-stage.json", context="runtime stage")
     validate_runtime_stage_receipt(runtime_stage)
+    _assert_source_binding(
+        runtime_stage,
+        source_root=source_root_path,
+        revision=revision,
+        source_hashes=source_hashes,
+        context="runtime stage",
+    )
+    if runtime_stage["target_report"] != target_report:
+        raise EnvironmentBundleError("runtime stage and supplied target report do not describe the same captured target")
     torch_receipt = _load_json_payload(torch_receipt_path, context="torch receipt")
     if torch_receipt.get("receipt_type") != _TORCH_RECEIPT_TYPE:
         raise EnvironmentBundleError("torch receipt has the wrong type")
+    _assert_source_binding(
+        torch_receipt,
+        source_root=source_root_path,
+        revision=revision,
+        source_hashes=source_hashes,
+        context="torch receipt",
+    )
+    if torch_receipt.get("target_report") != target_report:
+        raise EnvironmentBundleError("torch receipt and supplied target report do not describe the same captured target")
     torch_entry = _require_mapping(torch_receipt, "artifact", context="torch receipt")
     _validate_manifest_entry_shape(torch_entry, context="torch receipt.artifact")
     output_root_path = Path(output_root).resolve()
@@ -1447,7 +1965,7 @@ def finalize_bundle(
     manifest = {
         "manifest_type": _RUNTIME_MANIFEST_TYPE,
         "schema_version": 1,
-        "source_hashes": source_hashes_for_root(source_root_path),
+        "source_hashes": source_hashes,
         "target": runtime_stage["target_report"]["target"],
         "generator": {
             "uv": "0.8.22",
@@ -1469,9 +1987,14 @@ def finalize_bundle(
         "derived_wheels": runtime_stage["derived_wheels"],
     }
     validate_acquisition_manifest(manifest)
+    _reject_transformer_lens_contamination(manifest["tooling"]["installers"], context="acquisition manifest.tooling")
+    _reject_transformer_lens_contamination(
+        manifest["runtime"],
+        context="acquisition manifest.runtime",
+        require_exact_runtime=source_hashes == _real_repo_source_hashes(),
+    )
 
-    staging_publish = output_root_path / f".bundle-staging-{uuid.uuid4().hex[:8]}"
-    staging_publish.mkdir(parents=True, exist_ok=False)
+    staging_publish = _allocate_owned_directory(output_root_path, prefix=".bundle-staging-")
     try:
         for path in runtime_stage_path.iterdir():
             if path.is_symlink():
@@ -1487,16 +2010,20 @@ def finalize_bundle(
             raise EnvironmentBundleError(f"torch artifact missing beside receipt: {torch_source}")
         shutil.copyfile(torch_source, staging_publish / torch_entry["filename"])
         manifest_path = staging_publish / "environment-acquisition.json"
-        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _write_text_noclobber(manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
         receipt = {
             "created_at": _utcnow(),
             "repo_revision": revision,
+            "source_root": str(source_root_path),
+            "source_hashes": source_hashes,
             "target_report_path": str(Path(target_report_path).resolve()),
             "torch_receipt_path": str(Path(torch_receipt_path).resolve()),
+            "runtime_stage_path": str(runtime_stage_path),
+            "runtime_stage_tooling_lock_sha256": runtime_stage["tooling_lock_sha256"],
         }
-        (staging_publish / "construction-receipt.json").write_text(
+        _write_text_noclobber(
+            staging_publish / "construction-receipt.json",
             json.dumps(receipt, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
         )
         validate_bundle(
             manifest_path,
@@ -1507,9 +2034,7 @@ def finalize_bundle(
         )
         manifest_hash = hashing.hash_file(manifest_path).split(":", 1)[1]
         final_path = output_root_path / f"bundle-{manifest_hash}"
-        if final_path.exists():
-            raise EnvironmentBundleError(f"final bundle destination already exists: {final_path}")
-        staging_publish.replace(final_path)
+        _atomic_promote_directory_noclobber(staging_publish, final_path)
         return {
             "bundle_root": str(final_path),
             "manifest_path": str(final_path / "environment-acquisition.json"),
@@ -1624,7 +2149,13 @@ def record_installed_environment(
     install_manifest_path: str | Path,
     *,
     repo_root: Path = REPO_ROOT,
+    source_root: str | Path | None = None,
+    expected_revision: str | None = None,
 ) -> dict[str, Any]:
+    if (source_root is None) != (expected_revision is None):
+        raise EnvironmentBundleError("record_installed_environment requires source_root and expected_revision together")
+    if source_root is not None and expected_revision is not None:
+        _validate_clean_source_root(Path(source_root).resolve(), expected_revision)
     manifest = load_acquisition_manifest(manifest_path)
     validated = _validate_acquisition_manifest_semantics(
         manifest,
@@ -1723,7 +2254,7 @@ def record_installed_environment(
     if install_path.exists():
         raise EnvironmentBundleError(f"install manifest destination {install_path} already exists")
     install_path.parent.mkdir(parents=True, exist_ok=True)
-    install_path.write_text(json.dumps(install_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_text_noclobber(install_path, json.dumps(install_manifest, indent=2, sort_keys=True) + "\n")
     return install_manifest
 
 
@@ -2690,10 +3221,11 @@ def create_virtualenv(
     )
     if pip_entry is None:
         raise EnvironmentBundleError("tooling installers must include the approved pip bootstrap artifact")
-    _wheel_path, creator_bytes = _validated_artifact_bytes(
+    wheel_path, creator_bytes = _validated_artifact_bytes(
         creator_entry,
         bundle_root=bundle_root_path,
     )
+    original_creator_identity = _artifact_stat_identity(wheel_path)
     executed_creator_hash = hashing.sha256_prefixed(creator_bytes)
     interpreter = python_executable or sys.executable
     staging_path = _fresh_staging_path(venv_path)
@@ -2704,7 +3236,15 @@ def create_virtualenv(
     code = _virtualenv_child_source()
     try:
         subprocess.run(
-            [interpreter, "-I", "-c", code, str(snapshot_path), executed_creator_hash, str(staging_path)],
+            [
+                interpreter,
+                "-I",
+                "-c",
+                code,
+                str(snapshot_path),
+                executed_creator_hash,
+                str(staging_path),
+            ],
             capture_output=True,
             text=True,
             timeout=120,
@@ -2731,6 +3271,7 @@ def create_virtualenv(
             raise EnvironmentBundleError(
                 f"creator snapshot hash mismatch: expected {executed_creator_hash}, got {post_execution_hash}"
             )
+        _assert_artifact_identity(wheel_path, original_creator_identity, context="retained original creator artifact")
         _validate_created_virtualenv(staging_path, expected_target=manifest["target"])
         _assert_unseeded_virtualenv(staging_path)
         _bootstrap_private_pip(
@@ -2742,7 +3283,7 @@ def create_virtualenv(
             staging_path,
             expected_pip_version=pip_entry["version"],
         )
-        staging_path.replace(venv_path)
+        _atomic_promote_directory_noclobber(staging_path, venv_path)
     except Exception:
         _rollback_partial_path(staging_path)
         _rollback_partial_path(snapshot_path)
@@ -3404,14 +3945,7 @@ def _venv_python_path(venv_path: Path) -> Path:
 
 
 def _fresh_staging_path(venv_path: Path) -> Path:
-    for _ in range(32):
-        candidate = (venv_path.parent / f"{venv_path.name}.staging-{uuid.uuid4().hex[:8]}").resolve()
-        try:
-            candidate.mkdir()
-        except FileExistsError:
-            continue
-        return candidate
-    raise EnvironmentBundleError(f"could not allocate a fresh staging directory for {venv_path}")
+    return _allocate_owned_directory(venv_path.parent, prefix=f"{venv_path.name}.staging-")
 
 
 def _validate_created_virtualenv(venv_path: Path, *, expected_target: dict[str, str]) -> None:
@@ -3485,12 +4019,32 @@ def _validate_created_virtualenv(venv_path: Path, *, expected_target: dict[str, 
 
 
 def _rollback_partial_path(path: Path) -> None:
-    if not path.exists():
+    target = Path(path)
+    if not target.exists():
         return
-    if path.is_dir():
-        shutil.rmtree(path, ignore_errors=False)
-        return
-    path.unlink()
+    last_error: OSError | None = None
+    for _ in range(5):
+        try:
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=False)
+            else:
+                target.unlink()
+            return
+        except OSError as exc:
+            if target.exists():
+                try:
+                    if target.is_dir():
+                        for child in target.rglob("*"):
+                            with contextlib.suppress(OSError):
+                                child.chmod(0o700 if child.is_dir() else 0o600)
+                        target.chmod(0o700)
+                    else:
+                        target.chmod(0o600)
+                except OSError:
+                    pass
+            last_error = exc
+    if last_error is not None:
+        raise last_error
 
 
 def _installed_distributions() -> dict[str, str]:
@@ -3631,6 +4185,8 @@ def _build_parser() -> argparse.ArgumentParser:
     record = subparsers.add_parser("record-installed")
     record.add_argument("--manifest", required=True)
     record.add_argument("--install-manifest", required=True)
+    record.add_argument("--source-root")
+    record.add_argument("--expected-revision")
 
     capture_target = subparsers.add_parser("capture-target")
     capture_target.add_argument("--output", required=True)
@@ -3648,6 +4204,10 @@ def _build_parser() -> argparse.ArgumentParser:
     import_torch.add_argument("--artifact", required=True)
     import_torch.add_argument("--origin", required=True)
     import_torch.add_argument("--transcript", required=True)
+    import_torch.add_argument("--expected-identity", required=True)
+    import_torch.add_argument("--target-report", required=True)
+    import_torch.add_argument("--source-root", required=True)
+    import_torch.add_argument("--expected-revision", required=True)
     import_torch.add_argument("--output", required=True)
 
     finalize = subparsers.add_parser("finalize-bundle")
@@ -3689,7 +4249,12 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(created, indent=2, sort_keys=True))
             return 0
         if args.command == "record-installed":
-            manifest = record_installed_environment(args.manifest, args.install_manifest)
+            manifest = record_installed_environment(
+                args.manifest,
+                args.install_manifest,
+                source_root=args.source_root,
+                expected_revision=args.expected_revision,
+            )
             print(json.dumps(manifest, indent=2, sort_keys=True))
             return 0
         if args.command == "capture-target":
@@ -3715,6 +4280,10 @@ def main(argv: list[str] | None = None) -> int:
                 artifact_path=args.artifact,
                 origin=args.origin,
                 transcript_path=args.transcript,
+                expected_identity_path=args.expected_identity,
+                target_report_path=args.target_report,
+                source_root=args.source_root,
+                expected_revision=args.expected_revision,
                 output_path=args.output,
             )
             print(json.dumps(payload, indent=2, sort_keys=True))
