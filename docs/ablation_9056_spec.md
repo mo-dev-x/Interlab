@@ -91,14 +91,14 @@ comparability across heterogeneous environments.
 Judging is a separate downstream job. The `judge` job consumes A9, blinds arm
 identity, and emits immutable A9′.
 
-Preparation-only continuation from seed 0 is structural and blinded only:
+Seed 0 has a structural/blinded continuation gate only:
 
 - complete A9 and A10 lineage;
 - no malformed or truncated records;
 - no runtime errors;
 - all required rows present.
 
-No semantic continuation decision is made from Stage 1a alone.
+Seed-0 review must not make a semantic continuation decision.
 
 For claim-grade Stage 2 analysis:
 
@@ -115,8 +115,10 @@ Per-seed acceptance:
   zero, and the 95% CI for `baseline - random_feature` must stay within
   `±0.5` and overlap zero.
 - A centered control CI wider than `±0.5` is `INCONCLUSIVE`.
-- Every seed must pass independently; no averaging, cherry-picking, post-hoc
-  margin changes, or seed substitution.
+- Every seed must pass independently.
+- Report seed variance.
+- No post-hoc margin selection, seed selection, averaging-away of failures, or
+  cherry-picking.
 
 ## 7. Current dependency state
 
