@@ -14,6 +14,10 @@
 # Required environment variables:
 #   INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH
 #       Absolute or relative path to the ED-36 acquisition manifest JSON.
+# Required environment variables:
+#   INTERPLAB_EXPECTED_REVISION
+#       Required clean source revision authority to validate before any venv
+#       mutation; must be supplied externally and must not be derived here.
 # Optional environment variables:
 #   INTERPLAB_ENV_BUNDLE_ROOT
 #       Root directory holding the offline bundle files; defaults to the
@@ -21,9 +25,6 @@
 #   INTERPLAB_ENV_INSTALL_MANIFEST_PATH
 #       Where to write the installed-environment manifest; defaults to
 #       <bundle-root>/installed-environment.json.
-#   INTERPLAB_EXPECTED_REVISION
-#       Required clean source revision authority to validate before any venv
-#       mutation; must be supplied externally and must not be derived here.
 #
 # Usage: bash slurm/setup_env.sh
 
@@ -34,10 +35,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REQS_FILE="$REPO_ROOT/slurm/requirements.cluster.txt"
 MANIFEST_PATH="${INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH:-}"
 EXPECTED_REVISION="${INTERPLAB_EXPECTED_REVISION:-}"
-
-if [ -z "$EXPECTED_REVISION" ] && [ -n "${INTERPLAB_STUB_LOG:-}" ]; then
-  EXPECTED_REVISION="0000000000000000000000000000000000000000"
-fi
 
 if [ -z "$MANIFEST_PATH" ]; then
   echo "Set INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH to the ED-36 acquisition manifest JSON." >&2

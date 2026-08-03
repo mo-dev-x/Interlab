@@ -380,6 +380,22 @@ def _atomic_write_json_noclobber(path: Path, payload: dict[str, Any]) -> None:
     _write_text_noclobber(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
+def _rethrow_primary_with_cleanup(primary: Exception, *owned_paths: Path) -> None:
+    cleanup_failures: list[str] = []
+    for owned_path in owned_paths:
+        try:
+            _rollback_partial_path(owned_path)
+        except Exception as exc:  # pragma: no cover - exercised via deterministic tests
+            cleanup_failures.append(f"{owned_path}: {exc}")
+    if cleanup_failures:
+        primary.add_note("cleanup failed after primary error: " + " | ".join(cleanup_failures))
+    raise primary
+
+
+def _path_exists_or_is_link(path: Path) -> bool:
+    return os.path.lexists(path)
+
+
 def _atomic_promote_directory_noclobber(source: Path, destination: Path) -> None:
     source_path = Path(source).resolve()
     destination_path = Path(destination).resolve()
@@ -460,6 +476,72 @@ def _reject_transformer_lens_contamination(
         raise EnvironmentBundleError(
             f"{context} must contain exactly one transformer-lens=={_R5_X2_TRANSFORMER_LENS_BASELINE} artifact"
         )
+
+
+def _runtime_stage_expected_paths(runtime_stage: dict[str, Any]) -> tuple[set[str], set[str]]:
+    files = {"runtime-stage.json"}
+    for entry in [*runtime_stage["tooling"], *runtime_stage["runtime"]]:
+        files.add(_require_string(entry, "relative_path", context="runtime stage manifest entry"))
+    for derived in runtime_stage["derived_wheels"]:
+        source_path = _require_string(
+            _require_mapping(derived, "source_sdist", context="runtime stage derived wheel"),
+            "relative_path",
+            context="runtime stage derived wheel.source_sdist",
+        )
+        files.add(source_path)
+        files.add(str(PurePosixPath(source_path).parent / "build-receipt.json"))
+    directories = {str(PurePosixPath(path).parent) for path in files if str(PurePosixPath(path).parent) != "."}
+    if runtime_stage["derived_wheels"]:
+        directories.add("evidence")
+    return files, directories
+
+
+def _expected_final_bundle_paths(manifest: dict[str, Any]) -> tuple[set[str], set[str]]:
+    files = {"environment-acquisition.json", "construction-receipt.json"}
+    for entry in [*manifest["tooling"]["installers"], *manifest["runtime"], manifest["torch"]]:
+        files.add(_require_string(entry, "relative_path", context="final manifest entry"))
+    for derived in manifest["derived_wheels"]:
+        source_path = _require_string(
+            _require_mapping(derived, "source_sdist", context="final derived wheel"),
+            "relative_path",
+            context="final derived wheel.source_sdist",
+        )
+        files.add(source_path)
+        files.add(str(PurePosixPath(source_path).parent / "build-receipt.json"))
+    directories = {str(PurePosixPath(path).parent) for path in files if str(PurePosixPath(path).parent) != "."}
+    if manifest["derived_wheels"]:
+        directories.add("evidence")
+    return files, directories
+
+
+def _validate_exact_tree(root: Path, *, expected_files: set[str], expected_directories: set[str], context: str) -> None:
+    actual_files: set[str] = set()
+    actual_directories: set[str] = set()
+    for path in root.rglob("*"):
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink() or _is_reparse_point(path):
+            raise EnvironmentBundleError(f"{context} contains a symlink or reparse point at {relative}")
+        if path.is_dir():
+            actual_directories.add(relative)
+            if relative not in expected_directories:
+                raise EnvironmentBundleError(f"{context} contains an unexpected directory {relative!r}")
+            continue
+        actual_files.add(relative)
+        if relative not in expected_files:
+            raise EnvironmentBundleError(f"{context} contains an unexpected file {relative!r}")
+    missing = sorted(expected_files - actual_files)
+    if missing:
+        raise EnvironmentBundleError(f"{context} is missing allowlisted file(s): {missing}")
+    missing_directories = sorted(expected_directories - actual_directories)
+    if missing_directories:
+        raise EnvironmentBundleError(f"{context} is missing allowlisted directorie(s): {missing_directories}")
+
+
+def _copy_relative_file(source_root: Path, destination_root: Path, relative_path: str) -> None:
+    source = source_root / PurePosixPath(relative_path)
+    destination = destination_root / PurePosixPath(relative_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, destination)
 
 def load_tooling_lock(path: str | Path = _TOOLING_LOCK_FILE) -> dict[str, Any]:
     payload = _load_json_payload(path, context="tooling lock")
@@ -988,9 +1070,18 @@ def _derived_wheel_command(
 def _build_no_network_child_source() -> str:
     return """
 import os
+import pathlib
 import runpy
 import socket
 import sys
+import tempfile
+import urllib.request
+
+def _deny(*args, **kwargs):
+    raise RuntimeError("network access is forbidden during offline derived-wheel construction")
+
+sitecustomize_source = '''
+import socket
 import urllib.request
 
 def _deny(*args, **kwargs):
@@ -1011,15 +1102,41 @@ class _DeniedSocket(socket.socket):
         _deny(*args, **kwargs)
 
 socket.socket = _DeniedSocket
-sys.argv = [
-    "build",
-    "--wheel",
-    "--no-isolation",
-    "--outdir",
-    sys.argv[1],
-    sys.argv[2],
-]
-runpy.run_module("build", run_name="__main__")
+'''
+
+socket.create_connection = _deny
+socket.getaddrinfo = _deny
+socket.gethostbyname = _deny
+socket.gethostbyname_ex = _deny
+socket.gethostbyaddr = _deny
+urllib.request.urlopen = _deny
+
+class _DeniedSocket(socket.socket):
+    def connect(self, *args, **kwargs):
+        _deny(*args, **kwargs)
+
+    def connect_ex(self, *args, **kwargs):
+        _deny(*args, **kwargs)
+
+socket.socket = _DeniedSocket
+with tempfile.TemporaryDirectory(prefix="interplab-build-net-deny-") as site_dir:
+    site_dir_path = pathlib.Path(site_dir)
+    (site_dir_path / "sitecustomize.py").write_text(sitecustomize_source, encoding="utf-8")
+    existing_pythonpath = os.environ.get("PYTHONPATH")
+    os.environ["PYTHONPATH"] = (
+        str(site_dir_path)
+        if not existing_pythonpath
+        else str(site_dir_path) + os.pathsep + existing_pythonpath
+    )
+    sys.argv = [
+        "build",
+        "--wheel",
+        "--no-isolation",
+        "--outdir",
+        sys.argv[1],
+        sys.argv[2],
+    ]
+    runpy.run_module("build", run_name="__main__")
 """
 
 
@@ -1993,21 +2110,44 @@ def finalize_bundle(
         context="acquisition manifest.runtime",
         require_exact_runtime=source_hashes == _real_repo_source_hashes(),
     )
+    expected_stage_files, expected_stage_directories = _runtime_stage_expected_paths(runtime_stage)
+    _validate_exact_tree(
+        runtime_stage_path,
+        expected_files=expected_stage_files,
+        expected_directories=expected_stage_directories,
+        context="runtime staging",
+    )
+    stage_artifacts = [
+        *runtime_stage["tooling"],
+        *runtime_stage["runtime"],
+        *[derived["source_sdist"] for derived in runtime_stage["derived_wheels"]],
+    ]
+    _build_artifact_index(stage_artifacts, context="runtime staging artifact inventory")
+    for entry in stage_artifacts:
+        _validated_artifact_bytes(entry, bundle_root=runtime_stage_path)
+    for derived in runtime_stage["derived_wheels"]:
+        source_relative = _require_string(
+            _require_mapping(derived, "source_sdist", context="runtime stage derived wheel"),
+            "relative_path",
+            context="runtime stage derived wheel.source_sdist",
+        )
+        receipt_relative = str(PurePosixPath(source_relative).parent / "build-receipt.json")
+        receipt_path = runtime_stage_path / PurePosixPath(receipt_relative)
+        _reject_reparse_or_symlink_path(receipt_path, runtime_stage_path)
+        if not receipt_path.is_file():
+            raise EnvironmentBundleError(f"runtime staging is missing derived build receipt {receipt_relative!r}")
+        receipt_payload = _load_json_payload(receipt_path, context=f"runtime stage derived receipt {receipt_relative}")
+        if receipt_payload != derived:
+            raise EnvironmentBundleError(
+                f"runtime stage derived receipt {receipt_relative!r} does not match the staged derived-wheel provenance"
+            )
 
     staging_publish = _allocate_owned_directory(output_root_path, prefix=".bundle-staging-")
     try:
-        for path in runtime_stage_path.iterdir():
-            if path.is_symlink():
-                raise EnvironmentBundleError(f"runtime staging contains a symlink: {path.name}")
-            if path.is_file():
-                if path.suffix in {".whl", ".gz"}:
-                    shutil.copyfile(path, staging_publish / path.name)
-                continue
-            if path.name == "evidence":
-                shutil.copytree(path, staging_publish / path.name)
-        torch_source = Path(torch_receipt_path).resolve().parent / torch_entry["relative_path"]
-        if not torch_source.is_file():
-            raise EnvironmentBundleError(f"torch artifact missing beside receipt: {torch_source}")
+        for relative_path in sorted(expected_stage_files - {"runtime-stage.json"}):
+            _copy_relative_file(runtime_stage_path, staging_publish, relative_path)
+        torch_root = Path(torch_receipt_path).resolve().parent
+        torch_source, _ = _validated_artifact_bytes(torch_entry, bundle_root=torch_root)
         shutil.copyfile(torch_source, staging_publish / torch_entry["filename"])
         manifest_path = staging_publish / "environment-acquisition.json"
         _write_text_noclobber(manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
@@ -2025,6 +2165,13 @@ def finalize_bundle(
             staging_publish / "construction-receipt.json",
             json.dumps(receipt, indent=2, sort_keys=True) + "\n",
         )
+        expected_final_files, expected_final_directories = _expected_final_bundle_paths(manifest)
+        _validate_exact_tree(
+            staging_publish,
+            expected_files=expected_final_files,
+            expected_directories=expected_final_directories,
+            context="bundle publication staging",
+        )
         validate_bundle(
             manifest_path,
             bundle_root=staging_publish,
@@ -2041,8 +2188,10 @@ def finalize_bundle(
             "manifest_hash": f"sha256:{manifest_hash}",
         }
     except Exception:
-        _rollback_partial_path(staging_publish)
-        raise
+        _rethrow_primary_with_cleanup(
+            sys.exc_info()[1] or EnvironmentBundleError("unknown bundle finalization failure"),
+            staging_publish,
+        )
 
 
 def validate_bundle(
@@ -2085,12 +2234,12 @@ def validate_bundle(
 
     if install_manifest_path is not None:
         install_target = Path(install_manifest_path)
-        install_parent = install_target.resolve().parent if install_target.exists() else install_target.parent.resolve()
+        install_parent = install_target.parent.resolve()
         if install_parent != bundle_root_path and bundle_root_path not in install_parent.parents:
             raise EnvironmentBundleError(
                 f"install manifest path {install_target} escapes bundle root {bundle_root_path}"
             )
-        if install_target.exists():
+        if _path_exists_or_is_link(install_target):
             raise EnvironmentBundleError(f"install manifest destination {install_target} already exists")
 
     tooling_closure = _validated_tooling_lock_files(
@@ -2251,10 +2400,18 @@ def record_installed_environment(
     )
     validate_install_manifest(install_manifest)
     install_path = Path(install_manifest_path)
-    if install_path.exists():
-        raise EnvironmentBundleError(f"install manifest destination {install_path} already exists")
     install_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_text_noclobber(install_path, json.dumps(install_manifest, indent=2, sort_keys=True) + "\n")
+    try:
+        _write_text_noclobber(install_path, json.dumps(install_manifest, indent=2, sort_keys=True) + "\n")
+    except OSError as exc:
+        if _path_exists_or_is_link(install_path) or exc.errno in {
+            errno.EEXIST,
+            errno.EISDIR,
+            errno.ELOOP,
+            errno.EPERM,
+        }:
+            raise EnvironmentBundleError(f"install manifest destination {install_path} already exists") from exc
+        raise
     return install_manifest
 
 
@@ -3197,7 +3354,7 @@ def create_virtualenv(
         else Path(manifest_path).resolve().parent
     )
     venv_path = Path(venv_dir).resolve()
-    if venv_path.exists():
+    if _path_exists_or_is_link(venv_path):
         raise EnvironmentBundleError(f"target virtualenv {venv_path} must be fresh")
     validated = _validate_acquisition_manifest_semantics(
         manifest,
@@ -3250,21 +3407,27 @@ def create_virtualenv(
             timeout=120,
             check=True,
         )
-    except FileNotFoundError as exc:
-        _rollback_partial_path(staging_path)
-        _rollback_partial_path(snapshot_path)
-        raise EnvironmentBundleError(f"Python executable {interpreter!r} is unavailable") from exc
+    except FileNotFoundError:
+        _rethrow_primary_with_cleanup(
+            EnvironmentBundleError(f"Python executable {interpreter!r} is unavailable"),
+            staging_path,
+            snapshot_path,
+        )
     except subprocess.CalledProcessError as exc:
-        _rollback_partial_path(staging_path)
-        _rollback_partial_path(snapshot_path)
         detail = (exc.stderr or exc.stdout or "").strip() or "no stderr/stdout"
-        raise EnvironmentBundleError(
-            f"approved virtualenv creator failed before creating the target venv: {detail}"
-        ) from exc
+        _rethrow_primary_with_cleanup(
+            EnvironmentBundleError(
+                f"approved virtualenv creator failed before creating the target venv: {detail}"
+            ),
+            staging_path,
+            snapshot_path,
+        )
     except Exception:
-        _rollback_partial_path(staging_path)
-        _rollback_partial_path(snapshot_path)
-        raise
+        _rethrow_primary_with_cleanup(
+            sys.exc_info()[1] or EnvironmentBundleError("unknown virtualenv creation failure"),
+            staging_path,
+            snapshot_path,
+        )
     try:
         post_execution_hash = hashing.hash_file(snapshot_path)
         if post_execution_hash != executed_creator_hash:
@@ -3285,9 +3448,11 @@ def create_virtualenv(
         )
         _atomic_promote_directory_noclobber(staging_path, venv_path)
     except Exception:
-        _rollback_partial_path(staging_path)
-        _rollback_partial_path(snapshot_path)
-        raise
+        _rethrow_primary_with_cleanup(
+            sys.exc_info()[1] or EnvironmentBundleError("unknown virtualenv promotion failure"),
+            staging_path,
+            snapshot_path,
+        )
     _rollback_partial_path(snapshot_path)
     return {
         "manifest_path": str(Path(manifest_path).resolve()),

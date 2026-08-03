@@ -716,6 +716,92 @@ def test_create_virtualenv_accepts_valid_creator_and_promotes_staging_target(tmp
     assert not [path for path in tmp_path.iterdir() if path.name.startswith("venv.staging-")]
 
 
+def test_create_virtualenv_atomic_promotion_preserves_existing_destination(tmp_path, monkeypatch):
+    bundle_root, manifest_path, manifest = _minimal_bundle(tmp_path)
+    _patch_minimal_export(monkeypatch, manifest["runtime"][0]["sha256"])
+    venv_dir = tmp_path / "venv"
+    target = manifest["target"]
+
+    def fake_run(args, **kwargs):
+        if args[0] == sys.executable:
+            staging_path = Path(args[-1])
+            python_path = bundle._venv_python_path(staging_path)
+            python_path.parent.mkdir(parents=True, exist_ok=True)
+            python_path.write_text("stub", encoding="utf-8")
+            (staging_path / "pyvenv.cfg").write_text("home = base-python\n", encoding="utf-8")
+            return SimpleNamespace(stdout="", stderr="", returncode=0)
+        staging_python = Path(args[0]).resolve()
+        staging_path = staging_python.parent.parent
+        return SimpleNamespace(
+            stdout=json.dumps(
+                {
+                    "abi": target["abi"],
+                    "architecture": target["architecture"],
+                    "base_prefix": str(tmp_path / "base-python"),
+                    "executable": str(staging_python),
+                    "os": target["os"],
+                    "prefix": str(staging_path),
+                    "python": target["python"],
+                }
+            ),
+            stderr="",
+            returncode=0,
+        )
+
+    monkeypatch.setattr(bundle.subprocess, "run", fake_run)
+    monkeypatch.setattr(bundle, "_assert_unseeded_virtualenv", lambda path: None)
+    monkeypatch.setattr(bundle, "_bootstrap_private_pip", lambda **kwargs: None)
+
+    def create_competitor(path, expected_pip_version):
+        venv_dir.mkdir()
+        (venv_dir / "sentinel.txt").write_text("preserve\n", encoding="utf-8")
+
+    monkeypatch.setattr(bundle, "_assert_bootstrapped_pip_only", create_competitor)
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="final destination already exists"):
+        bundle.create_virtualenv(
+            manifest_path,
+            bundle_root=bundle_root,
+            venv_dir=venv_dir,
+        )
+
+    assert (venv_dir / "sentinel.txt").read_text(encoding="utf-8") == "preserve\n"
+    assert not [path for path in tmp_path.iterdir() if path.name.startswith("venv.staging-")]
+
+
+def test_create_virtualenv_preserves_primary_error_when_cleanup_fails(tmp_path, monkeypatch):
+    bundle_root, manifest_path, manifest = _minimal_bundle(tmp_path)
+    _patch_minimal_export(monkeypatch, manifest["runtime"][0]["sha256"])
+    sentinel = tmp_path / "outside-sentinel.txt"
+    sentinel.write_text("keep\n", encoding="utf-8")
+
+    def fake_run(args, **kwargs):
+        staging_path = Path(args[-1])
+        staging_path.mkdir(parents=True, exist_ok=True)
+        raise subprocess.CalledProcessError(1, args, stderr="boom")
+
+    real_rollback = bundle._rollback_partial_path
+
+    def flaky_rollback(path):
+        candidate = Path(path)
+        if candidate.name.startswith("venv.staging-") or candidate.name.startswith("venv.staging-"):
+            raise PermissionError("locked cleanup path")
+        return real_rollback(candidate)
+
+    monkeypatch.setattr(bundle.subprocess, "run", fake_run)
+    monkeypatch.setattr(bundle, "_rollback_partial_path", flaky_rollback)
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="failed before creating the target venv: boom") as excinfo:
+        bundle.create_virtualenv(
+            manifest_path,
+            bundle_root=bundle_root,
+            venv_dir=tmp_path / "venv",
+        )
+
+    assert any("cleanup failed after primary error" in note for note in getattr(excinfo.value, "__notes__", []))
+    assert sentinel.read_text(encoding="utf-8") == "keep\n"
+
+
 def test_create_virtualenv_executes_only_verified_creator_bytes_and_aborts_on_post_verification_replacement(
     tmp_path,
     monkeypatch,
@@ -1100,6 +1186,54 @@ def test_record_installed_environment_rejects_existing_manifest_destination(tmp_
     with pytest.raises(bundle.EnvironmentBundleError, match="already exists"):
         bundle.record_installed_environment(manifest_path, install_manifest_path)
     assert install_manifest_path.read_text(encoding="utf-8") == "keep-me"
+
+
+def test_record_installed_environment_atomic_manifest_publication_preserves_existing_destination(tmp_path, monkeypatch):
+    bundle_root, manifest_path, manifest = _minimal_bundle(tmp_path)
+    _patch_minimal_export(monkeypatch, manifest["runtime"][0]["sha256"])
+    _materialize_manifest_root_artifacts(bundle_root, tmp_path, manifest)
+    monkeypatch.setattr(
+        bundle,
+        "distributions",
+        lambda: [
+            SimpleNamespace(metadata={"Name": "alpha"}, version="1.0"),
+            SimpleNamespace(metadata={"Name": "pip"}, version="25.0"),
+            SimpleNamespace(metadata={"Name": "setuptools"}, version="80.0"),
+            SimpleNamespace(metadata={"Name": "wheel"}, version="0.45.0"),
+            SimpleNamespace(metadata={"Name": "hatchling"}, version="1.27.0"),
+            SimpleNamespace(metadata={"Name": "virtualenv"}, version="20.26.0"),
+            SimpleNamespace(metadata={"Name": "torch"}, version=TEST_ALLIANCE_TORCH_VERSION),
+            SimpleNamespace(metadata={"Name": "interplab"}, version="0.1.0"),
+        ],
+    )
+    monkeypatch.setattr(
+        bundle,
+        "dist_version",
+        lambda name: {
+            "pip": "25.0",
+            "setuptools": "80.0",
+            "wheel": "0.45.0",
+            "hatchling": "1.27.0",
+            "virtualenv": "20.26.0",
+        }[name],
+    )
+    monkeypatch.setattr(bundle, "_clean_git_head", lambda repo_root: TEST_REPO_REVISION)
+    monkeypatch.setenv("LOADEDMODULES", "python/3.11.5:arrow/25.0.0")
+    _patch_live_torch_runtime(monkeypatch)
+    _patch_pip_check(monkeypatch)
+    install_manifest_path = tmp_path / "installed.json"
+    real_validate_install_manifest = bundle.validate_install_manifest
+
+    def create_competitor(payload):
+        real_validate_install_manifest(payload)
+        install_manifest_path.write_text("preserve\n", encoding="utf-8")
+
+    monkeypatch.setattr(bundle, "validate_install_manifest", create_competitor)
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="already exists"):
+        bundle.record_installed_environment(manifest_path, install_manifest_path)
+
+    assert install_manifest_path.read_text(encoding="utf-8") == "preserve\n"
 
 
 def test_certification_environment_inputs_are_empty_locally_without_manifest_env(monkeypatch):
