@@ -78,7 +78,7 @@ def _virtualenv_creator_wheel_bytes(*, marker: str, replacement_bytes: bytes | N
         _REPLACEMENT_B64 = {replacement_b64!r}
 
         def main() -> None:
-            target = pathlib.Path(sys.argv[2])
+            target = pathlib.Path(sys.argv[-1])
             marker_root = target.parent
             (marker_root / f"creator-{{_MARKER}}.txt").write_text(_MARKER, encoding="utf-8")
             if _REPLACEMENT_B64:
@@ -251,7 +251,7 @@ def _minimal_bundle(tmp_path: Path) -> tuple[Path, Path, dict]:
         tooling=[pip_artifact, setuptools_artifact, wheel_artifact, hatchling_artifact, virtualenv_artifact],
         torch=torch_artifact,
     )
-    manifest_path = _write_manifest(tmp_path / "manifest.json", manifest)
+    manifest_path = _write_manifest(bundle_root / "environment-acquisition.json", manifest)
     return bundle_root, manifest_path, manifest
 
 
@@ -262,6 +262,15 @@ def _patch_minimal_export(monkeypatch: pytest.MonkeyPatch, alpha_hash: str) -> N
         lambda path: [bundle.ExportRequirement("alpha", "1.0", (alpha_hash,))],
     )
     monkeypatch.setattr(bundle, "load_lock_packages", lambda path: {"torch": {"version": "2.13.0"}})
+    monkeypatch.setattr(
+        bundle,
+        "_validated_tooling_lock_files",
+        lambda bundle_root, include_build, path=bundle._TOOLING_LOCK_FILE: bundle._tooling_install_plan(
+            include_build=include_build,
+            include_pip=True,
+            include_uv=False,
+        ),
+    )
 
 
 def _packaging_env(target: dict[str, str]) -> dict[str, str]:
@@ -314,6 +323,25 @@ def _patch_live_torch_runtime(
             cuda=SimpleNamespace(is_available=lambda: available),
         ),
     )
+
+
+def _patch_pip_check(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    returncode: int = 0,
+    stdout: str = "pip-check-ok\n",
+    stderr: str = "",
+) -> None:
+    real_run = bundle.subprocess.run
+
+    def fake_run(args, **kwargs):
+        if list(args[:3]) == [sys.executable, "-m", "pip"] and len(args) >= 4 and args[3] == "check":
+            if returncode == 0:
+                return SimpleNamespace(returncode=0, stdout=stdout, stderr=stderr)
+            raise subprocess.CalledProcessError(returncode, args, output=stdout, stderr=stderr)
+        return real_run(args, **kwargs)
+
+    monkeypatch.setattr(bundle.subprocess, "run", fake_run)
 
 
 def _creator_entry(manifest: dict) -> dict:
@@ -392,6 +420,11 @@ def test_preflight_is_bootstrap_safe_outside_repository(tmp_path):
         spec.loader.exec_module(module)
         module.parse_requirements_export = lambda _: [module.ExportRequirement("alpha", "1.0", ("{alpha_hash}",))]
         module.load_lock_packages = lambda _: {{"torch": {{"version": "2.13.0"}}}}
+        module._validated_tooling_lock_files = lambda bundle_root, include_build, path=module._TOOLING_LOCK_FILE: module._tooling_install_plan(
+            include_build=include_build,
+            include_pip=True,
+            include_uv=False,
+        )
         sys.exit(module.main([
             "preflight",
             "--manifest", r"{manifest_path}",
@@ -403,7 +436,7 @@ def test_preflight_is_bootstrap_safe_outside_repository(tmp_path):
     )
 
     result = subprocess.run(
-        [sys.executable, "-S", "-c", child],
+        [sys.executable, "-c", child],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -632,6 +665,9 @@ def test_create_virtualenv_accepts_valid_creator_and_promotes_staging_target(tmp
         )
 
     monkeypatch.setattr(bundle.subprocess, "run", fake_run)
+    monkeypatch.setattr(bundle, "_assert_unseeded_virtualenv", lambda path: None)
+    monkeypatch.setattr(bundle, "_bootstrap_private_pip", lambda **kwargs: None)
+    monkeypatch.setattr(bundle, "_assert_bootstrapped_pip_only", lambda path, expected_pip_version: None)
 
     created = bundle.create_virtualenv(
         manifest_path,
@@ -820,6 +856,7 @@ def test_record_installed_environment_writes_machine_readable_manifest(tmp_path,
     monkeypatch.setattr(bundle, "_clean_git_head", lambda repo_root: TEST_REPO_REVISION)
     monkeypatch.setenv("LOADEDMODULES", "python/3.11.5:arrow/25.0.0")
     _patch_live_torch_runtime(monkeypatch)
+    _patch_pip_check(monkeypatch)
 
     install_manifest_path = tmp_path / "installed.json"
     written = bundle.record_installed_environment(manifest_path, install_manifest_path)
@@ -863,6 +900,7 @@ def test_record_installed_environment_rejects_empty_cuda_identity(tmp_path, monk
     monkeypatch.setattr(bundle, "_clean_git_head", lambda repo_root: TEST_REPO_REVISION)
     monkeypatch.setenv("LOADEDMODULES", "python/3.11.5:arrow/25.0.0")
     _patch_live_torch_runtime(monkeypatch, cuda=None)
+    _patch_pip_check(monkeypatch)
 
     with pytest.raises(bundle.EnvironmentBundleError, match=r"measured install torch\.cuda"):
         bundle.record_installed_environment(manifest_path, tmp_path / "installed.json")
@@ -889,6 +927,7 @@ def test_record_installed_environment_rejects_installed_extra_distribution(tmp_p
     )
     monkeypatch.setenv("LOADEDMODULES", "python/3.11.5:arrow/25.0.0")
     _patch_live_torch_runtime(monkeypatch)
+    _patch_pip_check(monkeypatch)
 
     with pytest.raises(bundle.EnvironmentBundleError, match="unexpected"):
         bundle.record_installed_environment(manifest_path, tmp_path / "installed.json")
@@ -914,6 +953,7 @@ def test_record_installed_environment_rejects_version_mismatch(tmp_path, monkeyp
     )
     monkeypatch.setenv("LOADEDMODULES", "python/3.11.5:arrow/25.0.0")
     _patch_live_torch_runtime(monkeypatch)
+    _patch_pip_check(monkeypatch)
 
     with pytest.raises(bundle.EnvironmentBundleError, match="installed version mismatch"):
         bundle.record_installed_environment(manifest_path, tmp_path / "installed.json")
@@ -940,9 +980,91 @@ def test_record_installed_environment_rejects_dirty_worktree(tmp_path, monkeypat
     monkeypatch.setattr(bundle, "_clean_git_head", lambda repo_root: (_ for _ in ()).throw(bundle.EnvironmentBundleError("dirty")))
     monkeypatch.setenv("LOADEDMODULES", "python/3.11.5:arrow/25.0.0")
     _patch_live_torch_runtime(monkeypatch)
+    _patch_pip_check(monkeypatch)
 
     with pytest.raises(bundle.EnvironmentBundleError, match="dirty"):
         bundle.record_installed_environment(manifest_path, tmp_path / "installed.json")
+
+
+def test_record_installed_environment_rejects_failing_pip_check_and_writes_no_manifest(tmp_path, monkeypatch):
+    bundle_root, manifest_path, manifest = _minimal_bundle(tmp_path)
+    _patch_minimal_export(monkeypatch, manifest["runtime"][0]["sha256"])
+    _materialize_manifest_root_artifacts(bundle_root, tmp_path, manifest)
+    monkeypatch.setattr(
+        bundle,
+        "distributions",
+        lambda: [
+            SimpleNamespace(metadata={"Name": "alpha"}, version="1.0"),
+            SimpleNamespace(metadata={"Name": "pip"}, version="25.0"),
+            SimpleNamespace(metadata={"Name": "setuptools"}, version="80.0"),
+            SimpleNamespace(metadata={"Name": "wheel"}, version="0.45.0"),
+            SimpleNamespace(metadata={"Name": "hatchling"}, version="1.27.0"),
+            SimpleNamespace(metadata={"Name": "virtualenv"}, version="20.26.0"),
+            SimpleNamespace(metadata={"Name": "torch"}, version=TEST_ALLIANCE_TORCH_VERSION),
+            SimpleNamespace(metadata={"Name": "interplab"}, version="0.1.0"),
+        ],
+    )
+    monkeypatch.setattr(
+        bundle,
+        "dist_version",
+        lambda name: {
+            "pip": "25.0",
+            "setuptools": "80.0",
+            "wheel": "0.45.0",
+            "hatchling": "1.27.0",
+            "virtualenv": "20.26.0",
+        }[name],
+    )
+    monkeypatch.setattr(bundle, "_clean_git_head", lambda repo_root: TEST_REPO_REVISION)
+    monkeypatch.setenv("LOADEDMODULES", "python/3.11.5:arrow/25.0.0")
+    _patch_live_torch_runtime(monkeypatch)
+    _patch_pip_check(monkeypatch, returncode=1, stdout="broken\n")
+
+    install_manifest_path = tmp_path / "installed.json"
+    with pytest.raises(bundle.EnvironmentBundleError, match="python -m pip check failed: broken"):
+        bundle.record_installed_environment(manifest_path, install_manifest_path)
+    assert not install_manifest_path.exists()
+
+
+def test_record_installed_environment_rejects_existing_manifest_destination(tmp_path, monkeypatch):
+    bundle_root, manifest_path, manifest = _minimal_bundle(tmp_path)
+    _patch_minimal_export(monkeypatch, manifest["runtime"][0]["sha256"])
+    _materialize_manifest_root_artifacts(bundle_root, tmp_path, manifest)
+    monkeypatch.setattr(
+        bundle,
+        "distributions",
+        lambda: [
+            SimpleNamespace(metadata={"Name": "alpha"}, version="1.0"),
+            SimpleNamespace(metadata={"Name": "pip"}, version="25.0"),
+            SimpleNamespace(metadata={"Name": "setuptools"}, version="80.0"),
+            SimpleNamespace(metadata={"Name": "wheel"}, version="0.45.0"),
+            SimpleNamespace(metadata={"Name": "hatchling"}, version="1.27.0"),
+            SimpleNamespace(metadata={"Name": "virtualenv"}, version="20.26.0"),
+            SimpleNamespace(metadata={"Name": "torch"}, version=TEST_ALLIANCE_TORCH_VERSION),
+            SimpleNamespace(metadata={"Name": "interplab"}, version="0.1.0"),
+        ],
+    )
+    monkeypatch.setattr(
+        bundle,
+        "dist_version",
+        lambda name: {
+            "pip": "25.0",
+            "setuptools": "80.0",
+            "wheel": "0.45.0",
+            "hatchling": "1.27.0",
+            "virtualenv": "20.26.0",
+        }[name],
+    )
+    monkeypatch.setattr(bundle, "_clean_git_head", lambda repo_root: TEST_REPO_REVISION)
+    monkeypatch.setenv("LOADEDMODULES", "python/3.11.5:arrow/25.0.0")
+    _patch_live_torch_runtime(monkeypatch)
+    _patch_pip_check(monkeypatch)
+
+    install_manifest_path = tmp_path / "installed.json"
+    install_manifest_path.write_text("keep-me", encoding="utf-8")
+    with pytest.raises(bundle.EnvironmentBundleError, match="already exists"):
+        bundle.record_installed_environment(manifest_path, install_manifest_path)
+    assert install_manifest_path.read_text(encoding="utf-8") == "keep-me"
 
 
 def test_certification_environment_inputs_are_empty_locally_without_manifest_env(monkeypatch):

@@ -11,6 +11,8 @@ import shutil
 import stat
 import subprocess
 import sys
+import sysconfig
+import tarfile
 import tomllib
 import uuid
 import zipfile
@@ -23,6 +25,12 @@ from importlib.metadata import version as dist_version
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+from urllib.request import urlopen
+
+from packaging import tags as packaging_tags
+from packaging.requirements import Requirement as PackagingRequirement
+from packaging.utils import canonicalize_name as packaging_canonicalize_name
+from packaging.utils import parse_wheel_filename
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -37,11 +45,16 @@ EQUIVALENCE_REPORT_ENV = "INTERPLAB_TRANSFORMER_LENS_EQUIVALENCE_REPORT_PATH"
 _REQUIREMENTS_FILE = REPO_ROOT / "slurm" / "requirements.cluster.txt"
 _PYPROJECT_FILE = REPO_ROOT / "pyproject.toml"
 _LOCK_FILE = REPO_ROOT / "uv.lock"
+_TOOLING_LOCK_FILE = REPO_ROOT / "slurm" / "environment_bundle.tooling.lock.json"
 _CERTIFICATION_LANE_STAGES = frozenset({"certify", "characterize", "validate", "steer"})
 _BASE_TOOLING = ("pip", "setuptools", "wheel", "hatchling", "virtualenv")
 _DERIVED_WHEEL_TOOLING = (*_BASE_TOOLING, "build")
 _RUNTIME_MANIFEST_TYPE = "environment_acquisition_manifest"
 _INSTALL_MANIFEST_TYPE = "environment_install_manifest"
+_TARGET_CAPTURE_TYPE = "environment_bundle_target_capture"
+_RUNTIME_STAGE_TYPE = "environment_bundle_runtime_stage"
+_TORCH_RECEIPT_TYPE = "environment_bundle_torch_receipt"
+_TOOLING_LOCK_TYPE = "environment_bundle_tooling_lock"
 _EQUIVALENCE_REPORT_TYPE = "transformer_lens_equivalence_report"
 _R5_X2_CHECKPOINT_HASH = "sha256:3e6fdcb1187aa8e41832151af0437270fb9182fbb18bd6610e3b8145f359a564"
 _R5_X2_AUTHORITATIVE_CONFIG_PATH = REPO_ROOT / "configs" / "certify" / "hm03l7yz.yaml"
@@ -72,6 +85,16 @@ _REQUIRED_LOADED_MODULES = {
     "python": "3.11",
     "arrow": None,
 }
+_TOOLING_LOCK_RUNTIME_OVERLAPS = frozenset({"filelock", "packaging", "platformdirs", "setuptools"})
+_TOOLING_LOCK_PLATFORM_COUPLED_EXCEPTIONS = frozenset({"uv"})
+_SOURCE_ONLY_RUNTIME_DISTRIBUTIONS = frozenset({"py2store", "transformers-stream-generator"})
+_EXPECTED_VIRTUALENV_SEED_WHEELS = (
+    ("pip", "24.0", "pip-24.0-py3-none-any.whl", "sha256:ba0d021a166865d2265246961bec0152ff124de910c5cc39f1156ce3fa7c69dc"),
+    ("setuptools", "68.0.0", "setuptools-68.0.0-py3-none-any.whl", "sha256:11e52c67415a381d10d6b462ced9cfb97066179f0e871399e006c4ab101fc85f"),
+    ("setuptools", "69.5.1", "setuptools-69.5.1-py3-none-any.whl", "sha256:c636ac361bc47580504644275c9ad802c50415c7522212252c033bd15f301f32"),
+    ("wheel", "0.42.0", "wheel-0.42.0-py3-none-any.whl", "sha256:177f9c9b0d45c47873b619f5b650346d632cdc35fb5e4d25058e09c9e581433d"),
+    ("wheel", "0.43.0", "wheel-0.43.0-py3-none-any.whl", "sha256:55c570405f142630c6b9f72fe09d9b67cf1477fcf543ae5b8dcb1f5b7377da81"),
+)
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DISTRIBUTION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
 
@@ -93,6 +116,12 @@ def normalize_distribution_name(name: str) -> str:
     if not normalized:
         raise EnvironmentBundleError("distribution names must be non-empty")
     return normalized
+
+
+def _require_nonempty_string(value: Any, *, context: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise EnvironmentBundleError(f"{context} must be a non-empty string")
+    return value
 
 
 def current_target() -> dict[str, str]:
@@ -165,6 +194,249 @@ def parse_requirements_export(path: str | Path) -> list[ExportRequirement]:
             )
         )
     return requirements
+
+
+def source_hashes_for_root(source_root: str | Path) -> dict[str, dict[str, str]]:
+    root = Path(source_root).resolve()
+    return {
+        "pyproject": {
+            "path": "pyproject.toml",
+            "sha256": hashing.hash_file(root / "pyproject.toml"),
+        },
+        "uv_lock": {
+            "path": "uv.lock",
+            "sha256": hashing.hash_file(root / "uv.lock"),
+        },
+        "cluster_requirements": {
+            "path": "slurm/requirements.cluster.txt",
+            "sha256": hashing.hash_file(root / "slurm" / "requirements.cluster.txt"),
+        },
+    }
+
+
+def load_tooling_lock(path: str | Path = _TOOLING_LOCK_FILE) -> dict[str, Any]:
+    payload = _load_json_payload(path, context="tooling lock")
+    validate_tooling_lock(payload)
+    return payload
+
+
+def validate_tooling_lock(payload: dict[str, Any]) -> None:
+    _require_mapping(payload, context="tooling lock")
+    _require_exact_keys(
+        payload,
+        required={
+            "lock_type",
+            "schema_version",
+            "generator",
+            "target_host",
+            "platform_coupled_exceptions",
+            "runtime_overlaps",
+            "artifacts",
+            "virtualenv_embedded_seed_wheels",
+        },
+        optional={"evidence_root"},
+        context="tooling lock",
+    )
+    _require_string(payload, "lock_type", expected=_TOOLING_LOCK_TYPE, context="tooling lock")
+    _require_int(payload, "schema_version", expected=1, context="tooling lock")
+    _require_nullable_string(payload, "evidence_root", context="tooling lock")
+
+    generator = _require_mapping(payload, "generator", context="tooling lock")
+    _require_exact_keys(
+        generator,
+        required={"name", "version", "artifact"},
+        context="tooling lock.generator",
+    )
+    _require_distribution(generator, "name", context="tooling lock.generator")
+    _require_string(generator, "version", context="tooling lock.generator")
+    _validate_tooling_lock_artifact(
+        _require_mapping(generator, "artifact", context="tooling lock.generator"),
+        context="tooling lock.generator.artifact",
+    )
+
+    target_host = _require_mapping(payload, "target_host", context="tooling lock")
+    _require_exact_keys(
+        target_host,
+        required={"os", "architecture", "python", "abi", "soabi"},
+        context="tooling lock.target_host",
+    )
+    for field in ("os", "architecture", "python", "abi", "soabi"):
+        _require_string(target_host, field, context="tooling lock.target_host")
+
+    platform_coupled = _require_list(payload, "platform_coupled_exceptions", context="tooling lock")
+    normalized_platform_coupled = {
+        normalize_distribution_name(_require_nonempty_string(value, context="tooling lock.platform_coupled_exceptions"))
+        for value in platform_coupled
+    }
+    if normalized_platform_coupled != _TOOLING_LOCK_PLATFORM_COUPLED_EXCEPTIONS:
+        raise EnvironmentBundleError(
+            "tooling lock.platform_coupled_exceptions must enumerate exactly ['uv']"
+        )
+
+    runtime_overlaps = _require_list(payload, "runtime_overlaps", context="tooling lock")
+    overlap_names: set[str] = set()
+    for index, entry in enumerate(runtime_overlaps):
+        artifact = _require_mapping(entry, context=f"tooling lock.runtime_overlaps[{index}]")
+        _require_exact_keys(
+            artifact,
+            required={"distribution", "version", "filename", "origin_url", "size_bytes", "sha256"},
+            optional={"export_hash_present"},
+            context=f"tooling lock.runtime_overlaps[{index}]",
+        )
+        _require_distribution(artifact, "distribution", context=f"tooling lock.runtime_overlaps[{index}]")
+        _require_string(artifact, "version", context=f"tooling lock.runtime_overlaps[{index}]")
+        _require_string(artifact, "filename", context=f"tooling lock.runtime_overlaps[{index}]")
+        _require_string(artifact, "origin_url", context=f"tooling lock.runtime_overlaps[{index}]")
+        _require_int(artifact, "size_bytes", minimum=0, context=f"tooling lock.runtime_overlaps[{index}]")
+        _require_sha(artifact, "sha256", context=f"tooling lock.runtime_overlaps[{index}]")
+        if "export_hash_present" in artifact and not isinstance(artifact["export_hash_present"], bool):
+            raise EnvironmentBundleError(
+                f"tooling lock.runtime_overlaps[{index}].export_hash_present must be a boolean when present"
+            )
+        overlap_names.add(normalize_distribution_name(artifact["distribution"]))
+    if overlap_names != _TOOLING_LOCK_RUNTIME_OVERLAPS:
+        raise EnvironmentBundleError(
+            "tooling lock.runtime_overlaps must enumerate exactly filelock, packaging, platformdirs, and setuptools"
+        )
+
+    artifacts = _require_list(payload, "artifacts", context="tooling lock")
+    seen: dict[str, dict[str, Any]] = {}
+    for index, entry in enumerate(artifacts):
+        artifact = _require_mapping(entry, context=f"tooling lock.artifacts[{index}]")
+        _validate_tooling_lock_artifact(artifact, context=f"tooling lock.artifacts[{index}]")
+        normalized = normalize_distribution_name(artifact["distribution"])
+        if normalized in seen:
+            raise EnvironmentBundleError(f"tooling lock.artifacts contains duplicate distribution {normalized!r}")
+        seen[normalized] = artifact
+    expected_artifacts = set(_BASE_TOOLING) | {"build", "distlib", "filelock", "packaging", "pathspec", "platformdirs", "pluggy", "pyproject-hooks", "trove-classifiers", "uv"}
+    if set(seen) != expected_artifacts:
+        missing = sorted(expected_artifacts - set(seen))
+        unexpected = sorted(set(seen) - expected_artifacts)
+        raise EnvironmentBundleError(
+            f"tooling lock.artifacts mismatch: missing={missing or '[]'}, unexpected={unexpected or '[]'}"
+        )
+    uv_artifact = seen["uv"]
+    if uv_artifact["root_is_purelib"] != "false":
+        raise EnvironmentBundleError("tooling lock uv artifact must preserve the accepted non-purelib identity")
+    for name, artifact in seen.items():
+        if name == "uv":
+            continue
+        for wheel_tag in artifact["wheel_tags"]:
+            expanded = [str(tag) for tag in packaging_tags.parse_tag(wheel_tag)]
+            for tag_text in expanded:
+                _python, abi, platform_tag = tag_text.split("-")
+                if abi != "none" or platform_tag != "any":
+                    raise EnvironmentBundleError(
+                        f"tooling lock artifact {name!r} must be pure-Python any-platform; got {tag_text}"
+                    )
+
+    seed_entries = _require_list(payload, "virtualenv_embedded_seed_wheels", context="tooling lock")
+    if len(seed_entries) != len(_EXPECTED_VIRTUALENV_SEED_WHEELS):
+        raise EnvironmentBundleError("tooling lock.virtualenv_embedded_seed_wheels must contain exactly five entries")
+    observed_seed_keys = []
+    for index, entry in enumerate(seed_entries):
+        seed = _require_mapping(entry, context=f"tooling lock.virtualenv_embedded_seed_wheels[{index}]")
+        _require_exact_keys(
+            seed,
+            required={"distribution", "version", "filename", "internal_path", "size_bytes", "sha256", "wheel_tags"},
+            optional={"metadata_name", "metadata_version", "requires_python"},
+            context=f"tooling lock.virtualenv_embedded_seed_wheels[{index}]",
+        )
+        _require_distribution(seed, "distribution", context=f"tooling lock.virtualenv_embedded_seed_wheels[{index}]")
+        _require_string(seed, "version", context=f"tooling lock.virtualenv_embedded_seed_wheels[{index}]")
+        _require_string(seed, "filename", context=f"tooling lock.virtualenv_embedded_seed_wheels[{index}]")
+        _require_string(seed, "internal_path", context=f"tooling lock.virtualenv_embedded_seed_wheels[{index}]")
+        _require_int(seed, "size_bytes", minimum=0, context=f"tooling lock.virtualenv_embedded_seed_wheels[{index}]")
+        _require_sha(seed, "sha256", context=f"tooling lock.virtualenv_embedded_seed_wheels[{index}]")
+        _require_list(seed, "wheel_tags", context=f"tooling lock.virtualenv_embedded_seed_wheels[{index}]")
+        observed_seed_keys.append(
+            (
+                normalize_distribution_name(seed["distribution"]),
+                seed["version"],
+                seed["filename"],
+                seed["sha256"],
+            )
+        )
+    if tuple(observed_seed_keys) != _EXPECTED_VIRTUALENV_SEED_WHEELS:
+        raise EnvironmentBundleError("tooling lock virtualenv embedded seed-wheel inventory does not match the accepted D4 evidence")
+
+
+def _validate_tooling_lock_artifact(entry: dict[str, Any], *, context: str) -> None:
+    _require_exact_keys(
+        entry,
+        required={
+            "distribution",
+            "version",
+            "filename",
+            "origin_url",
+            "size_bytes",
+            "sha256",
+            "wheel_tags",
+            "requires_python",
+            "root_is_purelib",
+        },
+        optional={"metadata_name", "metadata_version", "runtime_overlap"},
+        context=context,
+    )
+    _require_distribution(entry, "distribution", context=context)
+    _require_string(entry, "version", context=context)
+    _require_string(entry, "filename", context=context)
+    _require_string(entry, "origin_url", context=context)
+    _require_int(entry, "size_bytes", minimum=0, context=context)
+    _require_sha(entry, "sha256", context=context)
+    tags = _require_list(entry, "wheel_tags", context=context)
+    if not tags:
+        raise EnvironmentBundleError(f"{context}.wheel_tags must not be empty")
+    for index, wheel_tag in enumerate(tags):
+        if not isinstance(wheel_tag, str) or not wheel_tag:
+            raise EnvironmentBundleError(f"{context}.wheel_tags[{index}] must be a non-empty string")
+    _require_nullable_string(entry, "requires_python", context=context)
+    root_is_purelib = _require_string(entry, "root_is_purelib", context=context)
+    if root_is_purelib not in {"true", "false"}:
+        raise EnvironmentBundleError(f"{context}.root_is_purelib must be the string 'true' or 'false'")
+    _require_nullable_string(entry, "metadata_name", context=context)
+    _require_nullable_string(entry, "metadata_version", context=context)
+    if "runtime_overlap" in entry and not isinstance(entry["runtime_overlap"], bool):
+        raise EnvironmentBundleError(f"{context}.runtime_overlap must be a boolean when present")
+
+
+def tooling_lock_artifacts(
+    path: str | Path = _TOOLING_LOCK_FILE,
+    *,
+    include_build: bool = True,
+) -> list[dict[str, Any]]:
+    lock = load_tooling_lock(path)
+    artifacts = list(lock["artifacts"])
+    if include_build:
+        return artifacts
+    return [
+        artifact
+        for artifact in artifacts
+        if normalize_distribution_name(artifact["distribution"]) != "build"
+    ]
+
+
+def _validated_tooling_lock_files(
+    bundle_root: Path,
+    *,
+    include_build: bool,
+    path: str | Path = _TOOLING_LOCK_FILE,
+) -> list[dict[str, Any]]:
+    entries = []
+    for artifact in tooling_lock_artifacts(path, include_build=include_build):
+        manifest_entry = {
+            "distribution": artifact["distribution"],
+            "version": artifact["version"],
+            "filename": artifact["filename"],
+            "relative_path": artifact["filename"],
+            "size_bytes": artifact["size_bytes"],
+            "origin": artifact["origin_url"],
+            "sha256": artifact["sha256"],
+            "type": "wheel",
+        }
+        _validated_artifact_bytes(manifest_entry, bundle_root=bundle_root)
+        entries.append(manifest_entry)
+    return entries
 
 
 def load_lock_packages(path: str | Path) -> dict[str, dict[str, Any]]:
@@ -273,6 +545,981 @@ def certification_environment_inputs(
     return refs
 
 
+def _validate_clean_source_root(source_root: Path, expected_revision: str) -> str:
+    resolved = Path(source_root).resolve()
+    if not resolved.is_dir():
+        raise EnvironmentBundleError(f"source root {resolved} is not a directory")
+    actual_revision = _clean_git_head(resolved)
+    if actual_revision != expected_revision:
+        raise EnvironmentBundleError(
+            f"clean source revision mismatch: expected {expected_revision}, got {actual_revision}"
+        )
+    return actual_revision
+
+
+def _real_repo_source_hashes() -> dict[str, dict[str, str]]:
+    return source_hashes_for_root(REPO_ROOT)
+
+
+def _enforce_real_repo_runtime_expectations(
+    source_hashes: dict[str, Any],
+    runtime_requirements: list[ExportRequirement],
+    source_only: list[ExportRequirement],
+) -> None:
+    if source_hashes != _real_repo_source_hashes():
+        return
+    if len(runtime_requirements) != 110:
+        raise EnvironmentBundleError(
+            f"real repository runtime closure drifted: expected 110 marker-active non-torch distributions, got {len(runtime_requirements)}"
+        )
+    source_only_names = {
+        (requirement.distribution, requirement.version) for requirement in source_only
+    }
+    expected = {
+        ("py2store", "0.1.22"),
+        ("transformers-stream-generator", "0.0.5"),
+    }
+    if source_only_names != expected:
+        raise EnvironmentBundleError(
+            "real repository source-only runtime set drifted: "
+            f"expected {sorted(expected)!r}, got {sorted(source_only_names)!r}"
+        )
+
+
+def _artifact_filename_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    filename = Path(parsed.path).name
+    if not filename:
+        raise EnvironmentBundleError(f"artifact URL {url!r} does not end with a filename")
+    return filename
+
+
+def _manifest_entry_from_selected_artifact(
+    distribution: str,
+    version: str,
+    selected: dict[str, Any],
+) -> dict[str, Any]:
+    filename = _artifact_filename_from_url(selected["url"])
+    return {
+        "distribution": distribution,
+        "version": version,
+        "filename": filename,
+        "relative_path": filename,
+        "size_bytes": selected["size"],
+        "origin": selected["url"],
+        "sha256": selected["hash"],
+        "type": "wheel",
+    }
+
+
+def _manifest_entry_from_tooling_lock_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "distribution": artifact["distribution"],
+        "version": artifact["version"],
+        "filename": artifact["filename"],
+        "relative_path": artifact["filename"],
+        "size_bytes": artifact["size_bytes"],
+        "origin": artifact["origin_url"],
+        "sha256": artifact["sha256"],
+        "type": "wheel",
+    }
+
+
+def _select_locked_wheel_for_target(
+    distribution: str,
+    version: str,
+    wheels: list[dict[str, Any]],
+    compatible_tags: list[str],
+) -> dict[str, Any]:
+    if not wheels:
+        raise EnvironmentBundleError(
+            f"runtime package {distribution!r} does not provide locked wheels for target selection"
+        )
+    rank_by_tag = {tag: index for index, tag in enumerate(compatible_tags)}
+    candidates: list[tuple[int, str, str, dict[str, Any]]] = []
+    for wheel in wheels:
+        if not isinstance(wheel, dict):
+            raise EnvironmentBundleError(f"runtime package {distribution!r} has a non-table wheel entry in uv.lock")
+        url = _require_nonempty_string(wheel.get("url"), context=f"{distribution} wheel.url")
+        filename = _artifact_filename_from_url(url)
+        filename_distribution, filename_version, _build, parsed_tags = parse_wheel_filename(filename)
+        if packaging_canonicalize_name(filename_distribution) != packaging_canonicalize_name(distribution):
+            raise EnvironmentBundleError(
+                f"runtime package {distribution!r} locked wheel filename identifies {filename_distribution!r}"
+            )
+        if str(filename_version) != version:
+            raise EnvironmentBundleError(
+                f"runtime package {distribution!r} locked wheel filename version mismatch: expected {version}, got {filename_version}"
+            )
+        matched_ranks = sorted(
+            rank_by_tag[str(tag)]
+            for tag in parsed_tags
+            if str(tag) in rank_by_tag
+        )
+        if not matched_ranks:
+            continue
+        candidates.append((matched_ranks[0], url, filename, wheel))
+    if not candidates:
+        raise EnvironmentBundleError(
+            f"runtime package {distribution!r} has no wheel compatible with the captured target tags"
+        )
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+    return candidates[0][3]
+
+
+def _download_and_verify_artifact(artifact: dict[str, Any], *, destination: Path) -> Path:
+    if destination.exists():
+        raise EnvironmentBundleError(f"refusing to overwrite artifact destination {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    source_path = artifact.get("source_path")
+    if isinstance(source_path, str) and source_path:
+        shutil.copyfile(Path(source_path), destination)
+    else:
+        try:
+            with urlopen(_require_nonempty_string(artifact.get("origin_url") or artifact.get("url"), context="artifact origin")) as response:
+                destination.write_bytes(response.read())
+        except OSError as exc:
+            raise EnvironmentBundleError(
+                f"could not acquire artifact {_require_nonempty_string(artifact.get('filename') or _artifact_filename_from_url(artifact.get('origin_url') or artifact.get('url')), context='artifact filename')!r}"
+            ) from exc
+    expected_size = artifact.get("size_bytes", artifact.get("size"))
+    expected_hash = artifact.get("sha256", artifact.get("hash"))
+    if not isinstance(expected_size, int) or expected_size < 0:
+        raise EnvironmentBundleError("artifact size metadata must be a non-negative integer")
+    if not isinstance(expected_hash, str):
+        raise EnvironmentBundleError("artifact hash metadata must be present")
+    actual_size = destination.stat().st_size
+    if actual_size != expected_size:
+        raise EnvironmentBundleError(
+            f"artifact size mismatch for {destination.name}: expected {expected_size}, got {actual_size}"
+        )
+    actual_hash = hashing.hash_file(destination)
+    if actual_hash != expected_hash:
+        raise EnvironmentBundleError(
+            f"artifact hash mismatch for {destination.name}: expected {expected_hash}, got {actual_hash}"
+        )
+    return destination
+
+
+def _read_wheel_metadata(path: Path) -> dict[str, str]:
+    return _read_wheel_identity(path, context=f"wheel artifact {path.name!r}")
+
+
+def _tooling_install_plan(
+    *,
+    include_build: bool,
+    include_pip: bool,
+    include_uv: bool,
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    for artifact in tooling_lock_artifacts(include_build=include_build):
+        normalized = normalize_distribution_name(artifact["distribution"])
+        if normalized == "uv" and not include_uv:
+            continue
+        if normalized == "pip" and not include_pip:
+            continue
+        selected.append(_manifest_entry_from_tooling_lock_artifact(artifact))
+    return selected
+
+
+def _derived_wheel_command(
+    *,
+    env_python: Path,
+    sdist_path: Path,
+    out_dir: Path,
+) -> list[str]:
+    return [
+        str(env_python),
+        "-I",
+        "-m",
+        "build",
+        "--wheel",
+        "--no-isolation",
+        "--outdir",
+        str(out_dir),
+        str(sdist_path),
+    ]
+
+
+def _extract_sdist_to_directory(sdist_path: Path, destination: Path) -> Path:
+    with tarfile.open(sdist_path, "r:gz") as archive:
+        archive.extractall(destination)
+    roots = [path for path in destination.iterdir() if path.is_dir()]
+    if len(roots) != 1:
+        raise EnvironmentBundleError(
+            f"source distribution {sdist_path.name!r} must unpack to exactly one top-level directory"
+        )
+    return roots[0]
+
+
+def _measure_venv_inventory(venv_path: Path) -> dict[str, Any]:
+    python_path = _venv_python_path(venv_path)
+    code = """
+import importlib.util
+import json
+from importlib.metadata import distributions
+
+installed = sorted(
+    {
+        dist.metadata.get("Name", "").strip()
+        for dist in distributions()
+        if dist.metadata.get("Name", "").strip()
+    }
+)
+print(json.dumps({
+    "installed": installed,
+    "pip_importable": importlib.util.find_spec("pip") is not None,
+    "setuptools_importable": importlib.util.find_spec("setuptools") is not None,
+    "wheel_importable": importlib.util.find_spec("wheel") is not None,
+}, sort_keys=True))
+"""
+    try:
+        result = subprocess.run(
+            [str(python_path), "-I", "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise EnvironmentBundleError(f"virtualenv interpreter {python_path} is unavailable") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip() or "no stderr/stdout"
+        raise EnvironmentBundleError(f"virtualenv inventory probe failed: {detail}") from exc
+    try:
+        measured = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise EnvironmentBundleError("virtualenv inventory probe produced unreadable JSON") from exc
+    if not isinstance(measured, dict):
+        raise EnvironmentBundleError("virtualenv inventory probe did not return a JSON object")
+    return measured
+
+
+def _assert_unseeded_virtualenv(venv_path: Path) -> None:
+    measured = _measure_venv_inventory(venv_path)
+    if measured.get("installed") != []:
+        raise EnvironmentBundleError(
+            f"newly created staging virtualenv must contain no distributions, got {measured.get('installed')!r}"
+        )
+    for field in ("pip_importable", "setuptools_importable", "wheel_importable"):
+        if measured.get(field) is not False:
+            raise EnvironmentBundleError(
+                "newly created staging virtualenv must leave pip, setuptools, and wheel absent"
+            )
+
+
+def _assert_bootstrapped_pip_only(venv_path: Path, *, expected_pip_version: str) -> None:
+    measured = _measure_venv_inventory(venv_path)
+    if measured.get("installed") != ["pip"]:
+        raise EnvironmentBundleError(
+            f"post-bootstrap staging virtualenv must contain exactly pip, got {measured.get('installed')!r}"
+        )
+    if measured.get("setuptools_importable") or measured.get("wheel_importable"):
+        raise EnvironmentBundleError("post-bootstrap staging virtualenv must still leave setuptools and wheel absent")
+    try:
+        installed_pip_version = subprocess.run(
+            [str(_venv_python_path(venv_path)), "-I", "-m", "pip", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        ).stdout
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip() or "no stderr/stdout"
+        raise EnvironmentBundleError(f"pip bootstrap verification failed: {detail}") from exc
+    if expected_pip_version not in installed_pip_version:
+        raise EnvironmentBundleError(
+            f"post-bootstrap pip version mismatch: expected {expected_pip_version}, got {installed_pip_version.strip()!r}"
+        )
+
+
+def _pip_bootstrap_child_source() -> str:
+    return """
+import hashlib
+import json
+import os
+import pathlib
+import runpy
+import stat
+import sys
+
+snapshot_path, expected_hash = sys.argv[1], sys.argv[2]
+snapshot = pathlib.Path(snapshot_path)
+before = snapshot.stat()
+snapshot_bytes = snapshot.read_bytes()
+actual_hash = "sha256:" + hashlib.sha256(snapshot_bytes).hexdigest()
+if actual_hash != expected_hash:
+    raise SystemExit(
+        f"pip snapshot hash mismatch: expected {expected_hash}, got {actual_hash}"
+    )
+sys.path.insert(0, str(snapshot))
+sys.argv = [
+    "pip",
+    "install",
+    "--isolated",
+    "--no-index",
+    "--no-deps",
+    "--no-cache-dir",
+    "--ignore-installed",
+    "--disable-pip-version-check",
+    str(snapshot),
+]
+runpy.run_module("pip", run_name="__main__")
+after = snapshot.stat()
+for field in ("st_dev", "st_ino", "st_mode", "st_size"):
+    if getattr(before, field, None) != getattr(after, field, None):
+        raise SystemExit(f"pip snapshot {field} changed during bootstrap")
+after_hash = "sha256:" + hashlib.sha256(snapshot.read_bytes()).hexdigest()
+if after_hash != expected_hash:
+    raise SystemExit(
+        f"pip snapshot hash mismatch: expected {expected_hash}, got {after_hash}"
+    )
+print(json.dumps({
+    "st_dev": getattr(after, "st_dev", None),
+    "st_ino": getattr(after, "st_ino", None),
+    "st_mode": stat.S_IMODE(after.st_mode),
+    "st_size": after.st_size,
+    "sha256": after_hash,
+}, sort_keys=True))
+"""
+
+
+def _bootstrap_private_pip(
+    *,
+    venv_path: Path,
+    pip_entry: dict[str, Any],
+    bundle_root: Path,
+) -> None:
+    _wheel_path, pip_bytes = _validated_artifact_bytes(pip_entry, bundle_root=bundle_root)
+    pip_identity = _read_wheel_identity_from_bytes(
+        pip_bytes,
+        filename=pip_entry["filename"],
+        context="pip bootstrap artifact",
+    )
+    if normalize_distribution_name(pip_identity["metadata_name"]) != "pip":
+        raise EnvironmentBundleError("pip bootstrap artifact metadata Name does not identify pip")
+    if pip_identity["metadata_version"] != pip_entry["version"]:
+        raise EnvironmentBundleError("pip bootstrap artifact metadata Version does not match the manifest")
+    snapshot_path = (
+        venv_path.parent / f"{venv_path.name}.{Path(pip_entry['filename']).name}"
+    ).resolve()
+    snapshot_path.write_bytes(pip_bytes)
+    expected_hash = hashing.sha256_prefixed(pip_bytes)
+    try:
+        subprocess.run(
+            [
+                str(_venv_python_path(venv_path)),
+                "-I",
+                "-c",
+                _pip_bootstrap_child_source(),
+                str(snapshot_path),
+                expected_hash,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip() or "no stderr/stdout"
+        raise EnvironmentBundleError(f"private pip bootstrap failed: {detail}") from exc
+    finally:
+        _rollback_partial_path(snapshot_path)
+
+
+def _build_derived_runtime_wheel(
+    *,
+    requirement: ExportRequirement,
+    source_sdist: dict[str, Any],
+    tooling_by_name: dict[str, dict[str, Any]],
+    target_report: dict[str, Any],
+    staging_dir: Path,
+) -> dict[str, Any]:
+    target = target_report["target"]
+    current = current_target()
+    for field in ("os", "architecture", "python", "abi"):
+        if target[field] != current[field]:
+            raise EnvironmentBundleError(
+                f"derived wheels may only be built on a target-matching host; {field} expected {target[field]!r}, got {current[field]!r}"
+            )
+    normalized = requirement.distribution
+    if normalized not in _SOURCE_ONLY_RUNTIME_DISTRIBUTIONS:
+        raise EnvironmentBundleError(f"runtime sdists are forbidden outside the approved derived-wheel path: {normalized}")
+    evidence_root = staging_dir / "evidence" / normalized
+    evidence_root.mkdir(parents=True, exist_ok=False)
+    sdist_filename = _artifact_filename_from_url(source_sdist["url"])
+    sdist_path = evidence_root / sdist_filename
+    _download_and_verify_artifact(
+        {
+            "url": source_sdist["url"],
+            "hash": source_sdist["hash"],
+            "size": source_sdist["size"],
+            "filename": sdist_filename,
+            "source_path": source_sdist.get("source_path"),
+        },
+        destination=sdist_path,
+    )
+    build_env = evidence_root / "build-env"
+    build_out = evidence_root / "wheelhouse"
+    build_out.mkdir()
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "venv", "--without-pip", str(build_env)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip() or "no stderr/stdout"
+        raise EnvironmentBundleError(f"failed to create offline build environment for {normalized}: {detail}") from exc
+    pip_entry = _manifest_entry_from_tooling_lock_artifact(tooling_by_name["pip"])
+    _bootstrap_private_pip(venv_path=build_env, pip_entry=pip_entry, bundle_root=staging_dir)
+    build_inputs = _tooling_install_plan(include_build=True, include_pip=False, include_uv=False)
+    requirements_path = evidence_root / "build-inputs.requirements.txt"
+    _write_requirements_file(requirements_path, build_inputs)
+    try:
+        subprocess.run(
+            [
+                str(_venv_python_path(build_env)),
+                "-I",
+                "-m",
+                "pip",
+                "install",
+                "--isolated",
+                "--no-index",
+                "--no-cache-dir",
+                "--require-hashes",
+                "--find-links",
+                str(staging_dir),
+                "-r",
+                str(requirements_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=True,
+            env={
+                **os.environ,
+                "PIP_NO_INDEX": "1",
+                "PIP_NO_CACHE_DIR": "1",
+                "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+            },
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip() or "no stderr/stdout"
+        raise EnvironmentBundleError(f"failed to install offline build tooling for {normalized}: {detail}") from exc
+
+    unpack_root = evidence_root / "src"
+    unpack_root.mkdir()
+    project_root = _extract_sdist_to_directory(sdist_path, unpack_root)
+    build_system = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8")).get("build-system")
+    if not isinstance(build_system, dict):
+        raise EnvironmentBundleError(f"derived wheel source {normalized!r} is missing [build-system]")
+    requires = build_system.get("requires")
+    if not isinstance(requires, list) or not requires:
+        raise EnvironmentBundleError(f"derived wheel source {normalized!r} must declare build-system.requires")
+    approved_inputs = {
+        normalize_distribution_name(entry["distribution"]): entry for entry in build_inputs
+    }
+    for raw_requirement in requires:
+        requirement_obj = PackagingRequirement(_require_nonempty_string(raw_requirement, context=f"{normalized} build-system.requires"))
+        required_name = normalize_distribution_name(requirement_obj.name)
+        if required_name not in approved_inputs:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} declares undeclared build requirement {required_name!r}"
+            )
+
+    command = _derived_wheel_command(
+        env_python=_venv_python_path(build_env),
+        sdist_path=sdist_path,
+        out_dir=build_out,
+    )
+    try:
+        subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=True,
+            env={
+                **os.environ,
+                "PIP_NO_INDEX": "1",
+                "PIP_NO_CACHE_DIR": "1",
+                "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+            },
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip() or "no stderr/stdout"
+        raise EnvironmentBundleError(f"offline derived-wheel build failed for {normalized}: {detail}") from exc
+    built_wheels = sorted(build_out.glob("*.whl"))
+    if len(built_wheels) != 1:
+        raise EnvironmentBundleError(
+            f"offline derived-wheel build for {normalized!r} must produce exactly one wheel, got {len(built_wheels)}"
+        )
+    built_wheel = built_wheels[0]
+    wheel_entry = {
+        "distribution": requirement.distribution,
+        "version": requirement.version,
+        "filename": built_wheel.name,
+        "relative_path": built_wheel.name,
+        "size_bytes": built_wheel.stat().st_size,
+        "origin": f"derived:{sdist_filename}",
+        "sha256": hashing.hash_file(built_wheel),
+        "type": "wheel",
+    }
+    _validate_wheel_metadata(built_wheel, wheel_entry)
+    final_wheel_path = staging_dir / built_wheel.name
+    if final_wheel_path.exists():
+        raise EnvironmentBundleError(f"derived wheel destination already exists: {final_wheel_path}")
+    shutil.copyfile(built_wheel, final_wheel_path)
+    sdist_entry = {
+        "distribution": requirement.distribution,
+        "version": requirement.version,
+        "filename": sdist_filename,
+        "relative_path": str(Path("evidence") / normalized / sdist_filename).replace("\\", "/"),
+        "size_bytes": sdist_path.stat().st_size,
+        "origin": source_sdist["url"],
+        "sha256": hashing.hash_file(sdist_path),
+        "type": "sdist",
+    }
+    provenance = {
+        "distribution": requirement.distribution,
+        "version": requirement.version,
+        "wheel": dict(wheel_entry),
+        "source_sdist": sdist_entry,
+        "build_inputs": [dict(entry) for entry in build_inputs],
+        "builder": dict(target),
+        "frontend": {"name": "build", "version": tooling_by_name["build"]["version"]},
+        "backend": {
+            "name": normalize_distribution_name(str(build_system.get("build-backend", "hatchling")).split(".", 1)[0]),
+            "version": tooling_by_name["hatchling"]["version"],
+        },
+        "command": command,
+    }
+    return {
+        "wheel": wheel_entry,
+        "source_sdist": sdist_entry,
+        "provenance": provenance,
+    }
+
+
+def capture_target_report(
+    output_path: str | Path,
+    *,
+    source_root: str | Path,
+    expected_revision: str,
+) -> dict[str, Any]:
+    source_root_path = Path(source_root).resolve()
+    revision = _validate_clean_source_root(source_root_path, expected_revision)
+    output = Path(output_path)
+    if output.exists():
+        raise EnvironmentBundleError(f"target capture output {output} already exists")
+    soabi = (
+        sysconfig.get_config_var("SOABI")
+        or sysconfig.get_config_var("SO")
+        or sys.implementation.cache_tag
+    )
+    if not isinstance(soabi, str) or not soabi:
+        raise EnvironmentBundleError("could not determine the exact SOABI for target capture")
+    compatible_tags = [str(tag) for tag in packaging_tags.sys_tags()]
+    payload = {
+        "report_type": _TARGET_CAPTURE_TYPE,
+        "schema_version": 1,
+        "created_at": _utcnow(),
+        "source_root": str(source_root_path),
+        "repo_revision": revision,
+        "source_hashes": source_hashes_for_root(source_root_path),
+        "target": current_target(),
+        "python_full_version": ".".join(str(part) for part in sys.version_info[:3]),
+        "implementation": sys.implementation.name,
+        "soabi": soabi,
+        "compatible_tags": compatible_tags,
+        "builder": {
+            "name": "interplab.core.environment_bundle",
+            "python_version": sys.version.split()[0],
+        },
+    }
+    validate_target_capture_report(payload)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def validate_target_capture_report(payload: dict[str, Any]) -> None:
+    _require_mapping(payload, context="target capture")
+    _require_exact_keys(
+        payload,
+        required={
+            "report_type",
+            "schema_version",
+            "created_at",
+            "source_root",
+            "repo_revision",
+            "source_hashes",
+            "target",
+            "python_full_version",
+            "implementation",
+            "soabi",
+            "compatible_tags",
+            "builder",
+        },
+        context="target capture",
+    )
+    _require_string(payload, "report_type", expected=_TARGET_CAPTURE_TYPE, context="target capture")
+    _require_int(payload, "schema_version", expected=1, context="target capture")
+    _require_datetime_string(payload, "created_at", context="target capture")
+    _require_string(payload, "source_root", context="target capture")
+    _require_string(payload, "repo_revision", context="target capture")
+    _validate_source_hashes(
+        _require_mapping(payload, "source_hashes", context="target capture"),
+        repo_root=Path(payload["source_root"]),
+    )
+    target = _require_mapping(payload, "target", context="target capture")
+    _require_exact_keys(target, required={"os", "architecture", "python", "abi"}, context="target capture.target")
+    for field in ("os", "architecture", "python", "abi"):
+        _require_string(target, field, context="target capture.target")
+    _require_string(payload, "python_full_version", context="target capture")
+    _require_string(payload, "implementation", context="target capture")
+    _require_string(payload, "soabi", context="target capture")
+    compatible_tags = _require_list(payload, "compatible_tags", context="target capture")
+    if not compatible_tags or not all(isinstance(tag, str) and tag for tag in compatible_tags):
+        raise EnvironmentBundleError("target capture.compatible_tags must contain ordered non-empty strings")
+    builder = _require_mapping(payload, "builder", context="target capture")
+    _require_exact_keys(builder, required={"name", "python_version"}, context="target capture.builder")
+    _require_string(builder, "name", context="target capture.builder")
+    _require_string(builder, "python_version", context="target capture.builder")
+
+
+def build_runtime_bundle(
+    *,
+    source_root: str | Path,
+    expected_revision: str,
+    target_report_path: str | Path,
+    tooling_lock_path: str | Path,
+    staging_dir: str | Path,
+) -> dict[str, Any]:
+    source_root_path = Path(source_root).resolve()
+    revision = _validate_clean_source_root(source_root_path, expected_revision)
+    target_report = _load_json_payload(target_report_path, context="target capture")
+    validate_target_capture_report(target_report)
+    load_tooling_lock(tooling_lock_path)
+    staging_path = Path(staging_dir).resolve()
+    if not staging_path.exists():
+        raise EnvironmentBundleError(f"runtime staging directory {staging_path} must exist and be empty")
+    if any(staging_path.iterdir()):
+        raise EnvironmentBundleError(f"runtime staging directory {staging_path} must be empty")
+
+    requirements = parse_requirements_export(source_root_path / "slurm" / "requirements.cluster.txt")
+    lock_packages = load_lock_packages(source_root_path / "uv.lock")
+    runtime_requirements = selected_runtime_requirements(
+        {"target": target_report["target"]},
+        requirements,
+    )
+    source_only = [
+        requirement
+        for requirement in runtime_requirements
+        if not (lock_packages[requirement.distribution].get("wheels") or [])
+    ]
+    _enforce_real_repo_runtime_expectations(
+        source_hashes_for_root(source_root_path),
+        runtime_requirements,
+        source_only,
+    )
+
+    tooling_artifacts = tooling_lock_artifacts(tooling_lock_path, include_build=True)
+    tooling_by_name = {
+        normalize_distribution_name(entry["distribution"]): entry for entry in tooling_artifacts
+    }
+    runtime_entries: list[dict[str, Any]] = []
+    derived_wheels: list[dict[str, Any]] = []
+    copied_files: list[str] = []
+
+    for artifact in tooling_artifacts:
+        file_path = staging_path / artifact["filename"]
+        _download_and_verify_artifact(artifact, destination=file_path)
+        copied_files.append(file_path.name)
+
+    for requirement in runtime_requirements:
+        package = lock_packages.get(requirement.distribution)
+        if package is None:
+            raise EnvironmentBundleError(f"uv.lock is missing runtime package {requirement.distribution!r}")
+        lock_version = package.get("version")
+        if lock_version != requirement.version:
+            raise EnvironmentBundleError(
+                f"runtime package {requirement.distribution!r} version mismatch: export requires {requirement.version}, lock has {lock_version}"
+            )
+        wheels = package.get("wheels") or []
+        if wheels:
+            selected = _select_locked_wheel_for_target(
+                requirement.distribution,
+                requirement.version,
+                wheels,
+                target_report["compatible_tags"],
+            )
+            runtime_entry = _manifest_entry_from_selected_artifact(
+                requirement.distribution,
+                requirement.version,
+                selected,
+            )
+            if runtime_entry["sha256"] not in requirement.hashes:
+                raise EnvironmentBundleError(
+                    f"runtime hash mismatch for {requirement.distribution!r}: {runtime_entry['sha256']} not authorized by the export"
+                )
+            overlap_name = normalize_distribution_name(requirement.distribution)
+            if overlap_name in _TOOLING_LOCK_RUNTIME_OVERLAPS:
+                tooling_artifact = tooling_by_name[overlap_name]
+                for field, tooling_field in (("filename", "filename"), ("origin", "origin_url"), ("size_bytes", "size_bytes"), ("sha256", "sha256")):
+                    if runtime_entry[field] != tooling_artifact[tooling_field]:
+                        raise EnvironmentBundleError(
+                            f"runtime/tooling overlap for {overlap_name!r} must use the identical accepted artifact identity"
+                        )
+            runtime_entries.append(runtime_entry)
+            runtime_file = staging_path / runtime_entry["filename"]
+            if not runtime_file.exists():
+                _download_and_verify_artifact(selected, destination=runtime_file)
+                copied_files.append(runtime_file.name)
+            continue
+
+        sdist_info = package.get("sdist")
+        if not isinstance(sdist_info, dict):
+            raise EnvironmentBundleError(f"source-only runtime package {requirement.distribution!r} has no locked sdist")
+        derived = _build_derived_runtime_wheel(
+            requirement=requirement,
+            source_sdist=sdist_info,
+            tooling_by_name=tooling_by_name,
+            target_report=target_report,
+            staging_dir=staging_path,
+        )
+        runtime_entries.append(derived["wheel"])
+        derived_wheels.append(derived["provenance"])
+        copied_files.extend(path for path in (derived["wheel"]["filename"], derived["source_sdist"]["relative_path"]) if path not in copied_files)
+
+    extra_installable = {
+        path.name
+        for path in staging_path.iterdir()
+        if path.is_file() and path.suffix in {".whl", ".gz"}
+    }
+    expected_installable = {
+        entry["filename"] for entry in runtime_entries
+    } | {
+        artifact["filename"] for artifact in tooling_artifacts
+    } | {
+        provenance["source_sdist"]["relative_path"] for provenance in derived_wheels
+    }
+    unexpected = sorted(extra_installable - expected_installable)
+    if unexpected:
+        raise EnvironmentBundleError(f"runtime staging contains unexpected installable artifacts: {unexpected}")
+
+    receipt = {
+        "stage_type": _RUNTIME_STAGE_TYPE,
+        "schema_version": 1,
+        "created_at": _utcnow(),
+        "source_root": str(source_root_path),
+        "repo_revision": revision,
+        "source_hashes": source_hashes_for_root(source_root_path),
+        "target_report": json.loads(json.dumps(target_report)),
+        "tooling_lock_path": str(Path(tooling_lock_path).resolve()),
+        "tooling": [
+            _manifest_entry_from_tooling_lock_artifact(artifact)
+            for artifact in tooling_artifacts
+        ],
+        "runtime": runtime_entries,
+        "derived_wheels": derived_wheels,
+    }
+    validate_runtime_stage_receipt(receipt)
+    (staging_path / "runtime-stage.json").write_text(
+        json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return receipt
+
+
+def validate_runtime_stage_receipt(payload: dict[str, Any]) -> None:
+    _require_mapping(payload, context="runtime stage")
+    _require_exact_keys(
+        payload,
+        required={
+            "stage_type",
+            "schema_version",
+            "created_at",
+            "source_root",
+            "repo_revision",
+            "source_hashes",
+            "target_report",
+            "tooling_lock_path",
+            "tooling",
+            "runtime",
+            "derived_wheels",
+        },
+        context="runtime stage",
+    )
+    _require_string(payload, "stage_type", expected=_RUNTIME_STAGE_TYPE, context="runtime stage")
+    _require_int(payload, "schema_version", expected=1, context="runtime stage")
+    _require_datetime_string(payload, "created_at", context="runtime stage")
+    _require_string(payload, "source_root", context="runtime stage")
+    _require_string(payload, "repo_revision", context="runtime stage")
+    _validate_source_hashes(_require_mapping(payload, "source_hashes", context="runtime stage"), repo_root=Path(payload["source_root"]))
+    validate_target_capture_report(_require_mapping(payload, "target_report", context="runtime stage"))
+    _require_string(payload, "tooling_lock_path", context="runtime stage")
+    for index, entry in enumerate(_require_list(payload, "tooling", context="runtime stage")):
+        _validate_manifest_entry_shape(entry, context=f"runtime stage.tooling[{index}]")
+    for index, entry in enumerate(_require_list(payload, "runtime", context="runtime stage")):
+        _validate_manifest_entry_shape(entry, context=f"runtime stage.runtime[{index}]")
+    for index, entry in enumerate(_require_list(payload, "derived_wheels", context="runtime stage")):
+        _validate_derived_entry_shape(entry, context=f"runtime stage.derived_wheels[{index}]")
+
+
+def import_alliance_torch_artifact(
+    *,
+    artifact_path: str | Path,
+    origin: str,
+    transcript_path: str | Path,
+    output_path: str | Path,
+) -> dict[str, Any]:
+    artifact = Path(artifact_path).resolve()
+    if not artifact.is_file():
+        raise EnvironmentBundleError(f"Alliance torch artifact {artifact} is missing")
+    receipt_path = Path(output_path)
+    if receipt_path.exists():
+        raise EnvironmentBundleError(f"torch receipt output {receipt_path} already exists")
+    transcript = Path(transcript_path).read_text(encoding="utf-8")
+    if "no-index" not in transcript or "no-deps" not in transcript or "only-binary" not in transcript:
+        raise EnvironmentBundleError("Alliance torch transcript must record no-index/no-deps/only-binary acquisition controls")
+    if not origin.startswith(_ALLIANCE_TORCH_ORIGIN_PREFIX):
+        raise EnvironmentBundleError("Alliance torch origin must use the approved Alliance wheelhouse prefix")
+    identity = _read_wheel_metadata(artifact)
+    if normalize_distribution_name(identity["metadata_name"]) != "torch":
+        raise EnvironmentBundleError("Alliance torch artifact metadata Name does not identify torch")
+    if identity["metadata_version"] != _ALLIANCE_TORCH_VERSION:
+        raise EnvironmentBundleError("Alliance torch artifact metadata Version does not match the sanctioned Alliance build")
+    if _public_version(identity["metadata_version"]) != _ALLIANCE_TORCH_PUBLIC_VERSION:
+        raise EnvironmentBundleError("Alliance torch artifact must preserve the locked public torch version")
+    payload = {
+        "receipt_type": _TORCH_RECEIPT_TYPE,
+        "schema_version": 1,
+        "created_at": _utcnow(),
+        "artifact": {
+            "distribution": "torch",
+            "version": identity["metadata_version"],
+            "filename": artifact.name,
+            "relative_path": artifact.name,
+            "size_bytes": artifact.stat().st_size,
+            "origin": origin,
+            "sha256": hashing.hash_file(artifact),
+            "type": "wheel",
+            "import_name": "torch",
+        },
+        "public_version": _ALLIANCE_TORCH_PUBLIC_VERSION,
+        "transcript_path": str(Path(transcript_path).resolve()),
+    }
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    receipt_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
+
+
+def finalize_bundle(
+    *,
+    runtime_staging_dir: str | Path,
+    target_report_path: str | Path,
+    torch_receipt_path: str | Path,
+    source_root: str | Path,
+    expected_revision: str,
+    output_root: str | Path,
+) -> dict[str, Any]:
+    source_root_path = Path(source_root).resolve()
+    revision = _validate_clean_source_root(source_root_path, expected_revision)
+    runtime_stage_path = Path(runtime_staging_dir).resolve()
+    if not runtime_stage_path.is_dir():
+        raise EnvironmentBundleError(f"runtime staging directory {runtime_stage_path} is missing")
+    target_report = _load_json_payload(target_report_path, context="target capture")
+    validate_target_capture_report(target_report)
+    runtime_stage = _load_json_payload(runtime_stage_path / "runtime-stage.json", context="runtime stage")
+    validate_runtime_stage_receipt(runtime_stage)
+    torch_receipt = _load_json_payload(torch_receipt_path, context="torch receipt")
+    if torch_receipt.get("receipt_type") != _TORCH_RECEIPT_TYPE:
+        raise EnvironmentBundleError("torch receipt has the wrong type")
+    torch_entry = _require_mapping(torch_receipt, "artifact", context="torch receipt")
+    _validate_manifest_entry_shape(torch_entry, context="torch receipt.artifact")
+    output_root_path = Path(output_root).resolve()
+    output_root_path.mkdir(parents=True, exist_ok=True)
+
+    manifest = {
+        "manifest_type": _RUNTIME_MANIFEST_TYPE,
+        "schema_version": 1,
+        "source_hashes": source_hashes_for_root(source_root_path),
+        "target": runtime_stage["target_report"]["target"],
+        "generator": {
+            "uv": "0.8.22",
+            "pip": "25.0",
+            "virtualenv": "20.26.0",
+            "hatchling": "1.27.0",
+            "build": "1.2.2" if runtime_stage["derived_wheels"] else None,
+        },
+        "tooling": {
+            "installers": [
+                entry
+                for entry in runtime_stage["tooling"]
+                if normalize_distribution_name(entry["distribution"]) in set(_BASE_TOOLING) | {"build"}
+                and (runtime_stage["derived_wheels"] or normalize_distribution_name(entry["distribution"]) != "build")
+            ]
+        },
+        "torch": torch_entry,
+        "runtime": runtime_stage["runtime"],
+        "derived_wheels": runtime_stage["derived_wheels"],
+    }
+    validate_acquisition_manifest(manifest)
+
+    staging_publish = output_root_path / f".bundle-staging-{uuid.uuid4().hex[:8]}"
+    staging_publish.mkdir(parents=True, exist_ok=False)
+    try:
+        for path in runtime_stage_path.iterdir():
+            if path.is_symlink():
+                raise EnvironmentBundleError(f"runtime staging contains a symlink: {path.name}")
+            if path.is_file():
+                if path.suffix in {".whl", ".gz"}:
+                    shutil.copyfile(path, staging_publish / path.name)
+                continue
+            if path.name == "evidence":
+                shutil.copytree(path, staging_publish / path.name)
+        torch_source = Path(torch_receipt_path).resolve().parent / torch_entry["relative_path"]
+        if not torch_source.is_file():
+            raise EnvironmentBundleError(f"torch artifact missing beside receipt: {torch_source}")
+        shutil.copyfile(torch_source, staging_publish / torch_entry["filename"])
+        manifest_path = staging_publish / "environment-acquisition.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        receipt = {
+            "created_at": _utcnow(),
+            "repo_revision": revision,
+            "target_report_path": str(Path(target_report_path).resolve()),
+            "torch_receipt_path": str(Path(torch_receipt_path).resolve()),
+        }
+        (staging_publish / "construction-receipt.json").write_text(
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        validate_bundle(
+            manifest_path,
+            bundle_root=staging_publish,
+            venv_dir=staging_publish / ".validate-venv",
+            source_root=source_root_path,
+            expected_revision=expected_revision,
+        )
+        manifest_hash = hashing.hash_file(manifest_path).split(":", 1)[1]
+        final_path = output_root_path / f"bundle-{manifest_hash}"
+        if final_path.exists():
+            raise EnvironmentBundleError(f"final bundle destination already exists: {final_path}")
+        staging_publish.replace(final_path)
+        return {
+            "bundle_root": str(final_path),
+            "manifest_path": str(final_path / "environment-acquisition.json"),
+            "manifest_hash": f"sha256:{manifest_hash}",
+        }
+    except Exception:
+        _rollback_partial_path(staging_publish)
+        raise
+
+
 def validate_bundle(
     manifest_path: str | Path,
     *,
@@ -280,13 +1527,24 @@ def validate_bundle(
     venv_dir: str | Path | None = None,
     repo_root: Path = REPO_ROOT,
     install_manifest_path: str | Path | None = None,
+    source_root: str | Path | None = None,
+    expected_revision: str | None = None,
 ) -> dict[str, Any]:
+    if (source_root is None) != (expected_revision is None):
+        raise EnvironmentBundleError("validate_bundle requires source_root and expected_revision together")
+    if source_root is not None and expected_revision is not None:
+        _validate_clean_source_root(Path(source_root).resolve(), expected_revision)
     manifest = load_acquisition_manifest(manifest_path)
     bundle_root_path = (
         Path(bundle_root).resolve()
         if bundle_root is not None
         else Path(manifest_path).resolve().parent
     )
+    manifest_path_resolved = Path(manifest_path).resolve()
+    if manifest_path_resolved.parent != bundle_root_path and bundle_root_path not in manifest_path_resolved.parents:
+        raise EnvironmentBundleError(
+            f"acquisition manifest {manifest_path_resolved} must reside inside bundle root {bundle_root_path}"
+        )
     venv_path = Path(venv_dir).resolve() if venv_dir is not None else None
 
     validated = _validate_acquisition_manifest_semantics(
@@ -307,12 +1565,25 @@ def validate_bundle(
             raise EnvironmentBundleError(
                 f"install manifest path {install_target} escapes bundle root {bundle_root_path}"
             )
+        if install_target.exists():
+            raise EnvironmentBundleError(f"install manifest destination {install_target} already exists")
+
+    tooling_closure = _validated_tooling_lock_files(
+        bundle_root_path,
+        include_build=bool(manifest["derived_wheels"]),
+    )
+    tooling_install_plan = [
+        entry
+        for entry in tooling_closure
+        if normalize_distribution_name(entry["distribution"]) not in {"pip", "uv"}
+    ]
 
     return {
-        "manifest_path": str(Path(manifest_path).resolve()),
+        "manifest_path": str(manifest_path_resolved),
         "bundle_root": str(bundle_root_path),
         "runtime": validated["runtime"],
         "tooling": validated["tooling"],
+        "tooling_closure": tooling_install_plan,
         "torch": validated["torch"],
         "target": manifest["target"],
         "plan_files": {
@@ -338,7 +1609,8 @@ def write_selected_requirements(preflight: dict[str, Any], plan_dir: str | Path)
         if normalize_distribution_name(entry["distribution"]) not in tooling_names
     ]
     _write_requirements_file(runtime_path, runtime_plan)
-    _write_requirements_file(tooling_path, preflight["tooling"])
+    tooling_plan = preflight.get("tooling_closure", preflight["tooling"])
+    _write_requirements_file(tooling_path, tooling_plan)
     _write_requirements_file(torch_path, [preflight["torch"]])
     return {
         "runtime_requirements": str(runtime_path),
@@ -366,25 +1638,31 @@ def record_installed_environment(
     torch_entry = validated["torch"]
 
     installed = _installed_distributions()
-    expected_installed = {
+    required_installed = {
         normalize_distribution_name(entry["distribution"]): entry["version"]
         for entry in [*runtime_entries, *tooling_entries, torch_entry]
     }
+    optional_installed = _approved_optional_tooling_versions(manifest)
     project_name, project_version = _local_project_identity(repo_root)
-    expected_installed[project_name] = project_version
+    required_installed[project_name] = project_version
 
-    if set(installed) != set(expected_installed):
-        extras = sorted(set(installed) - set(expected_installed))
-        missing = sorted(set(expected_installed) - set(installed))
+    extras = sorted(set(installed) - set(required_installed) - set(optional_installed))
+    missing = sorted(set(required_installed) - set(installed))
+    if extras or missing:
         raise EnvironmentBundleError(
             "installed distribution set mismatch: "
             f"missing={missing or '[]'}, unexpected={extras or '[]'}"
         )
-    for distribution_name, expected_version in expected_installed.items():
+    for distribution_name, expected_version in required_installed.items():
         actual_version = installed[distribution_name]
         if actual_version != expected_version:
             raise EnvironmentBundleError(
                 f"installed version mismatch for {distribution_name!r}: expected {expected_version}, got {actual_version}"
+            )
+    for distribution_name, expected_version in optional_installed.items():
+        if distribution_name in installed and installed[distribution_name] != expected_version:
+            raise EnvironmentBundleError(
+                f"installed optional tooling version mismatch for {distribution_name!r}: expected {expected_version}, got {installed[distribution_name]}"
             )
 
     verified_imports: list[str] = []
@@ -392,12 +1670,30 @@ def record_installed_environment(
         import_module(import_name)
         verified_imports.append(import_name)
 
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "check"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise EnvironmentBundleError("could not execute target-venv python -m pip check") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stdout or "") + (exc.stderr or "")
+        detail = detail.strip() or "no stderr/stdout"
+        raise EnvironmentBundleError(f"python -m pip check failed: {detail}") from exc
+
     repo_revision = _clean_git_head(repo_root)
     loaded_modules = _measured_loaded_modules()
     installer_versions = {
         normalize_distribution_name(name): dist_version(name)
         for name in _expected_tooling_names(manifest)
     }
+    for name in sorted(optional_installed):
+        if name in installed:
+            installer_versions[name] = dist_version(name)
 
     install_manifest = {
         "manifest_type": _INSTALL_MANIFEST_TYPE,
@@ -424,6 +1720,8 @@ def record_installed_environment(
     )
     validate_install_manifest(install_manifest)
     install_path = Path(install_manifest_path)
+    if install_path.exists():
+        raise EnvironmentBundleError(f"install manifest destination {install_path} already exists")
     install_path.parent.mkdir(parents=True, exist_ok=True)
     install_path.write_text(json.dumps(install_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return install_manifest
@@ -666,26 +1964,50 @@ def _validate_install_manifest_consistency(
     tooling_entries = validated["tooling"]
     torch_entry = validated["torch"]
 
-    expected_installer_versions = {
+    required_installer_versions = {
         normalize_distribution_name(entry["distribution"]): entry["version"]
         for entry in tooling_entries
     }
+    approved_optional_installers = {
+        normalize_distribution_name(entry["distribution"]): entry["version"]
+        for entry in _tooling_install_plan(
+            include_build=bool(acquisition_manifest["derived_wheels"]),
+            include_pip=False,
+            include_uv=False,
+        )
+        if normalize_distribution_name(entry["distribution"]) not in required_installer_versions
+    }
     actual_installer_versions = install_manifest["installer_versions"]
-    if actual_installer_versions != expected_installer_versions:
+    missing_installers = sorted(set(required_installer_versions) - set(actual_installer_versions))
+    unexpected_installers = sorted(
+        set(actual_installer_versions) - set(required_installer_versions) - set(approved_optional_installers)
+    )
+    if missing_installers or unexpected_installers:
         raise EnvironmentBundleError(
             "install manifest installer_versions do not match the approved tooling set"
         )
+    for name, expected_version in required_installer_versions.items():
+        if actual_installer_versions[name] != expected_version:
+            raise EnvironmentBundleError(
+                f"install manifest installer_versions mismatch for {name!r}: expected {expected_version}, got {actual_installer_versions[name]}"
+            )
+    for name, expected_version in approved_optional_installers.items():
+        if name in actual_installer_versions and actual_installer_versions[name] != expected_version:
+            raise EnvironmentBundleError(
+                f"install manifest optional installer_versions mismatch for {name!r}: expected {expected_version}, got {actual_installer_versions[name]}"
+            )
     _validate_loaded_modules(
         install_manifest["loaded_modules"],
         context="install manifest loaded_modules",
     )
 
-    expected_installed = {
+    required_installed = {
         normalize_distribution_name(entry["distribution"]): entry["version"]
         for entry in [*runtime_entries, *tooling_entries, torch_entry]
     }
+    approved_optional_installed = dict(approved_optional_installers)
     project_name, project_version = _local_project_identity(repo_root)
-    expected_installed[project_name] = project_version
+    required_installed[project_name] = project_version
     expected_repo_revision = _clean_git_head(repo_root)
     if install_manifest["repo_revision"] != expected_repo_revision:
         raise EnvironmentBundleError(
@@ -695,19 +2017,31 @@ def _validate_install_manifest_consistency(
         install_manifest["installed_distributions"],
         context="install manifest installed_distributions",
     )
-    if set(actual_installed) != set(expected_installed):
-        extras = sorted(set(actual_installed) - set(expected_installed))
-        missing = sorted(set(expected_installed) - set(actual_installed))
+    if set(actual_installed) - set(required_installed) - set(approved_optional_installed):
+        extras = sorted(set(actual_installed) - set(required_installed) - set(approved_optional_installed))
+        missing = sorted(set(required_installed) - set(actual_installed))
         raise EnvironmentBundleError(
             "install manifest installed_distributions mismatch: "
             f"missing={missing or '[]'}, unexpected={extras or '[]'}"
         )
-    for distribution_name, expected_version in expected_installed.items():
+    missing_required = sorted(set(required_installed) - set(actual_installed))
+    if missing_required:
+        raise EnvironmentBundleError(
+            "install manifest installed_distributions mismatch: "
+            f"missing={missing_required or '[]'}, unexpected=[]"
+        )
+    for distribution_name, expected_version in required_installed.items():
         actual_version = actual_installed[distribution_name]
         if actual_version != expected_version:
             raise EnvironmentBundleError(
                 f"install manifest installed_distributions version mismatch for {distribution_name!r}: "
                 f"expected {expected_version}, got {actual_version}"
+            )
+    for distribution_name, expected_version in approved_optional_installed.items():
+        if distribution_name in actual_installed and actual_installed[distribution_name] != expected_version:
+            raise EnvironmentBundleError(
+                f"install manifest optional installed_distributions version mismatch for {distribution_name!r}: "
+                f"expected {expected_version}, got {actual_installed[distribution_name]}"
             )
 
     torch_record = install_manifest["torch"]
@@ -1318,7 +2652,13 @@ def create_virtualenv(
     venv_dir: str | Path,
     python_executable: str | None = None,
     repo_root: Path = REPO_ROOT,
+    source_root: str | Path | None = None,
+    expected_revision: str | None = None,
 ) -> dict[str, Any]:
+    if (source_root is None) != (expected_revision is None):
+        raise EnvironmentBundleError("create_virtualenv requires source_root and expected_revision together")
+    if source_root is not None and expected_revision is not None:
+        _validate_clean_source_root(Path(source_root).resolve(), expected_revision)
     manifest = load_acquisition_manifest(manifest_path)
     bundle_root_path = (
         Path(bundle_root).resolve()
@@ -1340,6 +2680,16 @@ def create_virtualenv(
         validated["tooling"],
         bundle_root=bundle_root_path,
     )
+    pip_entry = next(
+        (
+            entry
+            for entry in validated["tooling"]
+            if normalize_distribution_name(entry["distribution"]) == "pip"
+        ),
+        None,
+    )
+    if pip_entry is None:
+        raise EnvironmentBundleError("tooling installers must include the approved pip bootstrap artifact")
     _wheel_path, creator_bytes = _validated_artifact_bytes(
         creator_entry,
         bundle_root=bundle_root_path,
@@ -1382,6 +2732,16 @@ def create_virtualenv(
                 f"creator snapshot hash mismatch: expected {executed_creator_hash}, got {post_execution_hash}"
             )
         _validate_created_virtualenv(staging_path, expected_target=manifest["target"])
+        _assert_unseeded_virtualenv(staging_path)
+        _bootstrap_private_pip(
+            venv_path=staging_path,
+            pip_entry=pip_entry,
+            bundle_root=bundle_root_path,
+        )
+        _assert_bootstrapped_pip_only(
+            staging_path,
+            expected_pip_version=pip_entry["version"],
+        )
         staging_path.replace(venv_path)
     except Exception:
         _rollback_partial_path(staging_path)
@@ -1416,10 +2776,21 @@ with tempfile.TemporaryDirectory(
     prefix="creator-private-",
     dir=str(pathlib.Path(target).parent),
 ) as private_root:
-    private_wheel = pathlib.Path(private_root) / snapshot.name
+    private_root_path = pathlib.Path(private_root)
+    private_wheel = private_root_path / snapshot.name
     private_wheel.write_bytes(snapshot_bytes)
     sys.path.insert(0, str(private_wheel))
-    sys.argv = ["virtualenv", "--no-download", target]
+    app_data = private_root_path / "app-data"
+    app_data.mkdir()
+    sys.argv = [
+        "virtualenv",
+        "--no-download",
+        "--no-periodic-update",
+        "--no-seed",
+        "--app-data",
+        str(app_data),
+        target,
+    ]
     runpy.run_module("virtualenv", run_name="__main__")
 """
 
@@ -1872,6 +3243,24 @@ def _expected_tooling_names(manifest: dict[str, Any]) -> tuple[str, ...]:
     return _DERIVED_WHEEL_TOOLING if manifest["derived_wheels"] else _BASE_TOOLING
 
 
+def _approved_optional_tooling_versions(manifest: dict[str, Any]) -> dict[str, str]:
+    required = {
+        normalize_distribution_name(name)
+        for name in _expected_tooling_names(manifest)
+    }
+    versions: dict[str, str] = {}
+    for entry in _tooling_install_plan(
+        include_build=bool(manifest["derived_wheels"]),
+        include_pip=False,
+        include_uv=False,
+    ):
+        normalized = normalize_distribution_name(entry["distribution"])
+        if normalized in required:
+            continue
+        versions[normalized] = entry["version"]
+    return versions
+
+
 def _require_generator_version(generator: dict[str, Any], field: str) -> str:
     value = _require_nullable_string(generator, field, context="generator")
     if value is None:
@@ -2228,16 +3617,46 @@ def _build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--venv-dir", required=True)
     preflight.add_argument("--plan-dir", required=True)
     preflight.add_argument("--install-manifest")
+    preflight.add_argument("--source-root")
+    preflight.add_argument("--expected-revision")
 
     create_venv = subparsers.add_parser("create-venv")
     create_venv.add_argument("--manifest", required=True)
     create_venv.add_argument("--bundle-root")
     create_venv.add_argument("--venv-dir", required=True)
     create_venv.add_argument("--python-executable")
+    create_venv.add_argument("--source-root")
+    create_venv.add_argument("--expected-revision")
 
     record = subparsers.add_parser("record-installed")
     record.add_argument("--manifest", required=True)
     record.add_argument("--install-manifest", required=True)
+
+    capture_target = subparsers.add_parser("capture-target")
+    capture_target.add_argument("--output", required=True)
+    capture_target.add_argument("--source-root", required=True)
+    capture_target.add_argument("--expected-revision", required=True)
+
+    build_runtime = subparsers.add_parser("build-runtime")
+    build_runtime.add_argument("--source-root", required=True)
+    build_runtime.add_argument("--expected-revision", required=True)
+    build_runtime.add_argument("--target-report", required=True)
+    build_runtime.add_argument("--tooling-lock", required=True)
+    build_runtime.add_argument("--staging-dir", required=True)
+
+    import_torch = subparsers.add_parser("import-alliance-torch")
+    import_torch.add_argument("--artifact", required=True)
+    import_torch.add_argument("--origin", required=True)
+    import_torch.add_argument("--transcript", required=True)
+    import_torch.add_argument("--output", required=True)
+
+    finalize = subparsers.add_parser("finalize-bundle")
+    finalize.add_argument("--runtime-staging-dir", required=True)
+    finalize.add_argument("--target-report", required=True)
+    finalize.add_argument("--torch-receipt", required=True)
+    finalize.add_argument("--source-root", required=True)
+    finalize.add_argument("--expected-revision", required=True)
+    finalize.add_argument("--output-root", required=True)
 
     return parser
 
@@ -2252,6 +3671,8 @@ def main(argv: list[str] | None = None) -> int:
                 bundle_root=args.bundle_root,
                 venv_dir=args.venv_dir,
                 install_manifest_path=args.install_manifest,
+                source_root=args.source_root,
+                expected_revision=args.expected_revision,
             )
             write_selected_requirements(preflight, args.plan_dir)
             print(json.dumps(preflight, indent=2, sort_keys=True))
@@ -2262,12 +3683,52 @@ def main(argv: list[str] | None = None) -> int:
                 bundle_root=args.bundle_root,
                 venv_dir=args.venv_dir,
                 python_executable=args.python_executable,
+                source_root=args.source_root,
+                expected_revision=args.expected_revision,
             )
             print(json.dumps(created, indent=2, sort_keys=True))
             return 0
         if args.command == "record-installed":
             manifest = record_installed_environment(args.manifest, args.install_manifest)
             print(json.dumps(manifest, indent=2, sort_keys=True))
+            return 0
+        if args.command == "capture-target":
+            payload = capture_target_report(
+                args.output,
+                source_root=args.source_root,
+                expected_revision=args.expected_revision,
+            )
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+        if args.command == "build-runtime":
+            payload = build_runtime_bundle(
+                source_root=args.source_root,
+                expected_revision=args.expected_revision,
+                target_report_path=args.target_report,
+                tooling_lock_path=args.tooling_lock,
+                staging_dir=args.staging_dir,
+            )
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+        if args.command == "import-alliance-torch":
+            payload = import_alliance_torch_artifact(
+                artifact_path=args.artifact,
+                origin=args.origin,
+                transcript_path=args.transcript,
+                output_path=args.output,
+            )
+            print(json.dumps(payload, indent=2, sort_keys=True))
+            return 0
+        if args.command == "finalize-bundle":
+            payload = finalize_bundle(
+                runtime_staging_dir=args.runtime_staging_dir,
+                target_report_path=args.target_report,
+                torch_receipt_path=args.torch_receipt,
+                source_root=args.source_root,
+                expected_revision=args.expected_revision,
+                output_root=args.output_root,
+            )
+            print(json.dumps(payload, indent=2, sort_keys=True))
             return 0
     except EnvironmentBundleError as exc:
         print(str(exc), file=sys.stderr)

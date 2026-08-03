@@ -30,6 +30,7 @@ VENV_DIR="${INTERPLAB_VENV_DIR:-$HOME/interplab-venv}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REQS_FILE="$REPO_ROOT/slurm/requirements.cluster.txt"
 MANIFEST_PATH="${INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH:-}"
+EXPECTED_REVISION="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 
 if [ -z "$MANIFEST_PATH" ]; then
   echo "Set INTERPLAB_ENV_ACQUISITION_MANIFEST_PATH to the ED-36 acquisition manifest JSON." >&2
@@ -66,12 +67,16 @@ python "$REPO_ROOT/interplab/core/environment_bundle.py" preflight \
   --venv-dir "$VENV_DIR" \
   --plan-dir "$PLAN_DIR" \
   --install-manifest "$INSTALL_MANIFEST_PATH" \
+  --source-root "$REPO_ROOT" \
+  --expected-revision "$EXPECTED_REVISION" \
   > "$PRECHECK_PATH"
 
 python "$REPO_ROOT/interplab/core/environment_bundle.py" create-venv \
   --manifest "$MANIFEST_PATH" \
   --bundle-root "$BUNDLE_ROOT" \
   --venv-dir "$VENV_DIR" \
+  --source-root "$REPO_ROOT" \
+  --expected-revision "$EXPECTED_REVISION" \
   > "$PLAN_DIR/create-venv.json"
 
 # shellcheck disable=SC1091
