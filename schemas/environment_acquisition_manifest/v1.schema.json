@@ -113,6 +113,154 @@
         "import_name": { "type": ["string", "null"] }
       }
     },
+    "build_requirement_mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw_requirement", "normalized_name", "marker", "marker_result", "mapped_artifact"],
+      "properties": {
+        "raw_requirement": { "type": "string", "minLength": 1 },
+        "normalized_name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+        "marker": { "type": ["string", "null"] },
+        "marker_result": { "type": "boolean" },
+        "mapped_artifact": {
+          "oneOf": [
+            { "$ref": "#/$defs/artifact" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "distribution_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["distribution", "version"],
+      "properties": {
+        "distribution": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "inventory_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "type"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["file", "directory"] },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "marker_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "implementation_name",
+        "platform_machine",
+        "platform_python_implementation",
+        "python_full_version",
+        "python_version",
+        "sys_platform"
+      ],
+      "properties": {
+        "implementation_name": { "type": "string", "minLength": 1 },
+        "platform_machine": { "type": "string", "minLength": 1 },
+        "platform_python_implementation": { "type": "string", "minLength": 1 },
+        "python_full_version": { "type": "string", "minLength": 1 },
+        "python_version": { "type": "string", "minLength": 1 },
+        "sys_platform": { "type": "string", "minLength": 1 }
+      }
+    },
+    "derived_tool_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "provider_distribution",
+        "module",
+        "module_origin",
+        "record_path",
+        "record_sha256"
+      ],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+        "version": { "type": "string", "minLength": 1 },
+        "provider_distribution": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+        "module": { "type": "string", "minLength": 1 },
+        "module_origin": { "type": "string", "minLength": 1 },
+        "record_path": { "type": "string", "minLength": 1 },
+        "record_sha256": { "$ref": "#/$defs/sha256" },
+        "backend_path": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "derived_isolation_side": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["distribution", "module", "module_origin", "version", "record_path"],
+      "properties": {
+        "distribution": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$" },
+        "module": { "type": "string", "minLength": 1 },
+        "module_origin": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "record_path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "derived_isolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanism",
+        "parent_namespace",
+        "child_namespace",
+        "interfaces",
+        "routes",
+        "fd_targets",
+        "descendant_namespace",
+        "python_connection_attempt",
+        "native_connection_attempt",
+        "outer_argv",
+        "inner_argv",
+        "frontend",
+        "backend"
+      ],
+      "properties": {
+        "mechanism": { "type": "string", "minLength": 1 },
+        "parent_namespace": { "type": "string", "minLength": 1 },
+        "child_namespace": { "type": "string", "minLength": 1 },
+        "interfaces": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "routes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "fd_targets": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "descendant_namespace": { "type": "string", "minLength": 1 },
+        "python_connection_attempt": { "type": "object" },
+        "native_connection_attempt": { "type": "object" },
+        "outer_argv": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "inner_argv": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "frontend": { "$ref": "#/$defs/derived_isolation_side" },
+        "backend": { "$ref": "#/$defs/derived_isolation_side" }
+      }
+    },
     "derived_wheel": {
       "type": "object",
       "additionalProperties": false,
@@ -122,9 +270,15 @@
         "wheel",
         "source_sdist",
         "build_inputs",
+        "build_requirement_mappings",
+        "marker_environment",
+        "build_environment",
+        "extraction_inventory",
+        "extraction_inventory_sha256",
         "builder",
         "frontend",
         "backend",
+        "isolation",
         "command"
       ],
       "properties": {
@@ -137,35 +291,54 @@
           "minItems": 1,
           "items": { "$ref": "#/$defs/artifact" }
         },
+        "build_requirement_mappings": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/build_requirement_mapping" }
+        },
+        "marker_environment": { "$ref": "#/$defs/marker_environment" },
+        "build_environment": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/distribution_version" }
+        },
+        "extraction_inventory": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/inventory_entry" }
+        },
+        "extraction_inventory_sha256": { "$ref": "#/$defs/sha256" },
         "builder": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["os", "architecture", "python", "abi"],
+          "required": [
+            "os",
+            "architecture",
+            "python",
+            "abi",
+            "python_full_version",
+            "implementation",
+            "soabi",
+            "compatible_tags"
+          ],
           "properties": {
             "os": { "type": "string", "minLength": 1 },
             "architecture": { "type": "string", "minLength": 1 },
             "python": { "type": "string", "minLength": 1 },
-            "abi": { "type": "string", "minLength": 1 }
+            "abi": { "type": "string", "minLength": 1 },
+            "python_full_version": { "type": "string", "minLength": 1 },
+            "implementation": { "type": "string", "minLength": 1 },
+            "soabi": { "type": "string", "minLength": 1 },
+            "compatible_tags": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
           }
         },
-        "frontend": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["name", "version"],
-          "properties": {
-            "name": { "type": "string", "minLength": 1 },
-            "version": { "type": "string", "minLength": 1 }
-          }
-        },
-        "backend": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["name", "version"],
-          "properties": {
-            "name": { "type": "string", "minLength": 1 },
-            "version": { "type": "string", "minLength": 1 }
-          }
-        },
+        "frontend": { "$ref": "#/$defs/derived_tool_record" },
+        "backend": { "$ref": "#/$defs/derived_tool_record" },
+        "isolation": { "$ref": "#/$defs/derived_isolation" },
         "command": {
           "type": "array",
           "minItems": 1,

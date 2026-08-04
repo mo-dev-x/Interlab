@@ -112,6 +112,7 @@ _APPROVED_SOURCE_BUILD_BACKENDS = {
 }
 _SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DISTRIBUTION_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
+_CLONE_NEWNET = 0x40000000
 
 
 class EnvironmentBundleError(RuntimeError):
@@ -542,6 +543,32 @@ def _copy_relative_file(source_root: Path, destination_root: Path, relative_path
     destination = destination_root / PurePosixPath(relative_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, destination)
+
+
+def _json_sha256(payload: Any) -> str:
+    return hashing.sha256_prefixed(
+        json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
+    )
+
+
+def _directory_inventory_and_hash(root: Path) -> tuple[list[dict[str, Any]], str]:
+    inventory: list[dict[str, Any]] = []
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink() or _is_reparse_point(path):
+            raise EnvironmentBundleError(f"directory inventory cannot include symlink/reparse point {relative!r}")
+        if path.is_dir():
+            inventory.append({"path": relative, "type": "directory"})
+            continue
+        inventory.append(
+            {
+                "path": relative,
+                "type": "file",
+                "size_bytes": path.stat().st_size,
+                "sha256": hashing.hash_file(path),
+            }
+        )
+    return inventory, _json_sha256(inventory)
 
 def load_tooling_lock(path: str | Path = _TOOLING_LOCK_FILE) -> dict[str, Any]:
     payload = _load_json_payload(path, context="tooling lock")
@@ -1056,6 +1083,9 @@ def _derived_wheel_command(
     env_python: Path,
     sdist_path: Path,
     out_dir: Path,
+    evidence_path: Path,
+    backend_module: str,
+    backend_provider: str,
 ) -> list[str]:
     return [
         str(env_python),
@@ -1064,15 +1094,22 @@ def _derived_wheel_command(
         _build_no_network_child_source(),
         str(out_dir),
         str(sdist_path),
+        str(evidence_path),
+        backend_module,
+        backend_provider,
     ]
 
 
 def _build_no_network_child_source() -> str:
     return """
+import importlib
+import importlib.metadata
+import json
 import os
 import pathlib
 import runpy
 import socket
+import subprocess
 import sys
 import tempfile
 import urllib.request
@@ -1128,6 +1165,101 @@ with tempfile.TemporaryDirectory(prefix="interplab-build-net-deny-") as site_dir
         if not existing_pythonpath
         else str(site_dir_path) + os.pathsep + existing_pythonpath
     )
+    original_argv = list(sys.argv)
+    evidence_path = pathlib.Path(sys.argv[3])
+    backend_module_name = sys.argv[4]
+    backend_provider = sys.argv[5]
+    frontend_module = importlib.import_module("build")
+    backend_module = importlib.import_module(backend_module_name)
+    frontend_dist = importlib.metadata.distribution("build")
+    backend_dist = importlib.metadata.distribution(backend_provider)
+    fd_targets = {}
+    for fd_name in sorted(os.listdir("/proc/self/fd")):
+        fd_path = pathlib.Path("/proc/self/fd") / fd_name
+        try:
+            fd_targets[fd_name] = os.readlink(fd_path)
+        except OSError as exc:
+            fd_targets[fd_name] = f"unreadable:{type(exc).__name__}:{exc}"
+    socket_fds = {
+        fd_name: target
+        for fd_name, target in fd_targets.items()
+        if isinstance(target, str) and target.startswith("socket:")
+    }
+    if socket_fds:
+        raise RuntimeError(f"inherited socket descriptors are forbidden: {socket_fds}")
+    routes = pathlib.Path("/proc/net/route").read_text(encoding="utf-8").splitlines()
+    interfaces = sorted(path.name for path in pathlib.Path("/sys/class/net").iterdir())
+    descendant_namespace = subprocess.run(
+        ["readlink", "/proc/self/ns/net"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    python_attempt = {}
+    try:
+        socket.create_connection(("1.1.1.1", 53), timeout=0.2)
+        python_attempt = {"succeeded": True}
+    except Exception as exc:
+        python_attempt = {"succeeded": False, "error": f"{type(exc).__name__}: {exc}"}
+    if python_attempt["succeeded"]:
+        raise RuntimeError("python connection attempt unexpectedly succeeded inside isolated build namespace")
+    native_attempt = subprocess.run(
+        ["getent", "hosts", "example.com"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if native_attempt.returncode == 0:
+        raise RuntimeError("native descendant network lookup unexpectedly succeeded inside isolated build namespace")
+    frontend_record = next(
+        str(frontend_dist.locate_file(candidate))
+        for candidate in frontend_dist.files or []
+        if str(candidate).endswith("RECORD")
+    )
+    backend_record = next(
+        str(backend_dist.locate_file(candidate))
+        for candidate in backend_dist.files or []
+        if str(candidate).endswith("RECORD")
+    )
+    evidence = {
+        "mechanism": "linux-unshare-clone_newnet",
+        "parent_namespace": os.environ["INTERPLAB_PARENT_NETNS"],
+        "child_namespace": os.readlink("/proc/self/ns/net"),
+        "interfaces": interfaces,
+        "routes": routes,
+        "fd_targets": fd_targets,
+        "descendant_namespace": descendant_namespace,
+        "python_connection_attempt": python_attempt,
+        "native_connection_attempt": {
+            "argv": ["getent", "hosts", "example.com"],
+            "returncode": native_attempt.returncode,
+            "stdout": native_attempt.stdout,
+            "stderr": native_attempt.stderr,
+        },
+        "outer_argv": json.loads(os.environ["INTERPLAB_OUTER_ARGV"]),
+        "inner_argv": original_argv,
+        "frontend": {
+            "distribution": "build",
+            "module": "build",
+            "module_origin": getattr(frontend_module, "__file__", ""),
+            "version": frontend_dist.version,
+            "record_path": frontend_record,
+        },
+        "backend": {
+            "distribution": backend_provider,
+            "module": backend_module_name,
+            "module_origin": getattr(backend_module, "__file__", ""),
+            "version": backend_dist.version,
+            "record_path": backend_record,
+        },
+    }
+    if evidence["parent_namespace"] == evidence["child_namespace"]:
+        raise RuntimeError("linux network namespace isolation did not change namespace identity")
+    if any(name != "lo" for name in interfaces):
+        raise RuntimeError(f"isolated build namespace exposed external interfaces: {interfaces}")
+    non_header_routes = [line for line in routes[1:] if line.strip()]
+    if non_header_routes:
+        raise RuntimeError(f"isolated build namespace exposed routes: {non_header_routes}")
     sys.argv = [
         "build",
         "--wheel",
@@ -1136,18 +1268,28 @@ with tempfile.TemporaryDirectory(prefix="interplab-build-net-deny-") as site_dir
         sys.argv[1],
         sys.argv[2],
     ]
+    evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True), encoding="utf-8")
     runpy.run_module("build", run_name="__main__")
 """
 
 
 def _derived_build_subprocess_kwargs() -> dict[str, Any]:
-    kwargs: dict[str, Any] = {}
-    if os.name != "nt" and hasattr(os, "unshare") and hasattr(os, "CLONE_NEWNET"):
-        def _preexec() -> None:
-            os.unshare(os.CLONE_NEWNET)
+    if not sys.platform.startswith("linux"):
+        raise EnvironmentBundleError("derived wheel construction requires a Linux host with kernel namespace support")
+    libc = ctypes.CDLL(None, use_errno=True)
+    unshare = getattr(libc, "unshare", None)
+    if unshare is None:
+        raise EnvironmentBundleError("linux host cannot provide the unshare syscall required for derived-wheel isolation")
+    unshare.argtypes = [ctypes.c_int]
+    unshare.restype = ctypes.c_int
 
-        kwargs["preexec_fn"] = _preexec
-    return kwargs
+    def _preexec() -> None:
+        result = unshare(_CLONE_NEWNET)
+        if result != 0:
+            error_code = ctypes.get_errno()
+            raise OSError(error_code, os.strerror(error_code))
+
+    return {"preexec_fn": _preexec}
 
 
 def _safe_extract_member_path(member_name: str, destination: Path) -> Path:
@@ -1165,6 +1307,7 @@ def _safe_extract_member_path(member_name: str, destination: Path) -> Path:
 
 def _extract_sdist_to_directory(sdist_path: Path, destination: Path) -> Path:
     seen: dict[str, str] = {}
+    normalized_seen: dict[str, str] = {}
     try:
         with tarfile.open(sdist_path, "r:gz") as archive:
             for member in archive.getmembers():
@@ -1183,13 +1326,20 @@ def _extract_sdist_to_directory(sdist_path: Path, destination: Path) -> Path:
                     )
                 target = _safe_extract_member_path(relative_name, destination)
                 relative_key = str(target.relative_to(destination)).replace("\\", "/")
+                normalized_relative_key = "/".join(part.casefold() for part in PurePosixPath(relative_key).parts)
                 entry_type = "dir" if member.isdir() else "file"
                 previous = seen.get(relative_key)
                 if previous is not None and previous != entry_type:
                     raise EnvironmentBundleError(
                         f"source archive member {member.name!r} conflicts with an existing extracted path"
                     )
+                normalized_previous = normalized_seen.get(normalized_relative_key)
+                if normalized_previous is not None and normalized_previous != relative_key:
+                    raise EnvironmentBundleError(
+                        f"source archive member {member.name!r} conflicts with an existing normalized extracted path"
+                    )
                 seen[relative_key] = entry_type
+                normalized_seen[normalized_relative_key] = relative_key
                 if member.isdir():
                     target.mkdir(parents=True, exist_ok=True)
                     continue
@@ -1226,7 +1376,7 @@ def _validate_build_system_contract(
     build_system: dict[str, Any],
     build_inputs: list[dict[str, Any]],
     target_report: dict[str, Any],
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, str]]:
     approved_contract = _APPROVED_SOURCE_BUILD_BACKENDS.get(distribution)
     if approved_contract is None:
         raise EnvironmentBundleError(f"derived wheel {distribution!r} has no approved build backend contract")
@@ -1237,17 +1387,35 @@ def _validate_build_system_contract(
     approved_inputs = {
         normalize_distribution_name(entry["distribution"]): entry for entry in build_inputs
     }
-    active_requirements: list[PackagingRequirement] = []
+    active_inputs: list[dict[str, Any]] = []
+    requirement_mappings: list[dict[str, Any]] = []
     seen_requirements: set[str] = set()
     for raw_requirement in requires:
-        parsed = _normalize_build_requirement(
-            _require_nonempty_string(raw_requirement, context=f"{distribution} build-system.requires"),
-            target_env=target_env,
-            context=f"{distribution} build-system.requires",
-        )
-        if parsed is None:
+        normalized_raw = _require_nonempty_string(raw_requirement, context=f"{distribution} build-system.requires")
+        parsed_requirement = PackagingRequirement(normalized_raw)
+        if parsed_requirement.url:
+            raise EnvironmentBundleError(
+                f"derived wheel {distribution!r} build requirement must not use a direct URL"
+            )
+        if parsed_requirement.extras:
+            raise EnvironmentBundleError(
+                f"derived wheel {distribution!r} build requirement must not use extras for {parsed_requirement.name!r}"
+            )
+        marker_result = True
+        if parsed_requirement.marker is not None:
+            marker_result = parsed_requirement.marker.evaluate(environment=target_env)
+        if not marker_result:
+            requirement_mappings.append(
+                {
+                    "raw_requirement": normalized_raw,
+                    "normalized_name": normalize_distribution_name(parsed_requirement.name),
+                    "marker": str(parsed_requirement.marker) if parsed_requirement.marker is not None else None,
+                    "marker_result": False,
+                    "mapped_artifact": None,
+                }
+            )
             continue
-        normalized_name = normalize_distribution_name(parsed.name)
+        normalized_name = normalize_distribution_name(parsed_requirement.name)
         if normalized_name in seen_requirements:
             raise EnvironmentBundleError(f"derived wheel {distribution!r} declares duplicate build requirement {normalized_name!r}")
         seen_requirements.add(normalized_name)
@@ -1255,16 +1423,21 @@ def _validate_build_system_contract(
             raise EnvironmentBundleError(
                 f"derived wheel {distribution!r} declares undeclared build requirement {normalized_name!r}"
             )
-        if not parsed.specifier:
-            raise EnvironmentBundleError(
-                f"derived wheel {distribution!r} build requirement {normalized_name!r} must pin an exact approved version"
-            )
         approved_entry = approved_inputs[normalized_name]
-        if approved_entry["version"] not in parsed.specifier:
+        if parsed_requirement.specifier and approved_entry["version"] not in parsed_requirement.specifier:
             raise EnvironmentBundleError(
                 f"derived wheel {distribution!r} build requirement {normalized_name!r} does not admit approved version {approved_entry['version']!r}"
             )
-        active_requirements.append(parsed)
+        active_inputs.append(approved_entry)
+        requirement_mappings.append(
+            {
+                "raw_requirement": normalized_raw,
+                "normalized_name": normalized_name,
+                "marker": str(parsed_requirement.marker) if parsed_requirement.marker is not None else None,
+                "marker_result": True,
+                "mapped_artifact": dict(approved_entry),
+            }
+        )
     backend = _require_nonempty_string(
         build_system.get("build-backend", ""),
         context=f"{distribution} build-system.build-backend",
@@ -1292,8 +1465,9 @@ def _validate_build_system_contract(
         "version": approved_inputs[backend_distribution]["version"],
         "module": backend,
         "backend_path": list(backend_path),
+        "provider_distribution": backend_distribution,
     }
-    return [approved_inputs[normalize_distribution_name(requirement.name)] for requirement in active_requirements], build_receipt_backend
+    return list(build_inputs), requirement_mappings, build_receipt_backend, target_env
 
 
 def _measure_venv_inventory(venv_path: Path) -> dict[str, Any]:
@@ -1375,6 +1549,83 @@ def _assert_bootstrapped_pip_only(venv_path: Path, *, expected_pip_version: str)
         raise EnvironmentBundleError(
             f"post-bootstrap pip version mismatch: expected {expected_pip_version}, got {installed_pip_version.strip()!r}"
         )
+
+
+def _inspect_build_environment(
+    venv_path: Path,
+    *,
+    frontend_distribution: str,
+    frontend_module: str,
+    backend_distribution: str,
+    backend_module: str,
+) -> dict[str, Any]:
+    code = """
+import importlib
+import importlib.metadata
+import json
+
+frontend_distribution, frontend_module, backend_distribution, backend_module = __import__("sys").argv[1:5]
+
+def _record_path(distribution_name):
+    dist = importlib.metadata.distribution(distribution_name)
+    record = next(
+        str(dist.locate_file(candidate))
+        for candidate in dist.files or []
+        if str(candidate).endswith("RECORD")
+    )
+    return {
+        "distribution": distribution_name,
+        "version": dist.version,
+        "record_path": record,
+    }
+
+installed = sorted(
+    {
+        dist.metadata["Name"].strip().lower(): dist.version
+        for dist in importlib.metadata.distributions()
+        if dist.metadata.get("Name", "").strip()
+    }.items()
+)
+frontend = importlib.import_module(frontend_module)
+backend = importlib.import_module(backend_module)
+print(json.dumps({
+    "installed": [{"distribution": name, "version": version} for name, version in installed],
+    "frontend": {
+        **_record_path(frontend_distribution),
+        "module": frontend_module,
+        "module_origin": getattr(frontend, "__file__", ""),
+    },
+    "backend": {
+        **_record_path(backend_distribution),
+        "module": backend_module,
+        "module_origin": getattr(backend, "__file__", ""),
+    },
+}, sort_keys=True))
+"""
+    try:
+        result = subprocess.run(
+            [
+                str(_venv_python_path(venv_path)),
+                "-I",
+                "-c",
+                code,
+                frontend_distribution,
+                frontend_module,
+                backend_distribution,
+                backend_module,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip() or "no stderr/stdout"
+        raise EnvironmentBundleError(f"build environment inspection failed: {detail}") from exc
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise EnvironmentBundleError("build environment inspection produced unreadable JSON") from exc
 
 
 def _pip_bootstrap_child_source() -> str:
@@ -1516,6 +1767,10 @@ def _build_derived_runtime_wheel(
         },
         destination=sdist_path,
     )
+    if source_sdist["hash"] not in requirement.hashes:
+        raise EnvironmentBundleError(
+            f"derived wheel {normalized!r} source sdist hash {source_sdist['hash']} is not authorized by the export"
+        )
     build_env = evidence_root / "build-env"
     build_out = evidence_root / "wheelhouse"
     build_out.mkdir()
@@ -1532,7 +1787,9 @@ def _build_derived_runtime_wheel(
         raise EnvironmentBundleError(f"failed to create offline build environment for {normalized}: {detail}") from exc
     pip_entry = _manifest_entry_from_tooling_lock_artifact(tooling_by_name["pip"])
     _bootstrap_private_pip(venv_path=build_env, pip_entry=pip_entry, bundle_root=staging_dir)
+    _assert_bootstrapped_pip_only(build_env, expected_pip_version=pip_entry["version"])
     build_inputs = _tooling_install_plan(include_build=True, include_pip=False, include_uv=False)
+    complete_build_environment = [dict(pip_entry), *[dict(entry) for entry in build_inputs]]
     requirements_path = evidence_root / "build-inputs.requirements.txt"
     _write_requirements_file(requirements_path, build_inputs)
     _reject_transformer_lens_contamination(build_inputs, context=f"{normalized} build inputs")
@@ -1571,20 +1828,32 @@ def _build_derived_runtime_wheel(
     unpack_root = evidence_root / "src"
     unpack_root.mkdir()
     project_root = _extract_sdist_to_directory(sdist_path, unpack_root)
+    extraction_inventory, extraction_inventory_sha256 = _directory_inventory_and_hash(project_root)
     build_system = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8")).get("build-system")
     if not isinstance(build_system, dict):
         raise EnvironmentBundleError(f"derived wheel source {normalized!r} is missing [build-system]")
-    active_build_inputs, backend_record = _validate_build_system_contract(
+    recorded_build_inputs, requirement_mappings, backend_record, marker_environment = _validate_build_system_contract(
         normalized,
         build_system=build_system,
-        build_inputs=build_inputs,
+        build_inputs=complete_build_environment,
         target_report=target_report,
     )
+    build_environment = _inspect_build_environment(
+        build_env,
+        frontend_distribution="build",
+        frontend_module="build",
+        backend_distribution=backend_record["provider_distribution"],
+        backend_module=backend_record["module"],
+    )
+    evidence_path = evidence_root / "isolation-evidence.json"
 
     command = _derived_wheel_command(
         env_python=_venv_python_path(build_env),
         sdist_path=sdist_path,
         out_dir=build_out,
+        evidence_path=evidence_path,
+        backend_module=backend_record["module"],
+        backend_provider=backend_record["provider_distribution"],
     )
     try:
         subprocess.run(
@@ -1599,6 +1868,8 @@ def _build_derived_runtime_wheel(
                 "PIP_NO_CACHE_DIR": "1",
                 "PIP_DISABLE_PIP_VERSION_CHECK": "1",
                 "INTERPLAB_NETWORK_DENIED": "1",
+                "INTERPLAB_PARENT_NETNS": os.readlink("/proc/self/ns/net") if sys.platform.startswith("linux") else "",
+                "INTERPLAB_OUTER_ARGV": json.dumps(command),
             },
             **_derived_build_subprocess_kwargs(),
         )
@@ -1622,10 +1893,6 @@ def _build_derived_runtime_wheel(
         "type": "wheel",
     }
     _validate_wheel_metadata(built_wheel, wheel_entry)
-    if wheel_entry["sha256"] not in requirement.hashes:
-        raise EnvironmentBundleError(
-            f"derived wheel {normalized!r} hash mismatch: {wheel_entry['sha256']} is not authorized by the export"
-        )
     final_wheel_path = staging_dir / built_wheel.name
     if final_wheel_path.exists():
         raise EnvironmentBundleError(f"derived wheel destination already exists: {final_wheel_path}")
@@ -1640,15 +1907,41 @@ def _build_derived_runtime_wheel(
         "sha256": hashing.hash_file(sdist_path),
         "type": "sdist",
     }
+    isolation_evidence = _load_json_payload(evidence_path, context="derived-wheel isolation evidence")
     provenance = {
         "distribution": requirement.distribution,
         "version": requirement.version,
         "wheel": dict(wheel_entry),
         "source_sdist": sdist_entry,
-        "build_inputs": [dict(entry) for entry in active_build_inputs],
-        "builder": dict(target),
-        "frontend": {"name": "build", "version": tooling_by_name["build"]["version"]},
-        "backend": backend_record,
+        "build_inputs": [dict(entry) for entry in recorded_build_inputs],
+        "build_requirement_mappings": requirement_mappings,
+        "marker_environment": dict(marker_environment),
+        "build_environment": build_environment["installed"],
+        "extraction_inventory": extraction_inventory,
+        "extraction_inventory_sha256": extraction_inventory_sha256,
+        "builder": {
+            **dict(target),
+            "python_full_version": target_report["python_full_version"],
+            "implementation": target_report["implementation"],
+            "soabi": target_report["soabi"],
+            "compatible_tags": list(target_report["compatible_tags"]),
+        },
+        "frontend": {
+            "name": "build",
+            "version": tooling_by_name["build"]["version"],
+            "provider_distribution": "build",
+            "module": "build",
+            "module_origin": build_environment["frontend"]["module_origin"],
+            "record_path": build_environment["frontend"]["record_path"],
+            "record_sha256": hashing.hash_file(Path(build_environment["frontend"]["record_path"])),
+        },
+        "backend": {
+            **backend_record,
+            "module_origin": build_environment["backend"]["module_origin"],
+            "record_path": build_environment["backend"]["record_path"],
+            "record_sha256": hashing.hash_file(Path(build_environment["backend"]["record_path"])),
+        },
+        "isolation": isolation_evidence,
         "command": command,
     }
     _atomic_write_json_noclobber(evidence_root / "build-receipt.json", provenance)
@@ -2592,7 +2885,7 @@ def _validate_acquisition_manifest_semantics(
     requirements = parse_requirements_export(requirements_export())
     lock_packages = load_lock_packages(_LOCK_FILE)
     runtime_requirements = selected_runtime_requirements(manifest, requirements)
-    runtime_entries = _validate_runtime_manifest(runtime_requirements, manifest["runtime"])
+    runtime_entries = _validate_runtime_manifest(runtime_requirements, manifest["runtime"], manifest["derived_wheels"])
     tooling_entries = _validate_tooling_entries(manifest)
     overlap_names = _validate_runtime_tooling_overlap(runtime_entries, tooling_entries)
     torch_entry = _validate_torch(manifest["torch"], lock_packages)
@@ -2609,6 +2902,7 @@ def _validate_acquisition_manifest_semantics(
             lock_packages,
             manifest["target"],
             bundle_root,
+            target_capture=_current_target_capture_fields() if enforce_current_target else None,
         )
         if require_files:
             _validate_files(all_entries, bundle_root)
@@ -3025,6 +3319,7 @@ def _validate_runtime_tooling_overlap(
 def _validate_runtime_manifest(
     requirements: list[ExportRequirement],
     runtime_entries: list[dict[str, Any]],
+    derived_wheels: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     if not runtime_entries:
         raise EnvironmentBundleError("runtime artifacts must not be empty")
@@ -3056,6 +3351,9 @@ def _validate_runtime_manifest(
     runtime_by_name = {
         normalize_distribution_name(entry["distribution"]): entry for entry in runtime
     }
+    derived_by_name = {
+        normalize_distribution_name(entry["distribution"]): entry for entry in derived_wheels
+    }
     for requirement in requirements:
         entry = runtime_by_name.get(requirement.distribution)
         if entry is None:
@@ -3066,6 +3364,22 @@ def _validate_runtime_manifest(
             raise EnvironmentBundleError(
                 f"runtime version mismatch for {requirement.distribution!r}: expected {requirement.version}, got {entry['version']}"
             )
+        derived = derived_by_name.get(requirement.distribution)
+        if derived is not None:
+            if entry["sha256"] != derived["wheel"]["sha256"]:
+                raise EnvironmentBundleError(
+                    f"derived runtime artifact hash mismatch for {requirement.distribution!r}: expected {derived['wheel']['sha256']}, got {entry['sha256']}"
+                )
+            for field in ("filename", "relative_path", "size_bytes"):
+                if entry[field] != derived["wheel"][field]:
+                    raise EnvironmentBundleError(
+                        f"derived runtime artifact {field} mismatch for {requirement.distribution!r}"
+                    )
+            if derived["source_sdist"]["sha256"] not in requirement.hashes:
+                raise EnvironmentBundleError(
+                    f"derived wheel {requirement.distribution!r} source sdist hash is not authorized by the export"
+                )
+            continue
         if entry["sha256"] not in requirement.hashes:
             raise EnvironmentBundleError(
                 f"runtime hash mismatch for {requirement.distribution!r}: {entry['sha256']} not authorized by the export"
@@ -3157,6 +3471,8 @@ def _validate_derived_wheels(
     lock_packages: dict[str, dict[str, Any]],
     target: dict[str, str],
     bundle_root: Path,
+    *,
+    target_capture: dict[str, Any] | None = None,
 ) -> None:
     tooling_index = {
         normalize_distribution_name(entry["distribution"]): entry
@@ -3199,8 +3515,23 @@ def _validate_derived_wheels(
             raise EnvironmentBundleError(
                 f"derived wheel {normalized!r} source hash mismatch: expected {lock_sdist['hash']}, got {source_entry['sha256']}"
             )
-        if derived["builder"] != target:
-            raise EnvironmentBundleError(f"derived wheel {normalized!r} builder target must equal the manifest target")
+        builder = derived["builder"]
+        for field, expected_value in target.items():
+            if builder[field] != expected_value:
+                raise EnvironmentBundleError(
+                    f"derived wheel {normalized!r} builder {field} mismatch: expected {expected_value!r}, got {builder[field]!r}"
+                )
+        if target_capture is not None:
+            for field in ("python_full_version", "implementation", "soabi", "compatible_tags"):
+                if builder[field] != target_capture[field]:
+                    raise EnvironmentBundleError(
+                        f"derived wheel {normalized!r} builder {field} mismatch: expected {target_capture[field]!r}, got {builder[field]!r}"
+                    )
+        expected_marker_environment = marker_environment_for_target(target)
+        if derived["marker_environment"] != expected_marker_environment:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} marker_environment does not match the captured target"
+            )
         expected_build_inputs = set(tooling_index)
         actual_build_inputs: dict[str, dict[str, Any]] = {}
         for build_input in derived["build_inputs"]:
@@ -3233,6 +3564,165 @@ def _validate_derived_wheels(
                 raise EnvironmentBundleError(
                     f"derived wheel {normalized!r} {name!r} version mismatch in build provenance"
                 )
+        build_environment = _normalize_distribution_versions(
+            derived["build_environment"],
+            context=f"derived wheel {normalized!r} build_environment",
+        )
+        expected_environment = {
+            normalize_distribution_name(entry["distribution"]): entry["version"]
+            for entry in derived["build_inputs"]
+        }
+        if build_environment != expected_environment:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} build_environment must exactly match the approved build inputs"
+            )
+        if _json_sha256(derived["extraction_inventory"]) != derived["extraction_inventory_sha256"]:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} extraction inventory hash does not match the recorded extraction inventory"
+            )
+        seen_inventory_paths: set[str] = set()
+        for item in derived["extraction_inventory"]:
+            relative = PurePosixPath(item["path"])
+            if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+                raise EnvironmentBundleError(
+                    f"derived wheel {normalized!r} extraction inventory contains an invalid path {item['path']!r}"
+                )
+            normalized_path = "/".join(part.casefold() for part in relative.parts)
+            if normalized_path in seen_inventory_paths:
+                raise EnvironmentBundleError(
+                    f"derived wheel {normalized!r} extraction inventory contains a duplicate normalized path {item['path']!r}"
+                )
+            seen_inventory_paths.add(normalized_path)
+        requirement_mappings = derived["build_requirement_mappings"]
+        seen_requirement_names: set[str] = set()
+        for index, mapping in enumerate(requirement_mappings):
+            parsed_requirement = PackagingRequirement(mapping["raw_requirement"])
+            normalized_name = normalize_distribution_name(parsed_requirement.name)
+            if normalized_name != mapping["normalized_name"]:
+                raise EnvironmentBundleError(
+                    f"derived wheel {normalized!r} build requirement mapping {index} normalized_name mismatch"
+                )
+            if parsed_requirement.url:
+                raise EnvironmentBundleError(
+                    f"derived wheel {normalized!r} build requirement mapping {index} must not use a direct URL"
+                )
+            if parsed_requirement.extras:
+                raise EnvironmentBundleError(
+                    f"derived wheel {normalized!r} build requirement mapping {index} must not use extras"
+                )
+            expected_marker = str(parsed_requirement.marker) if parsed_requirement.marker is not None else None
+            if mapping["marker"] != expected_marker:
+                raise EnvironmentBundleError(
+                    f"derived wheel {normalized!r} build requirement mapping {index} marker mismatch"
+                )
+            expected_marker_result = True
+            if parsed_requirement.marker is not None:
+                expected_marker_result = parsed_requirement.marker.evaluate(environment=expected_marker_environment)
+            if mapping["marker_result"] != expected_marker_result:
+                raise EnvironmentBundleError(
+                    f"derived wheel {normalized!r} build requirement mapping {index} marker_result mismatch"
+                )
+            if mapping["marker_result"]:
+                if normalized_name in seen_requirement_names:
+                    raise EnvironmentBundleError(
+                        f"derived wheel {normalized!r} build requirement mappings contain duplicate active name {normalized_name!r}"
+                    )
+                seen_requirement_names.add(normalized_name)
+                mapped = mapping["mapped_artifact"]
+                if mapped is None:
+                    raise EnvironmentBundleError(
+                        f"derived wheel {normalized!r} active build requirement {normalized_name!r} is missing its artifact mapping"
+                    )
+                resolved_mapping = _resolve_index_entry(
+                    artifact_index,
+                    mapped,
+                    context=f"derived wheel {normalized!r} build requirement mapping {index}",
+                )
+                if normalize_distribution_name(resolved_mapping["distribution"]) != normalized_name:
+                    raise EnvironmentBundleError(
+                        f"derived wheel {normalized!r} build requirement mapping {index} artifact identifies the wrong distribution"
+                    )
+                if parsed_requirement.specifier and resolved_mapping["version"] not in parsed_requirement.specifier:
+                    raise EnvironmentBundleError(
+                        f"derived wheel {normalized!r} build requirement mapping {index} does not admit version {resolved_mapping['version']!r}"
+                    )
+                if normalized_name not in actual_build_inputs or actual_build_inputs[normalized_name] != resolved_mapping:
+                    raise EnvironmentBundleError(
+                        f"derived wheel {normalized!r} build requirement mapping {index} does not point to the approved build input"
+                    )
+            elif mapping["mapped_artifact"] is not None:
+                raise EnvironmentBundleError(
+                    f"derived wheel {normalized!r} inactive build requirement {normalized_name!r} must not record an artifact mapping"
+                )
+        isolation = derived["isolation"]
+        if isolation["mechanism"] != "linux-unshare-clone_newnet":
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} isolation mechanism must be linux-unshare-clone_newnet"
+            )
+        if isolation["parent_namespace"] == isolation["child_namespace"]:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} isolation did not change the namespace identity"
+            )
+        if isolation["descendant_namespace"] != isolation["child_namespace"]:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} descendant namespace does not remain inside the isolated namespace"
+            )
+        if isolation["interfaces"] != ["lo"]:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} isolation interfaces must contain only loopback"
+            )
+        non_header_routes = [line for line in isolation["routes"][1:] if line.strip()]
+        if non_header_routes:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} isolation routes must not expose non-loopback routes"
+            )
+        socket_fds = {
+            fd_name: target_value
+            for fd_name, target_value in isolation["fd_targets"].items()
+            if isinstance(target_value, str) and target_value.startswith("socket:")
+        }
+        if socket_fds:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} isolation retained socket descriptors: {socket_fds}"
+            )
+        python_attempt = isolation["python_connection_attempt"]
+        if python_attempt.get("succeeded") is not False:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} isolation python connection attempt must fail"
+            )
+        native_attempt = isolation["native_connection_attempt"]
+        if native_attempt.get("returncode") == 0:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} isolation native descendant network attempt must fail"
+            )
+        if isolation["outer_argv"] != derived["command"]:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} isolation outer argv does not match the recorded command"
+            )
+        if len(isolation["inner_argv"]) < 6:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} isolation inner argv is incomplete"
+            )
+        if isolation["frontend"] != {
+            "distribution": derived["frontend"]["provider_distribution"],
+            "module": derived["frontend"]["module"],
+            "module_origin": derived["frontend"]["module_origin"],
+            "version": derived["frontend"]["version"],
+            "record_path": derived["frontend"]["record_path"],
+        }:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} isolation frontend evidence does not match the recorded frontend provenance"
+            )
+        if isolation["backend"] != {
+            "distribution": derived["backend"]["provider_distribution"],
+            "module": derived["backend"]["module"],
+            "module_origin": derived["backend"]["module_origin"],
+            "version": derived["backend"]["version"],
+            "record_path": derived["backend"]["record_path"],
+        }:
+            raise EnvironmentBundleError(
+                f"derived wheel {normalized!r} isolation backend evidence does not match the recorded backend provenance"
+            )
         wheel_path = _resolve_artifact_path(wheel_entry, bundle_root)
         _validate_wheel_metadata(wheel_path, wheel_entry)
 
@@ -3659,9 +4149,15 @@ def _validate_derived_entry_shape(entry: dict[str, Any], *, context: str) -> Non
             "wheel",
             "source_sdist",
             "build_inputs",
+            "build_requirement_mappings",
+            "marker_environment",
+            "build_environment",
+            "extraction_inventory",
+            "extraction_inventory_sha256",
             "builder",
             "frontend",
             "backend",
+            "isolation",
             "command",
         },
         context=context,
@@ -3678,21 +4174,152 @@ def _validate_derived_entry_shape(entry: dict[str, Any], *, context: str) -> Non
         raise EnvironmentBundleError(f"{context}.build_inputs must not be empty")
     for index, build_input in enumerate(build_inputs):
         _validate_manifest_entry_shape(build_input, context=f"{context}.build_inputs[{index}]")
+    requirement_mappings = _require_list(entry, "build_requirement_mappings", context=context)
+    if not requirement_mappings:
+        raise EnvironmentBundleError(f"{context}.build_requirement_mappings must not be empty")
+    for index, mapping in enumerate(requirement_mappings):
+        item = _require_mapping(mapping, context=f"{context}.build_requirement_mappings[{index}]")
+        _require_exact_keys(
+            item,
+            required={"raw_requirement", "normalized_name", "marker", "marker_result", "mapped_artifact"},
+            context=f"{context}.build_requirement_mappings[{index}]",
+        )
+        _require_string(item, "raw_requirement", context=f"{context}.build_requirement_mappings[{index}]")
+        _require_distribution(item, "normalized_name", context=f"{context}.build_requirement_mappings[{index}]")
+        if item["marker"] is not None and not isinstance(item["marker"], str):
+            raise EnvironmentBundleError(f"{context}.build_requirement_mappings[{index}].marker must be a string or null")
+        if not isinstance(item["marker_result"], bool):
+            raise EnvironmentBundleError(f"{context}.build_requirement_mappings[{index}].marker_result must be a boolean")
+        mapped_artifact = item["mapped_artifact"]
+        if mapped_artifact is not None:
+            _validate_manifest_entry_shape(
+                _require_mapping(item, "mapped_artifact", context=f"{context}.build_requirement_mappings[{index}]"),
+                context=f"{context}.build_requirement_mappings[{index}].mapped_artifact",
+            )
+    marker_environment = _require_mapping(entry, "marker_environment", context=context)
+    _require_exact_keys(
+        marker_environment,
+        required={
+            "implementation_name",
+            "platform_machine",
+            "platform_python_implementation",
+            "python_full_version",
+            "python_version",
+            "sys_platform",
+        },
+        context=f"{context}.marker_environment",
+    )
+    for field in (
+        "implementation_name",
+        "platform_machine",
+        "platform_python_implementation",
+        "python_full_version",
+        "python_version",
+        "sys_platform",
+    ):
+        _require_string(marker_environment, field, context=f"{context}.marker_environment")
+    build_environment = _require_list(entry, "build_environment", context=context)
+    if not build_environment:
+        raise EnvironmentBundleError(f"{context}.build_environment must not be empty")
+    for index, item in enumerate(build_environment):
+        payload = _require_mapping(item, context=f"{context}.build_environment[{index}]")
+        _require_exact_keys(
+            payload,
+            required={"distribution", "version"},
+            context=f"{context}.build_environment[{index}]",
+        )
+        _require_distribution(payload, "distribution", context=f"{context}.build_environment[{index}]")
+        _require_string(payload, "version", context=f"{context}.build_environment[{index}]")
+    extraction_inventory = _require_list(entry, "extraction_inventory", context=context)
+    if not extraction_inventory:
+        raise EnvironmentBundleError(f"{context}.extraction_inventory must not be empty")
+    for index, item in enumerate(extraction_inventory):
+        payload = _require_mapping(item, context=f"{context}.extraction_inventory[{index}]")
+        _require_exact_keys(
+            payload,
+            required={"path", "type"},
+            optional={"size_bytes", "sha256"},
+            context=f"{context}.extraction_inventory[{index}]",
+        )
+        _require_string(payload, "path", context=f"{context}.extraction_inventory[{index}]")
+        _require_enum(payload, "type", {"file", "directory"}, context=f"{context}.extraction_inventory[{index}]")
+        if payload["type"] == "file":
+            _require_int(payload, "size_bytes", minimum=0, context=f"{context}.extraction_inventory[{index}]")
+            _require_sha(payload, "sha256", context=f"{context}.extraction_inventory[{index}]")
+    _require_sha(entry, "extraction_inventory_sha256", context=context)
     for field in ("builder", "frontend", "backend"):
         _require_mapping(entry, field, context=context)
     builder = entry["builder"]
     _require_exact_keys(
         builder,
-        required={"os", "architecture", "python", "abi"},
+        required={"os", "architecture", "python", "abi", "python_full_version", "implementation", "soabi", "compatible_tags"},
         context=f"{context}.builder",
     )
-    for field in ("os", "architecture", "python", "abi"):
+    for field in ("os", "architecture", "python", "abi", "python_full_version", "implementation", "soabi"):
         _require_string(builder, field, context=f"{context}.builder")
+    compatible_tags = _require_list(builder, "compatible_tags", context=f"{context}.builder")
+    if not compatible_tags or any(not isinstance(item, str) or not item for item in compatible_tags):
+        raise EnvironmentBundleError(f"{context}.builder.compatible_tags must be a non-empty list of strings")
     for field in ("frontend", "backend"):
         tool = entry[field]
-        _require_exact_keys(tool, required={"name", "version"}, context=f"{context}.{field}")
+        _require_exact_keys(
+            tool,
+            required={"name", "version", "provider_distribution", "module", "module_origin", "record_path", "record_sha256"},
+            optional={"backend_path"},
+            context=f"{context}.{field}",
+        )
         _require_distribution(tool, "name", context=f"{context}.{field}")
         _require_string(tool, "version", context=f"{context}.{field}")
+        _require_distribution(tool, "provider_distribution", context=f"{context}.{field}")
+        _require_string(tool, "module", context=f"{context}.{field}")
+        _require_string(tool, "module_origin", context=f"{context}.{field}")
+        _require_string(tool, "record_path", context=f"{context}.{field}")
+        _require_sha(tool, "record_sha256", context=f"{context}.{field}")
+    backend_path = entry["backend"].get("backend_path", [])
+    if not isinstance(backend_path, list) or any(not isinstance(item, str) for item in backend_path):
+        raise EnvironmentBundleError(f"{context}.backend.backend_path must be a list of strings")
+    isolation = _require_mapping(entry, "isolation", context=context)
+    _require_exact_keys(
+        isolation,
+        required={
+            "mechanism",
+            "parent_namespace",
+            "child_namespace",
+            "interfaces",
+            "routes",
+            "fd_targets",
+            "descendant_namespace",
+            "python_connection_attempt",
+            "native_connection_attempt",
+            "outer_argv",
+            "inner_argv",
+            "frontend",
+            "backend",
+        },
+        context=f"{context}.isolation",
+    )
+    _require_string(isolation, "mechanism", context=f"{context}.isolation")
+    _require_string(isolation, "parent_namespace", context=f"{context}.isolation")
+    _require_string(isolation, "child_namespace", context=f"{context}.isolation")
+    if isolation["parent_namespace"] == isolation["child_namespace"]:
+        raise EnvironmentBundleError(f"{context}.isolation must change the network namespace identity")
+    for list_field in ("interfaces", "routes", "outer_argv", "inner_argv"):
+        values = _require_list(isolation, list_field, context=f"{context}.isolation")
+        if any(not isinstance(item, str) or (list_field in {"interfaces", "outer_argv", "inner_argv"} and not item) for item in values):
+            raise EnvironmentBundleError(f"{context}.isolation.{list_field} must contain strings")
+    _require_mapping(isolation, "fd_targets", context=f"{context}.isolation")
+    _require_string(isolation, "descendant_namespace", context=f"{context}.isolation")
+    _require_mapping(isolation, "python_connection_attempt", context=f"{context}.isolation")
+    _require_mapping(isolation, "native_connection_attempt", context=f"{context}.isolation")
+    for nested in ("frontend", "backend"):
+        nested_payload = _require_mapping(isolation, nested, context=f"{context}.isolation")
+        _require_exact_keys(
+            nested_payload,
+            required={"distribution", "module", "module_origin", "version", "record_path"},
+            context=f"{context}.isolation.{nested}",
+        )
+        for field in ("distribution", "module", "module_origin", "version", "record_path"):
+            _require_string(nested_payload, field, context=f"{context}.isolation.{nested}")
     command = _require_list(entry, "command", context=context)
     if not command:
         raise EnvironmentBundleError(f"{context}.command must not be empty")

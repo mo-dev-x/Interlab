@@ -903,6 +903,7 @@ def test_validate_bundle_rejects_derived_wheel_metadata_mismatch(tmp_path, monke
         artifact_type="sdist",
     )
     manifest["runtime"][0]["origin"] = "derived:local-build"
+    target_capture = bundle._current_target_capture_fields()
     manifest["derived_wheels"] = [
         {
             "distribution": "alpha",
@@ -910,11 +911,95 @@ def test_validate_bundle_rejects_derived_wheel_metadata_mismatch(tmp_path, monke
             "wheel": manifest["runtime"][0],
             "source_sdist": source_entry,
             "build_inputs": [],
-            "builder": dict(manifest["target"]),
-            "frontend": {"name": "build", "version": "1.2.2"},
-            "backend": {"name": "hatchling", "version": "1.27.0"},
-            "command": ["python", "-m", "build", "--wheel"],
-        }
+            "build_requirement_mappings": [
+                {
+                    "raw_requirement": "build==1.2.2",
+                    "normalized_name": "build",
+                    "marker": None,
+                    "marker_result": True,
+                    "mapped_artifact": None,
+                }
+            ],
+            "marker_environment": bundle.marker_environment_for_target(manifest["target"]),
+            "build_environment": [],
+            "extraction_inventory": [
+                {
+                    "path": "pyproject.toml",
+                    "type": "file",
+                    "size_bytes": 1,
+                    "sha256": "sha256:" + "7" * 64,
+                }
+            ],
+            "extraction_inventory_sha256": bundle._json_sha256(
+                [
+                    {
+                        "path": "pyproject.toml",
+                        "type": "file",
+                        "size_bytes": 1,
+                        "sha256": "sha256:" + "7" * 64,
+                    }
+                ]
+            ),
+            "builder": {
+                **dict(manifest["target"]),
+                "python_full_version": target_capture["python_full_version"],
+                "implementation": target_capture["implementation"],
+                "soabi": target_capture["soabi"],
+                "compatible_tags": list(target_capture["compatible_tags"]),
+            },
+            "frontend": {
+                "name": "build",
+                "version": "1.2.2",
+                "provider_distribution": "build",
+                "module": "build",
+                "module_origin": "/tmp/build.py",
+                "record_path": "/tmp/build-1.2.2.dist-info/RECORD",
+                "record_sha256": "sha256:" + "8" * 64,
+            },
+            "backend": {
+                "name": "hatchling",
+                "version": "1.27.0",
+                "provider_distribution": "hatchling",
+                "module": "hatchling.build",
+                "module_origin": "/tmp/hatchling/build.py",
+                "record_path": "/tmp/hatchling-1.27.0.dist-info/RECORD",
+                "record_sha256": "sha256:" + "9" * 64,
+                "backend_path": [],
+            },
+                "isolation": {
+                    "mechanism": "linux-unshare-clone_newnet",
+                    "parent_namespace": "net:[111]",
+                    "child_namespace": "net:[222]",
+                "interfaces": ["lo"],
+                "routes": ["Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT"],
+                "fd_targets": {"0": "pipe:[1]", "1": "pipe:[2]", "2": "pipe:[3]"},
+                "descendant_namespace": "net:[222]",
+                "python_connection_attempt": {"succeeded": False, "error": "OSError: offline"},
+                "native_connection_attempt": {
+                    "argv": ["getent", "hosts", "example.com"],
+                        "returncode": 2,
+                        "stdout": "",
+                        "stderr": "offline",
+                    },
+                    "outer_argv": ["python", "-m", "build", "--wheel"],
+                    "inner_argv": ["-c", "/tmp/out", "/tmp/source.tar.gz", "/tmp/evidence.json", "hatchling.build", "hatchling"],
+                "frontend": {
+                    "distribution": "build",
+                    "module": "build",
+                    "module_origin": "/tmp/build.py",
+                    "version": "1.2.2",
+                    "record_path": "/tmp/build-1.2.2.dist-info/RECORD",
+                },
+                "backend": {
+                    "distribution": "hatchling",
+                    "module": "hatchling.build",
+                    "module_origin": "/tmp/hatchling/build.py",
+                    "version": "1.27.0",
+                    "record_path": "/tmp/hatchling-1.27.0.dist-info/RECORD",
+                },
+                },
+                "command": ["python", "-m", "build", "--wheel"],
+            }
     ]
     manifest["tooling"]["installers"].append(
         _write_artifact(
@@ -926,6 +1011,11 @@ def test_validate_bundle_rejects_derived_wheel_metadata_mismatch(tmp_path, monke
         )
     )
     manifest["derived_wheels"][0]["build_inputs"] = list(manifest["tooling"]["installers"])
+    manifest["derived_wheels"][0]["build_requirement_mappings"][0]["mapped_artifact"] = dict(manifest["tooling"]["installers"][-1])
+    manifest["derived_wheels"][0]["build_environment"] = [
+        {"distribution": entry["distribution"], "version": entry["version"]}
+        for entry in manifest["tooling"]["installers"]
+    ]
     (bundle_root / manifest["runtime"][0]["filename"]).write_bytes(_wheel_bytes("beta", "9.9"))
     manifest["runtime"][0]["sha256"] = hashing.hash_file(bundle_root / manifest["runtime"][0]["filename"])
     manifest["runtime"][0]["size_bytes"] = (bundle_root / manifest["runtime"][0]["filename"]).stat().st_size
@@ -933,7 +1023,13 @@ def test_validate_bundle_rejects_derived_wheel_metadata_mismatch(tmp_path, monke
     monkeypatch.setattr(
         bundle,
         "parse_requirements_export",
-        lambda path: [bundle.ExportRequirement("alpha", "1.0", (alpha_hash, manifest["runtime"][0]["sha256"]))],
+        lambda path: [
+            bundle.ExportRequirement(
+                "alpha",
+                "1.0",
+                (alpha_hash, manifest["runtime"][0]["sha256"], source_entry["sha256"]),
+            )
+        ],
     )
     monkeypatch.setattr(
         bundle,

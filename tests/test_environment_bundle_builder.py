@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -146,6 +147,189 @@ def _fake_tool_artifact(name: str, version: str) -> dict:
         "wheel_tags": ["py3-none-any"],
         "requires_python": ">=3.8",
         "root_is_purelib": "true",
+    }
+
+
+def _manifest_artifact(
+    distribution: str,
+    version: str,
+    *,
+    token: str,
+    artifact_type: str = "wheel",
+    filename: str | None = None,
+    relative_path: str | None = None,
+    origin: str | None = None,
+    size_bytes: int = 17,
+) -> dict:
+    artifact_filename = filename or f"{distribution.replace('-', '_')}-{version}-py3-none-any.whl"
+    return {
+        "distribution": distribution,
+        "version": version,
+        "filename": artifact_filename,
+        "relative_path": relative_path or artifact_filename,
+        "size_bytes": size_bytes,
+        "origin": origin or f"https://example.test/{artifact_filename}",
+        "sha256": "sha256:" + token * 64,
+        "type": artifact_type,
+    }
+
+
+def _target_report_like() -> dict:
+    current = bundle._current_target_capture_fields()
+    return {
+        "target": current["target"],
+        "python_full_version": current["python_full_version"],
+        "implementation": current["implementation"],
+        "soabi": current["soabi"],
+        "compatible_tags": current["compatible_tags"],
+    }
+
+
+def _derived_provenance_fixture(
+    *,
+    target_report: dict,
+    wheel_sha256: str,
+    source_sha256: str,
+    build_inputs: list[dict] | None = None,
+) -> dict:
+    build_inputs = build_inputs or [
+        _manifest_artifact("pip", "25.0", token="1"),
+        _manifest_artifact("setuptools", "83.0.0", token="2"),
+        _manifest_artifact("wheel", "0.45.0", token="3"),
+        _manifest_artifact("hatchling", "1.27.0", token="4"),
+        _manifest_artifact("virtualenv", "20.26.0", token="5"),
+        _manifest_artifact("build", "1.2.2", token="6"),
+    ]
+    extraction_inventory = [
+        {"path": "PKG-INFO", "type": "file", "size_bytes": 12, "sha256": "sha256:" + "8" * 64},
+        {"path": "pyproject.toml", "type": "file", "size_bytes": 24, "sha256": "sha256:" + "9" * 64},
+    ]
+    command = [
+        sys.executable,
+        "-I",
+        "-c",
+        "build-child",
+        "/tmp/wheelhouse",
+        "/tmp/py2store-0.1.22.tar.gz",
+        "/tmp/evidence.json",
+        "hatchling.build",
+        "hatchling",
+    ]
+    frontend = {
+        "name": "build",
+        "version": "1.2.2",
+        "provider_distribution": "build",
+        "module": "build",
+        "module_origin": "/tmp/build.py",
+        "record_path": "/tmp/build-1.2.2.dist-info/RECORD",
+        "record_sha256": "sha256:" + "a" * 64,
+    }
+    backend = {
+        "name": "hatchling",
+        "version": "1.27.0",
+        "provider_distribution": "hatchling",
+        "module": "hatchling.build",
+        "module_origin": "/tmp/hatchling/build.py",
+        "record_path": "/tmp/hatchling-1.27.0.dist-info/RECORD",
+        "record_sha256": "sha256:" + "b" * 64,
+        "backend_path": [],
+    }
+    return {
+        "distribution": "py2store",
+        "version": "0.1.22",
+        "wheel": {
+            "distribution": "py2store",
+            "version": "0.1.22",
+            "filename": "py2store-0.1.22-py3-none-any.whl",
+            "relative_path": "py2store-0.1.22-py3-none-any.whl",
+            "size_bytes": 7,
+            "origin": "derived:py2store-0.1.22.tar.gz",
+            "sha256": wheel_sha256,
+            "type": "wheel",
+        },
+        "source_sdist": {
+            "distribution": "py2store",
+            "version": "0.1.22",
+            "filename": "py2store-0.1.22.tar.gz",
+            "relative_path": "evidence/py2store/py2store-0.1.22.tar.gz",
+            "size_bytes": 3,
+            "origin": "https://example.test/py2store-0.1.22.tar.gz",
+            "sha256": source_sha256,
+            "type": "sdist",
+        },
+        "build_inputs": build_inputs,
+        "build_requirement_mappings": [
+            {
+                "raw_requirement": "build==1.2.2",
+                "normalized_name": "build",
+                "marker": None,
+                "marker_result": True,
+                "mapped_artifact": dict(next(entry for entry in build_inputs if entry["distribution"] == "build")),
+            },
+            {
+                "raw_requirement": "hatchling==1.27.0",
+                "normalized_name": "hatchling",
+                "marker": None,
+                "marker_result": True,
+                "mapped_artifact": dict(next(entry for entry in build_inputs if entry["distribution"] == "hatchling")),
+            },
+        ],
+        "marker_environment": bundle.marker_environment_for_target(target_report["target"]),
+        "build_environment": [
+            {"distribution": entry["distribution"], "version": entry["version"]}
+            for entry in sorted(build_inputs, key=lambda item: item["distribution"])
+        ],
+        "extraction_inventory": extraction_inventory,
+        "extraction_inventory_sha256": bundle._json_sha256(extraction_inventory),
+        "builder": {
+            **target_report["target"],
+            "python_full_version": target_report["python_full_version"],
+            "implementation": target_report["implementation"],
+            "soabi": target_report["soabi"],
+            "compatible_tags": list(target_report["compatible_tags"]),
+        },
+        "frontend": frontend,
+        "backend": backend,
+        "isolation": {
+            "mechanism": "linux-unshare-clone_newnet",
+            "parent_namespace": "net:[111]",
+            "child_namespace": "net:[222]",
+            "interfaces": ["lo"],
+            "routes": ["Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT"],
+            "fd_targets": {"0": "pipe:[1]", "1": "pipe:[2]", "2": "pipe:[3]"},
+            "descendant_namespace": "net:[222]",
+            "python_connection_attempt": {"succeeded": False, "error": "OSError: offline"},
+            "native_connection_attempt": {
+                "argv": ["getent", "hosts", "example.com"],
+                "returncode": 2,
+                "stdout": "",
+                "stderr": "offline",
+            },
+            "outer_argv": list(command),
+            "inner_argv": [
+                "build",
+                "--wheel",
+                "--no-isolation",
+                "--outdir",
+                "/tmp/wheelhouse",
+                "/tmp/py2store-0.1.22.tar.gz",
+            ],
+            "frontend": {
+                "distribution": "build",
+                "module": "build",
+                "module_origin": frontend["module_origin"],
+                "version": frontend["version"],
+                "record_path": frontend["record_path"],
+            },
+            "backend": {
+                "distribution": "hatchling",
+                "module": "hatchling.build",
+                "module_origin": backend["module_origin"],
+                "version": backend["version"],
+                "record_path": backend["record_path"],
+            },
+        },
+        "command": command,
     }
 
 
@@ -479,46 +663,11 @@ def test_build_runtime_bundle_copies_locked_wheels_and_records_derived_provenanc
                 "sha256": "sha256:" + "4" * 64,
                 "type": "sdist",
             },
-                "provenance": {
-                "distribution": "py2store",
-                "version": "0.1.22",
-                "wheel": {
-                    "distribution": "py2store",
-                    "version": "0.1.22",
-                    "filename": "py2store-0.1.22-py3-none-any.whl",
-                    "relative_path": "py2store-0.1.22-py3-none-any.whl",
-                    "size_bytes": 7,
-                    "origin": "derived:py2store-0.1.22.tar.gz",
-                    "sha256": derived_hash,
-                    "type": "wheel",
-                },
-                "source_sdist": {
-                    "distribution": "py2store",
-                    "version": "0.1.22",
-                    "filename": "py2store-0.1.22.tar.gz",
-                    "relative_path": "evidence/py2store/py2store-0.1.22.tar.gz",
-                    "size_bytes": 3,
-                    "origin": "https://example.test/py2store-0.1.22.tar.gz",
-                    "sha256": "sha256:" + "4" * 64,
-                    "type": "sdist",
-                },
-                    "build_inputs": [
-                        {
-                            "distribution": "build",
-                            "version": "1.2.2",
-                            "filename": "build-1.2.2-py3-none-any.whl",
-                            "relative_path": "build-1.2.2-py3-none-any.whl",
-                            "size_bytes": 17,
-                            "origin": "https://example.test/build-1.2.2-py3-none-any.whl",
-                            "sha256": "sha256:" + "a" * 64,
-                            "type": "wheel",
-                        }
-                    ],
-                "builder": target_report["target"],
-                "frontend": {"name": "build", "version": "1.2.2"},
-                "backend": {"name": "hatchling", "version": "1.27.0"},
-                "command": ["python", "-m", "build"],
-            },
+            "provenance": _derived_provenance_fixture(
+                target_report=target_report,
+                wheel_sha256=derived_hash,
+                source_sha256="sha256:" + "4" * 64,
+            ),
         },
     )
 
@@ -564,6 +713,7 @@ def test_build_derived_runtime_wheel_rejects_undeclared_build_input(tmp_path, mo
         ],
     )
     monkeypatch.setattr(bundle, "_bootstrap_private_pip", lambda **kwargs: None)
+    monkeypatch.setattr(bundle, "_assert_bootstrapped_pip_only", lambda *args, **kwargs: None)
 
     def fake_run(args, **kwargs):
         if args[:4] == [bundle.sys.executable, "-m", "venv", "--without-pip"]:
@@ -589,7 +739,7 @@ build-backend = "hatchling.build"
 
     with pytest.raises(bundle.EnvironmentBundleError, match="undeclared build requirement 'rogue-builder'"):
         bundle._build_derived_runtime_wheel(
-            requirement=bundle.ExportRequirement("py2store", "0.1.22", ("sha256:" + "1" * 64,)),
+            requirement=bundle.ExportRequirement("py2store", "0.1.22", ("sha256:" + "4" * 64,)),
             source_sdist={
                 "url": "https://example.test/py2store-0.1.22.tar.gz",
                 "hash": "sha256:" + "4" * 64,
@@ -637,6 +787,33 @@ def test_build_derived_runtime_wheel_invokes_no_network_child_boundary(tmp_path,
     ]
     monkeypatch.setattr(bundle, "_tooling_install_plan", lambda include_build, include_pip, include_uv: list(tool_entries))
     monkeypatch.setattr(bundle, "_bootstrap_private_pip", lambda **kwargs: None)
+    monkeypatch.setattr(bundle, "_assert_bootstrapped_pip_only", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        bundle,
+        "_inspect_build_environment",
+        lambda *args, **kwargs: {
+            "installed": [
+                {"distribution": entry["distribution"], "version": entry["version"]}
+                for entry in sorted(tool_entries, key=lambda item: item["distribution"])
+            ],
+            "frontend": {
+                "distribution": "build",
+                "version": "1.2.2",
+                "record_path": "/tmp/build-1.2.2.dist-info/RECORD",
+                "module": "build",
+                "module_origin": "/tmp/build.py",
+            },
+            "backend": {
+                "distribution": "hatchling",
+                "version": "1.27.0",
+                "record_path": "/tmp/hatchling-1.27.0.dist-info/RECORD",
+                "module": "hatchling.build",
+                "module_origin": "/tmp/hatchling/build.py",
+            },
+        },
+    )
+    monkeypatch.setattr(bundle, "_derived_build_subprocess_kwargs", lambda: {"preexec_fn": "namespace-hook"})
+    monkeypatch.setattr(bundle.hashing, "hash_file", lambda path: "sha256:" + "f" * 64)
     sdist_bytes = _sdist_bytes(
         "py2store",
         "0.1.22",
@@ -673,7 +850,7 @@ build-backend = "hatchling.build"
 
     with pytest.raises(bundle.EnvironmentBundleError, match="offline derived-wheel build failed for py2store"):
         bundle._build_derived_runtime_wheel(
-            requirement=bundle.ExportRequirement("py2store", "0.1.22", ("sha256:" + "a" * 64,)),
+            requirement=bundle.ExportRequirement("py2store", "0.1.22", ("sha256:" + "4" * 64,)),
             source_sdist={
                 "url": "https://example.test/py2store-0.1.22.tar.gz",
                 "hash": "sha256:" + "4" * 64,
@@ -692,8 +869,7 @@ build-backend = "hatchling.build"
 
     assert recorded["command"][1:3] == ["-I", "-c"]
     assert recorded["command"][3] == bundle._build_no_network_child_source()
-    for key, value in bundle._derived_build_subprocess_kwargs().items():
-        assert recorded["kwargs"][key] == value
+    assert recorded["kwargs"]["preexec_fn"] == "namespace-hook"
     assert recorded["kwargs"]["env"]["INTERPLAB_NETWORK_DENIED"] == "1"
 
 
@@ -940,11 +1116,13 @@ def test_finalize_bundle_rejects_mismatched_torch_target_report(tmp_path, monkey
         )
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="the direct child-source boundary requires a Linux /proc namespace host")
 def test_build_no_network_child_source_blocks_socket_dns_and_python_subprocess(tmp_path):
     out_dir = tmp_path / "wheelhouse"
     out_dir.mkdir()
     sdist_path = tmp_path / "source.tar.gz"
     sdist_path.write_bytes(b"placeholder")
+    evidence_path = tmp_path / "evidence.json"
     build_module = tmp_path / "build.py"
     build_module.write_text(
         textwrap.dedent(
@@ -967,8 +1145,36 @@ def test_build_no_network_child_source_blocks_socket_dns_and_python_subprocess(t
     child_source = f"import sys; sys.path.insert(0, {str(tmp_path)!r})\n" + bundle._build_no_network_child_source()
 
     result = subprocess.run(
-        [sys.executable, "-I", "-c", child_source, str(out_dir), str(sdist_path)],
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            child_source,
+            str(out_dir),
+            str(sdist_path),
+            str(evidence_path),
+            "hatchling.build",
+            "hatchling",
+        ],
         cwd=tmp_path,
+        env={
+            **os.environ,
+            "INTERPLAB_PARENT_NETNS": "net:[111]",
+            "INTERPLAB_OUTER_ARGV": json.dumps(
+                [
+                    sys.executable,
+                    "-I",
+                    "-c",
+                    child_source,
+                    str(out_dir),
+                    str(sdist_path),
+                    str(evidence_path),
+                    "hatchling.build",
+                    "hatchling",
+                ]
+            ),
+            "INTERPLAB_NETWORK_DENIED": "1",
+        },
         capture_output=True,
         text=True,
         check=False,
@@ -977,6 +1183,262 @@ def test_build_no_network_child_source_blocks_socket_dns_and_python_subprocess(t
     assert result.returncode != 0
     assert "network access is forbidden during offline derived-wheel construction" in (result.stderr + result.stdout)
     assert list(out_dir.glob("*.whl")) == []
+
+
+def test_real_linux_namespace_isolation_evidence_uses_unshare_and_no_network_in_docker(tmp_path):
+    docker = shutil.which("docker")
+    if docker is None:
+        pytest.skip("docker is unavailable on this host")
+    inspect = subprocess.run(
+        [docker, "image", "inspect", "python:3.11-slim-bookworm", "--format", "{{.Id}}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if inspect.returncode != 0:
+        pytest.skip("python:3.11-slim-bookworm is unavailable locally")
+
+    shared = tmp_path / "docker-shared"
+    shared.mkdir()
+    out_dir = shared / "wheelhouse"
+    out_dir.mkdir()
+    evidence_path = shared / "evidence.json"
+    sdist_path = shared / "py2store-0.1.22.tar.gz"
+    sdist_path.write_bytes(b"placeholder")
+    (shared / "build.py").write_text(
+        textwrap.dedent(
+            """
+            import pathlib
+            import sys
+            import zipfile
+
+            def main():
+                out_dir = pathlib.Path(sys.argv[sys.argv.index("--outdir") + 1])
+                sdist = pathlib.Path(sys.argv[-1])
+                wheel_path = out_dir / "py2store-0.1.22-py3-none-any.whl"
+                with zipfile.ZipFile(wheel_path, "w") as wheel:
+                    wheel.writestr("py2store-0.1.22.dist-info/METADATA", "Metadata-Version: 2.1\\nName: py2store\\nVersion: 0.1.22\\n")
+                    wheel.writestr("py2store-0.1.22.dist-info/WHEEL", "Wheel-Version: 1.0\\nTag: py3-none-any\\n")
+                    wheel.writestr("built-from.txt", sdist.name)
+
+            if __name__ == "__main__":
+                main()
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    hatchling_dir = shared / "hatchling"
+    hatchling_dir.mkdir()
+    (hatchling_dir / "__init__.py").write_text("", encoding="utf-8")
+    (hatchling_dir / "build.py").write_text("BACKEND = 'hatchling.build'\n", encoding="utf-8")
+    build_dist = shared / "build-1.2.2.dist-info"
+    build_dist.mkdir()
+    (build_dist / "METADATA").write_text("Metadata-Version: 2.1\nName: build\nVersion: 1.2.2\n", encoding="utf-8")
+    (build_dist / "RECORD").write_text("build.py,,\nbuild-1.2.2.dist-info/METADATA,,\nbuild-1.2.2.dist-info/RECORD,,\n", encoding="utf-8")
+    hatchling_dist = shared / "hatchling-1.27.0.dist-info"
+    hatchling_dist.mkdir()
+    (hatchling_dist / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: hatchling\nVersion: 1.27.0\n",
+        encoding="utf-8",
+    )
+    (hatchling_dist / "RECORD").write_text(
+        "hatchling/build.py,,\nhatchling-1.27.0.dist-info/METADATA,,\nhatchling-1.27.0.dist-info/RECORD,,\n",
+        encoding="utf-8",
+    )
+    repo_root = Path(__file__).resolve().parents[1]
+    launcher = textwrap.dedent(
+        """
+        import json
+        import os
+        import pathlib
+        import subprocess
+        import sys
+
+        sys.path.insert(0, "/repo")
+        from interplab.core import environment_bundle as bundle
+
+        shared = pathlib.Path("/shared")
+        child_source = "import sys; sys.path.insert(0, '/shared')\\n" + bundle._build_no_network_child_source()
+        command = [
+            sys.executable,
+            "-I",
+            "-c",
+            child_source,
+            str(shared / "wheelhouse"),
+            str(shared / "py2store-0.1.22.tar.gz"),
+            str(shared / "evidence.json"),
+            "hatchling.build",
+            "hatchling",
+        ]
+        env = {
+            **os.environ,
+            "INTERPLAB_PARENT_NETNS": os.readlink("/proc/self/ns/net"),
+            "INTERPLAB_OUTER_ARGV": json.dumps(command),
+            "INTERPLAB_NETWORK_DENIED": "1",
+        }
+        subprocess.run(command, check=True, env=env, **bundle._derived_build_subprocess_kwargs())
+        payload = json.loads((shared / "evidence.json").read_text(encoding="utf-8"))
+        print(json.dumps(payload, sort_keys=True))
+        """
+    ).strip()
+
+    result = subprocess.run(
+        [
+            docker,
+            "run",
+            "--rm",
+            "--pull",
+            "never",
+            "--network",
+            "none",
+            "--cap-add",
+            "SYS_ADMIN",
+            "-v",
+            f"{repo_root}:/repo:ro",
+            "-v",
+            f"{shared}:/shared",
+            "python:3.11-slim-bookworm",
+            "python",
+            "-c",
+            launcher,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    payload = json.loads(result.stdout.strip().splitlines()[-1])
+    assert payload["mechanism"] == "linux-unshare-clone_newnet"
+    assert payload["parent_namespace"] != payload["child_namespace"]
+    assert payload["descendant_namespace"] == payload["child_namespace"]
+    assert payload["interfaces"] == ["lo"]
+    assert [line for line in payload["routes"][1:] if line.strip()] == []
+    assert payload["python_connection_attempt"]["succeeded"] is False
+    assert payload["native_connection_attempt"]["returncode"] != 0
+    assert not any(target.startswith("socket:") for target in payload["fd_targets"].values())
+    assert payload["outer_argv"][0] == "/usr/local/bin/python"
+    assert payload["inner_argv"][0] == "-c"
+    assert payload["inner_argv"][1:] == [
+        "/shared/wheelhouse",
+        "/shared/py2store-0.1.22.tar.gz",
+        "/shared/evidence.json",
+        "hatchling.build",
+        "hatchling",
+    ]
+    assert evidence_path.is_file()
+    assert (out_dir / "py2store-0.1.22-py3-none-any.whl").is_file()
+
+
+def test_extract_sdist_rejects_casefold_duplicate_member(tmp_path):
+    first = tarfile.TarInfo(name="pkg-1.0/Readme.txt")
+    first_payload = b"first"
+    first.size = len(first_payload)
+    second = tarfile.TarInfo(name="pkg-1.0/readme.txt")
+    second_payload = b"second"
+    second.size = len(second_payload)
+    sdist_path = tmp_path / "duplicate-case.tar.gz"
+    sdist_path.write_bytes(_tar_bytes([(first, first_payload), (second, second_payload)]))
+    destination = tmp_path / "extract"
+    destination.mkdir()
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="normalized extracted path"):
+        bundle._extract_sdist_to_directory(sdist_path, destination)
+
+
+def test_validate_runtime_manifest_accepts_derived_runtime_authorized_by_source_sdist_hash():
+    requirement = bundle.ExportRequirement("py2store", "0.1.22", ("sha256:" + "4" * 64,))
+    runtime_entry = {
+        "distribution": "py2store",
+        "version": "0.1.22",
+        "filename": "py2store-0.1.22-py3-none-any.whl",
+        "relative_path": "py2store-0.1.22-py3-none-any.whl",
+        "size_bytes": 7,
+        "origin": "derived:py2store-0.1.22.tar.gz",
+        "sha256": "sha256:" + "b" * 64,
+        "type": "wheel",
+    }
+
+    validated = bundle._validate_runtime_manifest(
+        [requirement],
+        [runtime_entry],
+        [_derived_provenance_fixture(target_report=_target_report_like(), wheel_sha256=runtime_entry["sha256"], source_sha256="sha256:" + "4" * 64)],
+    )
+
+    assert validated == [runtime_entry]
+
+
+def test_validate_derived_wheels_rejects_marker_environment_mismatch(tmp_path):
+    target_report = _target_report_like()
+    bundle_root = tmp_path / "bundle"
+    bundle_root.mkdir()
+    wheel_entry = _write_artifact(
+        bundle_root,
+        distribution="py2store",
+        version="0.1.22",
+        filename="py2store-0.1.22-py3-none-any.whl",
+        content=_wheel_bytes("py2store", "0.1.22"),
+    )
+    source_path = bundle_root / "evidence" / "py2store" / "py2store-0.1.22.tar.gz"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_bytes(b"sdist")
+    source_entry = {
+        "distribution": "py2store",
+        "version": "0.1.22",
+        "filename": "py2store-0.1.22.tar.gz",
+        "relative_path": "evidence/py2store/py2store-0.1.22.tar.gz",
+        "size_bytes": source_path.stat().st_size,
+        "origin": "file://artifact",
+        "sha256": hashing.hash_file(source_path),
+        "type": "sdist",
+    }
+    build_inputs = []
+    for name, version, _token in (
+        ("pip", "25.0", "1"),
+        ("setuptools", "83.0.0", "2"),
+        ("wheel", "0.45.0", "3"),
+        ("hatchling", "1.27.0", "4"),
+        ("virtualenv", "20.26.0", "5"),
+        ("build", "1.2.2", "6"),
+    ):
+        build_inputs.append(
+            _write_artifact(
+                bundle_root,
+                distribution=name,
+                version=version,
+                filename=f"{name}-{version}-py3-none-any.whl",
+                content=_wheel_bytes(name, version),
+            )
+        )
+    derived = _derived_provenance_fixture(
+        target_report=target_report,
+        wheel_sha256=wheel_entry["sha256"],
+        source_sha256=source_entry["sha256"],
+        build_inputs=_strip_source_path(build_inputs),
+    )
+    derived["wheel"]["size_bytes"] = wheel_entry["size_bytes"]
+    derived["wheel"]["origin"] = wheel_entry["origin"]
+    derived["source_sdist"]["size_bytes"] = source_entry["size_bytes"]
+    derived["source_sdist"]["origin"] = source_entry["origin"]
+    derived["marker_environment"]["python_version"] = "9.9"
+    artifact_index = bundle._build_artifact_index(
+            [
+                {key: value for key, value in wheel_entry.items() if key != "source_path"},
+                dict(source_entry),
+                *[{key: value for key, value in entry.items() if key != "source_path"} for entry in build_inputs],
+            ],
+            context="test artifact inventory",
+    )
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="marker_environment does not match the captured target"):
+        bundle._validate_derived_wheels(
+            [derived],
+            artifact_index,
+            {"py2store": {"version": "0.1.22", "sdist": {"url": "https://example.test/py2store-0.1.22.tar.gz", "hash": source_entry["sha256"], "size": source_entry["size_bytes"]}}},
+            target_report["target"],
+            bundle_root,
+            target_capture=bundle._current_target_capture_fields(),
+        )
 
 
 def test_finalize_bundle_rejects_unexpected_nested_directory_and_file(tmp_path, monkeypatch):
