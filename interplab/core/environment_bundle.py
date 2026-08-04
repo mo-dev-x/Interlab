@@ -4266,7 +4266,7 @@ def _validate_derived_entry_shape(entry: dict[str, Any], *, context: str) -> Non
         required_keys = {"name", "version", "provider_distribution", "module", "module_origin", "record_path", "record_sha256"}
         _require_exact_keys(
             tool,
-            required=required_keys | {"backend_path"} if field == "backend" else required_keys,
+            required=(required_keys | {"backend_path"}) if field == "backend" else required_keys,
             context=f"{context}.{field}",
         )
         _require_distribution(tool, "name", context=f"{context}.{field}")
@@ -4310,8 +4310,18 @@ def _validate_derived_entry_shape(entry: dict[str, Any], *, context: str) -> Non
             raise EnvironmentBundleError(f"{context}.isolation.{list_field} must contain strings")
     _require_mapping(isolation, "fd_targets", context=f"{context}.isolation")
     _require_string(isolation, "descendant_namespace", context=f"{context}.isolation")
-    _require_mapping(isolation, "python_connection_attempt", context=f"{context}.isolation")
-    _require_mapping(isolation, "native_connection_attempt", context=f"{context}.isolation")
+    python_connection_attempt = _require_mapping(isolation, "python_connection_attempt", context=f"{context}.isolation")
+    _require_exact_keys(
+        python_connection_attempt,
+        required={"succeeded", "error"},
+        context=f"{context}.isolation.python_connection_attempt",
+    )
+    native_connection_attempt = _require_mapping(isolation, "native_connection_attempt", context=f"{context}.isolation")
+    _require_exact_keys(
+        native_connection_attempt,
+        required={"argv", "returncode", "stdout", "stderr"},
+        context=f"{context}.isolation.native_connection_attempt",
+    )
     for nested in ("frontend", "backend"):
         nested_payload = _require_mapping(isolation, nested, context=f"{context}.isolation")
         _require_exact_keys(

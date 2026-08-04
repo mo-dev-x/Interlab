@@ -1828,6 +1828,32 @@ def test_validate_derived_entry_shape_rejects_non_empty_backend_path(tmp_path):
         bundle._validate_derived_entry_shape(derived, context="test derived entry")
 
 
+def test_validate_derived_entry_shape_rejects_stray_key_on_python_connection_attempt(tmp_path):
+    """R9-C6: python_connection_attempt was previously only _require_mapping'd
+    (:4313), so a stray key passed through unchecked."""
+    derived, *_rest = _valid_derived_wheel_manifest_context(tmp_path)
+    derived["isolation"]["python_connection_attempt"]["extra"] = "unexpected"
+
+    with pytest.raises(
+        bundle.EnvironmentBundleError,
+        match=r"isolation\.python_connection_attempt has unexpected field\(s\): extra",
+    ):
+        bundle._validate_derived_entry_shape(derived, context="test derived entry")
+
+
+def test_validate_derived_entry_shape_rejects_stray_key_on_native_connection_attempt(tmp_path):
+    """R9-C6: native_connection_attempt was previously only _require_mapping'd
+    (:4314), so a stray key passed through unchecked."""
+    derived, *_rest = _valid_derived_wheel_manifest_context(tmp_path)
+    derived["isolation"]["native_connection_attempt"]["extra"] = "unexpected"
+
+    with pytest.raises(
+        bundle.EnvironmentBundleError,
+        match=r"isolation\.native_connection_attempt has unexpected field\(s\): extra",
+    ):
+        bundle._validate_derived_entry_shape(derived, context="test derived entry")
+
+
 def test_finalize_bundle_rejects_unexpected_nested_directory_and_file(tmp_path, monkeypatch):
     fixture = _finalize_fixture(tmp_path, monkeypatch)
     rogue = Path(fixture["staging_dir"]) / "rogue"
