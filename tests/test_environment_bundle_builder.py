@@ -17,6 +17,10 @@ from packaging.tags import Tag
 
 from interplab.core import environment_bundle as bundle
 from interplab.core import hashing
+from interplab.core._schema_registry import SchemaValidationError
+from interplab.core._schema_registry import validate as validate_schema
+
+_ACQUISITION_SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "environment_acquisition_manifest" / "v1.schema.json"
 
 
 def _wheel_bytes(distribution: str, version: str, *, wheel_tag: str = "py3-none-any") -> bytes:
@@ -331,6 +335,93 @@ def _derived_provenance_fixture(
         },
         "command": command,
     }
+
+
+def _validate_against_acquisition_def(tmp_path, instance, def_name: str) -> None:
+    """Validate `instance` against `$defs.<def_name>` of the real committed acquisition
+    schema, preserving sibling $ref resolution (§F2/F3/F4 negative tests, R9-V4)."""
+    full_schema = json.loads(_ACQUISITION_SCHEMA_PATH.read_text(encoding="utf-8"))
+    wrapper = {"$schema": full_schema.get("$schema"), "$defs": full_schema["$defs"], "$ref": f"#/$defs/{def_name}"}
+    wrapper_path = tmp_path / f"_wrapper_{def_name}.schema.json"
+    wrapper_path.write_text(json.dumps(wrapper), encoding="utf-8")
+    validate_schema(instance, wrapper_path)
+
+
+def _valid_derived_wheel_manifest_context(tmp_path):
+    """A complete, currently-valid derived_wheel manifest plus the artifact_index/
+    lock_packages/target_report/bundle_root context _validate_derived_wheels needs --
+    shared setup for the R9-V4 F2/F4 negative tests (mirrors
+    test_validate_derived_wheels_rejects_marker_environment_mismatch's own setup)."""
+    target_report = _target_report_like()
+    bundle_root = tmp_path / "bundle"
+    bundle_root.mkdir()
+    wheel_entry = _write_artifact(
+        bundle_root,
+        distribution="py2store",
+        version="0.1.22",
+        filename="py2store-0.1.22-py3-none-any.whl",
+        content=_wheel_bytes("py2store", "0.1.22"),
+    )
+    source_path = bundle_root / "evidence" / "py2store" / "py2store-0.1.22.tar.gz"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_bytes(b"sdist")
+    source_entry = {
+        "distribution": "py2store",
+        "version": "0.1.22",
+        "filename": "py2store-0.1.22.tar.gz",
+        "relative_path": "evidence/py2store/py2store-0.1.22.tar.gz",
+        "size_bytes": source_path.stat().st_size,
+        "origin": "file://artifact",
+        "sha256": hashing.hash_file(source_path),
+        "type": "sdist",
+    }
+    build_inputs = []
+    for name, version, _token in (
+        ("pip", "25.0", "1"),
+        ("setuptools", "83.0.0", "2"),
+        ("wheel", "0.45.0", "3"),
+        ("hatchling", "1.27.0", "4"),
+        ("virtualenv", "20.26.0", "5"),
+        ("build", "1.2.2", "6"),
+    ):
+        build_inputs.append(
+            _write_artifact(
+                bundle_root,
+                distribution=name,
+                version=version,
+                filename=f"{name}-{version}-py3-none-any.whl",
+                content=_wheel_bytes(name, version),
+            )
+        )
+    derived = _derived_provenance_fixture(
+        target_report=target_report,
+        wheel_sha256=wheel_entry["sha256"],
+        source_sha256=source_entry["sha256"],
+        build_inputs=_strip_source_path(build_inputs),
+    )
+    derived["wheel"]["size_bytes"] = wheel_entry["size_bytes"]
+    derived["wheel"]["origin"] = wheel_entry["origin"]
+    derived["source_sdist"]["size_bytes"] = source_entry["size_bytes"]
+    derived["source_sdist"]["origin"] = source_entry["origin"]
+    artifact_index = bundle._build_artifact_index(
+        [
+            {key: value for key, value in wheel_entry.items() if key != "source_path"},
+            dict(source_entry),
+            *[{key: value for key, value in entry.items() if key != "source_path"} for entry in build_inputs],
+        ],
+        context="test artifact inventory",
+    )
+    lock_packages = {
+        "py2store": {
+            "version": "0.1.22",
+            "sdist": {
+                "url": "https://example.test/py2store-0.1.22.tar.gz",
+                "hash": source_entry["sha256"],
+                "size": source_entry["size_bytes"],
+            },
+        }
+    }
+    return derived, artifact_index, lock_packages, target_report, bundle_root
 
 
 def _target_report(source_root: Path, revision: str) -> dict:
@@ -759,6 +850,177 @@ build-backend = "hatchling.build"
                 },
                 staging_dir=staging_dir,
             )
+
+
+def _build_derived_wheel_with_pyproject(tmp_path, monkeypatch, build_system_toml: str) -> None:
+    """Drive _build_derived_runtime_wheel through a real sdist carrying the given
+    [build-system] table, to exercise _validate_build_system_contract's negative
+    branches (R9-D4 §4, R9-V4 F1) exactly as the model test above does."""
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir()
+    tool_names = ["pip", "setuptools", "wheel", "hatchling", "virtualenv", "build"]
+    monkeypatch.setattr(
+        bundle,
+        "_tooling_install_plan",
+        lambda include_build, include_pip, include_uv: [
+            {
+                "distribution": name,
+                "version": "1.0" if name != "pip" else "25.0",
+                "filename": f"{name}-1.0-py3-none-any.whl" if name != "pip" else "pip-25.0-py3-none-any.whl",
+                "relative_path": f"{name}-1.0-py3-none-any.whl" if name != "pip" else "pip-25.0-py3-none-any.whl",
+                "size_bytes": 1,
+                "origin": f"https://example.test/{name}.whl",
+                "sha256": "sha256:" + name[0] * 64,
+                "type": "wheel",
+            }
+            for name in tool_names
+        ],
+    )
+    monkeypatch.setattr(bundle, "_bootstrap_private_pip", lambda **kwargs: None)
+    monkeypatch.setattr(bundle, "_assert_bootstrapped_pip_only", lambda *args, **kwargs: None)
+
+    def fake_run(args, **kwargs):
+        if args[:4] == [bundle.sys.executable, "-m", "venv", "--without-pip"]:
+            Path(args[-1]).mkdir(parents=True)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(bundle.subprocess, "run", fake_run)
+
+    evidence_dir = staging_dir / "evidence"
+    sdist_path = evidence_dir / "source.tar.gz"
+    sdist_path.parent.mkdir(parents=True)
+    sdist_bytes = _sdist_bytes("py2store", "0.1.22", pyproject=f"\n{build_system_toml}\n")
+    sdist_path.write_bytes(sdist_bytes)
+    monkeypatch.setattr(
+        bundle,
+        "_download_and_verify_artifact",
+        lambda artifact, *, destination: destination.write_bytes(sdist_bytes),
+    )
+
+    bundle._build_derived_runtime_wheel(
+        requirement=bundle.ExportRequirement("py2store", "0.1.22", ("sha256:" + "4" * 64,)),
+        source_sdist={
+            "url": "https://example.test/py2store-0.1.22.tar.gz",
+            "hash": "sha256:" + "4" * 64,
+            "size": len(sdist_bytes),
+        },
+        tooling_by_name={
+            "build": {"version": "1.2.2"},
+            "hatchling": {"version": "1.27.0"},
+            "pip": _fake_tool_artifact("pip", "25.0"),
+        },
+        target_report={
+            "target": bundle.current_target(),
+            "python_full_version": bundle.current_target()["python"],
+            "implementation": bundle.sys.implementation.name,
+            "soabi": bundle._current_target_capture_fields()["soabi"],
+            "compatible_tags": bundle._current_target_capture_fields()["compatible_tags"],
+        },
+        staging_dir=staging_dir,
+    )
+
+
+def test_validate_build_system_contract_rejects_direct_url_requirement(tmp_path, monkeypatch):
+    with pytest.raises(bundle.EnvironmentBundleError, match="must not use a direct URL"):
+        _build_derived_wheel_with_pyproject(
+            tmp_path,
+            monkeypatch,
+            '[build-system]\n'
+            'requires = ["rogue-builder @ https://example.test/rogue-builder-1.0-py3-none-any.whl"]\n'
+            'build-backend = "hatchling.build"\n',
+        )
+
+
+def test_validate_build_system_contract_rejects_vcs_reference_requirement(tmp_path, monkeypatch):
+    with pytest.raises(bundle.EnvironmentBundleError, match="must not use a direct URL"):
+        _build_derived_wheel_with_pyproject(
+            tmp_path,
+            monkeypatch,
+            '[build-system]\n'
+            'requires = ["rogue-builder @ git+https://example.test/rogue-builder.git"]\n'
+            'build-backend = "hatchling.build"\n',
+        )
+
+
+def test_validate_build_system_contract_rejects_path_reference_requirement(tmp_path, monkeypatch):
+    with pytest.raises(bundle.EnvironmentBundleError, match="must not use a direct URL"):
+        _build_derived_wheel_with_pyproject(
+            tmp_path,
+            monkeypatch,
+            '[build-system]\n'
+            'requires = ["rogue-builder @ file:///tmp/rogue-builder"]\n'
+            'build-backend = "hatchling.build"\n',
+        )
+
+
+def test_validate_build_system_contract_rejects_unauthorized_extras(tmp_path, monkeypatch):
+    with pytest.raises(bundle.EnvironmentBundleError, match="must not use extras for 'hatchling'"):
+        _build_derived_wheel_with_pyproject(
+            tmp_path,
+            monkeypatch,
+            '[build-system]\n'
+            'requires = ["hatchling[extra-feature]==1.0"]\n'
+            'build-backend = "hatchling.build"\n',
+        )
+
+
+def test_validate_build_system_contract_rejects_incompatible_specifier(tmp_path, monkeypatch):
+    with pytest.raises(bundle.EnvironmentBundleError, match="does not admit approved version"):
+        _build_derived_wheel_with_pyproject(
+            tmp_path,
+            monkeypatch,
+            '[build-system]\n'
+            'requires = ["hatchling>=99.0"]\n'
+            'build-backend = "hatchling.build"\n',
+        )
+
+
+def test_validate_build_system_contract_rejects_duplicate_build_requirement(tmp_path, monkeypatch):
+    with pytest.raises(bundle.EnvironmentBundleError, match="declares duplicate build requirement 'hatchling'"):
+        _build_derived_wheel_with_pyproject(
+            tmp_path,
+            monkeypatch,
+            '[build-system]\n'
+            'requires = ["hatchling==1.0", "hatchling==1.0"]\n'
+            'build-backend = "hatchling.build"\n',
+        )
+
+
+def test_validate_build_system_contract_rejects_backend_mismatch(tmp_path, monkeypatch):
+    with pytest.raises(
+        bundle.EnvironmentBundleError,
+        match=r"build backend mismatch: expected 'hatchling\.build', got 'setuptools\.build_meta'",
+    ):
+        _build_derived_wheel_with_pyproject(
+            tmp_path,
+            monkeypatch,
+            '[build-system]\n'
+            'requires = ["hatchling==1.0"]\n'
+            'build-backend = "setuptools.build_meta"\n',
+        )
+
+
+def test_validate_build_system_contract_rejects_non_empty_backend_path(tmp_path, monkeypatch):
+    with pytest.raises(bundle.EnvironmentBundleError, match="backend-path mismatch"):
+        _build_derived_wheel_with_pyproject(
+            tmp_path,
+            monkeypatch,
+            '[build-system]\n'
+            'requires = ["hatchling==1.0"]\n'
+            'build-backend = "hatchling.build"\n'
+            'backend-path = ["src"]\n',
+        )
+
+
+def test_validate_build_system_contract_rejects_missing_backend_provider(tmp_path, monkeypatch):
+    with pytest.raises(bundle.EnvironmentBundleError, match="requires is missing backend provider 'hatchling'"):
+        _build_derived_wheel_with_pyproject(
+            tmp_path,
+            monkeypatch,
+            '[build-system]\n'
+            'requires = ["wheel==1.0"]\n'
+            'build-backend = "hatchling.build"\n',
+        )
 
 
 def test_build_derived_runtime_wheel_invokes_no_network_child_boundary(tmp_path, monkeypatch):
@@ -1439,6 +1701,131 @@ def test_validate_derived_wheels_rejects_marker_environment_mismatch(tmp_path):
             bundle_root,
             target_capture=bundle._current_target_capture_fields(),
         )
+
+
+def test_validate_derived_wheels_rejects_native_connection_attempt_missing_returncode(tmp_path):
+    """R9-V4 F2: {} must be rejected at both layers -- the code-level asymmetry at
+    environment_bundle.py:3694 (native side accepted a missing returncode via
+    `.get("returncode") == 0`) and the schema layer (previously unconstrained)."""
+    derived, artifact_index, lock_packages, target_report, bundle_root = _valid_derived_wheel_manifest_context(tmp_path)
+    derived["isolation"]["native_connection_attempt"] = {}
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="isolation native descendant network attempt must fail"):
+        bundle._validate_derived_wheels(
+            [derived],
+            artifact_index,
+            lock_packages,
+            target_report["target"],
+            bundle_root,
+            target_capture=bundle._current_target_capture_fields(),
+        )
+    with pytest.raises(SchemaValidationError):
+        _validate_against_acquisition_def(tmp_path, derived["isolation"], "derived_isolation")
+
+
+def test_validate_derived_wheels_rejects_python_connection_attempt_missing_succeeded(tmp_path):
+    """Companion to the native-side F2 test: the python side already rejected a
+    missing key at the code layer (`.get("succeeded") is not False`); this confirms
+    the schema layer -- previously unconstrained -- now rejects it too."""
+    derived, artifact_index, lock_packages, target_report, bundle_root = _valid_derived_wheel_manifest_context(tmp_path)
+    derived["isolation"]["python_connection_attempt"] = {}
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="isolation python connection attempt must fail"):
+        bundle._validate_derived_wheels(
+            [derived],
+            artifact_index,
+            lock_packages,
+            target_report["target"],
+            bundle_root,
+            target_capture=bundle._current_target_capture_fields(),
+        )
+    with pytest.raises(SchemaValidationError):
+        _validate_against_acquisition_def(tmp_path, derived["isolation"], "derived_isolation")
+
+
+def test_inventory_entry_schema_requires_size_and_hash_for_file_type(tmp_path):
+    """R9-V4 F3: the schema now enforces the same file-type conditional requirement
+    the code already enforced at environment_bundle.py:4246-4248."""
+    with pytest.raises(SchemaValidationError):
+        _validate_against_acquisition_def(tmp_path, {"path": "PKG-INFO", "type": "file"}, "inventory_entry")
+
+
+def test_inventory_entry_schema_allows_directory_without_size_and_hash(tmp_path):
+    """Companion positive case: a directory entry never needed size_bytes/sha256,
+    and the new if/then must not regress that."""
+    _validate_against_acquisition_def(tmp_path, {"path": "src", "type": "directory"}, "inventory_entry")
+
+
+def test_derived_backend_record_schema_rejects_missing_backend_path(tmp_path):
+    """R9-V4 F4: backend_path is now required (not merely optional-with-default) on
+    the dedicated backend record definition."""
+    payload = {
+        "name": "hatchling",
+        "version": "1.27.0",
+        "provider_distribution": "hatchling",
+        "module": "hatchling.build",
+        "module_origin": "/tmp/hatchling/build.py",
+        "record_path": "/tmp/hatchling-1.27.0.dist-info/RECORD",
+        "record_sha256": "sha256:" + "a" * 64,
+    }
+    with pytest.raises(SchemaValidationError):
+        _validate_against_acquisition_def(tmp_path, payload, "derived_backend_record")
+
+
+def test_derived_backend_record_schema_rejects_non_empty_backend_path(tmp_path):
+    payload = {
+        "name": "hatchling",
+        "version": "1.27.0",
+        "provider_distribution": "hatchling",
+        "module": "hatchling.build",
+        "module_origin": "/tmp/hatchling/build.py",
+        "record_path": "/tmp/hatchling-1.27.0.dist-info/RECORD",
+        "record_sha256": "sha256:" + "a" * 64,
+        "backend_path": ["src"],
+    }
+    with pytest.raises(SchemaValidationError):
+        _validate_against_acquisition_def(tmp_path, payload, "derived_backend_record")
+
+
+def test_derived_backend_record_schema_accepts_empty_backend_path(tmp_path):
+    payload = {
+        "name": "hatchling",
+        "version": "1.27.0",
+        "provider_distribution": "hatchling",
+        "module": "hatchling.build",
+        "module_origin": "/tmp/hatchling/build.py",
+        "record_path": "/tmp/hatchling-1.27.0.dist-info/RECORD",
+        "record_sha256": "sha256:" + "a" * 64,
+        "backend_path": [],
+    }
+    _validate_against_acquisition_def(tmp_path, payload, "derived_backend_record")
+
+
+def test_derived_tool_record_schema_rejects_backend_path_on_frontend(tmp_path):
+    """Frontends never carry a backend_path concept; the shared record definition
+    must not silently tolerate one via additionalProperties."""
+    payload = {
+        "name": "build",
+        "version": "1.2.2",
+        "provider_distribution": "build",
+        "module": "build",
+        "module_origin": "/tmp/build.py",
+        "record_path": "/tmp/build-1.2.2.dist-info/RECORD",
+        "record_sha256": "sha256:" + "a" * 64,
+        "backend_path": [],
+    }
+    with pytest.raises(SchemaValidationError):
+        _validate_against_acquisition_def(tmp_path, payload, "derived_tool_record")
+
+
+def test_validate_derived_entry_shape_rejects_non_empty_backend_path(tmp_path):
+    """R9-V4 F4, code layer: _validate_derived_entry_shape's own manifest-shape
+    check must reject a non-empty backend_path, mirroring the schema."""
+    derived, *_rest = _valid_derived_wheel_manifest_context(tmp_path)
+    derived["backend"]["backend_path"] = ["src"]
+
+    with pytest.raises(bundle.EnvironmentBundleError, match=r"backend\.backend_path must be an empty list"):
+        bundle._validate_derived_entry_shape(derived, context="test derived entry")
 
 
 def test_finalize_bundle_rejects_unexpected_nested_directory_and_file(tmp_path, monkeypatch):

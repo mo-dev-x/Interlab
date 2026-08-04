@@ -3691,7 +3691,8 @@ def _validate_derived_wheels(
                 f"derived wheel {normalized!r} isolation python connection attempt must fail"
             )
         native_attempt = isolation["native_connection_attempt"]
-        if native_attempt.get("returncode") == 0:
+        native_returncode = native_attempt.get("returncode")
+        if native_returncode is None or native_returncode == 0:
             raise EnvironmentBundleError(
                 f"derived wheel {normalized!r} isolation native descendant network attempt must fail"
             )
@@ -4262,10 +4263,10 @@ def _validate_derived_entry_shape(entry: dict[str, Any], *, context: str) -> Non
         raise EnvironmentBundleError(f"{context}.builder.compatible_tags must be a non-empty list of strings")
     for field in ("frontend", "backend"):
         tool = entry[field]
+        required_keys = {"name", "version", "provider_distribution", "module", "module_origin", "record_path", "record_sha256"}
         _require_exact_keys(
             tool,
-            required={"name", "version", "provider_distribution", "module", "module_origin", "record_path", "record_sha256"},
-            optional={"backend_path"},
+            required=required_keys | {"backend_path"} if field == "backend" else required_keys,
             context=f"{context}.{field}",
         )
         _require_distribution(tool, "name", context=f"{context}.{field}")
@@ -4275,9 +4276,9 @@ def _validate_derived_entry_shape(entry: dict[str, Any], *, context: str) -> Non
         _require_string(tool, "module_origin", context=f"{context}.{field}")
         _require_string(tool, "record_path", context=f"{context}.{field}")
         _require_sha(tool, "record_sha256", context=f"{context}.{field}")
-    backend_path = entry["backend"].get("backend_path", [])
-    if not isinstance(backend_path, list) or any(not isinstance(item, str) for item in backend_path):
-        raise EnvironmentBundleError(f"{context}.backend.backend_path must be a list of strings")
+    backend_path = entry["backend"]["backend_path"]
+    if not isinstance(backend_path, list) or backend_path:
+        raise EnvironmentBundleError(f"{context}.backend.backend_path must be an empty list")
     isolation = _require_mapping(entry, "isolation", context=context)
     _require_exact_keys(
         isolation,
