@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import base64
 import io
 import json
@@ -15,8 +16,8 @@ from types import SimpleNamespace
 import pytest
 from packaging.markers import Marker, default_environment
 
+from interplab.core import _schema_registry, hashing, uris
 from interplab.core import environment_bundle as bundle
-from interplab.core import hashing, uris
 from interplab.core._schema_registry import (
     SchemaValidationError,
     artifact_schema_path,
@@ -34,6 +35,22 @@ from tests.job_test_helpers import (
 )
 
 _EXPORT_SHA256 = "sha256:9da00e038f1a6daba4fac4ba7b3a845787349180e339c0d5ca1a79223a678314"
+_ACQUISITION_MANIFEST_SCHEMA_PATH = (
+    _schema_registry.SCHEMAS_ROOT / "environment_acquisition_manifest" / "v1.schema.json"
+)
+_BLOCK_JSONSCHEMA_IMPORT_HOOK = '''
+import sys as _sys
+
+class _BlockJsonschemaFinder:
+    _blocked = {"jsonschema", "referencing", "rpds", "attr", "attrs", "jsonschema_specifications"}
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname.split(".")[0] in self._blocked:
+            raise ImportError(f"blocked for R9-C9 bootstrap-safety test: {fullname}")
+        return None
+
+_sys.meta_path.insert(0, _BlockJsonschemaFinder())
+'''
 
 
 def _source_hashes() -> dict:
@@ -1877,3 +1894,349 @@ def test_certification_environment_inputs_include_valid_equivalence_report(monke
         assert ref_by_role["transformer_lens_equivalence_report"]["content_hash"] == hashing.hash_file(report)
     finally:
         shutil.rmtree(base, ignore_errors=True)
+
+
+# --- R9-C9: schema-enforcement boundary (R9-A4 ruling) -----------------------
+#
+# The Python validators are the normative contract everywhere, pre- and
+# post-activation. The schema is additive, defence-in-depth SHAPE checking at
+# exactly two post-activation sites. These tests prove: (1) the module stays
+# bootstrap-safe under a real blocking import hook, not just inspection; (2) the
+# two sites actually consult the schema, in addition to (not instead of) the
+# Python validators; (3) the directional anti-drift invariant -- Python is at
+# least as strict as the schema, never the reverse.
+
+
+def test_environment_bundle_module_imports_stay_bootstrap_safe():
+    """R9-C9: environment_bundle.py must stay stdlib-only at module scope (plus
+    interplab.core.hashing) so it can run before any venv exists (R6-C1). A
+    mechanical AST check on the real top-level import statements -- not a promise
+    -- so it fails the instant jsonschema (or interplab.core._schema_registry,
+    which pulls it in) is added at module level."""
+    source = (uris.REPO_ROOT / "interplab" / "core" / "environment_bundle.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    top_level_roots: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            top_level_roots.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            top_level_roots.add(node.module.split(".")[0])
+
+    allowed = set(sys.stdlib_module_names) | {"packaging", "interplab"}
+    unexpected = top_level_roots - allowed
+    assert not unexpected, f"unexpected module-level import(s): {unexpected}"
+    assert "interplab" in top_level_roots, "expected interplab.core.hashing at module level"
+    assert "jsonschema" not in top_level_roots
+
+
+def test_preflight_executes_successfully_with_jsonschema_import_blocked(tmp_path):
+    """R9-C9 acceptance criterion: proven by execution under a real import-blocking
+    hook, not by inspecting stderr text."""
+    bundle_root, manifest_path, manifest = _minimal_bundle(tmp_path)
+    alpha_hash = manifest["runtime"][0]["sha256"]
+    child = _BLOCK_JSONSCHEMA_IMPORT_HOOK + textwrap.dedent(
+        f"""
+        import importlib.util
+        import sys
+        from pathlib import Path
+        path = Path(r"{(uris.REPO_ROOT / 'interplab' / 'core' / 'environment_bundle.py')}")
+        spec = importlib.util.spec_from_file_location("bundle_under_test", path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        module.parse_requirements_export = lambda _: [module.ExportRequirement("alpha", "1.0", ("{alpha_hash}",))]
+        module.load_lock_packages = lambda _: {{"torch": {{"version": "2.13.0"}}}}
+        module._validated_tooling_lock_files = lambda bundle_root, include_build, path=module._TOOLING_LOCK_FILE: module._tooling_install_plan(
+            include_build=include_build,
+            include_pip=True,
+            include_uv=False,
+        )
+        sys.exit(module.main([
+            "preflight",
+            "--manifest", r"{manifest_path}",
+            "--bundle-root", r"{bundle_root}",
+            "--venv-dir", r"{tmp_path / 'venv'}",
+            "--plan-dir", r"{tmp_path / 'plan'}",
+        ]))
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", child],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "plan" / "runtime.requirements.txt").is_file()
+
+
+def test_create_venv_executes_successfully_with_jsonschema_import_blocked(tmp_path):
+    """R9-C9 acceptance criterion: create-venv is the other pre-activation
+    subcommand (setup_env.sh calls it before `source .../activate`); it must also
+    survive a real jsonschema import block, not just preflight."""
+    bundle_root, manifest_path, manifest = _minimal_bundle(tmp_path)
+    alpha_hash = manifest["runtime"][0]["sha256"]
+    target = manifest["target"]
+    venv_dir = tmp_path / "venv"
+    child = _BLOCK_JSONSCHEMA_IMPORT_HOOK + textwrap.dedent(
+        f"""
+        import json
+        import importlib.util
+        import sys
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        path = Path(r"{(uris.REPO_ROOT / 'interplab' / 'core' / 'environment_bundle.py')}")
+        spec = importlib.util.spec_from_file_location("bundle_under_test", path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+
+        module.parse_requirements_export = lambda _: [module.ExportRequirement("alpha", "1.0", ("{alpha_hash}",))]
+        module.load_lock_packages = lambda _: {{"torch": {{"version": "2.13.0"}}}}
+        module._validated_tooling_lock_files = lambda bundle_root, include_build, path=module._TOOLING_LOCK_FILE: module._tooling_install_plan(
+            include_build=include_build,
+            include_pip=True,
+            include_uv=False,
+        )
+
+        target = {target!r}
+        tmp_root = Path(r"{tmp_path}")
+
+        def fake_run(args, **kwargs):
+            if args[0] == sys.executable:
+                staging_path = Path(args[-1])
+                python_path = module._venv_python_path(staging_path)
+                python_path.parent.mkdir(parents=True, exist_ok=True)
+                python_path.write_text("stub", encoding="utf-8")
+                (staging_path / "pyvenv.cfg").write_text("home = base-python\\n", encoding="utf-8")
+                return SimpleNamespace(stdout="", stderr="", returncode=0)
+            staging_python = Path(args[0]).resolve()
+            staging_path = staging_python.parent.parent
+            return SimpleNamespace(
+                stdout=json.dumps({{
+                    "abi": target["abi"],
+                    "architecture": target["architecture"],
+                    "base_prefix": str(tmp_root / "base-python"),
+                    "executable": str(staging_python),
+                    "os": target["os"],
+                    "prefix": str(staging_path),
+                    "python": target["python"],
+                }}),
+                stderr="",
+                returncode=0,
+            )
+
+        module.subprocess.run = fake_run
+        module._assert_unseeded_virtualenv = lambda path: None
+        module._bootstrap_private_pip = lambda **kwargs: None
+        module._assert_bootstrapped_pip_only = lambda path, expected_pip_version: None
+
+        module.create_virtualenv(
+            r"{manifest_path}",
+            bundle_root=r"{bundle_root}",
+            venv_dir=r"{venv_dir}",
+        )
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", child],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (venv_dir / "pyvenv.cfg").is_file()
+
+
+def test_record_installed_environment_enforces_schema_in_addition_to_python_validators(tmp_path, monkeypatch):
+    """R9-C9 wiring proof: this exact fixture already passes the Python validators
+    unmodified (see test_record_installed_environment_writes_machine_readable_manifest);
+    the only change here is forcing the schema call to fail, which proves
+    record_installed_environment actually consults it -- additively, after Python
+    already accepted the payload, not instead of Python."""
+    bundle_root, manifest_path, manifest = _minimal_bundle(tmp_path)
+    _patch_minimal_export(monkeypatch, manifest["runtime"][0]["sha256"])
+    _materialize_manifest_root_artifacts(bundle_root, tmp_path, manifest)
+    monkeypatch.setattr(
+        bundle,
+        "distributions",
+        lambda: [
+            SimpleNamespace(metadata={"Name": "alpha"}, version="1.0"),
+            SimpleNamespace(metadata={"Name": "pip"}, version="25.0"),
+            SimpleNamespace(metadata={"Name": "setuptools"}, version="80.0"),
+            SimpleNamespace(metadata={"Name": "wheel"}, version="0.45.0"),
+            SimpleNamespace(metadata={"Name": "hatchling"}, version="1.27.0"),
+            SimpleNamespace(metadata={"Name": "virtualenv"}, version="20.26.0"),
+            SimpleNamespace(metadata={"Name": "torch"}, version=TEST_ALLIANCE_TORCH_VERSION),
+            SimpleNamespace(metadata={"Name": "interplab"}, version="0.1.0"),
+        ],
+    )
+    monkeypatch.setattr(
+        bundle,
+        "dist_version",
+        lambda name: {
+            "pip": "25.0",
+            "setuptools": "80.0",
+            "wheel": "0.45.0",
+            "hatchling": "1.27.0",
+            "virtualenv": "20.26.0",
+        }[name],
+    )
+    monkeypatch.setattr(bundle, "_clean_git_head", lambda repo_root: TEST_REPO_REVISION)
+    monkeypatch.setenv("LOADEDMODULES", "python/3.11.5:arrow/25.0.0")
+    _patch_live_torch_runtime(monkeypatch)
+    _patch_pip_check(monkeypatch)
+
+    def boom(instance, schema_path):
+        raise _schema_registry.SchemaValidationError("forced failure to prove wiring", ["forced"])
+
+    monkeypatch.setattr(_schema_registry, "validate", boom)
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="acquisition manifest failed schema validation"):
+        bundle.record_installed_environment(manifest_path, tmp_path / "installed.json")
+
+
+def test_certification_environment_inputs_enforces_schema_in_addition_to_python_validators(monkeypatch):
+    """R9-C9 wiring proof, companion to the record_installed_environment one above
+    -- this fixture already passes Python validation unmodified (see
+    test_certification_environment_inputs_include_required_roles); forcing the
+    schema call to fail proves certification_environment_inputs consults it too."""
+    base, acquisition, install = write_cert_lane_environment_files("environment_bundle_schema_wiring")
+    try:
+        _patch_clean_git_head(monkeypatch)
+        _patch_live_torch_runtime(monkeypatch)
+        monkeypatch.setenv(bundle.ACQUISITION_MANIFEST_ENV, str(acquisition))
+        monkeypatch.setenv(bundle.INSTALL_MANIFEST_ENV, str(install))
+
+        def boom(instance, schema_path):
+            raise _schema_registry.SchemaValidationError("forced failure to prove wiring", ["forced"])
+
+        monkeypatch.setattr(_schema_registry, "validate", boom)
+
+        with pytest.raises(bundle.EnvironmentBundleError, match="acquisition manifest failed schema validation"):
+            bundle.certification_environment_inputs(
+                stage="certify",
+                config={"checkpoint_hash": "sha256:" + "1" * 64},
+                repo_root=uris.REPO_ROOT,
+            )
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def test_acquisition_manifest_anti_drift_valid_fixture_accepted_by_both(tmp_path, monkeypatch):
+    """R9-C9 anti-drift corpus, class 1 (valid): the untouched fixture must be
+    accepted by shape validation, semantic validation, and the schema alike."""
+    _, _, manifest = _minimal_bundle(tmp_path)
+    _patch_minimal_export(monkeypatch, manifest["runtime"][0]["sha256"])
+
+    bundle.validate_acquisition_manifest(manifest)
+    bundle._validate_acquisition_manifest_semantics(
+        manifest,
+        repo_root=uris.REPO_ROOT,
+        bundle_root=None,
+        enforce_current_target=True,
+    )
+    validate_schema(manifest, _ACQUISITION_MANIFEST_SCHEMA_PATH)
+
+
+def _mutate_remove_top_level_key(manifest, monkeypatch):
+    del manifest["generator"]
+
+
+def _mutate_add_stray_top_level_key(manifest, monkeypatch):
+    manifest["unexpected_top_level_field"] = "nope"
+
+
+def _mutate_wrong_schema_version(manifest, monkeypatch):
+    manifest["schema_version"] = 2
+
+
+def _mutate_remove_nested_required_key(manifest, monkeypatch):
+    del manifest["target"]["os"]
+
+
+def _mutate_add_stray_artifact_key(manifest, monkeypatch):
+    manifest["runtime"][0]["unexpected"] = "nope"
+
+
+@pytest.mark.parametrize(
+    ("mutator", "python_pattern"),
+    [
+        (_mutate_remove_top_level_key, r"missing required field\(s\): generator"),
+        (_mutate_add_stray_top_level_key, r"unexpected field\(s\): unexpected_top_level_field"),
+        (_mutate_wrong_schema_version, r"schema_version must equal 1"),
+        (_mutate_remove_nested_required_key, r"missing required field\(s\): os"),
+        (_mutate_add_stray_artifact_key, r"unexpected field\(s\): unexpected"),
+    ],
+    ids=[
+        "missing-top-level-key",
+        "stray-top-level-key",
+        "wrong-schema-version",
+        "missing-nested-key",
+        "stray-artifact-key",
+    ],
+)
+def test_acquisition_manifest_anti_drift_shape_mutations_rejected_by_both(tmp_path, monkeypatch, mutator, python_pattern):
+    """R9-C9 anti-drift corpus, class 2 (shape): every structural mutation must be
+    rejected by BOTH the Python shape validator and the schema."""
+    _, _, manifest = _minimal_bundle(tmp_path)
+    _patch_minimal_export(monkeypatch, manifest["runtime"][0]["sha256"])
+    mutator(manifest, monkeypatch)
+
+    with pytest.raises(bundle.EnvironmentBundleError, match=python_pattern):
+        bundle.validate_acquisition_manifest(manifest)
+    with pytest.raises(SchemaValidationError):
+        validate_schema(manifest, _ACQUISITION_MANIFEST_SCHEMA_PATH)
+
+
+def _mutate_hash_mismatch(manifest, monkeypatch):
+    manifest["source_hashes"]["pyproject"]["sha256"] = "sha256:" + "0" * 64
+
+
+def _mutate_unauthorized_export_hash(manifest, monkeypatch):
+    manifest["runtime"][0]["sha256"] = "sha256:" + "f" * 64
+
+
+def _mutate_lock_binding_mismatch(manifest, monkeypatch):
+    monkeypatch.setattr(bundle, "load_lock_packages", lambda path: {"torch": {"version": "9.9.9"}})
+
+
+@pytest.mark.parametrize(
+    ("mutator", "python_pattern"),
+    [
+        (_mutate_hash_mismatch, r"source_hashes\.pyproject\.sha256 mismatch"),
+        (_mutate_unauthorized_export_hash, "not authorized by the export"),
+        (_mutate_lock_binding_mismatch, "torch lock version mismatch"),
+    ],
+    ids=["hash-mismatch", "unauthorized-export-hash", "lock-binding-mismatch"],
+)
+def test_acquisition_manifest_anti_drift_semantic_only_mutations_rejected_by_python_accepted_by_schema(
+    tmp_path, monkeypatch, mutator, python_pattern
+):
+    """R9-C9 anti-drift corpus, class 3 (semantic-only, EXPECTED schema acceptance):
+    these are exactly the cross-artifact checks the R9-A4 ruling names as things no
+    JSON Schema can express (export hash authorization, lock binding, source-hash
+    integrity). Python semantics MUST reject. Schema ACCEPTANCE here is expected and
+    documented, not a gap -- the invariant is directional: Python at least as strict
+    as the schema, never the reverse. Do not "fix" this by tightening the schema to
+    match; that would require duplicating cross-file state the schema cannot see."""
+    _, _, manifest = _minimal_bundle(tmp_path)
+    _patch_minimal_export(monkeypatch, manifest["runtime"][0]["sha256"])
+    mutator(manifest, monkeypatch)
+
+    bundle.validate_acquisition_manifest(manifest)  # shape untouched -- still valid
+    with pytest.raises(bundle.EnvironmentBundleError, match=python_pattern):
+        bundle._validate_acquisition_manifest_semantics(
+            manifest,
+            repo_root=uris.REPO_ROOT,
+            bundle_root=None,
+            enforce_current_target=True,
+        )
+    validate_schema(manifest, _ACQUISITION_MANIFEST_SCHEMA_PATH)  # EXPECTED: schema accepts

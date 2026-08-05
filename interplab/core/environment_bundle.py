@@ -866,6 +866,7 @@ def certification_environment_inputs(
         bundle_root=Path(acquisition).resolve().parent,
         enforce_current_target=True,
     )
+    _validate_acquisition_manifest_against_schema(acquisition_manifest)
 
     install_manifest = load_install_manifest(install)
     _validate_install_manifest_consistency(
@@ -2606,6 +2607,7 @@ def record_installed_environment(
         enforce_current_target=True,
         require_files=False,
     )
+    _validate_acquisition_manifest_against_schema(manifest)
     runtime_entries = validated["runtime"]
     tooling_entries = validated["tooling"]
     torch_entry = validated["torch"]
@@ -2712,6 +2714,23 @@ def load_acquisition_manifest(path: str | Path) -> dict[str, Any]:
     payload = _load_json_payload(path, context="acquisition manifest")
     validate_acquisition_manifest(payload)
     return payload
+
+
+def _validate_acquisition_manifest_against_schema(payload: dict[str, Any]) -> None:
+    """Defence-in-depth SHAPE check via the declarative JSON Schema (R9-A4 ruling).
+    Additive only: the hand-written Python validators remain the sole normative
+    contract, strictly stronger since they enforce cross-artifact semantics no
+    JSON Schema can express. The import is lazy and must stay that way -- jsonschema
+    is unavailable on the pre-activation bootstrap path (R9-C7). Call this only from
+    post-activation code (record_installed_environment, certification_environment_inputs)."""
+    from interplab.core._schema_registry import SCHEMAS_ROOT, SchemaValidationError
+    from interplab.core._schema_registry import validate as _validate_against_schema
+
+    schema_path = SCHEMAS_ROOT / "environment_acquisition_manifest" / "v1.schema.json"
+    try:
+        _validate_against_schema(payload, schema_path)
+    except SchemaValidationError as exc:
+        raise EnvironmentBundleError(f"acquisition manifest failed schema validation: {exc}") from exc
 
 
 def load_install_manifest(path: str | Path) -> dict[str, Any]:

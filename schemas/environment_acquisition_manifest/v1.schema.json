@@ -273,7 +273,7 @@
         "python_connection_attempt": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["succeeded"],
+          "required": ["succeeded", "error"],
           "properties": {
             "succeeded": { "type": "boolean" },
             "error": { "type": "string" }
@@ -282,7 +282,7 @@
         "native_connection_attempt": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["returncode"],
+          "required": ["argv", "returncode", "stdout", "stderr"],
           "properties": {
             "argv": {
               "type": "array",
