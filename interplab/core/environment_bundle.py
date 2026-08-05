@@ -1353,13 +1353,17 @@ def _extract_sdist_to_directory(sdist_path: Path, destination: Path) -> Path:
                 with source, open(target, "xb") as handle:
                     shutil.copyfileobj(source, handle)
     except Exception:
-        _rollback_partial_path(destination)
-        raise
+        _rethrow_primary_with_cleanup(
+            sys.exc_info()[1] or EnvironmentBundleError("unknown sdist extraction failure"),
+            destination,
+        )
     roots = [path for path in destination.iterdir() if path.is_dir()]
     if len(roots) != 1:
-        _rollback_partial_path(destination)
-        raise EnvironmentBundleError(
-            f"source distribution {sdist_path.name!r} must unpack to exactly one top-level directory"
+        _rethrow_primary_with_cleanup(
+            EnvironmentBundleError(
+                f"source distribution {sdist_path.name!r} must unpack to exactly one top-level directory"
+            ),
+            destination,
         )
     return roots[0]
 
@@ -1732,13 +1736,24 @@ def _bootstrap_private_pip(
         )
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or exc.stdout or "").strip() or "no stderr/stdout"
-        raise EnvironmentBundleError(f"private pip bootstrap failed: {detail}") from exc
-    finally:
-        try:
-            _assert_artifact_identity(snapshot_path, expected_identity, context="private pip snapshot")
-            _assert_artifact_identity(wheel_path, original_identity, context="retained original pip artifact")
-        finally:
-            _rollback_partial_path(private_root)
+        _rethrow_primary_with_cleanup(
+            EnvironmentBundleError(f"private pip bootstrap failed: {detail}"),
+            private_root,
+        )
+    except Exception:
+        _rethrow_primary_with_cleanup(
+            sys.exc_info()[1] or EnvironmentBundleError("unknown private pip bootstrap failure"),
+            private_root,
+        )
+    try:
+        _assert_artifact_identity(snapshot_path, expected_identity, context="private pip snapshot")
+        _assert_artifact_identity(wheel_path, original_identity, context="retained original pip artifact")
+    except Exception:
+        _rethrow_primary_with_cleanup(
+            sys.exc_info()[1] or EnvironmentBundleError("unknown private pip identity verification failure"),
+            private_root,
+        )
+    _rollback_partial_path(private_root)
 
 
 def _build_derived_runtime_wheel(
@@ -2178,8 +2193,10 @@ def build_runtime_bundle(
         receipt["staging_dir"] = str(staging_path)
         return receipt
     except Exception:
-        _rollback_partial_path(staging_path)
-        raise
+        _rethrow_primary_with_cleanup(
+            sys.exc_info()[1] or EnvironmentBundleError("unknown runtime bundle construction failure"),
+            staging_path,
+        )
 
 
 def validate_runtime_stage_receipt(payload: dict[str, Any]) -> None:

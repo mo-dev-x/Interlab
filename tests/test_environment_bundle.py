@@ -684,6 +684,41 @@ def test_create_virtualenv_preserves_preexisting_target_sentinel(tmp_path, monke
     assert sentinel.read_text(encoding="utf-8") == "keep me"
 
 
+def test_bootstrap_private_pip_preserves_primary_error_when_cleanup_fails(tmp_path, monkeypatch):
+    """R9-C10 Part A: _bootstrap_private_pip masked its primary error through a
+    `finally: ... finally: _rollback_partial_path(private_root)` construct -- if
+    the nested finally's rollback throws, it replaces whatever exception was
+    already in flight. Fails against the pre-fix implementation."""
+    bundle_root = tmp_path / "bundle"
+    bundle_root.mkdir()
+    pip_entry = _write_artifact(
+        bundle_root,
+        distribution="pip",
+        version="25.0",
+        filename="pip-25.0-py3-none-any.whl",
+        content=_wheel_bytes("pip", "25.0"),
+    )
+    venv_path = tmp_path / "venv"
+
+    def fake_run(args, **kwargs):
+        raise subprocess.CalledProcessError(1, args, stderr="boom")
+
+    monkeypatch.setattr(bundle.subprocess, "run", fake_run)
+
+    def flaky_rollback(path):
+        raise PermissionError("locked cleanup path")
+
+    monkeypatch.setattr(bundle, "_rollback_partial_path", flaky_rollback)
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="private pip bootstrap failed: boom") as excinfo:
+        bundle._bootstrap_private_pip(venv_path=venv_path, pip_entry=pip_entry, bundle_root=bundle_root)
+
+    assert any(
+        "cleanup failed after primary error" in note
+        for note in getattr(excinfo.value, "__notes__", [])
+    )
+
+
 def test_create_virtualenv_accepts_valid_creator_and_promotes_staging_target(tmp_path, monkeypatch):
     bundle_root, manifest_path, manifest = _minimal_bundle(tmp_path)
     _patch_minimal_export(monkeypatch, manifest["runtime"][0]["sha256"])

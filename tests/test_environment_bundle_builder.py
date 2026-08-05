@@ -781,6 +781,101 @@ def test_build_runtime_bundle_copies_locked_wheels_and_records_derived_provenanc
     assert (stage_dir / "runtime-stage.json").is_file()
 
 
+def test_build_runtime_bundle_preserves_primary_error_when_rollback_fails(tmp_path, monkeypatch):
+    """R9-C10 Part A: build_runtime_bundle's except-block used a bare `except
+    Exception: _rollback_partial_path(staging_path); raise`, so a PermissionError
+    during rollback replaced the real construction failure. Fails against the
+    pre-fix implementation."""
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    alpha_filename = "alpha-1.0-py3-none-any.whl"
+    alpha_hash = "sha256:" + "a" * 64
+    derived_hash = "sha256:" + "b" * 64
+    _write_source_root(source_root, alpha_hash=alpha_hash, derived_hash=derived_hash, alpha_filename=alpha_filename)
+
+    target_report = _target_report(source_root, "c" * 40)
+    target_report_path = tmp_path / "target.json"
+    target_report_path.write_text(json.dumps(target_report), encoding="utf-8")
+    staging_parent = tmp_path / "staging"
+    staging_parent.mkdir()
+    tooling_lock_path = tmp_path / "tooling-lock.json"
+    tooling_lock_path.write_text("{}", encoding="utf-8")
+
+    tooling = [
+        _fake_tool_artifact("pip", "25.0"),
+        _fake_tool_artifact("setuptools", "83.0.0"),
+        _fake_tool_artifact("wheel", "0.45.0"),
+        _fake_tool_artifact("hatchling", "1.27.0"),
+        _fake_tool_artifact("virtualenv", "20.26.0"),
+        _fake_tool_artifact("build", "1.2.2"),
+    ]
+    monkeypatch.setattr(bundle, "_validate_clean_source_root", lambda root, rev: rev)
+    monkeypatch.setattr(bundle, "load_tooling_lock", lambda path: {"lock_type": bundle._TOOLING_LOCK_TYPE})
+    monkeypatch.setattr(bundle, "tooling_lock_artifacts", lambda path, include_build=True: list(tooling))
+    monkeypatch.setattr(bundle, "_enforce_real_repo_runtime_expectations", lambda *args, **kwargs: None)
+
+    def fake_download(artifact, *, destination):
+        destination.write_bytes(b"x" * artifact.get("size_bytes", artifact.get("size", 1)))
+        return destination
+
+    monkeypatch.setattr(bundle, "_download_and_verify_artifact", fake_download)
+    monkeypatch.setattr(
+        bundle,
+        "_build_derived_runtime_wheel",
+        lambda **kwargs: {
+            "wheel": {
+                "distribution": "py2store",
+                "version": "0.1.22",
+                "filename": "py2store-0.1.22-py3-none-any.whl",
+                "relative_path": "py2store-0.1.22-py3-none-any.whl",
+                "size_bytes": 7,
+                "origin": "derived:py2store-0.1.22.tar.gz",
+                "sha256": derived_hash,
+                "type": "wheel",
+            },
+            "source_sdist": {
+                "distribution": "py2store",
+                "version": "0.1.22",
+                "filename": "py2store-0.1.22.tar.gz",
+                "relative_path": "evidence/py2store/py2store-0.1.22.tar.gz",
+                "size_bytes": 3,
+                "origin": "https://example.test/py2store-0.1.22.tar.gz",
+                "sha256": "sha256:" + "4" * 64,
+                "type": "sdist",
+            },
+            "provenance": _derived_provenance_fixture(
+                target_report=target_report,
+                wheel_sha256=derived_hash,
+                source_sha256="sha256:" + "4" * 64,
+            ),
+        },
+    )
+
+    def boom_validate(payload):
+        raise bundle.EnvironmentBundleError("primary marker: forced receipt validation failure")
+
+    monkeypatch.setattr(bundle, "validate_runtime_stage_receipt", boom_validate)
+
+    def flaky_rollback(path):
+        raise PermissionError("locked cleanup path")
+
+    monkeypatch.setattr(bundle, "_rollback_partial_path", flaky_rollback)
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="primary marker: forced receipt validation failure") as excinfo:
+        bundle.build_runtime_bundle(
+            source_root=source_root,
+            expected_revision="c" * 40,
+            target_report_path=target_report_path,
+            tooling_lock_path=tooling_lock_path,
+            staging_dir=staging_parent,
+        )
+
+    assert any(
+        "cleanup failed after primary error" in note
+        for note in getattr(excinfo.value, "__notes__", [])
+    )
+
+
 def test_build_derived_runtime_wheel_rejects_undeclared_build_input(tmp_path, monkeypatch):
     staging_dir = tmp_path / "staging"
     staging_dir.mkdir()
@@ -1135,6 +1230,129 @@ build-backend = "hatchling.build"
     assert recorded["kwargs"]["env"]["INTERPLAB_NETWORK_DENIED"] == "1"
 
 
+def test_build_derived_runtime_wheel_does_not_mask_result_when_final_cleanup_fails(tmp_path, monkeypatch):
+    """R9-C10 Part A: confirmed SAFE on inspection, no code change made here.
+    Unlike the other three functions, _build_derived_runtime_wheel has no
+    `except Exception: cleanup(x); raise` construct anywhere -- its tail cleanup
+    (shutil.rmtree(build_env), shutil.rmtree(build_out),
+    _rollback_partial_path(unpack_root)) runs unguarded after a successful build,
+    with no primary error in flight to mask. This regression drives a full
+    successful build and proves that when the first cleanup call raises, that
+    exact exception -- not a replacement -- is what propagates out unchanged."""
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir()
+    tool_entries = [
+            {
+                "distribution": name,
+                "version": version,
+                "filename": f"{name}-{version}-py3-none-any.whl",
+                "relative_path": f"{name}-{version}-py3-none-any.whl",
+                "size_bytes": 1,
+                "origin": f"https://example.test/{name}-{version}-py3-none-any.whl",
+                "origin_url": f"https://example.test/{name}-{version}-py3-none-any.whl",
+                "sha256": "sha256:" + token * 64,
+                "type": "wheel",
+            }
+        for name, version, token in (
+            ("pip", "25.0", "1"),
+            ("setuptools", "83.0.0", "2"),
+            ("wheel", "0.45.0", "3"),
+            ("hatchling", "1.27.0", "4"),
+            ("virtualenv", "20.26.0", "5"),
+            ("build", "1.2.2", "6"),
+        )
+    ]
+    monkeypatch.setattr(bundle, "_tooling_install_plan", lambda include_build, include_pip, include_uv: list(tool_entries))
+    monkeypatch.setattr(bundle, "_bootstrap_private_pip", lambda **kwargs: None)
+    monkeypatch.setattr(bundle, "_assert_bootstrapped_pip_only", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        bundle,
+        "_inspect_build_environment",
+        lambda *args, **kwargs: {
+            "installed": [
+                {"distribution": entry["distribution"], "version": entry["version"]}
+                for entry in sorted(tool_entries, key=lambda item: item["distribution"])
+            ],
+            "frontend": {
+                "distribution": "build",
+                "version": "1.2.2",
+                "record_path": "/tmp/build-1.2.2.dist-info/RECORD",
+                "module": "build",
+                "module_origin": "/tmp/build.py",
+            },
+            "backend": {
+                "distribution": "hatchling",
+                "version": "1.27.0",
+                "record_path": "/tmp/hatchling-1.27.0.dist-info/RECORD",
+                "module": "hatchling.build",
+                "module_origin": "/tmp/hatchling/build.py",
+            },
+        },
+    )
+    monkeypatch.setattr(bundle, "_derived_build_subprocess_kwargs", lambda: {})
+    monkeypatch.setattr(bundle.hashing, "hash_file", lambda path: "sha256:" + "f" * 64)
+    sdist_bytes = _sdist_bytes(
+        "py2store",
+        "0.1.22",
+        pyproject="""
+[build-system]
+requires = ["build==1.2.2", "hatchling==1.27.0"]
+build-backend = "hatchling.build"
+""",
+    )
+    monkeypatch.setattr(
+        bundle,
+        "_download_and_verify_artifact",
+        lambda artifact, *, destination: destination.write_bytes(sdist_bytes),
+    )
+    monkeypatch.setattr(
+        bundle,
+        "_validate_wheel_metadata",
+        lambda path, entry: None,
+    )
+    evidence_root = staging_dir / "evidence" / "py2store"
+
+    def fake_run(args, **kwargs):
+        if args[:4] == [bundle.sys.executable, "-m", "venv", "--without-pip"]:
+            Path(args[-1]).mkdir(parents=True)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if len(args) >= 4 and args[1:3] == ["-I", "-m"] and args[3] == "pip":
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if len(args) >= 4 and args[1:3] == ["-I", "-c"]:
+            (evidence_root / "wheelhouse" / "py2store-0.1.22-py3-none-any.whl").write_bytes(
+                _wheel_bytes("py2store", "0.1.22")
+            )
+            (evidence_root / "isolation-evidence.json").write_text("{}", encoding="utf-8")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(bundle.subprocess, "run", fake_run)
+
+    def boom_rmtree(path, ignore_errors=False):
+        raise PermissionError("locked build_env cleanup")
+
+    monkeypatch.setattr(bundle.shutil, "rmtree", boom_rmtree)
+
+    with pytest.raises(PermissionError, match="locked build_env cleanup"):
+        bundle._build_derived_runtime_wheel(
+            requirement=bundle.ExportRequirement("py2store", "0.1.22", ("sha256:" + "4" * 64,)),
+            source_sdist={
+                "url": "https://example.test/py2store-0.1.22.tar.gz",
+                "hash": "sha256:" + "4" * 64,
+                "size": len(sdist_bytes),
+            },
+            tooling_by_name={entry["distribution"]: {"version": entry["version"]} | entry for entry in tool_entries},
+            target_report={
+                "target": bundle.current_target(),
+                "python_full_version": bundle._current_target_capture_fields()["python_full_version"],
+                "implementation": bundle.sys.implementation.name,
+                "soabi": bundle._current_target_capture_fields()["soabi"],
+                "compatible_tags": bundle._current_target_capture_fields()["compatible_tags"],
+            },
+            staging_dir=staging_dir,
+        )
+
+
 def test_import_alliance_torch_artifact_records_valid_receipt(tmp_path):
     source_root = tmp_path / "source"
     source_root.mkdir()
@@ -1234,6 +1452,64 @@ def test_extract_sdist_rejects_symlink_member(tmp_path):
 
     with pytest.raises(bundle.EnvironmentBundleError, match="must not be a link"):
         bundle._extract_sdist_to_directory(sdist_path, destination)
+
+
+def test_extract_sdist_preserves_primary_error_when_cleanup_fails_on_invalid_member(tmp_path, monkeypatch):
+    """R9-C10 Part A: the except-block used a bare `except Exception:
+    _rollback_partial_path(destination); raise`, so a PermissionError during
+    cleanup replaced the real 'must not be a link' error. Fails against the
+    pre-fix implementation."""
+    info = tarfile.TarInfo(name="pkg-1.0/link")
+    info.type = tarfile.SYMTYPE
+    info.linkname = "target"
+    sdist_path = tmp_path / "bad-link.tar.gz"
+    sdist_path.write_bytes(_tar_bytes([(info, None)]))
+    destination = tmp_path / "extract"
+    destination.mkdir()
+
+    def flaky_rollback(path):
+        raise PermissionError("locked cleanup path")
+
+    monkeypatch.setattr(bundle, "_rollback_partial_path", flaky_rollback)
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="must not be a link") as excinfo:
+        bundle._extract_sdist_to_directory(sdist_path, destination)
+
+    assert any(
+        "cleanup failed after primary error" in note
+        for note in getattr(excinfo.value, "__notes__", [])
+    )
+
+
+def test_extract_sdist_preserves_primary_error_when_cleanup_fails_on_multiple_roots(tmp_path, monkeypatch):
+    """R9-C10 Part A, second unsafe site in the same function: `if len(roots) != 1:
+    _rollback_partial_path(destination); raise EnvironmentBundleError(...)` -- if
+    rollback throws, the informative 'must unpack to exactly one top-level
+    directory' error is never even constructed. Fails against the pre-fix
+    implementation."""
+    members = []
+    for name in ("pkg-a/file.txt", "pkg-b/file.txt"):
+        payload = b"x"
+        info = tarfile.TarInfo(name=name)
+        info.size = len(payload)
+        members.append((info, payload))
+    sdist_path = tmp_path / "two-roots.tar.gz"
+    sdist_path.write_bytes(_tar_bytes(members))
+    destination = tmp_path / "extract"
+    destination.mkdir()
+
+    def flaky_rollback(path):
+        raise PermissionError("locked cleanup path")
+
+    monkeypatch.setattr(bundle, "_rollback_partial_path", flaky_rollback)
+
+    with pytest.raises(bundle.EnvironmentBundleError, match="must unpack to exactly one top-level directory") as excinfo:
+        bundle._extract_sdist_to_directory(sdist_path, destination)
+
+    assert any(
+        "cleanup failed after primary error" in note
+        for note in getattr(excinfo.value, "__notes__", [])
+    )
 
 
 def test_build_runtime_bundle_rejects_target_report_from_other_source_root(tmp_path, monkeypatch):
@@ -1999,6 +2275,66 @@ def test_finalize_bundle_atomic_no_clobber_preserves_existing_destination(tmp_pa
     preserved = next(path for path in Path(fixture["output_root"]).iterdir() if path.name.startswith("bundle-"))
     assert (preserved / "sentinel.txt").read_text(encoding="utf-8") == "preserve\n"
     assert not [path for path in Path(fixture["output_root"]).iterdir() if path.name.startswith(".bundle-staging-")]
+
+
+def test_reject_transformer_lens_contamination_rejects_unexpected_version():
+    """R9-C10 Part B, branch 2 (previously untested -- R9-V8 proved all 11
+    existing TL tests exercise branch 1 only; R9-D4 §4 ruled this class
+    BLOCKING). Guards a future TL 4.x, the most likely real drift."""
+    with pytest.raises(
+        bundle.EnvironmentBundleError,
+        match=r"probe contains an unexpected transformer-lens version: \['4\.0\.0'\]",
+    ):
+        bundle._reject_transformer_lens_contamination(
+            [{"distribution": "transformer-lens", "version": "4.0.0"}],
+            context="probe",
+        )
+
+
+def test_reject_transformer_lens_contamination_rejects_duplicate_baseline_under_exact_runtime():
+    """R9-C10 Part B, branch 3 (previously untested): require_exact_runtime=True
+    demands the runtime list equal exactly [baseline]. Two baseline-version
+    entries each pass branch 2 (neither is individually unexpected) but must
+    still be rejected here as a duplicate."""
+    entries = [
+        {"distribution": "transformer-lens", "version": "3.2.1"},
+        {"distribution": "transformer-lens", "version": "3.2.1"},
+    ]
+    with pytest.raises(
+        bundle.EnvironmentBundleError,
+        match=r"must contain exactly one transformer-lens==3\.2\.1 artifact",
+    ):
+        bundle._reject_transformer_lens_contamination(
+            entries,
+            context="probe",
+            require_exact_runtime=True,
+        )
+
+
+def test_validate_runtime_manifest_rejects_unexpected_transformer_lens_version():
+    """R9-C10 Part B, CONSUMER-PATH negative (matters most): R9-V8 proved the
+    TL-specific contamination gate is unreachable from all six consumer
+    functions. This locks in that the generic version-authorization check in
+    _validate_runtime_manifest still rejects a rogue transformer-lens==3.4.0
+    runtime entry -- the contract holds at exactly the point where the
+    TL-specific gate provably does not reach."""
+    requirement = bundle.ExportRequirement("transformer-lens", "3.2.1", ("sha256:" + "1" * 64,))
+    runtime_entry = {
+        "distribution": "transformer-lens",
+        "version": "3.4.0",
+        "filename": "transformer_lens-3.4.0-py3-none-any.whl",
+        "relative_path": "transformer_lens-3.4.0-py3-none-any.whl",
+        "size_bytes": 1,
+        "origin": "https://example.test/transformer_lens-3.4.0-py3-none-any.whl",
+        "sha256": "sha256:" + "2" * 64,
+        "type": "wheel",
+    }
+
+    with pytest.raises(
+        bundle.EnvironmentBundleError,
+        match=r"runtime version mismatch for 'transformer-lens': expected 3\.2\.1, got 3\.4\.0",
+    ):
+        bundle._validate_runtime_manifest([requirement], [runtime_entry], [])
 
 
 def test_build_runtime_bundle_rejects_transformer_lens_comparison_in_tooling_lock(tmp_path, monkeypatch):
