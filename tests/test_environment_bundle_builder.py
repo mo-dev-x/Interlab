@@ -1932,6 +1932,46 @@ def test_finalize_bundle_cleans_partial_staging_and_preserves_outside_sentinel_o
     assert not [path for path in Path(fixture["output_root"]).iterdir() if path.name.startswith(".bundle-staging-")]
 
 
+def test_finalize_bundle_preserves_primary_error_when_cleanup_fails(tmp_path, monkeypatch):
+    """R9-C8 / matrix row 7: a PermissionError raised while rolling back the
+    partial staging directory must not replace the original environment error
+    that triggered finalization failure in the first place."""
+    fixture = _finalize_fixture(tmp_path, monkeypatch)
+    real_copy = bundle._copy_relative_file
+
+    def tampering_copy(source_root, destination_root, relative_path):
+        real_copy(source_root, destination_root, relative_path)
+        if relative_path == fixture["runtime_entry"]["relative_path"]:
+            (Path(destination_root) / relative_path).write_bytes(b"tampered-after-copy")
+
+    monkeypatch.setattr(bundle, "_copy_relative_file", tampering_copy)
+
+    real_rollback = bundle._rollback_partial_path
+
+    def flaky_rollback(path):
+        candidate = Path(path)
+        if candidate.name.startswith(".bundle-staging-"):
+            raise PermissionError("locked cleanup path")
+        return real_rollback(candidate)
+
+    monkeypatch.setattr(bundle, "_rollback_partial_path", flaky_rollback)
+
+    with pytest.raises(bundle.EnvironmentBundleError, match=r"bundle artifact (size|hash) mismatch") as excinfo:
+        bundle.finalize_bundle(
+            runtime_staging_dir=fixture["staging_dir"],
+            target_report_path=fixture["target_report_path"],
+            torch_receipt_path=fixture["torch_receipt_path"],
+            source_root=fixture["source_root"],
+            expected_revision=fixture["expected_revision"],
+            output_root=fixture["output_root"],
+        )
+
+    assert any(
+        "cleanup failed after primary error" in note
+        for note in getattr(excinfo.value, "__notes__", [])
+    )
+
+
 def test_finalize_bundle_atomic_no_clobber_preserves_existing_destination(tmp_path, monkeypatch):
     fixture = _finalize_fixture(tmp_path, monkeypatch)
     real_hash_file = bundle.hashing.hash_file
