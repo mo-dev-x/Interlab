@@ -45,6 +45,9 @@ docs/
 reports/
 project_management/
 
+# Scratch probe output (repo-root scratch dirs from manual test runs)
+tmp_r6c4_probe/
+
 # OS
 .DS_Store
 *.swp
