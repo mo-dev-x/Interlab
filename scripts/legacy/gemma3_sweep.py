@@ -551,13 +551,70 @@ def build_job_matrix(
     return records
 
 
-def _record_filename(record: dict[str, Any]) -> str:
-    feature_part = "none" if record["feature_idx"] is None else str(record["feature_idx"])
-    dose_part = "none" if record["dose_multiple"] is None else str(record["dose_multiple"])
-    return (
-        f"f{feature_part}_{record['mode']}_{record['arm']}_dose{dose_part}_"
-        f"{record['prompt_id']}_seed{record['seed']}.json"
-    )
+# D2.1 fix A (highest priority in the sprint): incremental, resumable
+# writes. 1736 records at a deliberately generous 24h wall time means a
+# death at hour 23 -- timeout, node failure, preemption -- must not lose
+# everything. Output is one growing JSONL file, appended to and fsync'd
+# after every record, not one file per record: on restart, the harness
+# reads whatever lines already parsed successfully and skips those cells,
+# rather than regenerating the whole matrix. This supersedes the original
+# "one JSON per run" per-file framing -- a deliberate, disclosed
+# consequence of adding resumability, not scope creep.
+RECORDS_FILENAME = "records.jsonl"
+
+_CELL_KEY_FIELDS = ("feature_idx", "mode", "arm", "dose_multiple", "prompt_id")
+
+
+def _cell_key(record: dict[str, Any]) -> tuple:
+    return tuple(record[k] for k in _CELL_KEY_FIELDS)
+
+
+def load_completed_keys(records_path: Path) -> set[tuple]:
+    """Reads whatever already exists in the JSONL log and returns the set
+    of cell keys already completed. A partially-written last line (the
+    exact shape a hard kill mid-write leaves behind) fails json.loads and
+    is silently skipped -- it was never fsync'd as complete, so it is
+    correctly treated as not-yet-done and will be regenerated."""
+    completed: set[tuple] = set()
+    if not records_path.exists():
+        return completed
+    with records_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            completed.add(tuple(rec.get(k) for k in _CELL_KEY_FIELDS))
+    return completed
+
+
+def append_record(records_path: Path, payload: dict[str, Any]) -> None:
+    """Append one record and fsync before returning. fsync cost is
+    negligible next to a multi-second generation call, so this runs after
+    every record, not on a periodic batch -- a batch interval is itself a
+    window in which a kill loses everything since the last flush.
+
+    If the file's last byte is not a newline (exactly what a kill mid-write
+    leaves behind), a leading newline is written first. Without this, the
+    next append glues onto the end of the corrupted partial line instead of
+    starting its own line, corrupting the new record too -- caught by
+    deliberately reproducing a mid-write kill and inspecting the resulting
+    file byte-for-byte, not assumed correct."""
+    needs_leading_newline = False
+    if records_path.exists() and records_path.stat().st_size > 0:
+        with records_path.open("rb") as f:
+            f.seek(-1, os.SEEK_END)
+            needs_leading_newline = f.read(1) != b"\n"
+
+    with records_path.open("a", encoding="utf-8") as f:
+        if needs_leading_newline:
+            f.write("\n")
+        f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
 
 
 def _record_metadata(record: dict[str, Any], *, git_provenance: dict[str, Any]) -> dict[str, Any]:
@@ -829,6 +886,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--max-new-tokens", type=int, default=200)
     p.add_argument("--temperature", type=float, default=0.7)
     p.add_argument("--top-p", type=float, default=0.9)
+    p.add_argument(
+        "--restart", action="store_true",
+        help="Discard any existing records.jsonl in --out-dir and regenerate the full matrix "
+        "from scratch. Default behavior (no flag) is to resume: read what already completed "
+        "and skip those cells.",
+    )
     return p.parse_args(argv)
 
 
@@ -892,7 +955,20 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
 
+    records_path = out_dir / RECORDS_FILENAME
+    if args.restart and records_path.exists():
+        records_path.unlink()
+    completed_keys = load_completed_keys(records_path)
+    if completed_keys:
+        print(f"resume: {records_path} has {len(completed_keys)} completed cell(s) already -- skipping those")
+
+    n_skipped = 0
+    n_written = 0
     for record in matrix:
+        if _cell_key(record) in completed_keys:
+            n_skipped += 1
+            continue
+
         payload = _record_metadata(record, git_provenance=git_provenance)
         payload["model_path"] = str(Path(args.model_path).resolve()) if Path(args.model_path).exists() else args.model_path
         payload["sae_path"] = str(Path(args.sae_path).resolve()) if Path(args.sae_path).exists() else args.sae_path
@@ -905,10 +981,10 @@ def main(argv: list[str] | None = None) -> int:
             payload["generated"] = True
             payload["text"] = run_cell(model, sae, record, sampling=sampling)
 
-        out_path = out_dir / _record_filename(record)
-        out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        append_record(records_path, payload)
+        n_written += 1
 
-    print(f"wrote {len(matrix)} record(s) under {out_dir}")
+    print(f"wrote {n_written} record(s), skipped {n_skipped} already-complete cell(s) -> {records_path}")
     if args.dry_run:
         print("--dry-run: no model/SAE was loaded, no text was generated (stub records only)")
     return 0
