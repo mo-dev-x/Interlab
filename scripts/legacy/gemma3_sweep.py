@@ -19,29 +19,49 @@ check on the compute node and hangs ~50 min in). Consequently:
     load_model_and_sae() is a standalone, reusable function -- import it,
     do not copy it.
 
-Model loading uses transformer_lens's TransformerBridge (3.2.1+), not the
-classic HookedTransformer.from_pretrained: Gemma 3's HF class
-(Gemma3ForConditionalGeneration, multimodal wrapper) has no
-transformer_lens.pretrained.weight_conversions entry the way Qwen2 does
-(see jobs/steer.py's _load_local_hooked_transformer, which is Qwen2-only
-and NotImplementedError's on anything else). TransformerBridge wraps the
-HF model directly instead of converting a state dict, so it needs no
-per-architecture converter. enable_compatibility_mode(no_processing=True)
-is called for two reasons at once: it registers the legacy hook-name
-aliases (blocks.N.hook_resid_post) that interplab.interventions.hooks.attach
-requires, AND no_processing=True forces fold_ln/center_writing_weights/
-center_unembed to False -- the same "never fold" discipline
-_load_local_hooked_transformer uses for Qwen, for the same reason: folding
-would silently shift the numbers the SAE was calibrated against.
+Model loading (REVISED 2026-08-07, ported verbatim from Engineer 1's
+job 398619 -- the run that produced the accepted D1.5 results):
+TransformerBridge.boot_transformers was tried first and dies during
+set_original_components with AttributeError: 'SiglipVisionModel' object
+has no attribute 'vision_model' -- the installed transformer_lens's
+generic bridge adapter assumes a .vision_model nesting under the vision
+tower that this transformers version's SiglipVisionModel does not have.
+Grepped: zero Gemma-3/Siglip-aware component mappings exist in the
+installed package. That is a library incompatibility, not something to
+repair under deadline. The classic HookedTransformer.from_pretrained path
+works instead: transformer_lens's convert_gemma_weights dispatches on
+cfg.original_architecture == "Gemma3ForConditionalGeneration", detects
+multimodality via hasattr(gemma, "language_model"), resolves
+base_model = gemma.language_model.model, and EXPLICITLY SKIPS
+gemma.vision_tower itself -- no manual reach into .language_model is
+needed here, transformer_lens already does the text-tower extraction.
+fold_ln=False / center_writing_weights=False / center_unembed=False is
+the same "never fold" discipline jobs/steer.py's
+_load_local_hooked_transformer uses for Qwen, for the same reason:
+folding would silently shift the numbers the SAE was calibrated against.
 
-SAE loading reads the raw Gemma-Scope-2 safetensors format
-(config.json + params.safetensors) directly off local disk. This
-deliberately mirrors -- but does not call -- sae_lens's own
-gemma_3_sae_huggingface_loader (pretrained_sae_loaders.py:687), which is
-hardwired to hf_hub_download and therefore always repo_id-routed. Only the
-network-fetch step is replaced; the actual SAE class construction
-(SAE.from_dict + load_state_dict) is the same sae_lens machinery the hub
-path itself uses, per "reuse, do not reimplement."
+SAE loading uses sae_lens's own SAE.from_pretrained(release=, sae_id=),
+not a hand-rolled local-safetensors reader. This looks like it violates
+"never a repo_id anywhere in the runtime path" (MODEL_ID and SAE_RELEASE
+below read like repo_ids) but does not violate the rule's actual purpose
+(no network on compute nodes): job 398619 completed with zero network
+under HF_HUB_OFFLINE=1, because hf_model= is already loaded locally and
+_patch_gemma3_safetensors_shape_lookup() (below) routes the one call that
+would otherwise bypass HF_HUB_OFFLINE through the local cache too. A
+THIRD bug, found by Engineer 1, is why that patch exists: installed
+sae_lens's Gemma-3 loader issues a raw requests.get() HTTP range read for
+tensor shapes that bypasses huggingface_hub AND HF_HUB_OFFLINE entirely --
+an immediate hang-then-fail on a compute node with no outbound internet.
+load_sae_from_local_snapshot() (further below) is retained even though it
+is no longer called: its handle_config_defaulting() fix is real, costs
+nothing to keep, and this code path may simply go unused.
+
+Gemma-specific caveat for whoever builds the Week-2 tool: this whole load
+path works only because transformer_lens ships a hardcoded
+convert_gemma_weights entry for this exact architecture string. A
+different multimodal architecture with no registered converter hits
+NotImplementedError in the same dispatch table. It would work unchanged
+on text-only Gemma-3 (Gemma3ForCausalLM, no vision tower to skip).
 """
 
 from __future__ import annotations
@@ -228,6 +248,9 @@ def _fail_if_missing(path: Path, *, what: str) -> None:
         )
 
 
+# No longer called from load_model_and_sae() (see module docstring) --
+# retained because handle_config_defaulting() below is a real, verified
+# fix and costs nothing to keep even if this path goes unused.
 def load_sae_from_local_snapshot(sae_path: Path, *, device: str = "cpu", dtype: str = "float32"):
     """Load a Gemma-Scope-2 JumpReLU SAE from a local directory containing
     the raw HF-hosted files (config.json + params.safetensors), with no
@@ -312,6 +335,26 @@ def load_sae_from_local_snapshot(sae_path: Path, *, device: str = "cpu", dtype: 
     return sae
 
 
+def _patch_gemma3_safetensors_shape_lookup() -> None:
+    """Installed sae_lens's Gemma-3 loader issues a raw requests.get() HTTP
+    range read for tensor shapes that bypasses huggingface_hub AND
+    HF_HUB_OFFLINE entirely -- on a compute node with no outbound internet
+    that is an immediate hang-then-fail. Ported verbatim from Engineer 1's
+    job 398619 (the run that produced the accepted D1.5 results): routes
+    the same shape lookup through hf_hub_download instead, which respects
+    HF_HUB_OFFLINE and the local cache like every other call in this file."""
+    import sae_lens.loading.pretrained_sae_loaders as psl
+    from huggingface_hub import hf_hub_download
+    from safetensors import safe_open
+
+    def _local_get_safetensors_tensor_shapes(repo_id: str, filename: str) -> dict:
+        local_path = hf_hub_download(repo_id=repo_id, filename=filename)
+        with safe_open(local_path, framework="pt") as f:
+            return {k: list(f.get_slice(k).get_shape()) for k in f.keys()}
+
+    psl.get_safetensors_tensor_shapes = _local_get_safetensors_tensor_shapes
+
+
 def load_model_and_sae(
     model_path: str | Path,
     sae_path: str | Path,
@@ -319,19 +362,25 @@ def load_model_and_sae(
     device: str = "cuda",
     dtype: str = "bfloat16",
 ):
-    """The one offline, local-path-only loader for both the model and the
-    SAE. Reusable by the Week-2 Gradio tool -- import this function rather
-    than duplicating its loading logic (same offline constraint applies
-    there: the tool also runs inside a compute allocation with no outbound
-    internet).
+    """The one offline loader for both the model and the SAE. Reusable by
+    the Week-2 Gradio tool -- import this function rather than duplicating
+    its loading logic (same offline constraint applies there: the tool
+    also runs inside a compute allocation with no outbound internet).
 
-    Fails fast and loudly if either path is missing, or if the model's
-    hidden size does not match the SAE's d_in (the one escalate-to-PM
-    condition confirmed structurally at commit e6369b3).
+    Ported verbatim from Engineer 1's job 398619 (see module docstring for
+    why TransformerBridge was abandoned). Returns (model, sae, hf_model) --
+    hf_model is the raw HF object powering the weight conversion, kept
+    around so verify_raw_hf_equivalence has the actual weights object to
+    compare against rather than a second, possibly-diverged load.
+
+    Fails fast and loudly if the model path is missing or invalid, or if
+    the model's hidden size does not match the SAE's d_in (the one
+    escalate-to-PM condition confirmed structurally at commit e6369b3).
     """
     import torch
-    from transformer_lens.model_bridge.bridge import TransformerBridge
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from sae_lens import SAE
+    from transformer_lens import HookedTransformer
+    from transformers import AutoModel, AutoTokenizer
 
     if os.environ.get("HF_HUB_OFFLINE") != "1":
         raise RuntimeError(
@@ -345,39 +394,32 @@ def load_model_and_sae(
     sae_path = Path(sae_path)
     _fail_if_missing(model_path, what="model snapshot directory")
     _fail_if_missing(sae_path, what="SAE snapshot directory")
+    if not (model_path / "config.json").is_file():
+        print(f"ESCALATE: {str(model_path)!r} has no config.json -- not a valid local snapshot dir.")
+        sys.exit(2)
 
     torch_dtype = getattr(torch, dtype)
 
-    tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True)
-    hf_model = AutoModelForCausalLM.from_pretrained(
-        str(model_path), torch_dtype=torch_dtype, local_files_only=True
-    )
-
-    # model_name is the literal local path, never "google/gemma-3-12b-pt":
-    # with hf_model given, TransformerBridge derives hf_config from
-    # hf_model.config directly (transformer_lens/model_bridge/sources/
-    # transformers.py:339-342) and never calls AutoConfig.from_pretrained,
-    # so this string only ever ends up in bridge_config.model_name as a
-    # label -- but passing the local path anyway is the maximally literal
-    # reading of "never a repo_id anywhere in the runtime path."
-    bridge = TransformerBridge.boot_transformers(
-        model_name=str(model_path),
+    tokenizer = AutoTokenizer.from_pretrained(str(model_path))
+    hf_model = AutoModel.from_pretrained(str(model_path), dtype=torch_dtype)
+    model = HookedTransformer.from_pretrained(
+        MODEL_ID,  # config/conversion routing only; hf_model= means no network use
         hf_model=hf_model,
         tokenizer=tokenizer,
+        fold_ln=False,
+        center_writing_weights=False,
+        center_unembed=False,
         device=device,
         dtype=torch_dtype,
     )
-    # no_processing=True: forces fold_ln/center_writing_weights/center_unembed
-    # to False (matches jobs/steer.py's _load_local_hooked_transformer
-    # discipline for Qwen -- folding would shift the numbers the SAE was
-    # calibrated against). Also registers the legacy hook-name aliases
-    # (blocks.N.hook_resid_post) that interplab.interventions.hooks.attach
-    # requires.
-    bridge.enable_compatibility_mode(no_processing=True)
+    model.eval()
 
-    sae = load_sae_from_local_snapshot(sae_path, device=device, dtype="float32")
+    _patch_gemma3_safetensors_shape_lookup()
+    sae = SAE.from_pretrained(release=SAE_RELEASE, sae_id=SAE_ID, device=device)
+    sae = sae.to(dtype=torch.float32)
+    sae.eval()
 
-    model_d_model = bridge.cfg.d_model
+    model_d_model = model.cfg.d_model
     if model_d_model != sae.cfg.d_in:
         raise RuntimeError(
             f"d_model mismatch: model reports d_model={model_d_model}, SAE reports "
@@ -385,7 +427,7 @@ def load_model_and_sae(
             "here, do not proceed with a mismatched hook."
         )
 
-    return bridge, sae
+    return model, sae, hf_model
 
 
 # ---------------------------------------------------------------------------
@@ -658,40 +700,45 @@ def _record_metadata(record: dict[str, Any], *, git_provenance: dict[str, Any]) 
 # escalate, not adapt: these functions raise rather than warn.
 # ---------------------------------------------------------------------------
 
-# Declared BEFORE any equivalence number is seen, per the review. The
-# bridge's own docstring states no_processing mode's "logits/activations
-# match HF, *not* legacy HookedTransformer" -- so near-exact agreement is
-# expected, but not bit-exact: bf16 rounding and SDPA-vs-eager attention
-# kernel differences are legitimate sources of small cross-implementation
-# noise, not evidence of a module-identity failure. These two thresholds
-# are the full passing bar; nothing here is adjusted after seeing a number.
+# Declared BEFORE any equivalence number is seen, per the review. Near-
+# exact agreement is expected, but not bit-exact: bf16 rounding and
+# SDPA-vs-eager attention kernel differences are legitimate sources of
+# small cross-implementation noise, not evidence of a module-identity
+# failure. These two thresholds are the full passing bar; nothing here is
+# adjusted after seeing a number.
 EQUIVALENCE_COSINE_MIN = 0.999
 EQUIVALENCE_REL_L2_MAX = 1e-2
 
 
-def verify_module_identity(bridge, sae) -> dict[str, Any]:
+def verify_module_identity(model, sae) -> dict[str, Any]:
     """Run once, immediately after load, before any generation. Resolves
     the fully-qualified module path the hook attaches to, confirms the
     hooked tensor's last dim is 3840 (the text-tower width -- the exact
     reason d_model=3840 was the D1.3 decisive check), and confirms
-    n_layers==48 / d_model==3840 on the loaded config."""
+    n_layers==48 / d_model==3840 on the loaded config.
+
+    model is a transformer_lens.HookedTransformer (see load_model_and_sae
+    -- TransformerBridge was abandoned for this architecture); hook_dict is
+    HookedTransformer's own registry of every HookPoint by name, populated
+    in setup(), and is the direct replacement for the bridge-specific
+    get_hook_point() this gate used before the loader port."""
     hook_name = sae.cfg.metadata.hook_name
-    hook_point = bridge.get_hook_point(hook_name)
+    hook_point = model.hook_dict.get(hook_name)
     if hook_point is None:
         raise RuntimeError(
             f"module-identity gate FAILED: {hook_name!r} does not resolve to any hook "
-            f"point on this bridge. Stop and escalate -- do not adapt the hook name."
+            f"point on this model. Stop and escalate -- do not adapt the hook name."
         )
 
     module_path = None
-    for name, module in bridge.named_modules():
+    for name, module in model.named_modules():
         if module is hook_point:
             module_path = name
             break
     if module_path is None:
         raise RuntimeError(
             f"module-identity gate FAILED: {hook_name!r} resolved to a HookPoint that is "
-            f"not reachable via bridge.named_modules() -- cannot establish its "
+            f"not reachable via model.named_modules() -- cannot establish its "
             f"fully-qualified path. Stop and escalate."
         )
 
@@ -702,16 +749,16 @@ def verify_module_identity(bridge, sae) -> dict[str, Any]:
             f"to the vision stack, not the text tower. Stop and escalate."
         )
 
-    n_layers = bridge.cfg.n_layers
-    d_model = bridge.cfg.d_model
+    n_layers = model.cfg.n_layers
+    d_model = model.cfg.d_model
     if n_layers != N_LAYERS:
         raise RuntimeError(
-            f"module-identity gate FAILED: bridge.cfg.n_layers={n_layers}, expected "
+            f"module-identity gate FAILED: model.cfg.n_layers={n_layers}, expected "
             f"{N_LAYERS}. Stop and escalate."
         )
     if d_model != 3840:
         raise RuntimeError(
-            f"module-identity gate FAILED: bridge.cfg.d_model={d_model}, expected 3840 "
+            f"module-identity gate FAILED: model.cfg.d_model={d_model}, expected 3840 "
             f"(the D1.3 decisive check: the SAE's own w_enc shape fixes d_in=3840, and the "
             f"text-decoder hidden size must equal it). Stop and escalate."
         )
@@ -722,9 +769,9 @@ def verify_module_identity(bridge, sae) -> dict[str, Any]:
         captured["tensor"] = tensor
         return tensor
 
-    with bridge.hooks(fwd_hooks=[(hook_name, _capture_hook)]):
-        tokens = bridge.to_tokens("The quick brown fox jumps over the lazy dog.")
-        bridge(tokens)
+    with model.hooks(fwd_hooks=[(hook_name, _capture_hook)]):
+        tokens = model.to_tokens("The quick brown fox jumps over the lazy dog.")
+        model(tokens)
 
     if "tensor" not in captured:
         raise RuntimeError(
@@ -752,19 +799,20 @@ def verify_module_identity(bridge, sae) -> dict[str, Any]:
     return report
 
 
-def verify_raw_hf_equivalence(bridge, prompt: str, seed: int) -> dict[str, Any]:
-    """Same prompt, same seed, both paths: the TransformerBridge's hooked
+def verify_raw_hf_equivalence(model, hf_model, prompt: str, seed: int) -> dict[str, Any]:
+    """Same prompt, same seed, both paths: the HookedTransformer's hooked
     blocks.{LAYER}.hook_resid_post capture vs. the underlying raw HF
-    model's own hidden_states at the same layer, via bridge.original_model
-    -- the exact same weights object the bridge wraps, not a second,
-    possibly-diverged load. Tolerances are declared at module scope
-    (EQUIVALENCE_COSINE_MIN, EQUIVALENCE_REL_L2_MAX), above, before this
-    function is ever called with a real number.
+    model's own hidden_states at the same layer. hf_model is the exact
+    object returned by load_model_and_sae -- the same weights object that
+    powered the HookedTransformer.from_pretrained(hf_model=...) conversion,
+    not a second, possibly-diverged load. Tolerances are declared at
+    module scope (EQUIVALENCE_COSINE_MIN, EQUIVALENCE_REL_L2_MAX), above,
+    before this function is ever called with a real number.
     """
     import torch
 
     torch.manual_seed(seed)
-    tokens = bridge.to_tokens(prompt)
+    tokens = model.to_tokens(prompt)
 
     captured: dict[str, Any] = {}
 
@@ -773,13 +821,12 @@ def verify_raw_hf_equivalence(bridge, prompt: str, seed: int) -> dict[str, Any]:
         return tensor
 
     hook_name = f"blocks.{LAYER}.hook_resid_post"
-    with bridge.hooks(fwd_hooks=[(hook_name, _capture_hook)]):
-        bridge(tokens)
-    bridge_tensor = captured["tensor"]
+    with model.hooks(fwd_hooks=[(hook_name, _capture_hook)]):
+        model(tokens)
+    model_tensor = captured["tensor"]
 
-    raw_hf_model = bridge.original_model
     with torch.no_grad():
-        hf_out = raw_hf_model(tokens, output_hidden_states=True)
+        hf_out = hf_model(tokens, output_hidden_states=True)
     hidden_states = hf_out.hidden_states
     if len(hidden_states) != N_LAYERS + 1:
         raise RuntimeError(
@@ -787,18 +834,18 @@ def verify_raw_hf_equivalence(bridge, prompt: str, seed: int) -> dict[str, Any]:
             f"hidden_states entries, expected {N_LAYERS + 1} (embeddings + one per layer) "
             f"-- cannot safely index layer {LAYER}'s post-block state. Stop and escalate."
         )
-    raw_hf_tensor = hidden_states[LAYER + 1].to(bridge_tensor.dtype)
+    raw_hf_tensor = hidden_states[LAYER + 1].to(model_tensor.dtype)
 
-    bridge_flat = bridge_tensor.reshape(-1).float()
+    model_flat = model_tensor.reshape(-1).float()
     raw_flat = raw_hf_tensor.reshape(-1).float()
-    if bridge_flat.shape != raw_flat.shape:
+    if model_flat.shape != raw_flat.shape:
         raise RuntimeError(
-            f"equivalence check FAILED: shape mismatch bridge={tuple(bridge_tensor.shape)} "
+            f"equivalence check FAILED: shape mismatch model={tuple(model_tensor.shape)} "
             f"vs raw_hf={tuple(raw_hf_tensor.shape)}. Stop and escalate."
         )
 
-    cosine_sim = torch.nn.functional.cosine_similarity(bridge_flat, raw_flat, dim=0).item()
-    rel_l2 = ((bridge_flat - raw_flat).norm() / raw_flat.norm()).item()
+    cosine_sim = torch.nn.functional.cosine_similarity(model_flat, raw_flat, dim=0).item()
+    rel_l2 = ((model_flat - raw_flat).norm() / raw_flat.norm()).item()
     passed = cosine_sim >= EQUIVALENCE_COSINE_MIN and rel_l2 <= EQUIVALENCE_REL_L2_MAX
 
     report = {
@@ -949,9 +996,9 @@ def main(argv: list[str] | None = None) -> int:
         "top_p": args.top_p,
     }
 
-    model = sae = None
+    model = sae = hf_model = None
     if not args.dry_run:
-        model, sae = load_model_and_sae(
+        model, sae, hf_model = load_model_and_sae(
             args.model_path, args.sae_path, device=args.device, dtype=args.dtype
         )
 
@@ -959,7 +1006,9 @@ def main(argv: list[str] | None = None) -> int:
         # Stop-and-escalate, not adapt: both functions raise on failure,
         # which aborts main() before a single sweep record is generated.
         identity_report = verify_module_identity(model, sae)
-        equivalence_report = verify_raw_hf_equivalence(model, prompts[0], seed=derive_seed("module-identity-check"))
+        equivalence_report = verify_raw_hf_equivalence(
+            model, hf_model, prompts[0], seed=derive_seed("module-identity-check")
+        )
         (out_dir / "module_identity_report.json").write_text(
             json.dumps({"module_identity": identity_report, "raw_hf_equivalence": equivalence_report}, indent=2),
             encoding="utf-8",
