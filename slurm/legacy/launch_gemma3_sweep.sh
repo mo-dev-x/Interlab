@@ -24,7 +24,15 @@ shift 2
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PAYLOAD="$REPO_ROOT/slurm/legacy/gemma3_sweep_payload.sh"
-mkdir -p "$REPO_ROOT/slurm/logs"
+
+# ABSOLUTE, not "slurm/logs/...": a relative --output/--error is resolved
+# by Slurm against WorkDir at submission time, not the repo -- if that
+# directory doesn't exist on whatever checkout WorkDir happens to be, the
+# log is written NOWHERE, no error, no warning (job 398667's missing log).
+# ~/interplab_logs/ is the same absolute location Engineer 3's jobs already
+# use, so logs from every job in this project land in one tailable place.
+LOG_DIR="$HOME/interplab_logs"
+mkdir -p "$LOG_DIR"
 
 RUN_ID="$(date +%Y%m%d_%H%M%S)"
 
@@ -39,8 +47,8 @@ RUN_ID="$(date +%Y%m%d_%H%M%S)"
 SBATCH_ARGS=(
   --parsable
   --job-name="gemma3-sweep-${RUN_ID}"
-  --output="slurm/logs/%j_gemma3_sweep_${RUN_ID}.out"
-  --error="slurm/logs/%j_gemma3_sweep_${RUN_ID}.err"
+  --output="${LOG_DIR}/%j_gemma3_sweep_${RUN_ID}.out"
+  --error="${LOG_DIR}/%j_gemma3_sweep_${RUN_ID}.err"
   --time=24:00:00
   --nodes=1 --ntasks=1 --cpus-per-task=32 --mem=0
   --gres=gpu:h100:4
@@ -57,6 +65,6 @@ echo "  $SBATCH_LINE"
 JOB_ID=$(sbatch "${SBATCH_ARGS[@]}" "$PAYLOAD" "$MODEL_PATH" "$SAE_PATH" "$@")
 echo
 echo "Submitted job $JOB_ID"
-echo "Log tail:     tail -f slurm/logs/${JOB_ID}_gemma3_sweep_${RUN_ID}.out"
+echo "Log tail:     tail -f ${LOG_DIR}/${JOB_ID}_gemma3_sweep_${RUN_ID}.out"
 echo "Module-identity report (check this FIRST): cat results/gemma3_sweep/module_identity_report.json"
 echo "Final result: ls -t results/gemma3_sweep/*.json | head -1 | xargs cat"
