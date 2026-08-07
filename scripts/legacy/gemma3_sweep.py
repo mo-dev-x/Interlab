@@ -97,7 +97,13 @@ QWEN_COMPARISON = {
     "n_layers": 48,
     "depth_fraction": 28 / 48,  # 0.58333... ("58.3%")
 }
-DEPTH_FRACTION_GAP_VS_QWEN = DEPTH_FRACTION - QWEN_COMPARISON["depth_fraction"]  # 6.3pp
+# Deliberately not a derived difference, and not named "gap": Gemma's
+# depth_fraction (31/48 = 64.6%) vs Qwen's (28/48 = 58.3%) is an escalated
+# CONFOUND on the cross-model comparison, not a validated comparison point.
+# A field named "gap" invites the magnitude comparison the approved framing
+# prohibits, and field names travel further than caveats -- so this carries
+# only Qwen's raw depth_fraction; the reader subtracts if they choose.
+DEPTH_FRACTION_QWEN = QWEN_COMPARISON["depth_fraction"]
 
 FEATURES: list[dict[str, Any]] = [
     {"idx": 250, "label": "advisory / instructional imperatives", "domain_class": "instruction", "maxActApprox": 10717.3232, "density": 0.021364},
@@ -120,12 +126,20 @@ REJECTED_FEATURE_IDXS = frozenset({12345, 7777, 6000, 100, 10500, 13500, 9600, 7
 DOSES: tuple[float, ...] = (0.5, 1.0, 2.0, 4.0, 8.0, 16.0)
 MODES: tuple[str, ...] = ("steer", "ablate")
 
+# 8, matching Qwen's prompt count exactly (D2.1 fix 1): the PM refused to
+# cut doses 6 -> 3 because "a 3-point curve cannot distinguish a plateau
+# from a linear rise" -- the same resolution argument applies to prompts,
+# and matching Qwen's count keeps the two experiments procedurally aligned
+# at zero argumentative cost.
 DEFAULT_PROMPTS: list[str] = [
     "Tell me about your day.",
     "Describe a walk through a city street.",
     "What advice would you give to someone starting a new job?",
     "Write a short paragraph about the weather this week.",
     "Explain how to plan a small dinner party.",
+    "Describe your favorite way to spend a weekend.",
+    "What makes a good story, in your opinion?",
+    "Summarize the plot of a movie you might watch tonight.",
 ]
 
 DEFAULT_OUT_DIR = REPO_ROOT / "results" / "gemma3_sweep"
@@ -387,19 +401,25 @@ def compute_checkpoint_hash(model_path: str, sae_path: str, *, dry_run: bool) ->
     return f"sha256:{digest}", basis
 
 
-def harness_git_sha() -> str:
+def harness_git_provenance() -> dict[str, Any]:
+    """Read at execution time, not authoring time -- a provenance field
+    that names the wrong commit is worse than an absent one, because it
+    will be believed (same failure class as reusing line numbers across
+    commits). Also records whether the working tree was dirty when this
+    ran: a SHA alone does not prove the code that ran matches that commit
+    if uncommitted changes were present."""
     try:
-        out = subprocess.run(
+        sha_out = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=10,
+            cwd=REPO_ROOT, capture_output=True, text=True, check=True, timeout=10,
         )
-        return out.stdout.strip()
+        status_out = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=REPO_ROOT, capture_output=True, text=True, check=True, timeout=10,
+        )
+        return {"sha": sha_out.stdout.strip(), "dirty": bool(status_out.stdout.strip())}
     except Exception as exc:  # not fatal -- provenance-best-effort, never blocks a run
-        return f"unknown (git rev-parse failed: {exc})"
+        return {"sha": f"unknown (git rev-parse failed: {exc})", "dirty": None}
 
 
 def derive_seed(*parts: Any) -> int:
@@ -531,7 +551,7 @@ def _record_filename(record: dict[str, Any]) -> str:
     )
 
 
-def _record_metadata(record: dict[str, Any], *, harness_sha: str) -> dict[str, Any]:
+def _record_metadata(record: dict[str, Any], *, git_provenance: dict[str, Any]) -> dict[str, Any]:
     return {
         **record,
         "sae_id": SAE_ID,
@@ -546,9 +566,182 @@ def _record_metadata(record: dict[str, Any], *, harness_sha: str) -> dict[str, A
         "l0_variant": L0_VARIANT,
         "model_id": MODEL_ID,
         "qwen_comparison": QWEN_COMPARISON,
-        "depth_fraction_gap_vs_qwen": DEPTH_FRACTION_GAP_VS_QWEN,
-        "harness_git_sha": harness_sha,
+        "depth_fraction_qwen": DEPTH_FRACTION_QWEN,
+        "harness_git_sha": git_provenance["sha"],
+        "harness_git_dirty": git_provenance["dirty"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Module-identity gate (D2.1 fix 4): BEFORE the fan-out, every real run
+# must prove blocks.{LAYER}.hook_resid_post resolves to the TEXT tower's
+# block LAYER on this multimodal wrapper, not an offset module or the
+# vision stack. The failure being ruled out is not "it crashed" -- it is
+# "it ran and hooked the wrong tensor," which produces a complete,
+# plausible, wrong dataset. A mismatch on any check here is stop-and-
+# escalate, not adapt: these functions raise rather than warn.
+# ---------------------------------------------------------------------------
+
+# Declared BEFORE any equivalence number is seen, per the review. The
+# bridge's own docstring states no_processing mode's "logits/activations
+# match HF, *not* legacy HookedTransformer" -- so near-exact agreement is
+# expected, but not bit-exact: bf16 rounding and SDPA-vs-eager attention
+# kernel differences are legitimate sources of small cross-implementation
+# noise, not evidence of a module-identity failure. These two thresholds
+# are the full passing bar; nothing here is adjusted after seeing a number.
+EQUIVALENCE_COSINE_MIN = 0.999
+EQUIVALENCE_REL_L2_MAX = 1e-2
+
+
+def verify_module_identity(bridge, sae) -> dict[str, Any]:
+    """Run once, immediately after load, before any generation. Resolves
+    the fully-qualified module path the hook attaches to, confirms the
+    hooked tensor's last dim is 3840 (the text-tower width -- the exact
+    reason d_model=3840 was the D1.3 decisive check), and confirms
+    n_layers==48 / d_model==3840 on the loaded config."""
+    hook_name = sae.cfg.metadata.hook_name
+    hook_point = bridge.get_hook_point(hook_name)
+    if hook_point is None:
+        raise RuntimeError(
+            f"module-identity gate FAILED: {hook_name!r} does not resolve to any hook "
+            f"point on this bridge. Stop and escalate -- do not adapt the hook name."
+        )
+
+    module_path = None
+    for name, module in bridge.named_modules():
+        if module is hook_point:
+            module_path = name
+            break
+    if module_path is None:
+        raise RuntimeError(
+            f"module-identity gate FAILED: {hook_name!r} resolved to a HookPoint that is "
+            f"not reachable via bridge.named_modules() -- cannot establish its "
+            f"fully-qualified path. Stop and escalate."
+        )
+
+    suspicious_tokens = ("vision", "vit", "image", "siglip", "clip")
+    if any(tok in module_path.lower() for tok in suspicious_tokens):
+        raise RuntimeError(
+            f"module-identity gate FAILED: hook path {module_path!r} looks like it belongs "
+            f"to the vision stack, not the text tower. Stop and escalate."
+        )
+
+    n_layers = bridge.cfg.n_layers
+    d_model = bridge.cfg.d_model
+    if n_layers != N_LAYERS:
+        raise RuntimeError(
+            f"module-identity gate FAILED: bridge.cfg.n_layers={n_layers}, expected "
+            f"{N_LAYERS}. Stop and escalate."
+        )
+    if d_model != 3840:
+        raise RuntimeError(
+            f"module-identity gate FAILED: bridge.cfg.d_model={d_model}, expected 3840 "
+            f"(the D1.3 decisive check: the SAE's own w_enc shape fixes d_in=3840, and the "
+            f"text-decoder hidden size must equal it). Stop and escalate."
+        )
+
+    captured: dict[str, Any] = {}
+
+    def _capture_hook(tensor, hook):
+        captured["tensor"] = tensor
+        return tensor
+
+    with bridge.hooks(fwd_hooks=[(hook_name, _capture_hook)]):
+        tokens = bridge.to_tokens("The quick brown fox jumps over the lazy dog.")
+        bridge(tokens)
+
+    if "tensor" not in captured:
+        raise RuntimeError(
+            f"module-identity gate FAILED: hook {hook_name!r} never fired during a forward "
+            f"pass. Stop and escalate."
+        )
+    hooked_shape = tuple(captured["tensor"].shape)
+    if hooked_shape[-1] != 3840:
+        raise RuntimeError(
+            f"module-identity gate FAILED: hooked tensor shape {hooked_shape} has last dim "
+            f"{hooked_shape[-1]}, expected 3840. This is exactly the failure mode ruled out "
+            f"here: the hook ran and captured a tensor, but not the text tower's residual "
+            f"stream. Stop and escalate."
+        )
+
+    report = {
+        "hook_name": hook_name,
+        "module_path": module_path,
+        "hooked_tensor_shape": list(hooked_shape),
+        "n_layers": n_layers,
+        "d_model": d_model,
+        "passed": True,
+    }
+    print(f"module-identity gate PASSED:\n{json.dumps(report, indent=2)}")
+    return report
+
+
+def verify_raw_hf_equivalence(bridge, prompt: str, seed: int) -> dict[str, Any]:
+    """Same prompt, same seed, both paths: the TransformerBridge's hooked
+    blocks.{LAYER}.hook_resid_post capture vs. the underlying raw HF
+    model's own hidden_states at the same layer, via bridge.original_model
+    -- the exact same weights object the bridge wraps, not a second,
+    possibly-diverged load. Tolerances are declared at module scope
+    (EQUIVALENCE_COSINE_MIN, EQUIVALENCE_REL_L2_MAX), above, before this
+    function is ever called with a real number.
+    """
+    import torch
+
+    torch.manual_seed(seed)
+    tokens = bridge.to_tokens(prompt)
+
+    captured: dict[str, Any] = {}
+
+    def _capture_hook(tensor, hook):
+        captured["tensor"] = tensor.detach().clone()
+        return tensor
+
+    hook_name = f"blocks.{LAYER}.hook_resid_post"
+    with bridge.hooks(fwd_hooks=[(hook_name, _capture_hook)]):
+        bridge(tokens)
+    bridge_tensor = captured["tensor"]
+
+    raw_hf_model = bridge.original_model
+    with torch.no_grad():
+        hf_out = raw_hf_model(tokens, output_hidden_states=True)
+    hidden_states = hf_out.hidden_states
+    if len(hidden_states) != N_LAYERS + 1:
+        raise RuntimeError(
+            f"equivalence check FAILED: raw HF model returned {len(hidden_states)} "
+            f"hidden_states entries, expected {N_LAYERS + 1} (embeddings + one per layer) "
+            f"-- cannot safely index layer {LAYER}'s post-block state. Stop and escalate."
+        )
+    raw_hf_tensor = hidden_states[LAYER + 1].to(bridge_tensor.dtype)
+
+    bridge_flat = bridge_tensor.reshape(-1).float()
+    raw_flat = raw_hf_tensor.reshape(-1).float()
+    if bridge_flat.shape != raw_flat.shape:
+        raise RuntimeError(
+            f"equivalence check FAILED: shape mismatch bridge={tuple(bridge_tensor.shape)} "
+            f"vs raw_hf={tuple(raw_hf_tensor.shape)}. Stop and escalate."
+        )
+
+    cosine_sim = torch.nn.functional.cosine_similarity(bridge_flat, raw_flat, dim=0).item()
+    rel_l2 = ((bridge_flat - raw_flat).norm() / raw_flat.norm()).item()
+    passed = cosine_sim >= EQUIVALENCE_COSINE_MIN and rel_l2 <= EQUIVALENCE_REL_L2_MAX
+
+    report = {
+        "prompt": prompt,
+        "seed": seed,
+        "cosine_similarity": cosine_sim,
+        "relative_l2_error": rel_l2,
+        "cosine_min_declared": EQUIVALENCE_COSINE_MIN,
+        "rel_l2_max_declared": EQUIVALENCE_REL_L2_MAX,
+        "passed": passed,
+    }
+    print(f"raw-HF equivalence check {'PASSED' if passed else 'FAILED'}:\n{json.dumps(report, indent=2)}")
+    if not passed:
+        raise RuntimeError(
+            f"raw-HF equivalence check FAILED against tolerances declared before this run: "
+            f"{report}. Stop and escalate -- do not loosen the tolerance after seeing this "
+            f"number."
+        )
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -646,7 +839,8 @@ def main(argv: list[str] | None = None) -> int:
     checkpoint_hash, checkpoint_hash_basis = compute_checkpoint_hash(
         args.model_path, args.sae_path, dry_run=args.dry_run
     )
-    harness_sha = harness_git_sha()
+    git_provenance = harness_git_provenance()
+    print(f"harness git provenance: sha={git_provenance['sha']} dirty={git_provenance['dirty']}")
 
     prompts = _load_prompts(args.prompts_file)
     matrix = build_job_matrix(
@@ -679,8 +873,18 @@ def main(argv: list[str] | None = None) -> int:
             args.model_path, args.sae_path, device=args.device, dtype=args.dtype
         )
 
+        # Hard gate, BEFORE anything else touches the fan-out (D2.1 fix 4).
+        # Stop-and-escalate, not adapt: both functions raise on failure,
+        # which aborts main() before a single sweep record is generated.
+        identity_report = verify_module_identity(model, sae)
+        equivalence_report = verify_raw_hf_equivalence(model, prompts[0], seed=derive_seed("module-identity-check"))
+        (out_dir / "module_identity_report.json").write_text(
+            json.dumps({"module_identity": identity_report, "raw_hf_equivalence": equivalence_report}, indent=2),
+            encoding="utf-8",
+        )
+
     for record in matrix:
-        payload = _record_metadata(record, harness_sha=harness_sha)
+        payload = _record_metadata(record, git_provenance=git_provenance)
         payload["model_path"] = str(Path(args.model_path).resolve()) if Path(args.model_path).exists() else args.model_path
         payload["sae_path"] = str(Path(args.sae_path).resolve()) if Path(args.sae_path).exists() else args.sae_path
         payload["checkpoint_hash_basis"] = checkpoint_hash_basis
