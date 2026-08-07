@@ -241,6 +241,7 @@ def load_sae_from_local_snapshot(sae_path: Path, *, device: str = "cpu", dtype: 
     import torch
     from safetensors.torch import load_file
     from sae_lens import SAE
+    from sae_lens.loading.pretrained_sae_loaders import handle_config_defaulting
 
     config_path = sae_path / "config.json"
     params_path = sae_path / "params.safetensors"
@@ -286,6 +287,15 @@ def load_sae_from_local_snapshot(sae_path: Path, *, device: str = "cpu", dtype: 
         "reshape_activations": "none",
         "hf_hook_name": raw_cfg.get("hf_hook_point_in"),
     }
+    # SAEConfig.from_dict filters cfg_dict down to SAEConfig's own dataclass
+    # fields; "hook_name" is not one of them (it lives on cfg.metadata), so
+    # passed flat it is silently dropped and sae.cfg.metadata.hook_name
+    # comes back None -- attach() then fails at model.hooks(fwd_hooks=[(None,
+    # ...)]) instead of here. handle_config_defaulting() is the same public
+    # function the hub-based loading path already calls before
+    # SAEConfig.from_dict; it re-nests hook_name (and the other loose keys
+    # above) into cfg_dict["metadata"] correctly.
+    cfg_dict = handle_config_defaulting(cfg_dict)
 
     state_dict = {
         "W_enc": raw_state_dict["w_enc"],
