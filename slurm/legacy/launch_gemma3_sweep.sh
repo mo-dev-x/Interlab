@@ -67,4 +67,4 @@ echo
 echo "Submitted job $JOB_ID"
 echo "Log tail:     tail -f ${LOG_DIR}/${JOB_ID}_gemma3_sweep_${RUN_ID}.out"
 echo "Module-identity report (check this FIRST): cat results/gemma3_sweep/module_identity_report.json"
-echo "Final result: ls -t results/gemma3_sweep/*.json | head -1 | xargs cat"
+echo "Final records: cat results/gemma3_sweep/records.jsonl"
