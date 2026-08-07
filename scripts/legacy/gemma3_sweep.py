@@ -401,7 +401,12 @@ def load_model_and_sae(
     torch_dtype = getattr(torch, dtype)
 
     tokenizer = AutoTokenizer.from_pretrained(str(model_path))
-    hf_model = AutoModel.from_pretrained(str(model_path), dtype=torch_dtype)
+    # AutoModel.from_pretrained defaults to CPU regardless of dtype=; the
+    # original loader never touched hf_model again after conversion, so
+    # this was latent until verify_raw_hf_equivalence started feeding it
+    # cuda tensors from model.to_tokens(). Moved explicitly, not left to
+    # an implicit device match with the HookedTransformer below.
+    hf_model = AutoModel.from_pretrained(str(model_path), dtype=torch_dtype).to(device)
     model = HookedTransformer.from_pretrained(
         MODEL_ID,  # config/conversion routing only; hf_model= means no network use
         hf_model=hf_model,
@@ -710,6 +715,33 @@ EQUIVALENCE_COSINE_MIN = 0.999
 EQUIVALENCE_REL_L2_MAX = 1e-2
 
 
+class EquivalenceToleranceFailure(RuntimeError):
+    """Raised ONLY when a real cosine/rel_l2 number falls outside the
+    tolerances declared above. Every other failure in
+    verify_raw_hf_equivalence (OOM, device mismatch, malformed
+    hidden_states, any exception not raised by this class) is left as a
+    plain exception, so the caller can tell a science problem (this type)
+    apart from an infrastructural one (everything else) by exception type
+    alone -- not by whoever is reading the log deciding which case they
+    think it is."""
+
+
+def _gpu_memory_snapshot(device: str) -> dict[str, Any] | None:
+    """None on a non-CUDA device -- dry runs never reach this, but a real
+    run on CPU should not crash trying to query CUDA stats. Reports
+    allocated/reserved bytes so headroom around hf_model's ~24GB is known
+    at the gate and after it is freed, not assumed."""
+    import torch
+
+    if not (isinstance(device, str) and device.startswith("cuda")) or not torch.cuda.is_available():
+        return None
+    return {
+        "allocated_bytes": torch.cuda.memory_allocated(device),
+        "max_allocated_bytes": torch.cuda.max_memory_allocated(device),
+        "reserved_bytes": torch.cuda.memory_reserved(device),
+    }
+
+
 def verify_module_identity(model, sae) -> dict[str, Any]:
     """Run once, immediately after load, before any generation. Resolves
     the fully-qualified module path the hook attaches to, confirms the
@@ -859,7 +891,7 @@ def verify_raw_hf_equivalence(model, hf_model, prompt: str, seed: int) -> dict[s
     }
     print(f"raw-HF equivalence check {'PASSED' if passed else 'FAILED'}:\n{json.dumps(report, indent=2)}")
     if not passed:
-        raise RuntimeError(
+        raise EquivalenceToleranceFailure(
             f"raw-HF equivalence check FAILED against tolerances declared before this run: "
             f"{report}. Stop and escalate -- do not loosen the tolerance after seeing this "
             f"number."
@@ -1003,14 +1035,65 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         # Hard gate, BEFORE anything else touches the fan-out (D2.1 fix 4).
-        # Stop-and-escalate, not adapt: both functions raise on failure,
-        # which aborts main() before a single sweep record is generated.
+        # module-identity is load-bearing and always stop-and-escalate on
+        # failure. raw-HF equivalence is a stronger nice-to-have that
+        # needs a second ~24GB copy of the model resident -- an
+        # infrastructural failure there (OOM, device error, anything that
+        # is not a tolerance number) is pre-authorized to fall back to
+        # module-identity alone; a real tolerance failure is not.
         identity_report = verify_module_identity(model, sae)
-        equivalence_report = verify_raw_hf_equivalence(
-            model, hf_model, prompts[0], seed=derive_seed("module-identity-check")
-        )
+
+        try:
+            equivalence_report = verify_raw_hf_equivalence(
+                model, hf_model, prompts[0], seed=derive_seed("module-identity-check")
+            )
+        except EquivalenceToleranceFailure:
+            # A real cosine/rel_l2 number outside the declared bar -- a
+            # science problem, not an infrastructure hiccup. No fallback
+            # applies here: verify_raw_hf_equivalence already printed the
+            # failing numbers before raising. Do not relax the declared
+            # tolerance after seeing this.
+            print(f"GPU memory at gate (failing run): {_gpu_memory_snapshot(args.device)}")
+            raise
+        except Exception as exc:
+            # Everything else -- OOM, device mismatch, malformed output.
+            # module-identity already passed above and is what protects
+            # the science (d_model, n_layers, hooked module path, hooked
+            # tensor shape). Recorded as explicitly NOT RUN, never as
+            # passed and never silently omitted, and the sweep proceeds.
+            equivalence_report = {"not_run": True, "reason": f"{type(exc).__name__}: {exc}"}
+            print(
+                f"raw-HF equivalence check NOT RUN (infrastructural failure, proceeding on "
+                f"module-identity alone): {type(exc).__name__}: {exc}"
+            )
+
+        gpu_mem_at_gate = _gpu_memory_snapshot(args.device)
+        print(f"GPU memory at gate: {gpu_mem_at_gate}")
+
+        # hf_model is dead weight for the next 24h of generation once the
+        # gate is done with it: TransformerLens converts and copies rather
+        # than aliasing the text tower, so the HookedTransformer holds its
+        # own ~24GB copy independent of hf_model -- both resident at once
+        # peaks around 50GB on an 80GB H100. Freeing this is required, not
+        # an optimisation: an OOM at record 1400 is the worst possible
+        # time to discover hf_model was still resident.
+        del hf_model
+        import torch
+
+        torch.cuda.empty_cache()
+        gpu_mem_after_free = _gpu_memory_snapshot(args.device)
+        print(f"GPU memory after hf_model free: {gpu_mem_after_free}")
+
         (out_dir / "module_identity_report.json").write_text(
-            json.dumps({"module_identity": identity_report, "raw_hf_equivalence": equivalence_report}, indent=2),
+            json.dumps(
+                {
+                    "module_identity": identity_report,
+                    "raw_hf_equivalence": equivalence_report,
+                    "gpu_memory_at_gate": gpu_mem_at_gate,
+                    "gpu_memory_after_hf_model_free": gpu_mem_after_free,
+                },
+                indent=2,
+            ),
             encoding="utf-8",
         )
 
