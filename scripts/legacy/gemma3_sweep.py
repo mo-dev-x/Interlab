@@ -85,7 +85,16 @@ L0_VARIANT = "medium"
 # CORRECTED 2026-08-07 (D2.1 addendum): the Qwen instrument is rwu04lpb.
 # 81920/16x belongs to a DIFFERENT, superseded checkpoint (9odeg5hb,
 # pile-10k, abandoned) -- never carry that number into a new artifact.
-QWEN_COMPARISON = {
+#
+# Named "reference metadata", not "comparison" (schema name audit): the
+# approved framing is convergent evidence from two independent
+# measurements, not a controlled comparison -- five axes are unmatched
+# (model, SAE architecture, expansion ratio, training provenance, relative
+# depth). A nested object literally named "comparison" is the strongest
+# possible smuggled claim; a reader who sees only the field name, with no
+# surrounding text, would believe it licenses a controlled comparison the
+# framing explicitly declines to assert.
+QWEN_REFERENCE_METADATA = {
     "checkpoint_id": "rwu04lpb",
     "d_in": 5120,
     "d_sae": 163840,
@@ -103,7 +112,7 @@ QWEN_COMPARISON = {
 # A field named "gap" invites the magnitude comparison the approved framing
 # prohibits, and field names travel further than caveats -- so this carries
 # only Qwen's raw depth_fraction; the reader subtracts if they choose.
-DEPTH_FRACTION_QWEN = QWEN_COMPARISON["depth_fraction"]
+DEPTH_FRACTION_QWEN = QWEN_REFERENCE_METADATA["depth_fraction"]
 
 FEATURES: list[dict[str, Any]] = [
     {"idx": 250, "label": "advisory / instructional imperatives", "domain_class": "instruction", "maxActApprox": 10717.3232, "density": 0.021364},
@@ -565,7 +574,7 @@ def _record_metadata(record: dict[str, Any], *, git_provenance: dict[str, Any]) 
         "l0_advertised": L0_ADVERTISED,
         "l0_variant": L0_VARIANT,
         "model_id": MODEL_ID,
-        "qwen_comparison": QWEN_COMPARISON,
+        "qwen_reference_metadata": QWEN_REFERENCE_METADATA,
         "depth_fraction_qwen": DEPTH_FRACTION_QWEN,
         "harness_git_sha": git_provenance["sha"],
         "harness_git_dirty": git_provenance["dirty"],
