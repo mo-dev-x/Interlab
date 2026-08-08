@@ -508,11 +508,11 @@ def _baseline_pass(model, sae, snippet: str, seed: int):
         return t
 
     torch.manual_seed(seed)
-    with model.hooks(fwd_hooks=[(hook_name, _capture)]):
-        logits = model(tokens)
-    nll = model.loss_fn(logits, tokens, per_token=True)
     with torch.no_grad():
+        with model.hooks(fwd_hooks=[(hook_name, _capture)]):
+            logits = model(tokens)
         feat_acts = sae.encode(captured["resid"].to(torch.float32))
+    nll = model.loss_fn(logits, tokens, per_token=True)
     return tokens, nll, feat_acts
 
 
@@ -529,8 +529,9 @@ def _ablated_pass_nll(model, sae, tokens, feature_idx: int, seed: int, checkpoin
         positions="all", checkpoint_hash=checkpoint_hash, direction_seed=None,
     )
     torch.manual_seed(seed)
-    with attach(model, sae, spec, prompt_lengths=None):
-        logits = model(tokens)
+    with torch.no_grad():
+        with attach(model, sae, spec, prompt_lengths=None):
+            logits = model(tokens)
     return model.loss_fn(logits, tokens, per_token=True)
 
 
