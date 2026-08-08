@@ -21,27 +21,33 @@ from gemma3_sweep.py instead, per this task's explicit invitation to
 already-validated TransformerBridge introspection would itself be a
 correctness risk, and a read-only import does not touch the frozen file.
 
-A REAL BUG WAS FOUND IN THE FROZEN SWEEP WHILE BUILDING THIS: gemma3_sweep.py's
-load_sae_from_local_snapshot() builds cfg_dict with a flat top-level
-"hook_name" key and calls SAE.from_dict(cfg_dict) directly. SAEConfig.from_dict
-filters cfg_dict down to SAEConfig's own dataclass fields (d_in, d_sae, dtype,
-device, apply_b_dec_to_input, normalize_activations, reshape_activations,
-metadata) -- "hook_name" is not one of them, so it is silently dropped, and
-sae.cfg.metadata.hook_name ends up None. Verified empirically against the
-real cached Gemma Scope 2 layer-31 snapshot. The hub-based loading path
-(SAE.from_pretrained) does not hit this because
-sae_lens.loading.pretrained_sae_loaders.handle_config_defaulting() is called
-first there, which explicitly re-nests loose keys like "hook_name" into a
-"metadata" sub-dict (pretrained_sae_loaders.py:281-283) before SAEConfig.from_dict
-ever sees them -- a step the frozen local-path loader omits. Net effect: every
-real (non-dry-run) invocation of gemma3_sweep.py would hit
-sae.cfg.metadata.hook_name is None the moment attach() tries to register a
-hook, well before the module-identity gate's own explicit check could even
-produce a clean report. This is NOT fixed here (gemma3_sweep.py stays
-untouched); this script's own SAE loader calls the same public
-handle_config_defaulting() the hub path uses, so it does not inherit the bug.
-Flagged prominently in this run's report -- the frozen sweep cannot complete
-a real run until this is addressed in its own turn.
+TWO BUGS FOUND IN THE SWEEP WHILE BUILDING THIS, BOTH NOW FIXED THERE AND
+RE-PORTED HERE (2026-08-08):
+  1. gemma3_sweep.py's original load_sae_from_local_snapshot() built
+     cfg_dict with a flat top-level "hook_name" key and called
+     SAE.from_dict(cfg_dict) directly. SAEConfig.from_dict filters cfg_dict
+     down to SAEConfig's own dataclass fields -- "hook_name" is not one of
+     them, so it was silently dropped and sae.cfg.metadata.hook_name came
+     back None. This script's own load_sae_from_local_snapshot() (below)
+     was written with the fix already applied (calls the public
+     handle_config_defaulting(), the same function the sae_lens hub path
+     itself calls) and never inherited the bug -- retained, though unused
+     now that the SAE is loaded via SAE.from_pretrained() (see bug 2).
+  2. gemma3_sweep.py's loader used TransformerBridge.boot_transformers,
+     which dies during set_original_components on this transformers
+     version's Gemma3+Siglip combination (AttributeError: SiglipVisionModel
+     has no attribute vision_model -- zero Gemma-3/Siglip component
+     mappings in the installed package). Fixed in the sweep by porting
+     Engineer 1's proven job-398619 loader: classic
+     HookedTransformer.from_pretrained(hf_model=...), which uses
+     transformer_lens's own Gemma weight converter and skips the vision
+     tower automatically. THIS SCRIPT DUPLICATED THE SWEEP'S LOADER BEFORE
+     THAT PORT (Ground Rule 2 means the fix does not propagate by itself)
+     and job 399600 died on the identical AttributeError at the identical
+     stack depth. load_model_and_sae() below is now re-ported to match,
+     by hand, verbatim -- see its docstring. The two loaders (here and in
+     gemma3_sweep.py) must be kept in sync by hand going forward; nothing
+     enforces that automatically, per Ground Rule 2's deliberate tradeoff.
 
 DESIGN (pre-registration section 3-8):
   For each of 9 features F, take F's own top-16 activating snippets (an
@@ -220,9 +226,8 @@ def load_snippets(snippets_file: str | None, features: list[dict[str, Any]], *, 
 
 
 # ---------------------------------------------------------------------------
-# Offline, local-path-only loading. Duplicated TransformerBridge logic from
-# gemma3_sweep.py (unbugged there), but with a FIXED local SAE loader --
-# see module docstring for the bug this avoids inheriting.
+# Offline loading, duplicated from gemma3_sweep.py per Ground Rule 2 (kept
+# in sync by hand, not by import -- see module docstring, bug 2).
 # ---------------------------------------------------------------------------
 
 def _fail_if_missing(path: Path, *, what: str) -> None:
@@ -233,12 +238,17 @@ def _fail_if_missing(path: Path, *, what: str) -> None:
         )
 
 
+# No longer called from load_model_and_sae() (the SAE is now loaded via
+# SAE.from_pretrained() below, matching the sweep's re-ported loader) --
+# retained because handle_config_defaulting() is a real, verified fix and
+# costs nothing to keep even if this path goes unused.
 def load_sae_from_local_snapshot(sae_path: Path, *, device: str = "cpu", dtype: str = "float32"):
-    """Same raw-file reading as gemma3_sweep.py's version, but calls the
-    public sae_lens.loading.pretrained_sae_loaders.handle_config_defaulting()
-    before SAE.from_dict() -- the step the frozen version omits, which is
-    exactly why sae.cfg.metadata.hook_name comes back None there. This is
-    the same function the sae_lens hub-based loading path itself calls
+    """Reads the raw Gemma-Scope-2 safetensors format directly and calls
+    the public sae_lens.loading.pretrained_sae_loaders.handle_config_defaulting()
+    before SAE.from_dict() -- the step gemma3_sweep.py's ORIGINAL local-path
+    loader omitted (see module docstring bug 1), which is exactly why
+    sae.cfg.metadata.hook_name came back None there. This is the same
+    function the sae_lens hub-based loading path itself calls
     (from_pretrained_with_cfg_and_sparsity), not a reimplementation."""
     import re
 
@@ -312,13 +322,38 @@ def load_sae_from_local_snapshot(sae_path: Path, *, device: str = "cpu", dtype: 
     return sae
 
 
+def _patch_gemma3_safetensors_shape_lookup() -> None:
+    """Duplicated verbatim from gemma3_sweep.py (Ground Rule 2). Installed
+    sae_lens's Gemma-3 loader issues a raw requests.get() HTTP range read
+    for tensor shapes that bypasses huggingface_hub AND HF_HUB_OFFLINE
+    entirely -- an immediate hang-then-fail on a compute node with no
+    outbound internet. Routes the same shape lookup through
+    hf_hub_download instead, which respects HF_HUB_OFFLINE and the local
+    cache like everything else in this file."""
+    import sae_lens.loading.pretrained_sae_loaders as psl
+    from huggingface_hub import hf_hub_download
+    from safetensors import safe_open
+
+    def _local_get_safetensors_tensor_shapes(repo_id: str, filename: str) -> dict:
+        local_path = hf_hub_download(repo_id=repo_id, filename=filename)
+        with safe_open(local_path, framework="pt") as f:
+            return {k: list(f.get_slice(k).get_shape()) for k in f.keys()}
+
+    psl.get_safetensors_tensor_shapes = _local_get_safetensors_tensor_shapes
+
+
 def load_model_and_sae(model_path: str | Path, sae_path: str | Path, *, device: str = "cuda", dtype: str = "bfloat16"):
-    """Duplicated from gemma3_sweep.py's load_model_and_sae (TransformerBridge
-    loading was not buggy there) but calls this file's own fixed
-    load_sae_from_local_snapshot."""
+    """Re-ported from gemma3_sweep.py's fixed loader (Ground Rule 2 --
+    duplicated by hand, not imported; see module docstring bug 2 for why
+    this file's own prior copy died on job 399600). Returns
+    (model, sae, hf_model): hf_model comes back on CPU, not device -- the
+    caller relocates it to a second GPU only if/while the equivalence
+    check needs it, then frees it (this script has no 24h generation loop
+    after the gate, so freeing early costs nothing either way)."""
     import torch
-    from transformer_lens.model_bridge.bridge import TransformerBridge
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from sae_lens import SAE
+    from transformer_lens import HookedTransformer
+    from transformers import AutoModel, AutoTokenizer
 
     if os.environ.get("HF_HUB_OFFLINE") != "1":
         raise RuntimeError(
@@ -330,25 +365,41 @@ def load_model_and_sae(model_path: str | Path, sae_path: str | Path, *, device: 
     sae_path = Path(sae_path)
     _fail_if_missing(model_path, what="model snapshot directory")
     _fail_if_missing(sae_path, what="SAE snapshot directory")
+    if not (model_path / "config.json").is_file():
+        print(f"ESCALATE: {str(model_path)!r} has no config.json -- not a valid local snapshot dir.")
+        sys.exit(2)
 
     torch_dtype = getattr(torch, dtype)
 
-    tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True)
-    hf_model = AutoModelForCausalLM.from_pretrained(str(model_path), torch_dtype=torch_dtype, local_files_only=True)
-
-    bridge = TransformerBridge.boot_transformers(
-        model_name=str(model_path), hf_model=hf_model, tokenizer=tokenizer, device=device, dtype=torch_dtype,
+    tokenizer = AutoTokenizer.from_pretrained(str(model_path))
+    # Left on CPU deliberately (mirrors gemma3_sweep.py's job-398885 OOM
+    # fix): moving hf_model to device here would put two ~24GB bf16
+    # copies of the model on the same GPU during
+    # HookedTransformer.from_pretrained's own weight-conversion clones.
+    hf_model = AutoModel.from_pretrained(str(model_path), dtype=torch_dtype)
+    model = HookedTransformer.from_pretrained(
+        MODEL_ID,  # config/conversion routing only; hf_model= means no network use
+        hf_model=hf_model,
+        tokenizer=tokenizer,
+        fold_ln=False,
+        center_writing_weights=False,
+        center_unembed=False,
+        device=device,
+        dtype=torch_dtype,
     )
-    bridge.enable_compatibility_mode(no_processing=True)
+    model.eval()
 
-    sae = load_sae_from_local_snapshot(sae_path, device=device, dtype="float32")
+    _patch_gemma3_safetensors_shape_lookup()
+    sae = SAE.from_pretrained(release=SAE_RELEASE, sae_id=SAE_ID, device=device)
+    sae = sae.to(dtype=torch.float32)
+    sae.eval()
 
-    if bridge.cfg.d_model != sae.cfg.d_in:
+    if model.cfg.d_model != sae.cfg.d_in:
         raise RuntimeError(
-            f"d_model mismatch: model reports d_model={bridge.cfg.d_model}, SAE reports "
+            f"d_model mismatch: model reports d_model={model.cfg.d_model}, SAE reports "
             f"d_in={sae.cfg.d_in}. Stop here, do not proceed with a mismatched hook."
         )
-    return bridge, sae
+    return model, sae, hf_model
 
 
 # ---------------------------------------------------------------------------
@@ -638,17 +689,49 @@ def main(argv: list[str] | None = None) -> int:
         f"candidates each, verified non-firing before use, some may be rejected)"
     )
 
-    model = sae = None
+    model = sae = hf_model = None
     if not args.dry_run:
-        model, sae = load_model_and_sae(args.model_path, args.sae_path, device=args.device, dtype=args.dtype)
+        model, sae, hf_model = load_model_and_sae(args.model_path, args.sae_path, device=args.device, dtype=args.dtype)
 
         sweep = _load_sweep_module()
         identity_report = sweep.verify_module_identity(model, sae)
+
+        # hf_model came back on CPU from load_model_and_sae. Relocate to a
+        # second GPU only for this brief equivalence forward pass (reusing
+        # the sweep's already-fixed _secondary_cuda_device, since this is
+        # gate machinery loaded dynamically the same way verify_* already
+        # is -- not the loader itself, so Ground Rule 2 does not apply),
+        # then free it immediately: this script has no 24h generation loop
+        # after the gate, so there is no reason to keep hf_model resident
+        # at all past this one check.
+        equivalence_device = sweep._secondary_cuda_device(args.device)
+        if equivalence_device is not None:
+            hf_model = hf_model.to(equivalence_device)
+        print(f"raw-HF equivalence check running hf_model on: {equivalence_device or 'cpu'}")
+
         equivalence_report = sweep.verify_raw_hf_equivalence(
-            model, own_text_matrix[0]["snippet"], seed=derive_seed("necessity-module-identity-check")
+            model, hf_model, own_text_matrix[0]["snippet"], seed=derive_seed("necessity-module-identity-check")
         )
+
+        gpu_mem_at_gate = sweep._gpu_memory_snapshot(args.device)
+        del hf_model
+        import torch
+
+        torch.cuda.empty_cache()
+        gpu_mem_after_free = sweep._gpu_memory_snapshot(args.device)
+        print(f"GPU memory at gate: {gpu_mem_at_gate}")
+        print(f"GPU memory after hf_model free: {gpu_mem_after_free}")
+
         (out_dir / "necessity_module_identity_report.json").write_text(
-            json.dumps({"module_identity": identity_report, "raw_hf_equivalence": equivalence_report}, indent=2),
+            json.dumps(
+                {
+                    "module_identity": identity_report,
+                    "raw_hf_equivalence": equivalence_report,
+                    "gpu_memory_at_gate": gpu_mem_at_gate,
+                    "gpu_memory_after_hf_model_free": gpu_mem_after_free,
+                },
+                indent=2,
+            ),
             encoding="utf-8",
         )
 
