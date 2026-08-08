@@ -1,0 +1,33 @@
+{
+  "module_identity": {
+    "hook_name": "blocks.31.hook_resid_post",
+    "module_path": "blocks.31.hook_resid_post",
+    "hooked_tensor_shape": [
+      1,
+      11,
+      3840
+    ],
+    "n_layers": 48,
+    "d_model": 3840,
+    "passed": true
+  },
+  "raw_hf_equivalence": {
+    "prompt": " to attain your goal.\n\na child, you probably heard or read fantasy stories and fairy tales. With fairy tales, your imagination was at its peak, but as you gradually moved to higher grades, you were expected to let go of fairy tales, and concentrate more on your syllabus. All the opinions\u2014published in newspapers, books, or any other form of media\u2014that you\u2019ve read and supported, developed your paradigms.\n\nFrom now on, stack a library of self-help books. Visit your nearest bookstore and start building a collection. You become what you surround yourself with. Surround yourself with the best books on self-development.\n\nRead these books as often as possible. Don\u2019t force yourself to read an entire chapter or a section. If it\u2019s only one page that you can absorb properly, then that\u2019s enough for you. As time progresses, all the truths of these books shall become your new paradigms, which will take only toward success.\n\nA famous quote from Napoleon Bonaparte says: \u201cI can only see the objective; the obstacle must give way.\u201d remind yourself that you are in the process of changing your old paradigms and habits, and stay true to your cause.\n\nPractice any of the aforementioned techniques non-stop for 9",
+    "seed": 1280870303,
+    "cosine_similarity": 1.0004009008407593,
+    "relative_l2_error": 0.003906340803951025,
+    "cosine_min_declared": 0.999,
+    "rel_l2_max_declared": 0.01,
+    "passed": true
+  },
+  "gpu_memory_at_gate": {
+    "allocated_bytes": 29810932736,
+    "max_allocated_bytes": 58329354240,
+    "reserved_bytes": 58913193984
+  },
+  "gpu_memory_after_hf_model_free": {
+    "allocated_bytes": 29810932736,
+    "max_allocated_bytes": 58329354240,
+    "reserved_bytes": 30058479616
+  }
+}
