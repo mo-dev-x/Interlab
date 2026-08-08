@@ -372,6 +372,9 @@ def load_model_and_sae(
     hf_model is the raw HF object powering the weight conversion, kept
     around so verify_raw_hf_equivalence has the actual weights object to
     compare against rather than a second, possibly-diverged load.
+    hf_model comes back on CPU, not device -- see the loader comment
+    above for why; the caller relocates it to a second GPU only for the
+    brief equivalence forward pass, then frees it.
 
     Fails fast and loudly if the model path is missing or invalid, or if
     the model's hidden size does not match the SAE's d_in (the one
@@ -401,12 +404,14 @@ def load_model_and_sae(
     torch_dtype = getattr(torch, dtype)
 
     tokenizer = AutoTokenizer.from_pretrained(str(model_path))
-    # AutoModel.from_pretrained defaults to CPU regardless of dtype=; the
-    # original loader never touched hf_model again after conversion, so
-    # this was latent until verify_raw_hf_equivalence started feeding it
-    # cuda tensors from model.to_tokens(). Moved explicitly, not left to
-    # an implicit device match with the HookedTransformer below.
-    hf_model = AutoModel.from_pretrained(str(model_path), dtype=torch_dtype).to(device)
+    # Left on CPU deliberately (job 398885's OOM): moving hf_model to
+    # device here put two ~24GB bf16 copies of the model on the same GPU
+    # during HookedTransformer.from_pretrained's own weight-conversion
+    # clones (fold_value_biases etc.), peaking at 79.09/79.18 GiB. The
+    # caller moves hf_model to a SEPARATE GPU immediately before the
+    # equivalence forward pass instead (see _secondary_cuda_device) --
+    # conversion here never sees a second GPU-resident copy at all.
+    hf_model = AutoModel.from_pretrained(str(model_path), dtype=torch_dtype)
     model = HookedTransformer.from_pretrained(
         MODEL_ID,  # config/conversion routing only; hf_model= means no network use
         hf_model=hf_model,
@@ -742,6 +747,26 @@ def _gpu_memory_snapshot(device: str) -> dict[str, Any] | None:
     }
 
 
+def _secondary_cuda_device(primary_device: str) -> str | None:
+    """The equivalence check's raw-HF forward pass runs on a SEPARATE GPU
+    from the sweep's own model/SAE/generation (which occupy primary_device
+    for the next ~24h), so the two ~24GB bf16 copies never contend for the
+    same device's memory. This is the second half of the job 398885 OOM
+    fix -- loading hf_model on CPU (see load_model_and_sae) removed the
+    conversion-time peak; this removes the equivalence-time one. Returns
+    None on a non-CUDA primary device or when fewer than 2 GPUs are
+    visible -- the caller then leaves hf_model on CPU rather than
+    guessing at a device that doesn't exist (the equivalence forward pass
+    still runs, just slower)."""
+    import torch
+
+    if not (isinstance(primary_device, str) and primary_device.startswith("cuda")):
+        return None
+    if not torch.cuda.is_available() or torch.cuda.device_count() < 2:
+        return None
+    return "cuda:1"
+
+
 def verify_module_identity(model, sae) -> dict[str, Any]:
     """Run once, immediately after load, before any generation. Resolves
     the fully-qualified module path the hook attaches to, confirms the
@@ -840,6 +865,14 @@ def verify_raw_hf_equivalence(model, hf_model, prompt: str, seed: int) -> dict[s
     not a second, possibly-diverged load. Tolerances are declared at
     module scope (EQUIVALENCE_COSINE_MIN, EQUIVALENCE_REL_L2_MAX), above,
     before this function is ever called with a real number.
+
+    model and hf_model may be on DIFFERENT CUDA devices (job 398885's OOM
+    fix moves hf_model to a second GPU precisely so the two ~24GB copies
+    never contend for the same device's memory) -- tokens are moved to
+    hf_model.device for its forward pass, and both captured tensors are
+    moved to CPU before the actual comparison. Never compare across
+    devices directly; that would either error or silently misbehave
+    depending on the backend, neither of which is a real number.
     """
     import torch
 
@@ -858,7 +891,7 @@ def verify_raw_hf_equivalence(model, hf_model, prompt: str, seed: int) -> dict[s
     model_tensor = captured["tensor"]
 
     with torch.no_grad():
-        hf_out = hf_model(tokens, output_hidden_states=True)
+        hf_out = hf_model(tokens.to(hf_model.device), output_hidden_states=True)
     hidden_states = hf_out.hidden_states
     if len(hidden_states) != N_LAYERS + 1:
         raise RuntimeError(
@@ -868,8 +901,11 @@ def verify_raw_hf_equivalence(model, hf_model, prompt: str, seed: int) -> dict[s
         )
     raw_hf_tensor = hidden_states[LAYER + 1].to(model_tensor.dtype)
 
-    model_flat = model_tensor.reshape(-1).float()
-    raw_flat = raw_hf_tensor.reshape(-1).float()
+    # Both to CPU before comparing -- model_tensor and raw_hf_tensor may
+    # be on different CUDA devices (see docstring); comparing across
+    # devices directly is not a real number.
+    model_flat = model_tensor.reshape(-1).float().cpu()
+    raw_flat = raw_hf_tensor.reshape(-1).float().cpu()
     if model_flat.shape != raw_flat.shape:
         raise RuntimeError(
             f"equivalence check FAILED: shape mismatch model={tuple(model_tensor.shape)} "
@@ -1042,6 +1078,15 @@ def main(argv: list[str] | None = None) -> int:
         # is not a tolerance number) is pre-authorized to fall back to
         # module-identity alone; a real tolerance failure is not.
         identity_report = verify_module_identity(model, sae)
+
+        # hf_model came back on CPU from load_model_and_sae (job 398885's
+        # OOM fix, part 1). Relocate it to a second GPU only for this
+        # brief forward pass (part 2) -- never onto args.device, which is
+        # about to hold generation activations for the next ~24h.
+        equivalence_device = _secondary_cuda_device(args.device)
+        if equivalence_device is not None:
+            hf_model = hf_model.to(equivalence_device)
+        print(f"raw-HF equivalence check running hf_model on: {equivalence_device or 'cpu'}")
 
         try:
             equivalence_report = verify_raw_hf_equivalence(
