@@ -1,9 +1,9 @@
-# BINDING PRE-REGISTRATION v1.12 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.13 — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.12 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
+> ## ⛔ v1.13 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
 >
 > §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
@@ -12,7 +12,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 this (§13.8). The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 this (§14). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.12**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.13**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.12)*
+v1.13)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.12)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.12)* — same table shape, separate section, produced independently.
+v1.13)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -1124,3 +1124,106 @@ barrier that blocks true prose will be disabled, and a disabled barrier is worse
 > with any property of the feature. It is declared here rather than left implicit, and it applies to
 > the **calibration-reserved pool only**; the composition draw of 40 is untouched, as it is at every
 > other point in §13.
+
+---
+
+## 14. AMENDMENTS v1.13 — 2026-08-08, floor and seam corrections
+
+### 14.1 THE CONSERVATIVE FLOOR HAD A HOLE AT PARKED ROWS
+
+Found by rater 1 against their own newly-resolved row. §11.1 resets rows *"whose class changed on
+marker access in the direction of the numerator."* **A parked row has no class to change from**, so
+read literally a park that resolves into the numerator enters the conservative tally **unreset** —
+and if §11.2's premise is right that parking is numerator-enriched, **that floor is not a floor.**
+
+**Why the obvious repair fails.** The floor's counterfactual is *"what would the tally be without the
+marker amendment."* Without markers these rows would still be **parked**, and §11.2 says an
+unresolved parked row **voids the tally for its column** — so the literal counterfactual yields no
+tally at all, not a lower one. The floor needs a coherent rule, not a stricter counterfactual.
+
+> **Binding: `parked` is a pre-marker state, and a park resolving INTO the numerator is a
+> numerator-ward marker-driven move that resets in the conservative tally.**
+> `parked → surface-form` resets. `parked → semantic` and `parked → denominator` do not — the floor
+> is a lower bound on the numerator, not a penalty for having been parked.
+> This needs no new machinery: §11.1's rule was always about **direction**, and only its wording
+> presupposed a prior class.
+
+**Consequence: 14081 resets to `indeterminate` in the conservative tally. Primary tally unchanged.**
+
+### 14.2 §11.2's PREMISE BECOMES A TESTABLE PREDICTION, PRE-REGISTERED BEFORE THE NINE RESOLVE
+
+§11.2 asserts parking is **numerator-enriched** — parked rows are disproportionately the
+strong-pattern rows, and strong patterns mean token-level triggers, which are surface-form by
+construction. **That premise has never been tested.** Rater 1's counter-evidence is fair and weak:
+of two Qwen parks, one resolved surface-form and one semantic, **n = 2.**
+
+**Nine Gemma parks are about to resolve, which takes it to n = 11.** Fixed now, before any of them
+is adjudicated:
+
+> **Prediction:** parked rows resolve into the **surface-form** bucket at a **higher rate** than
+> unparked rows in the same column.
+> **If confirmed** — §11.2's premise is evidenced rather than assumed, and the §14.1 reset is
+> load-bearing.
+> **If refuted** — §11.2's rule still stands (an unresolved park still voids a tally, because that
+> follows from *not knowing*, not from *which way it would have gone*), but **its stated
+> justification is withdrawn and reported as withdrawn**, and the §14.1 reset is disclosed as
+> conservative beyond its evidence rather than quietly kept.
+> **Either way the result is reported.** A pre-registered premise that turns out false is a finding;
+> one silently retained is a defect.
+
+### 14.3 §4.6 NARROWED — "ARTIFACTUAL EVIDENCE" IS NOT "DISQUALIFIED READING"
+
+Rater 1's self-correction, adopted. A row had been ruled `indeterminate` because a titles reading was
+discarded as an opening-line artifact. **The artifact diagnosis was correct** — the full-chunk view
+manufactured that window evidence — **but "this evidence is artifactual" was converted into "this
+reading is disqualified."** The markers put 12 of 16 triggers inside titles at chunk positions
+**0.07–0.95**, nowhere near an opening.
+
+> **Opening-line *position* is non-evidence. A content pattern merely *visible* at an opening is not
+> thereby refuted — it needs independent support, and may have it.** §4.6 disqualifies the
+> **location**, never the **hypothesis**.
+
+> **Directional-bias test (§12.4): INDETERMINATE A PRIORI, therefore treated as favourable.** The
+> narrowing releases rows from `indeterminate` into whatever they actually are, which can be any
+> bucket — including the numerator. **Any row it moves numerator-ward is logged and resets in the
+> conservative floor**, on the same terms as §11.1. The row that prompted it moved denominator →
+> semantic, so it does not reset.
+
+### 14.4 THE SEAM RATE IN §11.7 WAS WRONG — THREE QUANTITIES, ONLY ONE OF THEM OPERATIONAL
+
+Self-corrected by the rater who supplied the original number. **The "2 to 11 of 16" range §11.7
+quotes was computed with the lowercase→uppercase regex since documented as ~97% false positive** — it
+measured **tokenizer splits, not seams**, and must not be cited as a seam rate. Three distinct
+quantities were being conflated:
+
+| quantity | definition | value | status |
+|---|---|---|---|
+| **corpus splice rate** | record contains a `<bos>` anywhere | **355 / 782** file-wide (≈45%; 291/626 ≈ 46.5% on the top-16 subset) | **correct, and it is a provenance fact** |
+| **truncation-relevant rate** | a `<bos>` falls strictly inside the marker's ±10 context | **19 / 782 ≈ 2.4%** | **this is the only operational number** |
+| fusion heuristic | no-space lower→Upper at a token boundary | ~97% false positive | **diagnostic only, never truncate on it** |
+
+**§11.7's rule is right; its number was wrong, and the correction runs in the reassuring direction —
+which is exactly why it needs stating loudly rather than quietly.** A reader of "46.5%" would
+conclude half the marker evidence is compromised. **It is not: the corpus is heavily spliced, and the
+marker contexts are overwhelmingly clean.** Both facts are true and they answer different questions;
+citing the first where the second belongs overstates the damage by roughly nineteen-fold.
+
+**Knock-on, and it is one-signed.** Contexts read during the affected draw were truncated on the
+over-aggressive signal, so **the adjudicator saw *less* context than available — a direction that
+cannot manufacture a pattern, only hide one.** Every call in that draw rested on the marker token plus
+the ≥50%-of-max activation profile, both seam-agnostic. **No call moves.** An audit of that draw found
+three records total with a real seam inside the window, none of them a deciding-evidence record, and
+the most-suspected row clean on all three signals.
+
+### 14.5 THE QWEN MARKER FILE IS RE-CUT WITH A RECORD-INVARIANCE PROOF, NOT SILENTLY
+
+The Gemma file was regenerated with new field names; the Qwen file's `_meta` still documents the
+superseded `splice_seam_definition` and lacks the false-positive caveat. **The rater declined to
+re-cut it silently because that would break an accepted hash binding — correct, and the right
+instinct.**
+
+> **Ruling: re-cut, and prove the records did not move.** Realign `_meta`, then **assert byte-identity
+> of all 972 records across the re-cut** and report that assertion's result alongside both digests,
+> old and new, with the reason for the change. **A metadata-only change is a claim, and a claim about
+> bytes is checkable** — so it gets checked rather than asserted. `VERIFICATION_LOG.md` carries both
+> hashes and the supersession note; the old digest is never deleted.
