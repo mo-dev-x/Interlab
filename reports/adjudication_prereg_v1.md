@@ -558,3 +558,93 @@ marker's ±10-token context, the context is truncated at the seam rather than re
 This is the **seventh characterised instrument failure mode**, and the first found on the Gemma
 side by looking for the mirror of a known Qwen defect — a search that should be run in both
 directions for every artifact already recorded.
+
+### 11.8 THE CALIBRATION MEASURED THE MARKER, NOT THE RATERS (2026-08-08)
+
+The first adjudicator returned their eight calibration calls **unrevised, including the two since
+overruled**, which is what makes the following computable. Their calls were made from the window
+alone; the second adjudicator's from the window **plus the marker**.
+
+| idx | rater 1 (no marker) | rater 2 (marker) | bucket 1 | bucket 2 | effect |
+|---|---|---|---|---|---|
+| 3039 | 10 indeterminate | 4 formatting | indeterminate | surface-form | **→ numerator** |
+| 3070 | 9 discourse-register | 2 lexical | denominator | surface-form | **→ numerator** |
+| 3349 ⚠ | 3 code | 3 code | surface-form | surface-form | — |
+| 3358 | 9 discourse-register | 10 indeterminate | denominator | indeterminate | lateral |
+| 5094 ⚠ | 2 lexical | 2 lexical | surface-form | surface-form | — |
+| 5231 | 2 lexical | 2 lexical | surface-form | surface-form | — *(both overruled → `I-SILENT`)* |
+| 212 ⚠ | 9 discourse-register | 2 lexical | denominator | surface-form | **→ numerator** |
+| 976 | 7 abstract concepts | 7 abstract concepts | semantic | semantic | — |
+| *Qwen* 14622 ⚠ | 11 topical domain | 5 named entities | semantic | semantic | class differs, bucket holds |
+| *Qwen* 126804 | 2 lexical | 2 lexical | surface-form | surface-form | — |
+
+⚠ = blind broken (§11.6). Raw bucket agreement 6/10, raw class agreement 5/10 — **both figures are
+uninterpretable** and are recorded only so nobody recomputes them and reports them.
+
+**The inter-rater result stands at n = 1** (Qwen 126804, agree). Unchanged from §11.6.
+
+**But the marker effect is now measured rather than predicted, and it is one-signed.**
+
+- Bucket changed on marker access: **4 of 8** Gemma rows.
+- Moved **into** the numerator: **3** (3039, 3070, 212).
+- Moved **out** of the numerator: **0.**
+- Lateral (denominator → indeterminate): 1 (3358).
+- Surface-form count over these eight rows: **3 without the marker → 6 with it. It doubles.**
+
+Restricting to the five Gemma rows that are *also* clean of contamination (3039, 3070, 3358, 5231,
+976) preserves the direction: 3 of 5 change bucket, 2 into the numerator, **0 out**.
+
+> **This is why §11.1's conservative tally is mandatory and not a sensitivity check.** On this
+> sample the conservative floor is the difference between 3/8 and 6/8 — a factor of two on the
+> headline statistic, produced entirely by evidence depth on a *fixed* set of features and a
+> *fixed* scheme. **The composition is at least as sensitive to how deeply the evidence is read as
+> it is to which model produced it.** Any convergent-evidence claim that does not survive the floor
+> is an artifact of reading depth, and the two columns must be read at equal depth or not compared
+> at all (§8).
+>
+> **Caveats, stated so the number is not over-read:** n = 8, non-random (a calibration draw, not
+> the seeded sample), 3 of 8 contaminated, and one rater is not two independent measurements of the
+> marker's effect. **The direction is the finding; the factor of two is an illustration and must
+> not be reported as an effect size.**
+
+**Consequence for §11.5, which I must tag against myself.** I ruled 3039 → class 4 while holding
+only the second rater's report; I did not know the first rater had called it `indeterminate`. The
+ruling is correct on the merits — the markers *are* delimiters, which is class 4's own wording —
+but it is not an affirmation of an existing call, it **resolves a disagreement I could not see**,
+and it is **a marker-driven move into the numerator.** It therefore resets under the conservative
+tally exactly like 3039's row above. The 5231 ruling moves the other way (out of the numerator) and
+does not reset.
+
+**`5231` is the limit case on what agreement can certify.** Both raters independently returned
+class 2, surface-form. **Both were overruled** (§11.5): under trigger-primacy the marker sits on
+the complement, not the negator, so the §2 tie-break they both applied had no basis. **Two
+independent adjudicators agreed and were jointly wrong, because they applied the same defective
+rule.** Inter-rater agreement certifies only that the scheme was applied consistently — it cannot
+detect a defect in the scheme itself. This is the adjudication-layer form of the already-recorded
+principle that *two agreeing pulls through one summarizer are one observation, not two.*
+
+### 11.9 TWO RECORD DEFECTS FOUND BY WRITING THE LEDGER
+
+**(a) Confidence is absent on the early rows, and will not be reconstructed.** Confidence entered
+the first rater's per-row output only from idx 4090 onward; of the eight calibration rows only 212
+and 976 fall after that change. The rater reported the other six as **absent rather than
+reconstructing them**, on the ground that a confidence recalled now is contaminated by everything
+learned since. **That is correct and is adopted as a rule: no field is ever backfilled from
+memory.** An absent field is data about the record; a reconstructed one is fiction with a
+plausible shape. §10.1 requires confidence on the 40-row table, so this is a **declared
+divergence** — the §11.6 re-run supplies confidence agreement, and the early rows carry `—`
+permanently.
+
+**(b) The record is uneven, and it is thinnest exactly where the claim is strongest.** Rows
+3039–3648 carry a class and nothing else — no confidence, no distinct-source count, no deciding
+quote, no density. Rows from 4090 carry most fields; rows from 14622 carry all of them.
+**Those early, unauditable rows include three of the four rows in the Gemma surface-form
+numerator** (3349, 5094, and 5231 before it was overruled). The numerator's evidentiary base is
+therefore the least auditable part of the column — a fifth directional finding, and the first that
+concerns *provenance* rather than classification.
+
+**Binding: the byte-exact retrofit runs in record-completeness order, worst-documented first, not
+in index order.** Sweeping the column in index order would leave the numerator's weakest rows for
+last, which is the ordering most likely to run out of time exactly where it matters. Retrofitted
+rows keep their original call in `pre_marker_class`; the diff between the two is data, not
+correction.

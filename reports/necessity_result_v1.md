@@ -5,9 +5,9 @@
 pre-registered dry run exactly). Module-identity gate and raw-HF equivalence both passed clean
 (`d_model=3840`, `n_layers=48`, hook resolved to `blocks.31.hook_resid_post`; cosine similarity
 1.00040, relative L2 error 0.0039, against declared tolerances cosine≥0.999 / rel_l2≤0.01).
-`harness_git_sha=9d90ef6`, `harness_git_dirty=true` (disclosed, not blocking).
-`checkpoint_hash=sha256:a5c956a5...` (model config.json + SAE config.json + params.safetensors
-content hashes).
+`harness_git_sha=9d90ef601822c1cacad0b6aade8a1a265f2b0e39`, `harness_git_dirty=true` (disclosed, not
+blocking). `checkpoint_hash=sha256:a5c956a5a2146cf0a066d3d0011e8f569c6aab45d86f67b05522ef9277f26db9`
+(model config.json + SAE config.json + params.safetensors content hashes).
 
 **Governing document:** `reports/necessity_substitution_prereg_v1.md`
 (`sha256:dbf1029e804655f032a6f831f3d4b766fefc14b75aa1f26ee89dad790e1ebbf2`, 6282 bytes) — re-hashed
