@@ -41,9 +41,24 @@ hf_cache/
 # Personal / local docs (not for public repo)
 docs/archive/
 .claude/
-docs/
-reports/
-project_management/
+docs/*
+reports/*
+project_management/*
+
+# ...EXCEPT governance artifacts, which must be versioned and searchable.
+# These three trees are ignored under the R6-V5B precedent because they carry bulk
+# run output (results JSON/JSONL/CSV/PNG, and run.json `command` fields that embed full
+# argv). That precedent is about BULK OUTPUT, not about the prose that carries the claims —
+# but the directory-level ignore swept both, and 18 governance artifacts sat untracked for
+# weeks as a result, including VERIFICATION_LOG.md, every pre-registration, and PROJECT_STATE.md.
+#
+# Markdown only, so no bulk artifact is re-included by this. Note git cannot re-include a
+# file whose PARENT DIRECTORY is excluded — hence `dir/*` above rather than `dir/`, which is
+# the change that makes these negations work at all.
+# Secret-scan before first tracking still applies; a negation permits tracking, it does not track.
+!docs/*.md
+!reports/*.md
+!project_management/*.md
 
 # Scratch probe output (repo-root scratch dirs from manual test runs)
 tmp_r6c4_probe/
