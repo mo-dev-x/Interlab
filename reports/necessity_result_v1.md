@@ -1,21 +1,24 @@
 # Necessity Result v1 — Delta-NLL under ablation, Gemma 3 12B layer 31
 
-**Data:** `results/gemma3_necessity/necessity_records.jsonl`. §4–§7 (target vs. the two zero-guaranteed
-checks) are from job 399619, commit `15704da` (288/288 records: 144 own-text cells + 144
-within-feature-control candidates, matching the pre-registered dry run exactly). §3b–§3f (the
-falsifiable active-nontarget comparator) are from job 400342, the run that followed two intervening
-failed comparator designs (jobs 400287, 400297 — see §3b–§3c) — same harness, same seeds; the target
-and cross-feature-check numbers in job 400342 were spot-checked bit-identical to job 399619's,
-confirming nothing about the underlying measurement changed across these runs, only the comparator
-under test. Module-identity gate and raw-HF equivalence both passed clean on every run
-(`d_model=3840`, `n_layers=48`, hook resolved to `blocks.31.hook_resid_post`; cosine similarity
-1.00040, relative L2 error 0.0039, against declared tolerances cosine≥0.999 / rel_l2≤0.01).
-`harness_git_sha=9d90ef601822c1cacad0b6aade8a1a265f2b0e39` on both runs (the Tamia checkout that
-executed job 400342 had not pulled every fix landed locally since — a provenance gap worth noting,
-not one that changes any number here, since the fixes it missed were unrelated to the code paths
-these jobs exercised), `harness_git_dirty=true` (disclosed, not blocking).
+**Data:** `results/gemma3_necessity/necessity_records.jsonl`, five generations of run, all analyzed
+in this report and none discarded (§9): **399619** (commit `15704da`, 288/288 records: 144 own-text
+cells + 144 within-feature-control candidates, matching the pre-registered dry run exactly) supplies
+§4–§7 (target vs. the two zero-guaranteed checks). **400287** and **400297** are the two intervening
+failed comparator designs (§3b–§3c). **400342** (§3d–§3f, kept for the record) is the one-sided
+matched-strength design that first worked structurally but carried a directional bias. **400377**
+(§3g–§3h) is the clean, genuinely two-sided, properly-powered run that supersedes 400342's own
+primary analysis. Same harness, same seeds throughout; the target and cross-feature-check numbers
+were spot-checked bit-identical across 399619, 400342, and 400377, confirming nothing about the
+underlying measurement changed across any of these runs, only the comparator under test. Module-
+identity gate and raw-HF equivalence both passed clean on every run (`d_model=3840`, `n_layers=48`,
+hook resolved to `blocks.31.hook_resid_post`; cosine similarity 1.00040, relative L2 error 0.0039,
+against declared tolerances cosine≥0.999 / rel_l2≤0.01).
+`harness_git_sha=9d90ef601822c1cacad0b6aade8a1a265f2b0e39` on every run (the Tamia checkout executing
+these jobs had not pulled every fix landed locally since — a provenance gap worth noting, not one
+that changes any number here, since the fixes it missed were unrelated to the code paths these jobs
+exercised), `harness_git_dirty=true` (disclosed, not blocking).
 `checkpoint_hash=sha256:a5c956a5a2146cf0a066d3d0011e8f569c6aab45d86f67b05522ef9277f26db9`
-(model config.json + SAE config.json + params.safetensors content hashes) — identical on both runs.
+(model config.json + SAE config.json + params.safetensors content hashes) — identical on every run.
 
 **Governing document:** `reports/necessity_substitution_prereg_v1.md`
 (`sha256:dbf1029e804655f032a6f831f3d4b766fefc14b75aa1f26ee89dad790e1ebbf2`, 6282 bytes) — re-hashed
@@ -57,17 +60,22 @@ than a majority effect.** This is not a "mostly positive, some noise" result —
 feature (2500) the effect is flatly absent by every measure used here, and for two more (3500, 4500)
 the headline mean is actively misleading on its own (see §5).
 
-**Updated (§3b–§3f): the same 2 features (250, 2048) also separate from a real, falsifiable
-comparator** — a feature confirmed active on the same snippet, matched to the target's own activation
-strength, not a mechanically-guaranteed zero — after three successive failures of that comparator's
-own design were found and fixed on real data (§3b–§3d). Restricted to snippets where the strength
-match is genuinely close (the pre-declared primary population, §3e), the other 7 features show no
-reliable separation at all, and for two of them (500, 4500) the restricted sample is too thin to
-conclude anything either way. Clearing a real comparator is a harder bar than clearing zero; that
-the same 2 features are the ones that clear it is the stronger version of this report's finding.
+**Final (§3b–§3h): the same 2 features (250, 2048) separate from a real, falsifiable comparator** —
+a feature confirmed active on the same snippet, matched to the target's own activation strength, not
+a mechanically-guaranteed zero — after four successive generations of that comparator's own design
+were found degenerate and fixed on real data before the fifth produced a properly-powered, genuinely
+two-sided result (§3b–§3g). Under the clean run, 2048's active-position result is now the single
+most decisive number in the study (16 of 16 snippets positive); a residual-sensitivity check confirms
+this is not an artifact of the comparator's own ratio band (§3h). The other 7 features still show no
+reliable separation, with one new, real wrinkle: feature 500 shows a genuine measure-dependent sign
+split (control costs more at the whole-snippet measure, target costs more at active positions) that
+only became visible once the sample was properly powered — not noise, and not resolved by picking
+one measure over the other. Clearing a real, properly-powered comparator is a harder bar than
+clearing zero; that the same 2 features are the ones that clear it is the final form of this report's
+finding.
 
 **No number below is reported without its check/comparator beside it**, per instruction. Read §3
-and §3b–§3f before trusting any single mean.
+and §3b–§3h before trusting any single mean.
 
 ---
 
@@ -191,7 +199,7 @@ heterogeneous features and 144 snippets can hide feature-specific sensitivity th
 regression averages away. §3e's per-feature, band-restricted comparison is the more direct test;
 this pooled number is context, not the final word.
 
-## 3e. Primary analysis: two-sided band, declared before looking — and the sensitivity arm
+## 3e. Primary analysis under job 400342's proxy band (superseded by §3g — kept for the record)
 
 **[0.8, 1.25]** was proposed and declared before it was applied to this data (not fit to the ratio
 distribution above after seeing it). Restricting to this band: **39 of 144 records (27%) qualify** —
@@ -286,6 +294,115 @@ if 500's and 4500's *true* two-sided eligible sets are also genuinely tiny — i
 snippets, few features anywhere in the SAE ever land within 25% of the target's own strength — the
 re-run will reproduce the same thinness for a structural reason, not a sampling one, and that outcome
 would itself answer this section's question rather than motivate a fourth redesign.
+
+**Resolved by §3g: the re-run happened (job 400377), and the uncertainty above did not materialize.**
+Every feature retained the full 16/16 two-sided-eligible snippets — 500 and 4500 were not
+structurally thin after all; the thinness in §3e was an artifact of the one-sided design's single
+random draw, not a property of the SAE's activation structure. §3e is kept above for the record: it
+is what a properly-declared-but-honest analysis looks like when the underlying sample is too thin,
+and the fact that it turned out to be a sampling artifact rather than a structural one does not make
+reporting the thinness at the time wrong.
+
+## 3g. Fifth generation: the clean run (job 400377) — genuinely two-sided, properly powered
+
+The ratio distribution this run actually produced (n=144, all eligible):
+
+| statistic | job 400342 (one-sided) | job 400377 (two-sided band) |
+|---|---|---|
+| min | 0.504 | 0.801 |
+| Q1 | 0.594 | 0.881 |
+| **median** | **0.756** | **0.943** |
+| Q3 | 0.990 | 1.051 |
+| max | 5.315 | 1.248 |
+| mean | 0.936 | 0.965 |
+
+Genuinely two-sided this time, medians clustered near 1.0 across all nine features — every feature's
+per-feature eligible count is 16/16 (`active_nontarget_control_distribution.json`,
+`per_feature_measurability`), all tagged `MEASURABLE`; the pre-declared
+`ACTIVE_NONTARGET_MIN_MEASURABLE_N=10` structural-thinness warning did not fire for any feature.
+
+**Per-feature results, paired per-snippet difference [ΔNLL(target) − ΔNLL(control)], medians and
+dispersion — not means alone, for exactly the reason §5 already gave for 3500/4500:**
+
+*Whole-snippet:*
+
+| feature | median diff | mean diff | sd | IQR | sign (+/−) |
+|---|---|---|---|---|---|
+| 250 | **+0.00933** | +0.00816 | 0.00777 | [+0.00232, +0.01116] | 14/2 |
+| 500 | **−0.00173** | −0.00360 | 0.00902 | [−0.00348, +0.00064] | 4/12 |
+| 2048 | +0.00256 | −0.02289 | 0.09746 | [−0.00147, +0.00639] | 11/5 |
+| 2500 | −0.00073 | −0.00027 | 0.00250 | [−0.00213, +0.00141] | 6/10 |
+| 3500 | −0.00093 | −0.00424 | 0.01370 | [−0.00421, +0.00289] | 7/9 |
+| 4500 | +0.00044 | +0.00108 | 0.00673 | [−0.00487, +0.00639] | 10/6 |
+| 11000 | −0.00059 | +0.00053 | 0.00332 | [−0.00131, +0.00185] | 7/9 |
+| 12800 | −0.00062 | −0.00285 | 0.01169 | [−0.00201, +0.00529] | 7/9 |
+| 900 | +0.00072 | −0.00539 | 0.02568 | [−0.00244, +0.00610] | 9/7 |
+
+*Active-position:*
+
+| feature | median diff | mean diff | sd | IQR | sign (+/−) |
+|---|---|---|---|---|---|
+| 250 | **+0.08463** | +0.09208 | 0.08789 | [+0.03154, +0.12549] | 14/2 |
+| 500 | +0.00223 | +0.00063 | 0.01429 | [+0.00031, +0.01065] | 12/4 |
+| 2048 | **+0.25391** | +0.28978 | 0.25302 | [+0.09815, +0.35938] | **16/0** |
+| 2500 | +0.00274 | +0.00188 | 0.02610 | [−0.01685, +0.01953] | 9/7 |
+| 3500 | −0.02231 | +0.29732 | 0.72729 | [−0.06259, +0.31250] | 6/10 |
+| 4500 | +0.00615 | +0.11823 | 0.27890 | [−0.00662, +0.12459] | 10/6 |
+| 11000 | +0.00109 | −0.00379 | 0.01826 | [−0.01268, +0.00772] | 9/7 |
+| 12800 | −0.00239 | −0.01584 | 0.08160 | [−0.00739, +0.02338] | 7/9 |
+| 900 | +0.00902 | +0.01271 | 0.04774 | [−0.02275, +0.05943] | 10/6 |
+
+**Does the 2-of-9 headline hold? Yes — and one new, real wrinkle shows up only now that the sample is
+properly powered:**
+
+- **250 and 2048 remain the clear cases, and 2048's active-position result is now the most decisive
+  number in the entire study: 16 of 16 snippets show a positive diff**, median +0.254 nats — every
+  single snippet, not a majority. 250 is consistent at both measures (14/16 both).
+- **2048's own whole-snippet MEAN (−0.023) is the opposite sign from its median (+0.00256) and its
+  own majority (11/16 positive)** — a single extreme snippet pulls the mean far net-negative even in
+  this clean, properly-banded run. This is the same mean-vs-median trap §5 flagged for 3500/4500,
+  showing up in a *different* feature and measure once the underlying data changed — reported here
+  rather than treated as resolved just because the band is now clean. Read 2048's whole-snippet
+  result from its median and sign-split, not its mean.
+- **500 is a genuine, newly-visible split between measures, not noise from a thin sample.** At n=16
+  (not the earlier n=1 proxy): whole-snippet diff is *negative* and fairly consistent (median
+  −0.00173, 4/16 positive — the control costs *more* than the target on most snippets); active-position
+  diff is *positive* and fairly consistent (median +0.00223, 12/16 positive). Properly powered data
+  shows this is a real, measure-dependent disagreement for this feature, not an artifact of an
+  earlier n=1 read that simply couldn't say anything either way.
+- **2500, 3500, 11000, 12800 show no reliable positive separation** — medians at or below zero,
+  sign-splits at or past 50/50 against a positive diff, in at least one measure each (3500 and 12800
+  in both measures). 3500's active-position mean (+0.297) is again wildly outlier-driven relative to
+  its own median (−0.022) and majority sign (6/16 positive) — the same pattern flagged for this
+  feature in §5, now confirmed under the clean band rather than an artifact of the earlier biased
+  sample.
+- **4500 and 900 are weakly, consistently positive at both measures** (10/16 and 9–10/16 respectively)
+  but small in magnitude relative to their own dispersion — real direction, not a strong effect.
+
+**Net: the headline does not become fewer — it becomes better-evidenced and more precisely
+characterized.** 250 and 2048 are confirmed as the two features with a real necessity effect under a
+comparator that can fail and did not, this time, need a thin-sample caveat to say so. The rest remain
+without reliable separation, and 500's measure-dependent split is a genuine addition to the record,
+not something either extreme (positive or negative) would have shown on its own.
+
+## 3h. The ratio regression, re-run inside the clean band — confirmed, not assumed
+
+§3d's pooled OLS of [ΔNLL(target) − ΔNLL(control)] against the ratio was already weak on job
+400342's wide, skewed ratio range (R² 0.003–0.03). With the median now at 0.943 and the full range
+compressed to [0.80, 1.25], residual ratio-sensitivity should shrink further if the earlier weak
+correlation was genuinely about the ratio and not some other confound. It does:
+
+| measure | job 400342 (ratio 0.50–5.31) | job 400377 (ratio 0.80–1.25) |
+|---|---|---|
+| whole-snippet r | −0.054 | **0.002** |
+| whole-snippet R² | 0.003 | **0.0000** |
+| active-position r | −0.145 | **0.012** |
+| active-position R² | 0.021 | **0.0001** |
+
+Confirmed, not assumed: the correlation collapses to essentially zero once the ratio itself is
+tightly banded, in both measures. This is direct evidence that the §3g separations (250, 2048) are
+not an artifact of where in a wide ratio range the comparator happened to land — there is no
+meaningful range left for that artifact to hide in.
 
 ---
 
@@ -436,28 +553,40 @@ the instrument again.
 - **Not a reason to re-run with a different instrument.** Per prereg §8, both a clean pass and a
   falsification are valid outcomes of this design; this run produced a mix (2 features clear,
   7 do not, unevenly), and that mix is the result.
-- **Not settled on whether the primary population is adequately powered for every feature.**
-  §3e reports two features (500, 4500) as too thin in the pre-declared band to conclude anything;
-  §3f's re-run recommendation is a proposal, not something this session executed.
-- **Not a case where the comparator's difficulty is a reason to relax it.** §3e's band was declared
-  before looking at this data and is not widened here because two features came out thin under it.
+- **Not a case where the comparator's difficulty was a reason to relax it.** The band ([0.8, 1.25])
+  was declared before looking at job 400342's data and was not widened when two features came out
+  thin under it (§3e); it was not widened after job 400377 showed every feature measurable, either —
+  there was no occasion to.
+- **Not a case where thinness turned out to mean what it looked like.** §3e reported 500 and 4500 as
+  too thin to conclude anything under job 400342's one-sided-draw proxy. §3g's clean run shows this
+  was a sampling artifact of that proxy, not a structural property of the SAE — both statements are
+  kept in the record (§3e, §3g) because reporting the thinness honestly, at the time, was correct
+  regardless of how it later resolved.
 
 ---
 
-## 9. Methodological note: four generations of a comparator, not one clean run
+## 9. Methodological note: five generations of a comparator, not one clean run
 
-In sequence, on real data, each caught only by checking rather than trusting the design that produced
-it: (1) `cross_feature_control` and `within_feature_control` are degenerate **by construction** —
-guaranteed to read exactly zero before any weight loaded, because both ablate a feature already
-inactive on the text (§3); (2) the first `active_nontarget_control` design converged on the `<bos>`
-attention-sink feature, bit-identically, on every record (§3b); (3) excluding `<bos>` still selected
-for activation *magnitude*, not relevance, and a cardinality-based gate passed on data that was still
-dominated by one feature (§3c); (4) matched-strength selection fixed the magnitude problem but was
-one-sided, so its typical draw was weaker than the target — the opposite bias from the one that
-prompted the fix (§3d). Each failure was a different property of "what makes a control a control" —
-determinacy, position-independence, scale-independence, and directional symmetry — and each was
-found only because the actual distribution was checked against a pre-declared bar, not because the
-design was re-read more carefully. A single clean run at any of these four stages would have produced
-plausible-looking numbers and no indication anything was wrong; the sequence of failures, not a clean
-run, is what makes the final comparator (§3e) trustworthy. Reported here as part of the result, not
-cleaned out of it.
+| generation | job | what failed | property violated |
+|---|---|---|---|
+| 1 | 399619 | `cross_feature_control` / `within_feature_control` degenerate **by construction** — guaranteed to read exactly zero before any weight loaded, because both ablate a feature already inactive on the text (§3) | determinacy — the result was knowable in advance |
+| 2 | 400287 | converged on the `<bos>` attention-sink feature, bit-identically, on every record (§3b) | position-independence |
+| 3 | 400297 | excluding `<bos>` still selected for activation *magnitude*, not relevance; a cardinality-based gate passed on data still dominated by one feature (§3c) | scale-independence |
+| 4 | 400342 | matched-strength selection fixed the magnitude problem but was one-sided, so its typical draw was weaker than the target — the opposite bias from the one that prompted the fix (§3d) | directional symmetry |
+| 5 | 400377 | **clean** — genuinely two-sided, every feature properly powered, residual ratio-sensitivity confirmed negligible (§3g–§3h) | — |
+
+Each of the first four failures was a different property of "what makes a control a control," and
+each was found only because the actual distribution was checked against a pre-declared bar, not
+because the design was re-read more carefully. A single clean run at any of these four stages would
+have produced plausible-looking numbers and no indication anything was wrong — generation 4 in
+particular looked clean by its own gate (diversity, max-share) while still carrying a real directional
+bias only a distributional check caught. The sequence of failures, not the final clean run alone, is
+what makes generation 5 (§3g) trustworthy. Reported here as part of the result, not cleaned out of it.
+
+**One connection worth naming across this project's two arms.** The taxonomy/adjudication work
+elsewhere in this repo has just concluded that its own rater effect is comparable in size to the
+effect it was measuring — a correlational instrument that had to confront the possibility that what
+it measured was partly its own measurement process. This comparator's five generations are the same
+finding from the causal side: an instrument that has to be rebuilt five times before it can produce a
+number that means anything, because the first four numbers it produced were each, in their own way,
+a property of the instrument rather than of the thing the instrument was pointed at.
