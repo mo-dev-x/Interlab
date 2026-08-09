@@ -1,5 +1,51 @@
 # Verification Log
 
+## 2026-08-08 — D2.1 sweep job 399312: COMPLETED, hash-bound
+
+`results/` is gitignored at `.gitignore:19`, but this file is committed at `339a35d`
+(`results/gemma3_sweep/records.jsonl` + `module_identity_report.json`), so it carries both
+a git blob identity and this log entry.
+
+**sacct, State/ExitCode/Elapsed/MaxRSS (a clean record count is not the same as a clean
+exit — checked separately):**
+
+| Field | Value |
+|---|---|
+| State | `COMPLETED` |
+| ExitCode | `0:0` |
+| Elapsed | `11:14:48` |
+| MaxRSS (batch step) | `134857620K` |
+
+Record count matches the full expected grid (108 cells × 8 prompts × 2 arms). Not a
+partial sweep. Log tail at job end: clean NVML report, "No running processes found", no
+error text in stderr beyond benign module-unload notices.
+
+| SHA-256 | File |
+|---|---|
+| `1a888a573e8c19dead2fd856caa536cf23db5112b67448b1457499b9a68976b0` | `results/gemma3_sweep/records.jsonl` |
+
+Pulled from Tamia and re-hashed on both sides (not trusting rsync's exit code); matched.
+Secret-scanned (HF token pattern, `Bearer` headers, key/secret/password assignments) —
+0 hits.
+
+## 2026-08-08 — D2.1-necessity jobs 400287 → 400297: three successive control
+designs, hash-bound
+
+Committed at `b9888f2` (400287) and `b974ec3` (400297). Both runs' evidence held
+deliberately, per instruction — three successive `active_nontarget_control` designs, each
+degenerate for a different reason, is a more useful record than one clean run.
+
+| Job | sacct: State/ExitCode/Elapsed/MaxRSS | `active_nontarget_control_idx` distribution (144 own-text records) |
+|---|---|---|
+| 399619 | COMPLETED / 0:0 / 00:03:17 / — | pre-fix; cross/within-feature controls guaranteed 0.0 by construction (not a scientific control) |
+| 400287 | COMPLETED / 0:0 / 00:03:47 / `135191928K` | `{180: 144}` — argmax over the full sequence selected the position-0 (`<bos>`) attention-sink feature bit-identically on every record; caught by inspection, not by any gate (none existed yet) |
+| 400297 | COMPLETED / 0:0 / 00:03:52 / `135392988K` | `{221: 142, 107: 2}` — position 0 excluded (`be9cade`); pre-flight diversity gate PASSED (2 unique indices / 9 unique activations on the probe); full-run distribution is real but thin, one feature still dominant in ~98.6% of records |
+
+**MaxRSS is a headroom fact, not a budget constraint.** All three completions land at
+`~135GK` MaxRSS on a whole-node H100×4 allocation, all finishing in under four minutes.
+This job can be re-fired freely on the next control-design iteration rather than rationed —
+the cost of another `--restart` is minutes, not an allocation concern.
+
 ## 2026-08-07 — Pre-registration documents: hash-bound before any result exists
 
 `reports/` is gitignored (`.gitignore:45`, zero tracked files), so these digests are the **only**
@@ -3438,3 +3484,49 @@ Verdict: **Needs correction.**
   requirement that admits the exact approved locked artifact is acceptable, or
   whether the source declaration itself must be literal `==`. All other defects
   are implementation work after that ruling.
+
+---
+
+## 2026-08-08 — `qwen_max_activating_tokens.json` re-cut under prereg §14.5
+
+Artifact: `scripts/legacy/qwen_max_activating_tokens.json`
+Builder: `scripts/legacy/build_qwen_max_activating_tokens.py`
+
+| | sha256 |
+|---|---|
+| **superseded** | `60e920aa3485fb1981e0d7fd603a1893e2be74dd90e0b557d37dca004acd69b0` |
+| **current** | `b6bf9710a92a1bce37089f9ff69663dc951c7e97eab974428ca190a01ccdb3f6` |
+
+**The superseded digest is retained, not deleted.** It is the digest under which the artifact was
+accepted for Qwen marker parity (§11.1), and any earlier reference to it remains valid for the
+record content it names.
+
+**Reason for the re-cut.** The Gemma marker file was regenerated with a three-signal seam schema
+(`is_multi_document_record` / `bos_in_context_window` / `unmarked_fusion_heuristic`), replacing the
+single `splice_seam`. The Qwen `_meta` still described the old schema. Per-record parity was
+unaffected — the Qwen records already carried all four Gemma fields — but a `_meta` block describing
+a schema that no longer exists is a stale claim in a hash-bound artifact.
+
+**Changed:** `_meta` only. Realigned to the Gemma field names; added
+`unmarked_fusion_heuristic_caveat` (the ~97%-false-positive finding, recorded on both columns);
+added `context_truncation_rule` stating that no truncation is ever applied on Qwen because a `<bos>`
+inside ±10 cannot arise, and that a short `context_tokens` list therefore means a window edge and
+not a cut seam; retained `splice_seam` on every record as the vestigial Qwen-correct constant
+`false`, documented under `splice_seam_note`.
+
+**Assertion, because a metadata-only change is a claim and a claim about bytes is checkable.**
+Each of the 972 records was hashed individually before the re-cut and again after, under a canonical
+key-sorted serialisation:
+
+```
+records before / after : 972 / 972
+identical              : 972
+differing              : 0
+missing after re-cut   : 0
+RESULT                 : PASS
+```
+
+**All 972 records are byte-identical across the re-cut.** The digest changed for `_meta` alone. The
+builder re-derives every record from source and re-runs the tokenizer, so this also re-confirms the
+original build: 972/972 emitted, 0 skipped, both per-record gates passing (marker-token identity,
+and the nine-token rejoin to `original_excerpt` byte for byte).
