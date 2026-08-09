@@ -414,3 +414,139 @@ pushes rows to `indeterminate`, which deflates the surface-form count.
 **QWEN COLUMN COMPLETE: 40 of 40 rows carry a class. Zero parked. Both columns closed.**
 
 **Tally not computed here**, per the standing bar on Rater 1 seeing either composition.
+
+---
+
+## 11. THREE CLOSING ROWS — two tests run from the marker file, one disclosure
+
+Orchestrator ruling received: **an antecedent is not a governor.** Government is syntactic
+licensing; anaphora is referential. Class 12 is therefore unavailable to 105490. The ruling was
+deliberately not allowed to decide the row, because class 2 covers POS category and anaphors are a
+closed one — ruling the governor question alone would have placed a row in the numerator *by
+definition rather than by measurement*. Both tests below were run before any class was written.
+
+### 11.1 105490 — do non-anaphoric uses of the same tokens fire? **YES. Class 2, surface-form.**
+
+Method: for each of the 16 top records, every occurrence of `that`/`those` inside the frozen
+`centred_1164` window was located and scored fired / unfired, fired being the marked position.
+41 occurrences across the 16 windows: **16 fired, 25 unfired.**
+
+**Result A — non-anaphoric demonstratives fire.** 4 of the 16 fired records have no antecedent:
+
+| rank | doc | fired text | use |
+|---|---|---|---|
+| 4 | 905 | "we can't locate **that** page on ChicagoFed.org" | situational/exophoric — refers to the URL the reader typed, absent from the text |
+| 8 | 4463 | "Optimize **that** balance of people, process and cost effective technology" | cataphoric — bullet-initial, reference supplied by the following `of`-phrase |
+| 12 | 3048 | "beyond / **that** allowed by fair use" | cataphoric/internally-headed — reference completed by the participial postmodifier |
+| 13 | 83 | "**that** other African election, the one in France" | cataphoric-appositive — the appositive supplies the referent forward |
+
+The orchestrator named cataphora as the discriminating case; three of the four are cataphoric.
+Branch A of the test is met on its own terms.
+
+**Result B — the same token string does NOT fire in non-demonstrative syntax.** Of the 25 unfired
+occurrences, **13 are non-demonstrative** — 9 complementizer (`ensure that you've re-typed`,
+`the fact that there were four bugs`, `claimed that their soldiers`, …) and 4 relativizer
+(`a service that allows you to log on`, `infrastructure that can prevent`, …). **Zero fired.**
+The fired set is 16/16 demonstrative, the non-demonstrative set is 0/13. Under indifference to
+syntactic category the fired set would be all-demonstrative with probability ≈ (28/41)^16 ≈ 0.002;
+the occurrences are not independent draws, so this is an order-of-magnitude figure, not a test.
+
+**Result C — the decisive one, and it was not in the test as written.** `this`/`these` carry the
+identical referential function and **never fire**: zero in the fired set, two present-and-unfired
+in-window (`one of these sites` rank 0, `"This partnership is an historic moment` rank 9). If the
+invariant were the referential function, `this`/`these` would fire equally. They do not. The
+invariant is the lemma pair {that, those} in demonstrative syntax — **a lexical/POS invariant, not
+a functional one.**
+
+§3 confirms: form-preserving nonsense preserves the trigger ("all information in those wugs");
+paraphrase destroys it ("all information in the accounts just described").
+
+> **105490 → class 2 (lexical/POS), surface-form, confidence HIGH.** 16 distinct doc_ids. Support
+> caveat: docs 4652 and 4653 are near-duplicate pages carrying the same sentence, so distinct texts
+> number 15, not 16.
+
+**Stated limit on both tests in this section.** "Unfired" means *did not itself reach top-16
+strength*, not *did not activate*. If the extractor applies proximity de-duplication within a
+document, some unfired positions may be suppressed rather than weak. The extractor is known not to
+de-duplicate by document (89363 draws two records each from docs 3093 and 3094), but its proximity
+rule is not documented and I did not verify it.
+
+### 11.2 89363 — is the subword reading causally prior? **NO. Class 5 stands, medium.**
+
+The hypothesis under test: rare proper nouns tokenize into subword continuations, so "fires on
+subword continuations of rare words" would *produce* "inside proper names" as a downstream artifact.
+If so the subword reading is causally prior and the row moves to surface-form.
+
+Method: every multi-token word in the 16 marker windows was reconstructed and each of its
+continuation tokens scored fired / unfired.
+
+**Result — non-proper-name rare words with subword continuations are present in these windows and
+do not fire.** Eight such continuations, across five records:
+
+| record | word | unfired continuations |
+|---|---|---|
+| 4 | archaeology | `ology` |
+| 4 | amalgamated | `am`, `ated` |
+| 5 | solace | `ace` |
+| 5 | crewmen | `men` |
+| 14 | hilltops | `top`, `s` |
+| 15 | craze | `ze` |
+
+By the orchestrator's rule this is the "firing stays confined" branch, and class 5 stands. The
+selectivity is sharper still *within* proper names — only one continuation of each fires
+(`Wobblies` fires `bl` not `ob`/`ies`; `POTEMKIN` fires `K` not `EM`/`IN`; `Cheetos` fires `heet`
+not `os`; `Sprinkles` fires `ink` not `les`) and several whole proper names sit in-window unfired
+(`Frito`, `Namakkal`, `Stackhouse`, `Moriarty`, `Gretchen`, `Cupcakes`).
+
+**The alternative is weakened, not dead**, and honesty requires the qualification. Its one unique
+win is the top-activating record: `lam|ington|s` — a lowercase common noun, rare, split into
+continuations, firing at rank 0 and the highest activation in the set. The subword reading covers
+11/16, the proper-name reading 13/16, and **neither covers ranks 10 and 11** (` can` in "I think I
+can", ` relationship`), which are whole-word tokens in neither category.
+
+> **89363 → class 5 (named entities), semantic, confidence MEDIUM — unchanged.**
+> **Confidence basis recorded as instructed: the margin is two records (13 vs 11) on heavily
+> overlapping sets** — 10 records are both proper-name and subword; only 3 are proper-name-only,
+> only 1 subword-only.
+> **The row did not move. No marker-driven reclassification occurred, so there is no floor
+> implication from this row.**
+> Additional support note: the top-16 activation range is 4.16–6.25, an order of magnitude below
+> 105490's 29.0–39.0. A shallow, low gradient means the membership of this top-16 is less stable
+> than the rank ordering suggests. This is part of why the confidence is medium.
+
+### 11.3 145471 — disclosure on the row, as instructed
+
+> **145471 → class 2 (lexical/n-gram), surface-form, confidence LOW — unchanged.**
+> **CONCENTRATION, RECORDED ON THE ROW: 11 of 16 records come from a single page** — an artist
+> biography listing award credits, carrying ranks 0, 1, 2, 3, 5, 7, 8, 10, 12, 13 and 15.
+> **Distinct documents: 5** — that page ×11, one further page ×2 (ranks 6 and 9), and one record
+> each at ranks 4, 11 and 14.
+>
+> *Its doc_id is withheld under §13.2a: the numeral collides with a calibration-reserved feature
+> index. The document is fully recoverable from the marker file by the rank list above, so nothing
+> auditable is lost.*
+>
+> This is a **numerator row at low confidence resting on one page**, and it is flagged here for
+> individual listing in the write-up, on the same principle applied to Gemma's unauditable numerator
+> rows: where the claim is strongest the evidence base gets shown, not summarised.
+>
+> Two further facts a reader is entitled to. **(a)** The trigger is the award-citation n-gram, not
+> the word *Best*: 7 of the 16 markers are not `Best` — three are ` of` (inside "Best of 2009"),
+> plus ` Readers`, an apostrophe, and a curly quote. **(b)** Rank 14 contains no *Best* at all —
+> "the **“**US Retailer of the Year”" — the frame fires without the word. Both facts support the
+> n-gram reading over a lexical-item reading, and neither changes the bucket.
+
+### 11.4 The 31-row floor hole — orchestrator ruling recorded, not repairable
+
+Ruled: the measurement can no longer be taken by anyone. Rater 1 has seen the markers; Rater 2 built
+the Qwen marker file. Imputing the 1-of-9 movement rate onto 31 marker-native rows would be
+inference from a subsample never shown representative. **The Qwen floor becomes a computed
+interval** — lower end resets every marker-native numerator row, upper end resets only measured
+movers — and the true floor cannot be located within it. Convergence binds to the lower end.
+**Neither end is computed by Rater 1.**
+
+---
+
+**ADJUDICATION COMPLETE. Both columns 40 of 40, zero parked, three closing rows landed.**
+No composition, no rate, and no §14.2 result has been computed by Rater 1, and neither the merged
+ledger nor any `_r2` file has been opened since the §12.1 partition.
