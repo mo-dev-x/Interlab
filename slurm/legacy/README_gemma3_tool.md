@@ -22,18 +22,37 @@ pip install gradio
 Also pre-stage the two local data files the tool reads (never fetched at
 runtime):
 
-- `results/gemma3_sweep/feature_manifest.json` -- regenerate any time with:
+- `results/gemma3_sweep/feature_manifest.json` -- **tracked as of
+  2026-08-09**, so a fresh clone or pull already has it. It was ignored
+  until then (`.gitignore` excludes `results/`, and the nine other
+  artifacts under that tree were each force-added individually), which
+  would have made a pulled checkout fail at startup: a missing manifest is
+  a hard failure, there is no tool without it. If it is ever absent again,
+  regenerate rather than copy:
   ```bash
   python -c "from scripts.legacy.gemma3_sweep import write_feature_manifest; write_feature_manifest('results/gemma3_sweep')"
   ```
-  (pure Python, no GPU, no network -- safe to run on the login node).
+  (pure Python, no GPU, no network -- `gemma3_sweep.py` imports only the
+  standard library at module level, so this is safe on the login node).
+  The output is deterministic: it reproduces `sha256 72cd6484...d49d730`
+  byte-for-byte, the same digest as the tracked copy and as the second
+  copy under `results/gemma3_sweep/analysis/`.
 - `results/gemma3_sweep/gemma3_tool_snippets.json` -- top-16 example
   snippets per feature, schema `{"<idx>": ["snippet", ...]}` for each of
-  the 9 feature indices in `feature_manifest.json`. **Not yet staged as of
-  2026-08-08** (Engineer 1 is fetching it separately, gated on verifying
-  the Neuronpedia source resolves to the exact SAE this tool uses). If
-  it's missing, the tool still runs -- the feature browser shows "example
-  snippets not yet pre-staged" for every feature instead of failing.
+  the 9 feature indices in `feature_manifest.json`. **Staged and tracked**
+  (commit `2d0f8ff`): all 9 features carry a full 16 snippets each, and
+  the fetch gate -- that the Neuronpedia source resolves to the exact SAE
+  this tool uses -- was cleared before it landed.
+
+  Consequently **the "not yet pre-staged" fallback is now a failure
+  signal, not an expected state.** The tool degrades to that message
+  instead of raising, by design, because silently drawing text from a
+  neighbouring SAE would look fine on screen and be wrong. But with the
+  file tracked and complete, seeing that message in the UI means the file
+  did not load -- a wrong `--snippets-path`, a truncated checkout, or an
+  index-type mismatch -- and it is to be reported, not accepted. An
+  earlier revision of this file said the snippets were unstaged; anyone
+  reading that line would have accepted a real load failure as normal.
 
 ## Every demo session: two commands
 
