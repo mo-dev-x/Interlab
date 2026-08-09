@@ -494,7 +494,7 @@
   {
     "feature_idx": 3070,
     "column": "gemma",
-    "class": 9,
+    "class": 12,
     "confidence": null,
     "reason_code": null,
     "distinct_sources": null,

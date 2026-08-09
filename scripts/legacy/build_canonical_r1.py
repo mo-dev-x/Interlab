@@ -60,7 +60,11 @@ ROWS = [
     (103491, "qwen", 10, "med",      "I-DIVERSE", 14,   None, None, False),
     # ---- GEMMA, section 3 (early rows; six confidences do not exist, sec 1) ----
     (3039,   "gemma", 4, None,       None,      None,   None, 10, True),
-    (3070,   "gemma", 9, None,       None,      None,   None,  9, False),
+    # 3070: sec 12.1 reconciliation. Recorded class 9 was a passage-level call made without
+    # markers; markers are 16/16 coordinating conjunctions. Class 12 by sec 13.3 prong 1(b) +
+    # prong 2, on the 869 and 1041 precedents. pre_marker_class stays 9 (sec 1 is immutable).
+    # Bucket-neutral: 9 and 12 are both denominator-only.
+    (3070,   "gemma", 12, None,      None,      None,   None,  9, False),
     (3169,   "gemma", 11, None,      None,      None,   None, 11, False),
     (3349,   "gemma", 3, None,       None,      None,   None,  3, False),
     (3358,   "gemma", 9, None,       None,      None,   None,  9, False),

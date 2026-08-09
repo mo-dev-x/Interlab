@@ -112,7 +112,7 @@ priority: these rows first**, because they include two of the surface-form numer
 | feature_idx | class | bucket | conf | reason_code | distinct_sources | density | marker_token | deciding_quote | disposition |
 |---|---|---|---|---|---|---|---|---|---|
 | 3039 | 4 formatting | surface-form | — | — | — | — | `:` ×4, `\n\n` ×2, `(`, `<`, `"` | delimiters fire; repetition is why they are frequent (§11.5) | overruled from R1's 10 |
-| 3070 | 9 discourse-register | denominator only | — | — | — | — | — | first-person interview register | classified |
+| 3070 | ~~9 discourse-register~~ **12 relational/positional — clausal coordination** (§12.1 below) | denominator only | — | — | — | — | ` and`/` And` ×10, ` but`/` But` ×6 — **16/16 coordinator** | ~~first-person interview register~~ superseded: the register was the genre, not the trigger | classified |
 | 3169 | 11 topical domain — electoral politics | semantic | — | — | — | — | — | — | classified |
 | 3349 | 3 code | surface-form | — | — | — | — | — | — | classified |
 | 3358 | 9 discourse-register | denominator only | — | — | — | — | — | promotional register spanning unrelated subjects | classified |
@@ -561,6 +561,110 @@ inference from a subsample never shown representative. **The Qwen floor becomes 
 interval** — lower end resets every marker-native numerator row, upper end resets only measured
 movers — and the true floor cannot be located within it. Convergence binds to the lower end.
 **Neither end is computed by Rater 1.**
+
+---
+
+---
+
+## 12. THE 3070 RECONCILIATION — AND THE DEFECT BEHIND IT
+
+### 12.1 Which record was right: **neither.** 3070 is class 12.
+
+The orchestrator reported that Rater 1's prose showed 3070 → class 12 against class 9 in the
+canonical file. **No such retrofit exists in this partition.** Both of Rater 1's records said class 9
+— §1 line for the pre-marker freeze and the §3 table — and `git log -S` confirms a class-12 line for
+3070 has never appeared in this file in any commit. The two records agreed. **They agreed on the
+wrong value**, so the discrepancy was real even though its location was not.
+
+Marker evidence, top-16, `gemma_max_activating_tokens.json`:
+
+| marker | count |
+|---|---|
+| ` and` | 4 |
+| ` And` | 6 |
+| ` but` | 5 |
+| ` But` | 1 |
+
+**16 of 16 are coordinating conjunctions. No exceptions.**
+
+- **§11.1 trigger-primacy.** The recorded call, *first-person interview register*, is a passage-level
+  reading. The marker governs where marker and passage disagree.
+- **Why the passage misled.** Interview and blog transcripts are dense in clause-initial *And*/*But*.
+  The register is the **genre that produces the trigger**, not the trigger. Classifying on it
+  mistook an effect for a cause — the same error shape as Finding 1 (§7.2), one level up.
+- **§13.3 prong 1(b), not 1(a).** Prong 1(a) fails: modal marker ` And` ×6, so non-modal records
+  number 10, below 12. Prong 1(b) carries it — coordinators are closed-class, and the marker
+  **recurs unfired in-record**: "…in that area, **and** that's why Brad ⟨and⟩ the guys…" fires on
+  the first and not the second; "inherently volatile ⟨and⟩ inefficient. **And** therefore…" fires on
+  the sentence-initial one and not the phrasal one.
+- **§13.3 prong 2.** Governor = the coordinate structure and its two conjuncts. Naming a governor is
+  permitted; the marker is not named.
+- **Precedent, from this same file.** 869 (sentence-initial coordination → 12) and 1041 (nominal
+  coordination, ` and` 16/16 → 12, high) were both ruled class 12 by this route. 3070 is the same
+  feature type and was decided differently only because it was decided *earlier*, without markers.
+
+**Bucket unchanged: class 9 and class 12 are both denominator-only.** No published number moves.
+
+`pre_marker_class` remains **9** and is not rewritten — §1 is immutable and 9 is the honest record of
+what was decided without markers. Only the current class changes.
+
+### 12.2 The real defect: the Gemma retrofit §3 called for was never run
+
+§3 carries a standing flag — *"Retrofit priority: these rows first"* — on the early Gemma rows,
+because they were classified from passages with no marker access. **That retrofit was never run.**
+3070 is not an isolated error; it is the first one anybody happened to check.
+
+Eleven rows were frozen pre-marker and never marker-retrofitted: 3070, 3169, 3349, 3358, 3648, 4090,
+4572, 5094, 6515, 7055, 976. (3039, 5231 and 212 were marker-informed later and are not in the gap.)
+
+**Both numerator members of that block are now CONFIRMED on markers**, which is the reassuring half:
+
+| idx | recorded | marker check | verdict |
+|---|---|---|---|
+| 3349 | 3 code/identifiers | **16/16 inside machine-generated identifier strings** — a `.dpuf` hash, an InChI key, base64 in a public-key blob, Reuters `idUSKBN…` slugs, a PHP include path, a netdna-ssl host, a UUID fragment | **confirmed** |
+| 5094 | 2 lexical/POS/n-gram | **12/16 begin with *V*** — *Vince ×2, Venture, Veterans, Vicar, Vincent, Vita, Vitamin, virtue, Violet, virtual ×2* — plus `icky` (V\|icky) and `enture` (V\|enture). An orthographic prefix feature | **confirmed** |
+
+5094 had been recorded as *"pre-ruled by §5; cannot measure agreement (§11.6)"* — it had never been
+independently verified by anyone. It now is.
+
+### 12.3 One further row is wrong, and this one is NOT bucket-neutral — flagged, not applied
+
+**6515, recorded `10 indeterminate / I-DIVERSE`.** The recorded reasoning was
+*"four-digit years in ~10 of 16 but absent from six; historical-narrative field covers only ~5."*
+The markers show the years are incidental. Every marker sits on a **destination or a motion event**:
+
+> "move to **Boulder** in early 199⟨6⟩" · "came to North America ⟨in⟩ 196⟨9⟩ and began teaching" ·
+> "move to the United States ⟨in⟩ the coming months" · "heading home to London after a U.S. ⟨trip⟩" ·
+> "those who come to ⟨America⟩ now" · "immigrants flooded into the ⟨country⟩" · "travelled to Hamm in
+> ⟨Germany⟩" · "rode into the ⟨city⟩" · "in Saudi Arabia ⟨for⟩ a religious pilgrimage to Mecca" ·
+> "a plane bound for Istanbul, ⟨Turkey⟩" · "coming to ⟨America⟩ via the diversity visa lottery" ·
+> "paid a ⟨visit⟩" · "a business ⟨trip⟩ foreign country or travel ⟨as⟩ tourist to Czech Republic"
+
+**16/16 travel, migration and arrival.** `indeterminate` is not sustainable. Rater 1's call would be
+**class 11 topical — travel/migration/arrival, semantic**: the markers carry real lexical content in
+one coherent field (*America ×2, Germany, Turkey, city, country, trip, visit*), and §3's paraphrase
+test survives. Class 12 is the live alternative — prong 1(a) passes (14 non-modal) and a governor is
+nameable (the motion predicate) — and would keep the row in the denominator.
+
+**This is deliberately NOT applied.** It is a re-call of a published row, discovered after the
+composition was computed, and by a rater who now knows the result. Rater 1 should not be the one who
+decides that such a change is admissible. **Ruling required.**
+
+### 12.4 Direction of every error found, stated because it is the thing most likely to be doubted
+
+Rater 1 learned the Gemma result (semantic ahead) *before* running the checks in §12.2 and §12.3.
+That is a contamination risk and the honest control is to state which way each finding cuts:
+
+- **3070** — bucket-neutral. No effect.
+- **3349, 5094** — both **confirm** surface-form rows. The numerator is not inflated by this defect.
+- **6515** — if applied as class 11, **adds one to semantic** and widens the gap already reported.
+
+**Every error found runs toward the published conclusion, not away from it.** That is exactly the
+pattern a contaminated check would produce, and it is why the correct response is not to trust these
+three findings more, but to **run the remaining retrofit under someone who has not seen the result.**
+Seven rows in the block are still unchecked beyond a marker glance: 3169, 3358, 3648, 4090, 4572,
+7055, 976. Their markers are not obviously inconsistent with their recorded classes, but "not
+obviously inconsistent" is what was true of 3070 and 6515 before anyone looked.
 
 ---
 
