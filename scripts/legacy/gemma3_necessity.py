@@ -639,8 +639,25 @@ ACTIVE_NONTARGET_STRENGTH_FRACTION = 0.5
 # distribution exists to fit it to.
 ACTIVE_NONTARGET_MAX_SHARE = 0.5
 
+# Two-sided band, added after analyzing job 400342's real ratio
+# distribution (median 0.756, only ~1/4 of records above 1.0 -- the
+# one-sided ">= fraction" design admits controls far WEAKER than the
+# target as the typical case, which biases toward making the target look
+# more necessary than it is, not less). [0.8, 1.25] was proposed by the
+# PM and declared before it was applied to any distribution -- NOT tuned
+# post-hoc against job 400342's numbers. Optional: existing callers that
+# don't pass strength_band keep the one-sided behavior job 400342 already
+# used; a future re-run can opt into true two-sided eligibility by
+# passing this instead of relying on a post-hoc filter of one-sided draws
+# (see necessity_result_v1.md S3e for why the post-hoc filter is only a
+# lower-bound proxy on the true two-sided-eligible population).
+ACTIVE_NONTARGET_STRENGTH_BAND = (0.8, 1.25)
 
-def pick_matched_strength_active_nontarget(feat_acts, target_idx: int, *, strength_fraction: float, rng_seed: int) -> dict[str, Any]:
+
+def pick_matched_strength_active_nontarget(
+    feat_acts, target_idx: int, *, strength_fraction: float, rng_seed: int,
+    strength_band: tuple[float, float] | None = None,
+) -> dict[str, Any]:
     """Third fix to this comparator's selection mechanism. First fix
     excluded <bos> (job 400287: an attention-sink position with
     anomalously large activation on a fixed feature regardless of input,
@@ -663,7 +680,15 @@ def pick_matched_strength_active_nontarget(feat_acts, target_idx: int, *, streng
     If the eligible set is empty, returns eligible=False; the caller
     records that explicitly and skips the ablation for this cell --
     it never falls back to argmax, which is how the second defect
-    happened."""
+    happened.
+
+    If strength_band=(lo, hi) is given, eligibility becomes TWO-SIDED --
+    lo*target_max <= activation <= hi*target_max -- instead of the
+    one-sided >= strength_fraction*target_max lower bound (strength_fraction
+    is then ignored). job 400342's real data showed the one-sided design's
+    typical (median) draw is WEAKER than the target, not just occasionally
+    stronger -- a two-sided band controls both directions at once, at the
+    cost of a smaller eligible set."""
     import numpy as np
     import torch
 
@@ -677,14 +702,19 @@ def pick_matched_strength_active_nontarget(feat_acts, target_idx: int, *, streng
     target_max = float(per_feature_max[target_idx].item())
     per_feature_max[target_idx] = float("-inf")  # exclude the target itself from eligibility
 
-    threshold = strength_fraction * target_max
-    eligible_mask = (per_feature_max >= threshold) & (per_feature_max > 0.0)
+    if strength_band is not None:
+        band_lo, band_hi = strength_band
+        eligible_mask = (per_feature_max >= band_lo * target_max) & (per_feature_max <= band_hi * target_max) & (per_feature_max > 0.0)
+    else:
+        threshold = strength_fraction * target_max
+        eligible_mask = (per_feature_max >= threshold) & (per_feature_max > 0.0)
     eligible_idxs = torch.nonzero(eligible_mask, as_tuple=True)[0]
     n_eligible = int(eligible_idxs.numel())
 
     result: dict[str, Any] = {
         "target_max_activation": target_max,
-        "strength_fraction_declared": strength_fraction,
+        "strength_fraction_declared": strength_fraction if strength_band is None else None,
+        "strength_band_declared": list(strength_band) if strength_band is not None else None,
         "n_eligible": n_eligible,
         "rng_seed": rng_seed,
     }
