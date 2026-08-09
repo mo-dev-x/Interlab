@@ -1,0 +1,122 @@
+[
+ {
+  "feature_idx": 9012,
+  "column": "gemma",
+  "class": 12,
+  "confidence": "high",
+  "reason_code": null,
+  "distinct_sources": 16,
+  "n_firings": 16,
+  "pre_marker_class": 10,
+  "marker_driven_numerator_move": false,
+  "disposition": "classified"
+ },
+ {
+  "feature_idx": 9105,
+  "column": "gemma",
+  "class": 12,
+  "confidence": "med",
+  "reason_code": null,
+  "distinct_sources": 16,
+  "n_firings": 16,
+  "pre_marker_class": 10,
+  "marker_driven_numerator_move": false,
+  "disposition": "classified"
+ },
+ {
+  "feature_idx": 11029,
+  "column": "gemma",
+  "class": 2,
+  "confidence": "high",
+  "reason_code": null,
+  "distinct_sources": 16,
+  "n_firings": 16,
+  "pre_marker_class": 11,
+  "marker_driven_numerator_move": true,
+  "disposition": "classified"
+ },
+ {
+  "feature_idx": 11149,
+  "column": "gemma",
+  "class": 12,
+  "confidence": "med",
+  "reason_code": null,
+  "distinct_sources": 16,
+  "n_firings": 16,
+  "pre_marker_class": 9,
+  "marker_driven_numerator_move": false,
+  "disposition": "classified"
+ },
+ {
+  "feature_idx": 11763,
+  "column": "gemma",
+  "class": 12,
+  "confidence": "high",
+  "reason_code": null,
+  "distinct_sources": 16,
+  "n_firings": 16,
+  "pre_marker_class": 10,
+  "marker_driven_numerator_move": false,
+  "disposition": "classified"
+ },
+ {
+  "feature_idx": 12403,
+  "column": "gemma",
+  "class": null,
+  "confidence": null,
+  "reason_code": null,
+  "distinct_sources": 16,
+  "n_firings": 16,
+  "pre_marker_class": 11,
+  "marker_driven_numerator_move": false,
+  "disposition": "parked"
+ },
+ {
+  "feature_idx": 12449,
+  "column": "gemma",
+  "class": 11,
+  "confidence": "high",
+  "reason_code": null,
+  "distinct_sources": 16,
+  "n_firings": 16,
+  "pre_marker_class": null,
+  "marker_driven_numerator_move": false,
+  "disposition": "classified"
+ },
+ {
+  "feature_idx": 13746,
+  "column": "gemma",
+  "class": 4,
+  "confidence": "low",
+  "reason_code": null,
+  "distinct_sources": 16,
+  "n_firings": 16,
+  "pre_marker_class": 10,
+  "marker_driven_numerator_move": true,
+  "disposition": "classified"
+ },
+ {
+  "feature_idx": 13825,
+  "column": "gemma",
+  "class": 2,
+  "confidence": "high",
+  "reason_code": null,
+  "distinct_sources": 16,
+  "n_firings": 16,
+  "pre_marker_class": 11,
+  "marker_driven_numerator_move": true,
+  "disposition": "classified"
+ },
+ {
+  "feature_idx": 14719,
+  "column": "gemma",
+  "class": 10,
+  "confidence": "med",
+  "reason_code": "I-DIVERSE",
+  "distinct_sources": 16,
+  "n_firings": 16,
+  "pre_marker_class": 9,
+  "marker_driven_numerator_move": false,
+  "disposition": "classified"
+ }
+]
