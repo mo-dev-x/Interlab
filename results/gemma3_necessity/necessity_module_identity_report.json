@@ -29,5 +29,62 @@
     "allocated_bytes": 29810932736,
     "max_allocated_bytes": 58329354240,
     "reserved_bytes": 30058479616
+  },
+  "active_nontarget_control_diversity_probe": {
+    "n_probes": 9,
+    "picks": [
+      {
+        "probed_feature_idx": 250,
+        "chosen_idx": 221,
+        "activation": 25447.26171875
+      },
+      {
+        "probed_feature_idx": 500,
+        "chosen_idx": 221,
+        "activation": 26497.79296875
+      },
+      {
+        "probed_feature_idx": 2048,
+        "chosen_idx": 107,
+        "activation": 22250.740234375
+      },
+      {
+        "probed_feature_idx": 2500,
+        "chosen_idx": 221,
+        "activation": 25764.50390625
+      },
+      {
+        "probed_feature_idx": 3500,
+        "chosen_idx": 221,
+        "activation": 25510.54296875
+      },
+      {
+        "probed_feature_idx": 4500,
+        "chosen_idx": 221,
+        "activation": 26097.44140625
+      },
+      {
+        "probed_feature_idx": 11000,
+        "chosen_idx": 221,
+        "activation": 25818.62109375
+      },
+      {
+        "probed_feature_idx": 12800,
+        "chosen_idx": 221,
+        "activation": 24511.3984375
+      },
+      {
+        "probed_feature_idx": 900,
+        "chosen_idx": 221,
+        "activation": 25512.1640625
+      }
+    ],
+    "chosen_index_distribution": {
+      "221": 8,
+      "107": 1
+    },
+    "n_unique_indices": 2,
+    "n_unique_activations": 9,
+    "passed": true
   }
 }
