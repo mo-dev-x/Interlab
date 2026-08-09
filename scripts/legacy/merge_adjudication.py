@@ -14,7 +14,16 @@ Every one of these halts the run with a non-zero exit and no composition:
   * a missing feature (each column must be EXACTLY 40)
   * an unparseable class
   * a class outside 1-12
-  * any row still marked parked (SS11.2: an unresolved park voids its column)
+  * a null class on any row whose disposition is not `parked`
+  * a parked row in the ADJUDICATOR OF RECORD's file (SS11.2: an unresolved park
+    voids the tally for its column)
+
+A PARKED ROW IN THE RELIABILITY RATER'S FILE DOES NOT REFUSE (SS16.4). Rater 2's
+rows never enter a tally and the adjudicator of record has a call on that
+feature, so the column is still complete. The feature is instead EXCLUDED FROM
+THE AGREEMENT DENOMINATOR, and both the exclusion count and the excluded feature
+indices appear in the output: agreement is reported over nine of ten, never over
+ten, and never silently over nine.
 
 POOLS ARE VERIFIED FROM EVIDENCE, NOT FROM A LIST IN A DOCUMENT.
 The Gemma pool is derived by scanning scripts/legacy/gemma_neuronpedia_raw/ and
@@ -182,6 +191,19 @@ def _is_parked(record: dict[str, Any]) -> bool:
     return bool(record.get("parked"))
 
 
+def _null_class_defect(record: dict[str, Any], where: str) -> str | None:
+    """`class: null` is permitted ONLY on a parked row (SS16.4 schema). On any
+    other disposition a null class is a missing call wearing a valid-looking
+    field, so it refuses."""
+    if record.get("class") is not None:
+        return None
+    if _is_parked(record):
+        return None
+    return (f"{where}: class is null but disposition is "
+            f"{record.get('disposition')!r} -- a null class is permitted only on "
+            f"a parked row")
+
+
 def read_canonical_ledger(path: Path, rater: str) -> list[dict[str, Any]]:
     if not path.exists():
         raise RefusalError(f"canonical ledger not found: {path}")
@@ -237,6 +259,10 @@ def validate_column(records: list[dict[str, Any]], column: str, pool: list[int],
         if raw_idx not in pool_set:
             defects.append(
                 f"{where}: feature {raw_idx} is OUTSIDE the verified {column} pool")
+            continue
+        null_defect = _null_class_defect(r, f"{where} feature {raw_idx}")
+        if null_defect:
+            defects.append(null_defect)
             continue
         cls = _coerce_class(r.get("class"), f"{where} feature {raw_idx}", defects)
         if cls is None:
@@ -307,15 +333,29 @@ def compose(calls: dict[int, int], column: str, provenance_rater: str) -> dict[s
     }
 
 
-def agreement(r1_calls: dict[int, int], r2_calls: dict[int, int],
-              column: str) -> dict[str, Any]:
-    """Reliability only. These rows never enter a tally."""
+def agreement(r1_calls: dict[int, int], r2_calls: dict[int, int], column: str,
+              parked_excluded: list[int] | None = None) -> dict[str, Any]:
+    """Reliability only. These rows never enter a tally.
+
+    SS16.4: a parked rater-2 row is EXCLUDED from the denominator rather than
+    refusing the column. The exclusion is reported explicitly -- both the count
+    and the feature indices -- so the rate is never read as though it were over
+    the full overlap, and never silently over the reduced one."""
+    parked_excluded = sorted(parked_excluded or [])
     overlap = sorted(set(r1_calls) & set(r2_calls))
     exact = [i for i in overlap if r1_calls[i] == r2_calls[i]]
     bucket_same = [i for i in overlap
                    if BUCKET_OF_CLASS[r1_calls[i]] == BUCKET_OF_CLASS[r2_calls[i]]]
     return {
         "column": column,
+        "n_overlap_candidates": len(overlap) + len(parked_excluded),
+        "n_excluded_parked": len(parked_excluded),
+        "excluded_parked_features": parked_excluded,
+        "denominator_note": (
+            f"agreement computed over {len(overlap)} of "
+            f"{len(overlap) + len(parked_excluded)} candidate overlap rows; "
+            f"{len(parked_excluded)} excluded as parked in the reliability "
+            f"rater's file (SS16.4)"),
         "n_overlap": len(overlap),
         "overlap_features": overlap,
         "exact_class_agreement": len(exact),
@@ -341,6 +381,7 @@ def merge(r1_records: list[dict[str, Any]], r2_records: list[dict[str, Any]],
     per_column: dict[str, Any] = {}
     r1_by_col: dict[str, dict[int, int]] = {}
     r2_by_col: dict[str, dict[int, int]] = {}
+    r2_parked_by_col: dict[str, list[int]] = {}
 
     for column in COLUMNS:
         pool = pools[column]
@@ -350,6 +391,7 @@ def merge(r1_records: list[dict[str, Any]], r2_records: list[dict[str, Any]],
         # rater 2 is validated for parseability and pool membership, but is NOT
         # required to be complete -- it is an overlap sample by design.
         r2_calls: dict[int, int] = {}
+        r2_parked: list[int] = []
         for r in [x for x in r2_records if x.get("column") == column
                   and x.get("rater") == "r2"]:
             where = f"{r['_source_file']}[{r['_source_index']}] column={column}"
@@ -357,22 +399,30 @@ def merge(r1_records: list[dict[str, Any]], r2_records: list[dict[str, Any]],
             if isinstance(idx, bool) or not isinstance(idx, int):
                 defects.append(f"{where}: feature_idx {idx!r} is not an integer")
                 continue
-            if _is_parked(r):
-                defects.append(f"{where}: rater 2 feature {idx} is still PARKED")
-                continue
             if idx not in set(pool):
                 defects.append(
                     f"{where}: rater 2 feature {idx} is OUTSIDE the verified "
                     f"{column} pool")
                 continue
-            if idx in r2_calls:
+            if idx in r2_calls or idx in r2_parked:
                 defects.append(
                     f"column={column} rater=r2: DUPLICATE feature index {idx}")
+                continue
+            if _is_parked(r):
+                # SS16.4: does NOT refuse. The adjudicator of record has a call on
+                # this feature, so the column is complete; only the reliability
+                # denominator shrinks, and the exclusion is reported.
+                r2_parked.append(idx)
+                continue
+            null_defect = _null_class_defect(r, f"{where} feature {idx}")
+            if null_defect:
+                defects.append(null_defect)
                 continue
             cls = _coerce_class(r.get("class"), f"{where} feature {idx}", defects)
             if cls is not None:
                 r2_calls[idx] = cls
         r2_by_col[column] = r2_calls
+        r2_parked_by_col[column] = r2_parked
 
     if defects:
         raise RefusalError("\n".join(defects))
@@ -381,7 +431,8 @@ def merge(r1_records: list[dict[str, Any]], r2_records: list[dict[str, Any]],
     for column in COLUMNS:
         per_column[column] = {
             "composition": compose(r1_by_col[column], column, ADJUDICATOR_OF_RECORD),
-            "agreement": agreement(r1_by_col[column], r2_by_col[column], column),
+            "agreement": agreement(r1_by_col[column], r2_by_col[column], column,
+                                   r2_parked_by_col[column]),
         }
         for idx in sorted(r1_by_col[column]):
             cls = r1_by_col[column][idx]
@@ -393,6 +444,7 @@ def merge(r1_records: list[dict[str, Any]], r2_records: list[dict[str, Any]],
                 "source": ADJUDICATOR_OF_RECORD,
                 "rater2_class": r2_by_col[column].get(idx),
                 "rater2_in_overlap": idx in r2_by_col[column],
+                "rater2_parked": idx in r2_parked_by_col[column],
                 "rater2_entered_tally": False,
             })
 
@@ -425,9 +477,14 @@ def render(result: dict[str, Any]) -> str:
             frac = "" if row["fraction"] is None else f"{row['fraction']:.4f}"
             L.append(f"  {row['bucket']:<24} {row['count']:>4}   {frac}")
         L.append(f"  (five rows; surface-form + semantic do not sum to 1 by construction)")
-        L.append(f"  agreement arm: overlap {agr['n_overlap']}, exact "
-                 f"{agr['exact_class_agreement']}, bucket {agr['bucket_agreement']} "
+        L.append(f"  agreement arm: {agr['exact_class_agreement']} exact / "
+                 f"{agr['bucket_agreement']} bucket, over {agr['n_overlap']} of "
+                 f"{agr['n_overlap_candidates']} candidate overlap rows "
                  f"-- NOT in any tally")
+        if agr["n_excluded_parked"]:
+            L.append(f"  EXCLUDED from the agreement denominator as parked in the "
+                     f"reliability rater's file: {agr['n_excluded_parked']} "
+                     f"feature(s) {agr['excluded_parked_features']}")
         L.append("")
     return "\n".join(L)
 

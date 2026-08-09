@@ -70,17 +70,22 @@ def r1_records():
     return [dict(r, _source_file="r1.json", _source_index=i) for i, r in enumerate(recs)]
 
 
-def r2_records(overlap=10, flip=0):
+def r2_records(overlap=10, flip=0, park=0):
     """Rater 2's calibration overlap: first `overlap` gemma rows, with the first
-    `flip` of them deliberately disagreeing."""
+    `flip` of them deliberately disagreeing, and the LAST `park` of them parked
+    (class null, disposition parked) per SS16.4."""
     out = []
     for k in range(overlap):
         cls = GEMMA_CLASSES[k]
         if k < flip:
             cls = 12 if cls != 12 else 10       # force a bucket-level disagreement
-        out.append({"feature_idx": GEMMA_POOL[k], "column": "gemma", "class": cls,
-                    "rater": "r2", "disposition": "classified",
-                    "_source_file": "r2.json", "_source_index": k})
+        rec = {"feature_idx": GEMMA_POOL[k], "column": "gemma", "class": cls,
+               "rater": "r2", "disposition": "classified",
+               "_source_file": "r2.json", "_source_index": k}
+        if k >= overlap - park:
+            rec["class"] = None
+            rec["disposition"] = "parked"
+        out.append(rec)
     return out
 
 
@@ -160,6 +165,22 @@ def test_rater2_calls_never_change_the_composition():
     assert got == EXPECTED_GEMMA
 
 
+def test_rater2_cannot_change_the_composition_even_with_a_parked_row():
+    """The load-bearing merge-rule test, re-run under SS16.4: every overlap call
+    flipped AND rows parked. The composition must still be byte-identical to the
+    clean run -- a parked reliability row shrinks the agreement denominator and
+    nothing else."""
+    clean = ma.merge(r1_records(), r2_records(overlap=10, flip=0, park=0), POOLS)
+    hostile = ma.merge(r1_records(), r2_records(overlap=10, flip=8, park=2), POOLS)
+    assert (clean["columns"]["gemma"]["composition"]
+            == hostile["columns"]["gemma"]["composition"])
+    assert (clean["columns"]["qwen"]["composition"]
+            == hostile["columns"]["qwen"]["composition"])
+    # and the agreement arm DID move, proving the hostile input reached the code
+    assert (clean["columns"]["gemma"]["agreement"]["n_overlap"]
+            != hostile["columns"]["gemma"]["agreement"]["n_overlap"])
+
+
 def test_argument_order_cannot_swap_the_adjudicator():
     """Structural guard: compose() refuses anything but the adjudicator of record."""
     with pytest.raises(ma.RefusalError, match="adjudicator of record"):
@@ -218,7 +239,10 @@ def test_refuses_missing_feature():
         ma.merge(recs, r2_records(), POOLS)
 
 
-@pytest.mark.parametrize("bad", ["surface-form", "", "3.5", "class 3", None, [3], 3.0])
+# None is excluded here deliberately: under SS16.4 a null class gets its own,
+# more specific refusal (see test_refuses_null_class_on_unparked_*). It still
+# refuses; only the message changed.
+@pytest.mark.parametrize("bad", ["surface-form", "", "3.5", "class 3", [3], 3.0])
 def test_refuses_unparseable_class(bad):
     recs = r1_records()
     recs[0] = dict(recs[0], **{"class": bad})
@@ -270,10 +294,115 @@ def test_refuses_non_integer_feature_idx():
         ma.merge(recs, r2_records(), POOLS)
 
 
-def test_refuses_parked_rater2_row():
+# ---------------------------------------------------------------------------
+# SS16.4 -- a parked RELIABILITY row does not refuse; it shrinks the agreement
+# denominator, and the exclusion is reported
+# ---------------------------------------------------------------------------
+
+def test_parked_rater2_row_does_not_refuse():
+    """Inverted from the pre-SS16.4 behaviour. Rater 2's rows never enter a
+    tally and the adjudicator of record has a call, so the column is complete."""
+    result = ma.merge(r1_records(), r2_records(overlap=10, park=1), POOLS)
+    got = {r["bucket"]: r["count"] for r in
+           result["columns"]["gemma"]["composition"]["rows"]}
+    assert got == EXPECTED_GEMMA
+    assert result["columns"]["gemma"]["composition"]["denominator"] == 40
+
+
+def test_agreement_is_over_nine_of_ten_never_ten():
+    agr = ma.merge(r1_records(), r2_records(overlap=10, park=1),
+                   POOLS)["columns"]["gemma"]["agreement"]
+    assert agr["n_overlap"] == 9, "the parked row must leave the denominator"
+    assert agr["n_overlap_candidates"] == 10
+    assert agr["n_excluded_parked"] == 1
+    assert agr["excluded_parked_features"] == [GEMMA_POOL[9]]
+    # all nine remaining agree exactly -> rate is over 9, not 10
+    assert agr["exact_class_agreement"] == 9
+    assert agr["exact_class_agreement_rate"] == pytest.approx(1.0)
+
+
+def test_agreement_exclusion_is_never_silent():
+    """The count AND the excluded feature must both be visible in the output."""
+    agr = ma.merge(r1_records(), r2_records(overlap=10, park=2),
+                   POOLS)["columns"]["gemma"]["agreement"]
+    assert agr["n_excluded_parked"] == 2
+    assert agr["excluded_parked_features"] == [GEMMA_POOL[8], GEMMA_POOL[9]]
+    assert "8 of 10" in agr["denominator_note"]
+    assert agr["n_overlap"] == 8
+
+
+def test_parked_rater2_rate_differs_from_the_unparked_rate():
+    """Guards against the exclusion being cosmetic: with a disagreement parked,
+    the reported rate must change because the denominator changed."""
+    no_park = ma.merge(r1_records(), r2_records(overlap=10, flip=1),
+                       POOLS)["columns"]["gemma"]["agreement"]
+    # park the single disagreeing row -> it leaves the denominator entirely
+    recs = r2_records(overlap=10, flip=1)
+    recs[0] = dict(recs[0], **{"class": None, "disposition": "parked"})
+    parked = ma.merge(r1_records(), recs, POOLS)["columns"]["gemma"]["agreement"]
+    assert no_park["n_overlap"] == 10 and no_park["exact_class_agreement"] == 9
+    assert parked["n_overlap"] == 9 and parked["exact_class_agreement"] == 9
+    assert no_park["exact_class_agreement_rate"] == pytest.approx(0.9)
+    assert parked["exact_class_agreement_rate"] == pytest.approx(1.0)
+
+
+def test_merged_row_flags_a_parked_rater2_feature():
+    result = ma.merge(r1_records(), r2_records(overlap=10, park=1), POOLS)
+    row = next(r for r in result["merged_ledger"]
+               if r["column"] == "gemma" and r["feature_idx"] == GEMMA_POOL[9])
+    assert row["rater2_parked"] is True
+    assert row["rater2_in_overlap"] is False
+    assert row["rater2_entered_tally"] is False
+    assert row["source"] == "r1"
+
+
+def test_report_text_names_the_excluded_feature(tmp_path, monkeypatch):
+    monkeypatch.setattr(ma, "derive_gemma_pool", lambda *a, **k: GEMMA_POOL)
+    monkeypatch.setattr(ma, "derive_qwen_pool", lambda *a, **k: QWEN_POOL)
+    result = ma.merge(r1_records(), r2_records(overlap=10, park=1), POOLS)
+    text = ma.render(result)
+    assert "EXCLUDED from the agreement denominator" in text
+    assert str(GEMMA_POOL[9]) in text
+    assert "over 9 of 10" in text
+
+
+# ---------------------------------------------------------------------------
+# SS16.4 schema -- class: null only on a parked row
+# ---------------------------------------------------------------------------
+
+def test_null_class_accepted_on_parked_rater2_row():
+    result = ma.merge(r1_records(), r2_records(overlap=10, park=1), POOLS)
+    assert result["columns"]["gemma"]["agreement"]["n_excluded_parked"] == 1
+
+
+def test_refuses_null_class_on_unparked_rater2_row():
+    recs = r2_records()
+    recs[0] = dict(recs[0], **{"class": None, "disposition": "classified"})
+    with pytest.raises(ma.RefusalError, match="null class is permitted only"):
+        ma.merge(r1_records(), recs, POOLS)
+
+
+def test_refuses_null_class_on_unparked_rater1_row():
+    recs = r1_records()
+    recs[0] = dict(recs[0], **{"class": None, "disposition": "classified"})
+    with pytest.raises(ma.RefusalError, match="null class is permitted only"):
+        ma.merge(recs, r2_records(), POOLS)
+
+
+def test_parked_adjudicator_row_still_refuses_even_with_null_class():
+    """SS11.2 unchanged: a park in the adjudicator of record's file voids the
+    column, regardless of how the class field is filled."""
+    recs = r1_records()
+    recs[0] = dict(recs[0], **{"class": None, "disposition": "parked"})
     with pytest.raises(ma.RefusalError, match="PARKED"):
-        ma.merge(r1_records(),
-                 [dict(r2_records()[0], disposition="parked")], POOLS)
+        ma.merge(recs, r2_records(), POOLS)
+
+
+def test_duplicate_rater2_index_still_refuses_when_one_is_parked():
+    recs = r2_records(overlap=10, park=1)
+    recs.append(dict(recs[9], _source_index=99))
+    with pytest.raises(ma.RefusalError, match="DUPLICATE"):
+        ma.merge(r1_records(), recs, POOLS)
 
 
 def test_all_defects_are_collected_not_just_the_first():
