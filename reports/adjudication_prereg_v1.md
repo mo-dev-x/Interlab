@@ -1,9 +1,9 @@
-# BINDING PRE-REGISTRATION v1.13 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.14 — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.13 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
+> ## ⛔ v1.14 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
 >
 > §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
@@ -12,7 +12,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 this (§14). The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 → v1.14 this (§14.6). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.13**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.14**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.13)*
+v1.14)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.13)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.13)* — same table shape, separate section, produced independently.
+v1.14)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -1227,3 +1227,32 @@ instinct.**
 > old and new, with the reason for the change. **A metadata-only change is a claim, and a claim about
 > bytes is checkable** — so it gets checked rather than asserted. `VERIFICATION_LOG.md` carries both
 > hashes and the supersession note; the old digest is never deleted.
+
+### 14.6 THE BARRIER SCANS THE DIFF, NOT THE FILE
+
+Third false-positive incident, and the first that identifies the actual design error rather than a
+scoping gap. The hook scans **every line of a staged file**, so a large pre-existing document is
+blocked by content that was already committed and has nothing to do with the change. A 3441-line
+verification log fails on numbers that predate the pool entirely.
+
+**The magnitude floor (§13.9) does not fix this and cannot.** Reserved values sit in `[1000, 16384)`,
+and that range is full of this project's own real quantities — record counts, cell counts, window
+sizes, chunk lengths. Those will keep colliding in any document that reports measurements, which is
+every document that matters.
+
+> **Binding: scan only ADDED lines (`git diff --cached -U0`, `+` lines). A first-time file addition
+> scans in full, since every line is added.**
+>
+> **This loses nothing, and the reason is worth stating rather than assuming.** The threat is an index
+> being **newly written** into something someone reads. If a reserved index is already in a committed
+> file, **it is already burned and the hook cannot unburn it** — blocking an unrelated later edit to
+> that file protects nothing and costs a legitimate commit. The floor stays as a second layer against
+> small integers in fresh prose; **diff scanning is the primary control** because it matches the
+> threat model instead of approximating it.
+
+**Three false-positive incidents in one day, each with a different cause — generated-text volume,
+prose-legitimate small integers, whole-file scanning — and every one was reported by the engineer it
+blocked rather than bypassed.** `--no-verify` has been refused three times, including once by the
+orchestrator on the section authorising the hook. **That the control has never once been bypassed is
+the load-bearing fact here**, and it holds because each block was routed to whoever owned the defect
+instead of being judged around by whoever hit it.
