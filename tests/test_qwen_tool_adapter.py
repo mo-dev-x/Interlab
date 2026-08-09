@@ -22,6 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ADAPTER_SCRIPT = REPO_ROOT / "scripts" / "legacy" / "qwen_tool_adapter.py"
 TOOL_SCRIPT = REPO_ROOT / "scripts" / "legacy" / "gemma3_tool.py"
 GEMMA_SWEEP_SCRIPT = REPO_ROOT / "scripts" / "legacy" / "gemma3_sweep.py"
+BUILD_MANIFEST_SCRIPT = REPO_ROOT / "scripts" / "legacy" / "build_qwen_feature_manifest.py"
 
 
 def _load(name: str, path: Path):
@@ -34,6 +35,12 @@ def _load(name: str, path: Path):
 qwen = _load("qwen_tool_adapter", ADAPTER_SCRIPT)
 tool = _load("gemma3_tool", TOOL_SCRIPT)
 gemma_sweep = _load("gemma3_sweep", GEMMA_SWEEP_SCRIPT)
+# The 8014b2f/cbe8163 restructure moved feature-record building (formerly
+# the adapter's own build_feature_manifest_records()) into this module's
+# build_manifest() -- the adapter now only reads the tracked JSON that
+# produces, it doesn't build records itself. Tests that guard manifest
+# CONTENT belong against this module, not the adapter.
+qwen_build = _load("build_qwen_feature_manifest", BUILD_MANIFEST_SCRIPT)
 
 
 # ---------------------------------------------------------------------------
@@ -61,23 +68,42 @@ def test_width_is_qwen_d_sae_not_gemma():
     assert qwen.WIDTH != gemma_sweep.WIDTH
 
 
-def test_features_are_real_characterize_lite_numbers_not_padded_to_nine():
-    # Real, measured data exists for exactly 3 features (docs/
-    # characterize_lite_findings.md) -- a thinner, real manifest is
-    # correct here; padding it out to Gemma's 9 would mean inventing
-    # numbers.
-    idxs = {f["idx"] for f in qwen.FEATURES}
+def test_tier1_features_are_exactly_the_three_concept_validated_and_nothing_invented():
+    # This test used to assert FEATURES itself was exactly 3 -- guarding
+    # against padding the manifest out to Gemma's 9 by inventing numbers.
+    # The 8014b2f restructure made FEATURES genuinely 12 (3 concept-
+    # validated tier-1 + 9 taxonomy-derived tier-2, see
+    # test_two_evidence_tiers_present_tier1_first_not_merged in
+    # test_qwen_feature_manifest_schema_parity.py for the total). The
+    # narrower property that's still real: tier-1 -- job 383755, human
+    # concept-validation, not a ranking procedure's output -- is EXACTLY
+    # these 3 measured features, and nothing else was folded into
+    # evidence_tier=1 to inflate it.
+    tier1 = [f for f in qwen.FEATURES if f["evidence_tier"] == 1]
+    idxs = {f["idx"] for f in tier1}
     assert idxs == {9056, 47735, 44189}
-    by_idx = {f["idx"]: f for f in qwen.FEATURES}
+    by_idx = {f["idx"]: f for f in tier1}
     assert by_idx[9056]["maxActApprox"] == pytest.approx(47.50)
     assert by_idx[47735]["maxActApprox"] == pytest.approx(40.75)
     assert by_idx[44189]["maxActApprox"] == pytest.approx(8.50)
     assert by_idx[44189].get("low_confidence") is True
 
 
-def test_optional_features_and_rejected_idxs_are_honestly_empty():
-    assert qwen.OPTIONAL_FEATURES == []
-    assert not qwen.REJECTED_FEATURE_IDXS
+def test_optional_feature_is_real_and_rejected_idxs_carry_reasons():
+    # Before 8014b2f there was no optional feature and no reject list --
+    # this test guarded against fabricating either as non-empty when they
+    # weren't real yet. Now both are real. OPTIONAL_FEATURES must be
+    # exactly the one genuine tier-2 optional (145471), not padding.
+    # The stronger version of the old "honestly empty" guard on rejects is
+    # inverted: honestly NON-empty, and every entry actually carries a
+    # reason rather than just an idx.
+    assert {f["idx"] for f in qwen.OPTIONAL_FEATURES} == {145471}
+
+    assert qwen.REJECTED_FEATURE_IDXS, "expected real recorded rejects, not an empty placeholder"
+    rejected_records = qwen._MANIFEST["rejected_features"]
+    assert {r["idx"] for r in rejected_records} == set(qwen.REJECTED_FEATURE_IDXS)
+    for rejected in rejected_records:
+        assert isinstance(rejected["reason"], str) and len(rejected["reason"]) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -99,17 +125,32 @@ REQUIRED_MANIFEST_FIELDS = (
 )
 
 
-def test_write_then_load_feature_manifest_round_trips_all_required_fields(tmp_path):
-    written = qwen.write_feature_manifest(tmp_path)
-    manifest = qwen.load_feature_manifest(written)
-    assert len(manifest["features"]) == 3
-    assert {f["idx"] for f in manifest["features"]} == {9056, 47735, 44189}
-    for f in manifest["features"]:
+def test_build_manifest_feature_records_round_trip_all_required_fields():
+    # build_feature_manifest_records() used to live on the adapter and
+    # build exactly 3 hardcoded records; write_feature_manifest()/
+    # load_feature_manifest() round-tripped those through JSON. The
+    # 8014b2f/cbe8163 restructure moved record-building into
+    # build_qwen_feature_manifest.build_manifest() (see its record_for()
+    # helper) -- the adapter's write_feature_manifest is now a deliberate-
+    # only regenerator that just calls this and writes the result, so the
+    # guard belongs on the real source. Still exercises the actual JSON
+    # round trip main()/write_feature_manifest() rely on: nothing non-
+    # serializable, nothing silently dropped by json.dumps/loads.
+    manifest = qwen_build.build_manifest()
+    round_tripped = json.loads(json.dumps(manifest))
+
+    all_records = round_tripped["features"] + [round_tripped["optional_feature"]]
+    assert len(all_records) == 13  # 3 tier-1 + 9 tier-2 + 1 optional
+    assert {f["idx"] for f in round_tripped["features"]} == {
+        9056, 47735, 44189, 89549, 33008, 105490, 20990, 107244, 59622, 45344, 37230, 134801,
+    }
+    for f in all_records:
         for field in REQUIRED_MANIFEST_FIELDS:
             assert f.get(field) is not None, f"feature {f.get('idx')} missing {field}"
-    assert manifest["sae_release"] == qwen.SAE_ID
-    assert manifest["model_id"] == qwen.MODEL_ID
-    assert manifest["maxActApprox_caveat"] == qwen.MAX_ACT_APPROX_CAVEAT
+
+    assert round_tripped["sae_release"] == qwen_build.SAE_RELEASE
+    assert round_tripped["model_id"] == qwen_build.MODEL_ID
+    assert round_tripped["maxActApprox_caveat"] == qwen_build.MAX_ACT_APPROX_CAVEAT
 
 
 def test_load_feature_manifest_missing_file_raises():
@@ -121,26 +162,17 @@ def test_pretaged_manifest_artifact_is_up_to_date():
     """The committed results/qwen_tool/feature_manifest.json is a real,
     pre-staged artifact (same convention as results/gemma3_sweep/
     feature_manifest.json), not regenerated at tool-startup time -- this
-    guards against it drifting from what write_feature_manifest() would
-    produce today."""
+    guards against it drifting from what build_qwen_feature_manifest.
+    build_manifest() would produce today. Compared against the real
+    source directly (control_feature_idx is a fixed-seed deterministic
+    draw, so this is not flaky) rather than the adapter's now-removed
+    build_feature_manifest_records()."""
     staged_path = REPO_ROOT / "results" / "qwen_tool" / "feature_manifest.json"
     if not staged_path.exists():
         pytest.skip("results/qwen_tool/feature_manifest.json not staged in this checkout")
     staged = json.loads(staged_path.read_text(encoding="utf-8"))
-    fresh = json.loads(
-        json.dumps(
-            {
-                "maxActApprox_caveat": qwen.MAX_ACT_APPROX_CAVEAT,
-                "sae_release": qwen.SAE_ID,
-                "model_id": qwen.MODEL_ID,
-                "features": qwen.build_feature_manifest_records(),
-            }
-        )
-    )
-    assert staged["maxActApprox_caveat"] == fresh["maxActApprox_caveat"]
-    assert staged["sae_release"] == fresh["sae_release"]
-    assert staged["model_id"] == fresh["model_id"]
-    assert staged["features"] == fresh["features"]
+    fresh = json.loads(json.dumps(qwen_build.build_manifest()))
+    assert staged == fresh
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +183,7 @@ def test_pretaged_manifest_artifact_is_up_to_date():
 def test_tool_feature_helpers_work_against_qwen_manifest(tmp_path):
     manifest = qwen.load_feature_manifest(qwen.write_feature_manifest(tmp_path))
     choices = tool.feature_dropdown_choices(manifest)
-    assert len(choices) == 3
+    assert len(choices) == 12  # 3 tier-1 concept-validated + 9 tier-2 taxonomy-derived
     for _label, idx in choices:
         feature = tool.feature_by_idx(manifest, idx)
         assert feature["idx"] == idx
