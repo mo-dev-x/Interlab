@@ -4,142 +4,88 @@ interplab.characterization.model_loading.load_local_hooked_transformer
 (already tested, already used by FeatureIndex's own lazy model+SAE load),
 and SAE loading delegates entirely to sae_lens.SAE.load_from_pretrained --
 the exact call interplab/characterization/feature_index.py:173 already uses
-for our own trained checkpoints. This file only adapts those two calls, plus
-three already-measured Qwen features, to the seven names gemma3_tool.py
-consumes: FEATURES, OPTIONAL_FEATURES, REJECTED_FEATURE_IDXS, WIDTH,
-load_feature_manifest, load_model_and_sae, pick_control_feature_idx.
+for our own trained checkpoints. This file only adapts those two calls,
+plus the feature pool build_qwen_feature_manifest.py builds, to the seven
+names gemma3_tool.py consumes: FEATURES, OPTIONAL_FEATURES,
+REJECTED_FEATURE_IDXS, WIDTH, load_feature_manifest, load_model_and_sae,
+pick_control_feature_idx.
 
 Checkpoint: rwu04lpb (registry/sae_checkpoint/95db17aa3877.json) -- TopK
 SAE, k=100, d_sae=163840, layer 28 of Qwen/Qwen2.5-14B-Instruct,
 hook blocks.28.hook_resid_post. Do not confuse with the superseded
 9odeg5hb/pile-10k checkpoint (see gemma3_sweep.py's own correction note).
 
-FEATURES below are the three features scripts/characterize_lite.py
-actually measured (job 383755, 2026-07-26, streamed 5,000 FineWeb docs /
-1,712,777 token positions) -- see docs/characterize_lite_findings.md, the
-only source of real, verified per-feature numbers for this checkpoint at
-tool-manifest granularity today. maxActApprox/density here are a MEASURED
-sample max and firing rate over that one stream, not a Neuronpedia
-sample-max proxy like Gemma's -- see MAX_ACT_APPROX_CAVEAT. Nothing is
-invented to pad the list out to Gemma's nine; a thinner, real manifest is
-worth more than a fabricated one the size of Gemma's.
+FEATURES/OPTIONAL_FEATURES/REJECTED_FEATURE_IDXS below are IMPORTED from
+build_qwen_feature_manifest.py, not redefined here. That module was
+previously a second, disjoint 9-feature manifest at a different path
+(results/qwen_sweep/) while this adapter carried its own separate
+3-feature FEATURES constant -- resolve_control_feature_idx (gemma3_tool.py)
+builds its exclusion set from THIS module's FEATURES, so the two could
+diverge silently: all 9 of the other manifest's features were eligible to
+be drawn as "the random control" despite the tool's own header claiming
+the control uses "the same exclusion set the D2.1 sweep uses". Importing
+rather than duplicating makes that claim true by construction instead of
+by convention -- see tests/test_qwen_feature_manifest_schema_parity.py's
+adapter/manifest set-equality assertion, which is the actual guard.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OUT_DIR = REPO_ROOT / "results" / "qwen_tool"
-FEATURE_MANIFEST_FILENAME = "feature_manifest.json"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-SAE_ID = "rwu04lpb"
+import build_qwen_feature_manifest as _manifest_builder  # noqa: E402
+
+DEFAULT_OUT_DIR = _manifest_builder.OUT_DIR
+FEATURE_MANIFEST_FILENAME = _manifest_builder.MANIFEST_FILENAME
+
+SAE_ID = _manifest_builder.SAE_RELEASE
 SAE_LOCATION = "tamia:sae_checkpoints/rwu04lpb/final_400001024"
-MODEL_ID = "Qwen/Qwen2.5-14B-Instruct"
+MODEL_ID = _manifest_builder.MODEL_ID
 MODEL_REVISION = "cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8"  # registry/sae_checkpoint/95db17aa3877.json
-LAYER = 28
+LAYER = _manifest_builder.LAYER
 N_LAYERS = 48
-WIDTH = 163840
-L0_VARIANT = "topk_k100"  # TopK architecture (k=100) -- not a JumpReLU l0 in Gemma's sense
+WIDTH = _manifest_builder.WIDTH
+L0_VARIANT = _manifest_builder.L0_VARIANT
 
-MAX_ACT_APPROX_CAVEAT = (
-    "Measured max activation over a 5,000-document / 1,712,777-token-position FineWeb "
-    "sample (scripts/characterize_lite.py, job 383755, 2026-07-26; see "
-    "docs/characterize_lite_findings.md) -- a sample max over that one stream, not a "
-    "full-corpus max, and NOT the same provenance as Gemma's Neuronpedia sample-max "
-    "proxy (gemma3_sweep.MAX_ACT_APPROX_CAVEAT). Do not treat the two numbers as "
-    "measured the same way."
-)
+MAX_ACT_APPROX_CAVEAT = _manifest_builder.MAX_ACT_APPROX_CAVEAT
 
-# idx/label/maxActApprox/density/verdict copied verbatim from
-# docs/characterize_lite_findings.md's summary table -- real measured
-# numbers, not placeholders.
-FEATURES: list[dict[str, Any]] = [
-    {
-        "idx": 9056,
-        "label": "cheese",
-        "domain_class": "topic",
-        "maxActApprox": 47.50,
-        "density": 0.000586,
-        "verdict": "clean monosemantic (characterize_lite, n=1003 firings, 14.5x median rate)",
-    },
-    {
-        "idx": 47735,
-        "label": "UNESCO World Heritage",
-        "domain_class": "topic",
-        "maxActApprox": 40.75,
-        "density": 0.000408,
-        "verdict": "clean monosemantic (characterize_lite, n=699 firings, 10.1x median rate)",
-    },
-    {
-        "idx": 44189,
-        "label": "Eurovision",
-        "domain_class": "topic",
-        "maxActApprox": 8.50,
-        "density": 0.000231,
-        "low_confidence": True,
-        "verdict": "weak/marginal, confirmed entangled -- carry only as the documented weak "
-                   "case (characterize_lite, n=395 firings, 5.7x median rate)",
-    },
-]
-# No optional pool and nothing rejected: characterize_lite measured exactly
-# these three, and none failed verification -- an empty list/frozenset is
-# the honest state, not a placeholder to fill in later.
-OPTIONAL_FEATURES: list[dict[str, Any]] = []
-REJECTED_FEATURE_IDXS: frozenset[int] = frozenset()
+# Single source of truth: the merged manifest build_qwen_feature_manifest.py
+# produces (tier 1: 3 concept-validated features, tier 2: 9 taxonomy-derived
+# + 1 optional). FEATURES here IS that manifest's own "features" list (12
+# entries, tier 1 first) -- not a copy, the same values, so the two cannot
+# drift apart the way the old 3-vs-9 split did.
+_MANIFEST: dict[str, Any] = _manifest_builder.build_manifest()
+FEATURES: list[dict[str, Any]] = _MANIFEST["features"]
+OPTIONAL_FEATURES: list[dict[str, Any]] = [_MANIFEST["optional_feature"]]
+REJECTED_FEATURE_IDXS: frozenset[int] = frozenset(r["idx"] for r in _MANIFEST["rejected_features"])
 
 
 # ---------------------------------------------------------------------------
 # Feature manifest -- same open schema as gemma3_sweep.py's, pre-staged once
 # and read by gemma3_tool.py via load_feature_manifest(), never derived at
-# tool-startup time.
+# tool-startup time. Written from _MANIFEST directly (build_qwen_feature_
+# manifest.build_manifest()'s own output) rather than reconstructed from
+# FEATURES here -- FEATURES already IS a slice of that same manifest, so
+# rebuilding it a second, slightly-different way (as the old
+# build_feature_manifest_records did, dropping every field but a handful)
+# is exactly the kind of divergence this file now exists to prevent.
 # ---------------------------------------------------------------------------
-
-
-def build_feature_manifest_records(*, include_optional: bool = False) -> list[dict[str, Any]]:
-    pool = list(FEATURES) + (list(OPTIONAL_FEATURES) if include_optional else [])
-    records = []
-    for f in pool:
-        records.append(
-            {
-                "idx": f["idx"],
-                "label": f["label"],
-                "domain_class": f["domain_class"],
-                "maxActApprox": f["maxActApprox"],
-                "maxActApprox_caveat": MAX_ACT_APPROX_CAVEAT,
-                "density": f["density"],
-                "sae_id": SAE_ID,
-                "layer": LAYER,
-                "width": WIDTH,
-                "l0_variant": L0_VARIANT,
-                "low_confidence": bool(f.get("low_confidence", False)),
-                "verdict": f.get("verdict"),
-            }
-        )
-    return records
 
 
 def write_feature_manifest(out_dir: Path, *, include_optional: bool = False) -> Path:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / FEATURE_MANIFEST_FILENAME
-    payload = {
-        "schema_note": (
-            "One record per feature: idx, label, domain_class, maxActApprox, density, "
-            "sae_id, layer, width, l0_variant. Open schema, same shape as "
-            "gemma3_sweep.py's manifest -- must satisfy gemma3_tool.py's "
-            "REQUIRED_MANIFEST_FIELDS."
-        ),
-        "maxActApprox_caveat": MAX_ACT_APPROX_CAVEAT,
-        "sae_release": SAE_ID,
-        "sae_location": SAE_LOCATION,
-        "model_id": MODEL_ID,
-        "model_revision": MODEL_REVISION,
-        "features": build_feature_manifest_records(include_optional=include_optional),
-    }
+    payload = dict(_MANIFEST)
+    if not include_optional:
+        payload = {**payload, "optional_feature": None}
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
 

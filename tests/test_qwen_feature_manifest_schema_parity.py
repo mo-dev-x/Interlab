@@ -17,6 +17,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts" / "legacy"))
 
 import gemma3_sweep  # noqa: E402
 import build_qwen_feature_manifest as qwen_build  # noqa: E402
+import qwen_tool_adapter  # noqa: E402
 
 
 def _gemma_manifest(tmp_path):
@@ -109,11 +110,71 @@ def test_rejected_features_are_recorded_with_reasons():
         assert isinstance(rejected["reason"], str) and len(rejected["reason"]) > 0
 
 
-def test_manifest_carries_the_three_required_divergence_caveats():
+def test_manifest_carries_the_required_divergence_caveats():
     qwen_manifest = qwen_build.build_manifest()
     assert qwen_manifest["labels_auto_derived_caveat"]
     assert qwen_manifest["causal_screening_caveat"]
     assert qwen_manifest["maxActApprox_caveat"]
+    assert qwen_manifest["density_band_disclosure"]
+    assert qwen_manifest["density_cross_sae_caveat"]
+    assert qwen_manifest["ranking_near_miss_caveat"], (
+        "sixth caveat: the firing-rate-descending ranking would have excluded all of tier 1"
+    )
     # every per-feature record repeats the maxActApprox caveat inline, matching Gemma's convention
     for rec in qwen_manifest["features"]:
         assert rec["maxActApprox_caveat"] == qwen_manifest["maxActApprox_caveat"]
+
+
+def test_two_evidence_tiers_present_tier1_first_not_merged():
+    qwen_manifest = qwen_build.build_manifest()
+    features = qwen_manifest["features"]
+
+    tiers = [rec["evidence_tier"] for rec in features]
+    assert tiers.count(1) == 3, "expected exactly 3 tier-1 (concept-validated) features"
+    assert tiers.count(2) == 9, "expected exactly 9 tier-2 (taxonomy-derived) features"
+    assert tiers == sorted(tiers), "tier 1 must be listed before tier 2 (the dropdown opens on the first entries)"
+
+    tier1_idxs = {rec["idx"] for rec in features if rec["evidence_tier"] == 1}
+    assert tier1_idxs == {9056, 47735, 44189}
+
+    # optional feature is tier 2 -- tier 1 has no optional pool
+    assert qwen_manifest["optional_feature"]["evidence_tier"] == 2
+
+
+def test_adapter_features_exactly_equal_manifest_features():
+    """The actual guard this file exists for: resolve_control_feature_idx
+    (gemma3_tool.py) builds its exclusion set from the ADAPTER module's
+    FEATURES/OPTIONAL_FEATURES/REJECTED_FEATURE_IDXS, not from whatever
+    manifest JSON happens to be on disk. If those two ever diverge again,
+    the tool's own claim that the control "uses the same exclusion set the
+    D2.1 sweep uses" becomes false without anything raising."""
+    qwen_manifest = qwen_build.build_manifest()
+
+    manifest_feature_idxs = {f["idx"] for f in qwen_manifest["features"]}
+    adapter_feature_idxs = {f["idx"] for f in qwen_tool_adapter.FEATURES}
+    assert adapter_feature_idxs == manifest_feature_idxs
+
+    manifest_optional_idx = qwen_manifest["optional_feature"]["idx"]
+    adapter_optional_idxs = {f["idx"] for f in qwen_tool_adapter.OPTIONAL_FEATURES}
+    assert adapter_optional_idxs == {manifest_optional_idx}
+
+    manifest_rejected_idxs = {r["idx"] for r in qwen_manifest["rejected_features"]}
+    assert qwen_tool_adapter.REJECTED_FEATURE_IDXS == manifest_rejected_idxs
+
+
+def test_resolved_control_index_is_in_neither_adapter_nor_manifest_features():
+    qwen_manifest = qwen_build.build_manifest()
+    control_idx = qwen_tool_adapter._MANIFEST["control_feature_idx"]
+
+    adapter_exclusion_set = (
+        {f["idx"] for f in qwen_tool_adapter.FEATURES}
+        | {f["idx"] for f in qwen_tool_adapter.OPTIONAL_FEATURES}
+        | qwen_tool_adapter.REJECTED_FEATURE_IDXS
+    )
+    manifest_exclusion_set = (
+        {f["idx"] for f in qwen_manifest["features"]}
+        | {qwen_manifest["optional_feature"]["idx"]}
+        | {r["idx"] for r in qwen_manifest["rejected_features"]}
+    )
+    assert control_idx not in adapter_exclusion_set
+    assert control_idx not in manifest_exclusion_set
