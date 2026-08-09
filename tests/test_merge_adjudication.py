@@ -62,7 +62,7 @@ EXPECTED_QWEN = {"surface-form": 20, "semantic": 10, "discourse-register": 4,
 def _rows(pool, classes, column, rater="r1"):
     assert len(pool) == len(classes) == 40
     return [{"feature_idx": i, "column": column, "class": c, "rater": rater,
-             "disposition": "classified"} for i, c in zip(pool, classes)]
+             "disposition": "classified"} for i, c in zip(pool, classes, strict=True)]
 
 
 def r1_records():
@@ -470,7 +470,9 @@ def test_malformed_ledger_json_refuses(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _write_ledgers(tmp_path, r1_recs, r2_recs):
-    strip = lambda rs: [{k: v for k, v in r.items() if not k.startswith("_")} for r in rs]
+    def strip(rs):
+        return [{k: v for k, v in r.items() if not k.startswith("_")} for r in rs]
+
     p1 = tmp_path / "r1.canonical.json"
     p2 = tmp_path / "r2.canonical.json"
     p1.write_text(json.dumps({"records": strip(r1_recs)}), encoding="utf-8")

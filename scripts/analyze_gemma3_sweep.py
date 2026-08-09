@@ -38,7 +38,6 @@ import json
 import math
 import re
 import statistics
-import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -416,7 +415,17 @@ def analyze(records: list[dict[str, Any]], sweep) -> dict[str, Any]:
         if not tgt or not ctl:
             continue
         pts = []
-        for tp, cp in zip(tgt["points"], ctl["points"]):
+        # strict=True enforces an invariant that until now was only implicit, and
+        # held three functions away: every curve's points list is built as
+        # [dose_point(by_dose.get(d, []), d) for d in sweep.DOSES], so both arms
+        # are the same length and in the same dose order by construction, with a
+        # missing dose yielding an incomplete point rather than a gap. Nothing at
+        # this call site checked that. Positional zip is doing real work here --
+        # each pair's dose is taken from the TARGET only, so a misalignment would
+        # contrast two different doses and label the result with the target's,
+        # producing a well-formed number that is silently wrong. This makes the
+        # guarantee local and self-checking instead of inherited.
+        for tp, cp in zip(tgt["points"], ctl["points"], strict=True):
             reasons = []
             if cp["arm_saturated"]:
                 reasons.append("control_arm_saturated")
@@ -613,9 +622,11 @@ def render_report(a: dict[str, Any], load: dict[str, Any], manifest_path: Path,
     add("  Dispersion here is the NOISE FLOOR for the steer arms above.")
     add("-" * 78)
     add(f"{'feature':>8} {'arm':<15} {'n':>4} {'mean':>8} {'sd':>8} {'min':>8} {'max':>8} inert")
+    def fmt(v):
+        return "      --" if v is None else f"{v:8.3f}"
+
     for r in a["ablate_replicates"]:
         d = r["divergence_pooled"]
-        fmt = lambda v: "      --" if v is None else f"{v:8.3f}"
         add(f"{r['feature_idx']:>8} {r['arm']:<15} {d['n']:>4} "
             f"{fmt(d['mean'])} {fmt(d['sd'])} {fmt(d['min'])} {fmt(d['max'])} "
             f"{'yes' if r['dose_slot_is_inert'] else 'NO(!)'}")
