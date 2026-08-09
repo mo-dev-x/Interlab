@@ -819,6 +819,64 @@ review; the same six found by a reviewer is not.
 | 10 | **Evidence depth is matched at 16/16 and total context is matched at ~997 vs 1164; symmetry around the trigger is not** (§4.4) |
 | 11 | **Selection protocols.** Both columns are now seeded uniform draws. The superseded browsed sample is retired and unquoted |
 | 12 | **`rwu04lpb`'s A6 certificate is amber**, from `max_decoder_cosine_p999` alone (§1.1) |
+| 13 | **`sweep_analysis.json` and `sweep_analysis_report.txt` as published are byte-reproducible only on the machine of record.** They embed absolute paths (`records_path`, `feature_manifest_path`, and the report's manifest line). Re-running the analyser elsewhere **reproduces the content but not the digest**, and *that mismatch is expected*. Content-level and digest-level reproducibility are separate claims and the published artifact conflates them — see §8.1 |
+
+### 8.1 Reproducibility of the sweep analysis: content yes, digest no
+
+This divergence is separated out because its failure mode is not the usual one. An
+ordinary limitation makes a reader trust a number less. This one makes a reader
+distrust the *authors*: a verifier re-runs the documented command, computes the
+digest, finds it does not match, and the natural reading of a digest mismatch is
+tampering. **A false alarm of misconduct costs more than a stated gap**, so the
+precise shape of it is recorded here rather than left to be discovered.
+
+**What is and is not reproducible.** Re-running
+
+```
+python scripts/analyze_gemma3_sweep.py --records results/gemma3_sweep/records.jsonl --out-dir <dir>
+```
+
+on any machine reproduces every reported quantity exactly. This was measured, not
+assumed: excluding the two path keys, the regenerated JSON is identical to the
+published artifact across all **50,455** lines, and the text report across all
+**93**. No contrast, dispersion, noise floor, or reportability count moves. What
+does not reproduce is the byte digest, because two fields record where this
+machine keeps its files rather than which files were read.
+
+**Two machine dependencies, not one.** The absolute prefix is the obvious one. The
+path *separator* is the second, and it is easy to miss: the same repository would
+emit `results\gemma3_sweep\records.jsonl` on Windows and
+`results/gemma3_sweep/records.jsonl` on Linux, so even two correct checkouts
+disagree.
+
+**Fixed forward; the published bytes are untouched.** `analyze_gemma3_sweep.py`
+now emits repo-relative POSIX paths, so all future output is digest-reproducible —
+verified by running it twice into different output directories, with the input
+spelled two different ways, and obtaining identical digests for both files. The
+published artifact was deliberately **not** regenerated. Its digest is recorded in
+hash-bound governance artifacts, and rewriting it three days before delivery would
+cascade through those records to remove a cosmetic defect. **Stopping the
+propagation and stating the gap is the cheaper and more honest trade**; if the
+artifact is regenerated for any substantive reason before delivery it inherits the
+fix for free.
+
+**The general rule this produced.** Alongside the field-name rule and the
+directional-bias test, a third standing check now applies to anything recorded as
+an identity: **would this value match if produced on a different machine?** It
+applies to paths, digests, timestamps, absolute URLs, usernames, and environment
+variable values. Two unrelated instances surfaced on the same day — this one, and a
+manifest digest that could not have matched on the cluster because
+`Path.write_text()` translates newlines on Windows — which is why the check is
+mechanical rather than a matter of attention. A repository-wide scan for
+machine-local identities found exactly one further instance in a machine-readable
+artifact, `slurm/environment_bundle.tooling.lock.json`'s `evidence_root`
+(`D:\lodstar\…`); the remaining matches were prose references in governance
+documents, provenance paths inside sweep records (`/scratch/…/snapshots/<rev>`,
+where the revision is the weights' genuine identity), corpus text that happens to
+contain a Windows path, and one false positive where the literal `D:\` matched the
+string `"PASSED:\n"`. **The scan's own false-positive mode is recorded because a
+standing check that is not itself characterised will be quietly abandoned the first
+time it cries wolf.**
 
 ---
 

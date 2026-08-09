@@ -43,6 +43,33 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def repo_relative(path: Path | str) -> str:
+    """Render a path as a repo-relative POSIX string, so the artifact records
+    WHICH file was read rather than WHERE THIS MACHINE keeps it.
+
+    Absolute paths in an output artifact defeat digest-level reproducibility
+    while leaving content-level reproducibility intact, and those are different
+    claims. The failure mode is worse than a plain limitation: someone verifying
+    the result re-runs the command, gets different bytes, and reads the digest
+    mismatch as evidence of tampering. A false alarm of misconduct costs more
+    than a stated gap.
+
+    Two machine dependencies are removed here, not one. The absolute prefix is
+    the obvious one; the path SEPARATOR is the other, and it would have made the
+    same repository produce 'results\\gemma3_sweep\\records.jsonl' on Windows and
+    'results/gemma3_sweep/records.jsonl' on Linux. as_posix() settles it.
+
+    A path outside the repository (a temp directory under test, an out-of-tree
+    scratch mount) keeps its filename and loses its location: the filename is the
+    part that identifies the input, the location is the part that cannot travel.
+    """
+    p = Path(path).resolve()
+    try:
+        return p.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return f"<outside-repo>/{p.name}"
 SWEEP_MODULE_PATH = REPO_ROOT / "scripts" / "legacy" / "gemma3_sweep.py"
 
 # Pre-registered cell count. 8 baselines + 9 features x 2 modes x 6 doses
@@ -532,7 +559,7 @@ def render_report(a: dict[str, Any], load: dict[str, Any], manifest_path: Path,
     if load["n_malformed"]:
         add(f"!! MALFORMED LINES      : {load['n_malformed']} at {load['malformed_line_numbers']}")
         add("   (a truncated final line is the signature of a hard kill mid-write)")
-    add(f"feature manifest        : {manifest_path}")
+    add(f"feature manifest        : {repo_relative(manifest_path)}")
     add("")
     add(f"pre-registered cells    : {a['preregistered_cell_count']}")
     add(f"enumerated from harness : {a['enumerated_cell_count']}"
@@ -694,8 +721,8 @@ def main(argv: list[str] | None = None) -> int:
     load = load_records(args.records)
     a = analyze(load.records, sweep)
     a["seed"] = args.seed
-    a["records_path"] = str(args.records)
-    a["feature_manifest_path"] = str(manifest_path)
+    a["records_path"] = repo_relative(args.records)
+    a["feature_manifest_path"] = repo_relative(manifest_path)
     a["load"] = load.as_dict()
 
     (args.out_dir / "sweep_analysis.json").write_text(
