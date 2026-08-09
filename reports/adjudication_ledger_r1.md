@@ -157,7 +157,7 @@ count is 14. They are not reinstated by assertion.
    14/16 on one**, and to be treated as a **floor** since seams without a `<bos>` marker exist.
    ±10-token context is truncated **at** the seam, never read through it.
 3. **Context-length residual** — Qwen `centred_1164` achieves median 997 / mean 936 against Gemma's
-   byte-exact median 1164 / mean 1148: **−14% median, −18% mean, against Qwen.** The prior
+   byte-exact median 1164 / mean 1148: **−14.3% median, −18.4% mean, against Qwen.** The prior
    `full_chunk` arm ran **+75%**, against Gemma. The `1269–2847` Gemma interval and everything
    binned against it are **void**.
 4. **Marker asymmetry (§11.1) — now resolved.** Qwen markers were available all along
@@ -173,27 +173,51 @@ count is 14. They are not reinstated by assertion.
 
 ## 6. CALIBRATION OVERLAP — TEN GEMMA ROWS, MARKER-INFORMED
 
-Evidence: `scripts/legacy/gemma_max_activating_tokens.json`, sha
-`d4f505beb10baf1e1a58acd179cf7c6f3770aa94f51b75efc79da9d4cbdb22a4`. 782/782 records emitted, 0
-length mismatches, 0 argmax-vs-`maxValueTokenIndex` disagreements. Context radius ±10, **truncated
-at splice seams by the generator** (§11.7 enforced in data, both `<bos>` and unmarked-concatenation
-seams).
+Evidence: `scripts/legacy/gemma_max_activating_tokens.json`. 782/782 records emitted, 0 length
+mismatches, 0 argmax-vs-`maxValueTokenIndex` disagreements. Context radius ±10.
+
+> ⚠ **EVIDENCE FILE WAS REPLACED MID-ADJUDICATION.** These ten rows were adjudicated against
+> **v1**, sha `d4f505beb10baf1e1a58acd179cf7c6f3770aa94f51b75efc79da9d4cbdb22a4` (recoverable as the
+> tree state at commit `63b0c00`). The working tree now holds **v2**, sha
+> `0bdebba3055989d688d5b16d1ca8c4f8bcc0112053037847dc3bbd4c7c5a4982`, landed in `dfbfbe0`.
+>
+> **Verified: no call is affected.** `argmax_token` and `argmax_value` are **byte-identical across
+> all 782 records** in both versions. Only ±10 context windows changed — 12 of 160 records in these
+> ten, 62 of 782 overall — because the truncation rule was revised. §11.1 classifies on the trigger,
+> and the trigger did not move.
+>
+> **v1 over-truncated.** It truncated on an unmarked-fusion heuristic that v2's own metadata reports
+> as **~97% false positives** (tokenizer splits such as `B2B`, `WinRAR`, `CompTIA`). It cut real
+> words mid-token: `ParkMobile`→`Mobile`, `SoundMagic`→`Sound`, `HoverIntent`→`Intent`,
+> `PowerSeries`→`Series`. v2 truncates **only at a literal `<bos>` inside the window** and keeps the
+> heuristic as a diagnostic flag never used for truncation.
+>
+> **Directional: against the numerator.** Over-truncation thins evidence and thin evidence deflates
+> surface-form — the project's recurring artifact. Concretely, this row's own record set: 9105 was
+> recorded as having *use* in 15 of 16, with rank 10 the exception. It was not an exception —
+> v1 had truncated `PowerSeries` into `Series`, hiding *"**Using** the AC2000 DSC Power**Series**
+> **interface**"*. Under v2 the pattern is **16/16**. The false seam destroyed the evidence that
+> confirmed the reading.
+>
+> **Seam figures below are v2.** The earlier per-row seam counts derived from the discredited
+> heuristic and are withdrawn. `bos_in_window` is the truncating signal; `multi_doc` is the
+> reported-floor packing rate (355/782 = 45.4% file-wide).
 
 Adjudicated **under §11.1 trigger-primacy**. Blind: Rater 1 has not seen Rater 2's calls on these
 rows. Depth 16, array order.
 
-| feature_idx | class | bucket | conf | reason_code | distinct_sources | seams | marker_token | deciding_quote |
+| feature_idx | class | bucket | conf | reason_code | distinct_sources | bos_in_window / multi_doc | marker_token | deciding_quote |
 |---|---|---|---|---|---|---|---|---|
-| 9012 | 4 formatting | **surface-form** | high | — | 16 | 0/16 | `,` ×13, `—`/`–` ×3 — **delimiter punctuation 16/16** | " …residents of Quebec**,** including temporary and undocumented" / "…user data**—**through apps, web browsing" / "…provided support **–** very likely including financial support" |
-| 9105 | 10 indeterminate | denominator only | med | **I-SILENT** | 16 | 2/16 | 11 distinct: *form, links, information, System, website, bar, it, app, interface, used, materials* | Marker is the **complement of *use*** in 14/16 and *use[d]* itself in 2/16: "Please **use** this **form**" / "By **using** the Sterling Service Dogs **website**" / "Taurus can be **used** to start every room" |
-| 11029 | 2 lexical/n-gram — *chemical* | **surface-form** | high | — | 16 | 1/16 | *chemical / Chemical / chemicals / cial* — **16/16** | "protecting **Chemcial** Vapor Deposition (CVD) furnace hot zones" / "if you ask **chemical** engineer Yunfeng Lu" / "a primary feedstock for the **chemical** industry" / "including **chemical** peels, microdermabrasion" |
-| 11149 | 9 discourse-register — promotional/service copy | denominator only | med | — | 16 | 1/16 | **16/16 distinct**: *SEO, gout, ia, window, messages, loan, theatre, shooting, parking, attorney, homes, PC, limousine, railroads, way, orer* | Marker sits on the advertised keyword across unrelated industries: "enhancing local **SEO**" / "a very effective **gout** treatment" / "an immigration **attorney** on your side" / "wood b**orer** fumigation" |
-| 11763 | 9 discourse-register — post-copular superlative assertion | denominator only | med | — | 16 | 1/16 | `the` ×15, `a` ×1 | Determiner opening a predicate nominative after a copula, 16/16: "slips and trips continue to be **the** most common cause" / "tiredness is **the** number one complaint" / "Communication is **the** answer" / "at $10,000 is **the** culprit" |
-| 12403 | 11 topical domain — software/filesystem configuration | semantic | med | — | 16 | 3/16 | 12 distinct; 8/16 path-lexical (`$` ×3, *mkdir, dir, directory, folder* ×2) | "chmod -R g+w **$**REMOTEPATH" / "failed to **mkdir** \"/srv/mediawiki/php-master/images" / "the \"src/assets/stylesheets\" **folder** of your project directory" |
-| 12449 | 11 topical domain — soil/earth | semantic | high | — | 16 | 1/16 | *soil, Soil, clay, Clay, dirt, bed, brown, grading, otechnical, rained* — ~10/16 soil-lexical | "nutritious bio-diverse **soil**, adequate water" / "a Professor of **Soil** Physics" / "**Clay** brick machine is used to produce clay brick" / "the completion of a Ge**otechnical** Study" |
-| 13746 | 10 indeterminate | denominator only | med | **I-AMBIGUOUS** | 16 | 1/16 | 9 distinct; punctuation 11/16 (`,` ×5, `.` ×3, `\n\n`, `(` ×2) | Class 4 (heterogeneous punctuation marker) and class 9 (consumer product-advice register) both survive the marker, different buckets: "picked up the GB Pockit**,**" / "These may be just the right touch**.**" / "**Choose** a head with more shower settings" |
-| 13825 | 2 lexical/n-gram — *job* | **surface-form** | high | — | 16 | 2/16 | *job / Job / JOB / Jobholding* — **16/16** | "**JOB** HUNTING. I'm currently applying for jobs" / "**Job**holding rates declined dramatically for young men" / "according to the **job** site Indeed" / "the **job** is now to win the tournament" |
-| 14719 | 11 topical domain — mechanical/physical components | semantic | med | — | 16 | 2/16 | 14 distinct, mostly function words (*their, have, is, with, are, to, the, has*) | "valves are working themselves against **their** seats" / "The sensor element **is** a ceramic cylinder plated with porous platinum" / "the chain and SRAM cassette **are** a bit louder" / "the **blade** is removable" |
+| 9012 | 4 formatting | **surface-form** | high | — | 16 | 0 / 5 | `,` ×13, `—`/`–` ×3 — **delimiter punctuation 16/16** | " …residents of Quebec**,** including temporary and undocumented" / "…user data**—**through apps, web browsing" / "…provided support **–** very likely including financial support" |
+| 9105 | 10 indeterminate | denominator only | med | **I-SILENT** | 16 | 0 / 9 | 11 distinct: *form, links, information, System, website, bar, it, app, interface, used, materials* | Marker is the **complement of *use*** in 14/16 and *use[d]* itself in 2/16: "Please **use** this **form**" / "By **using** the Sterling Service Dogs **website**" / "Taurus can be **used** to start every room" |
+| 11029 | 2 lexical/n-gram — *chemical* | **surface-form** | high | — | 16 | 1 / 4 | *chemical / Chemical / chemicals / cial* — **16/16** | "protecting **Chemcial** Vapor Deposition (CVD) furnace hot zones" / "if you ask **chemical** engineer Yunfeng Lu" / "a primary feedstock for the **chemical** industry" / "including **chemical** peels, microdermabrasion" |
+| 11149 | 9 discourse-register — promotional/service copy | denominator only | med | — | 16 | 0 / 10 | **16/16 distinct**: *SEO, gout, ia, window, messages, loan, theatre, shooting, parking, attorney, homes, PC, limousine, railroads, way, orer* | Marker sits on the advertised keyword across unrelated industries: "enhancing local **SEO**" / "a very effective **gout** treatment" / "an immigration **attorney** on your side" / "wood b**orer** fumigation" |
+| 11763 | 9 discourse-register — post-copular superlative assertion | denominator only | med | — | 16 | 1 / 3 | `the` ×15, `a` ×1 | Determiner opening a predicate nominative after a copula, 16/16: "slips and trips continue to be **the** most common cause" / "tiredness is **the** number one complaint" / "Communication is **the** answer" / "at $10,000 is **the** culprit" |
+| 12403 | 11 topical domain — software/filesystem configuration | semantic | med | — | 16 | 0 / 4 | 12 distinct; 8/16 path-lexical (`$` ×3, *mkdir, dir, directory, folder* ×2) | "chmod -R g+w **$**REMOTEPATH" / "failed to **mkdir** \"/srv/mediawiki/php-master/images" / "the \"src/assets/stylesheets\" **folder** of your project directory" |
+| 12449 | 11 topical domain — soil/earth | semantic | high | — | 16 | 0 / 9 | *soil, Soil, clay, Clay, dirt, bed, brown, grading, otechnical, rained* — ~10/16 soil-lexical | "nutritious bio-diverse **soil**, adequate water" / "a Professor of **Soil** Physics" / "**Clay** brick machine is used to produce clay brick" / "the completion of a Ge**otechnical** Study" |
+| 13746 | 10 indeterminate | denominator only | med | **I-AMBIGUOUS** | 16 | 1 / 8 | 9 distinct; punctuation 11/16 (`,` ×5, `.` ×3, `\n\n`, `(` ×2) | Class 4 (heterogeneous punctuation marker) and class 9 (consumer product-advice register) both survive the marker, different buckets: "picked up the GB Pockit**,**" / "These may be just the right touch**.**" / "**Choose** a head with more shower settings" |
+| 13825 | 2 lexical/n-gram — *job* | **surface-form** | high | — | 16 | 0 / 9 | *job / Job / JOB / Jobholding* — **16/16** | "**JOB** HUNTING. I'm currently applying for jobs" / "**Job**holding rates declined dramatically for young men" / "according to the **job** site Indeed" / "the **job** is now to win the tournament" |
+| 14719 | 11 topical domain — mechanical/physical components | semantic | med | — | 16 | 0 / 6 | 14 distinct, mostly function words (*their, have, is, with, are, to, the, has*) | "valves are working themselves against **their** seats" / "The sensor element **is** a ceramic cylinder plated with porous platinum" / "the chain and SRAM cassette **are** a bit louder" / "the **blade** is removable" |
 
 ### §12.3 near-misses recorded, not resolved
 
