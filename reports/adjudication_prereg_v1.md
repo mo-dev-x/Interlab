@@ -1,9 +1,9 @@
-# BINDING PRE-REGISTRATION v1.8 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.9 — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.8 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11 AND §12 FIRST.
+> ## ⛔ v1.9 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
 >
 > §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
@@ -12,7 +12,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 this (§12). The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 this (§13). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.8**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.9**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.8)*
+v1.9)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.8)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.8)* — same table shape, separate section, produced independently.
+v1.9)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -796,3 +796,80 @@ document structure fixes only the first:**
    *(Fixes 5094.)*
 3. **Byte-identical evidence packages to both raters**, verified by digest before either begins.
    *(Fixes the 5 asymmetric rows.)*
+
+---
+
+## 13. AMENDMENTS v1.9 — 2026-08-08, pool margin (governs on any conflict with §1–§12)
+
+### 13.1 THE POOL IS EXTENDED FOR CALIBRATION ONLY — THE COMPOSITION DENOMINATOR STAYS AT 40
+
+Adopted from the PM ruling: *margin of one is not an operating point.* A blind that ends the moment
+any single document names a Gemma pool index will not survive on discipline in a project emitting
+amendments, ledgers and correspondence hourly — **one calibration has already been lost to exactly
+this.**
+
+**Verified before adoption, because the obvious implementation would have silently destroyed the
+column.** Extending a seeded `random.sample` is only safe if the existing 40 are a stable *prefix* of
+the longer draw. CPython selects between two algorithms on a `setsize` threshold that **does change**
+across this range (277 at k ≤ 60, 1045 at k ≥ 100). Had the branch flipped, extending the draw would
+have **redrawn the entire adjudicated column.** Measured:
+
+| check | result |
+|---|---|
+| recovered pool (49 raw evidence files − 9 sweep) == `Random(42).sample(range(16384), 40)` | **True** — the pre-registration reproduces from evidence |
+| first 40 of k = 50, 60, 80, 100, 140 == the pre-registered 40 | **True at every k**, across the `setsize` change |
+| extension ∩ existing 40 | **∅** |
+| extension ∩ sweep set | **∅** |
+
+**So the extension is a continuation of the same uniform draw, not a new one — proven, not asserted.**
+
+**Binding, and it is deliberately narrower than the ruling asked for:**
+
+- **Indices 41–140 of the seeded sequence are the `calibration-reserved` pool.** 100 features.
+- **They are NEVER in the composition. The pre-registered denominator remains exactly 40.**
+  Extending the *composition* sample mid-flight, after partial results are visible, would be
+  outcome-switching at the denominator — the precise failure the pre-registration exists to prevent.
+  Restoring margin must not be paid for with the thing the margin protects.
+- **This is strictly better than drawing calibration rows from the composition.** Calibration stops
+  consuming composition rows entirely, agreement is measured on a fresh draw from the identical
+  distribution, and the margin becomes effectively unbounded.
+- **Draw 2 proceeds unchanged** on composition rows 9012, 9105, 11029, 11149, 11763, 12403, 12449,
+  13746, 13825, 14719 — it is already valid and half-complete. **The extension is insurance for
+  draw 3 and after**, which is where the margin of one actually bites.
+- Evidence for reserved features is fetched **on demand**, in seed order, under the §10.0b protocol.
+
+**Directional-bias test (§12.4): NEUTRAL.** No row moves between buckets and the denominator is
+untouched; the extension only supplies rows that are never counted.
+
+### 13.2 THE BARRIER IS MECHANICAL — AND A SCAN ALONE CANNOT REACH WHERE THE LEAK IS
+
+Adopted: *a scan beats an instruction not to write them.* Same reasoning as constructed adjudicator
+packages over appendix placement. **Two mechanisms, because a scan covers only half the surface, and
+the half it misses is the one the PM correctly identified as leakiest.**
+
+**(a) Pre-commit index scan.** A hook scans staged files for any `calibration-reserved` index as a
+standalone token and **fails the commit**, naming the index and the file. Covers every tracked
+document — prereg, methods, ledgers, plans, reports.
+
+**(b) Slot indirection, for correspondence, which no hook can reach.** Correspondence is not in the
+repository, so a pre-commit hook is structurally incapable of covering it — **and correspondence is
+where indices get quoted most casually.** An instruction not to quote them is exactly the
+honour-system control this project has twice ruled void.
+
+> **The fix is to remove the information, not to forbid its use.** Reserved indices live in
+> `reports/calibration_pool_reserved.json`, which **the orchestrator never opens.** Rounds are
+> dispatched by **slot**, not index — *"calibration round 3, slots 21–30"* — and each rater resolves
+> slot → index locally. **An index cannot be leaked into correspondence by someone who does not have
+> it**, which is a control at the layer where the failure lives rather than a rule at the judgment
+> layer. Compliance is verified after the fact from the partitioned rater ledgers at merge time.
+>
+> **An index is spent the moment it enters the merged ledger** — that was already true and is now the
+> single definition of burned. The indirection prevents indices being burned *before* they are used,
+> which is how all 12 of the last batch were lost.
+
+**This is the seventh application of one principle, and it should now be treated as the project's
+default rather than a lesson re-learned per incident:** a rule at the judgment layer cannot protect
+against a failure at the data layer. Label contamination (fetch protocol, not adjudicator
+instruction), the summarizer bypass (curl, not a caution about fabrication), constructed adjudicator
+packages (not an appendix), partitioned ledgers (not "do not read the other rows"), and now slot
+indirection (not "do not quote indices").
