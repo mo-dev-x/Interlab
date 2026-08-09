@@ -280,6 +280,72 @@ Restating Table 2 (Section 2.3) in results-facing terms: all four certified SAEs
 
 ---
 
+### 3.8 The Unifying Result: Four Stages Where an Unstated Choice Moves the Answer More Than the Effect
+
+The sections above report what the cross-model and necessity arms measured. This section reports
+something the arms were not designed to measure and which turned out to matter more: **at four
+independent stages of the standard SAE-interpretability workflow, a choice the analyst makes
+silently moves the reported answer by more than the effect anyone would report from it.**
+
+| stage | the unstated choice | measured consequence |
+|---|---|---|
+| **Selection** — which features you look at | browse vs seeded uniform draw | **2.6×** on the surface-form fraction, on the same SAE |
+| **Classification** — what you call them | how strictly a trigger-primacy rule is applied | **50%** of semantic rows change bucket; the directional question stops resolving |
+| **Judging** — how you score steering | one word in the concept string | **3.7×** on identical generations; the control arm invariant at 1.00 |
+| **Necessity** — how you measure ablation cost | whole-snippet vs active-position ΔNLL | **sign reversal** on feature 500: the control costs more by one measure, the target by the other |
+
+**None of these was found by looking for it.** Each surfaced as an obstacle while trying to answer a
+different question, which is the reason to report them together: a workflow that does not trip over
+them does not thereby avoid them.
+
+**Selection.** An initial sample of 33 features chosen while browsing Neuronpedia gave a surface-form
+fraction of **58%**. A seeded uniform draw of 40 over the same feature space, on the same SAE, gave
+**22.5%**. Browsing is not a neutral way to reach a population: interpretable-looking features are
+easier to notice, and surface-form features look interpretable. The 58% figure is **retired**, and is
+recorded here only as the measurement of the bias — it is not a finding about the SAE and must not be
+quoted as one.
+
+**Classification.** The adjudication protocol classifies a feature on the marked activating token
+rather than the surrounding passage. Tightening or relaxing that rule moves **half the semantic rows**
+into a different bucket. This is the stage with the worst consequence, because it does not merely
+shift the estimate: past a certain strictness the cross-model directional question **stops having an
+answer at all**, since the two defensible tie-breaking rules give bounds that bracket zero. A
+parameter nobody would think to report determines whether there is a result.
+
+**Judging.** Two judge runs over the **identical 104 generations** returned mean concept relevance of
+**9.50 and 2.58** — a 3.7× swing — with the only difference a single word in the judge template's
+target-concept string. The generations did not change; the scoring instrument did. The decisive
+detail is that the **control arm was invariant at 1.00 across both runs**: the sensitivity is real
+and specific to the target arm, not a global rescaling that a ratio would cancel. Reporting a
+steering score without publishing the exact judge string is therefore reporting an underdetermined
+number.
+
+**Necessity.** Feature 500's ablation cost **reverses sign** depending on whether ΔNLL is computed
+over the whole snippet or only at positions where the feature is active. Under one measure the
+matched control costs more to ablate; under the other the target does. Both measures are defensible
+and neither is obviously primary — whole-snippet asks what the ablation does to the text, active-position
+asks what it does where the feature participates — and an analyst who computes one without naming it
+has silently chosen the direction of their own result.
+
+**What survives all four.** Feature 2048 (`date / timestamp components`) is **unanimous at 16/16
+active positions** and survives Bonferroni correction across all eighteen tests. It is reported here
+without emphasis and deliberately so: it is one clear causal result out of nine features examined,
+in a set where the majority of steer-versus-control contrasts fall inside the replicate noise floor.
+The honest reading is that a positive result of this kind is rare and expensive to establish, not
+that the method routinely produces them.
+
+**Why this is the report's principal contribution.** Sections 4.1–4.4 report negative results about
+individual *features* — a concept that has no clean feature, a feature that turned out entangled, a
+transfer that does not occur, a failure mode at high scale. This section reports a negative result
+about the *apparatus*: four points at which the pipeline's output is set by discretion rather than by
+data. A paper reporting only a final number from a workflow of this shape would be reporting a
+quantity whose value was substantially determined before the data was consulted — and would have no
+way of knowing that from inside its own procedure. Section 5.5 describes the governance apparatus
+built in response, which is the same argument applied to the analyst that Interlab applies to
+artifacts.
+
+---
+
 ## 4. Negative Results
 
 ### 4.1 No Poutine Feature Across 16+ Attempts
