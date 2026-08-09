@@ -345,3 +345,72 @@ test. Deferred to the orchestrator by default.
 **Qwen after retrofit: 9 rows resolved (7 classified + 2 parks closed), 0 parked, 31 outstanding.**
 §11.2's tally-void no longer applies to Qwen on parking grounds; the column remains incomplete.
 **Both columns are now marker-informed — the §8 evidence asymmetry is closed.**
+
+---
+
+## 10. QWEN — THE REMAINING 31. COLUMN COMPLETE AT 40
+
+Evidence: `qwen_max_activating_tokens.json` (`b6bf9710a92a1bce…`) over `centred_1164`
+(`72e73f26…`). **Marker-native rows: these 31 were never adjudicated pre-marker, so they carry no
+`pre_marker_class`** — see §10.1. No splice seams (§11.7 inapplicable). 100% document-initial, so
+§4.6 applies throughout in its §14.3-narrowed form. `position_fraction_in_chunk` used exclusively.
+
+| idx | class | bucket | conf | reason | docs | marker evidence |
+|---|---|---|---|---|---|---|
+| 45344 | 2 lexical — *role* | **surface-form** | high | — | 16 | ` role` **16/16**, always "played a pivotal/major/vital/critical role"; sixteen unrelated subjects (staffing, O'Connor, Hull-House, dopamine, Brahms, Star Wars) |
+| 128052 | 2 lexical — Creative Commons licence | **surface-form** | high | — | 7 | ` Commons`×4, ` License`×3, ` license`×3, ` Domain`, `ported` — the fixed phrase across seven unrelated hosts |
+| 145471 | 2 lexical — *Best* in award names | **surface-form** | **low** | — | 5 | `Best`×10; **11 of 16 from one Creative Loafing page** |
+| 117551 | 3 code/identifiers — statutory citations | **surface-form** | med | — | 5 | tokens inside `P.L. 99-457`, `Title 17, Chapter 1`, `Directive 2001/20/EC` |
+| 37230 | 5 named entities — *iPod* | semantic | high | — | 14 | `iPod`/`Pod`/`od` **16/16**, one referent throughout (cf. 9115, where *drum* spanned unrelated referents → class 2) |
+| 73803 | 5 named entities — fighter surnames | semantic | med-high | — | 5 | `son`, `nar`, `aub`, `aggi`, `rage`, ` Johnson`×2, ` Edgar`, ` Nelson` |
+| 89363 | 5 named entities | semantic | med | — | 14 | 13/16 inside proper names: `C**heet**os`, `Gil**well**`, `Wo**bbl**ies`, `M**ino**an`, `POTEM**K**IN`, `W**emble**y`. **Live alternative: rare-word subword continuation (surface-form, bucket-changing), covers 11/16** |
+| 73791 | 7 abstract — competitive defeat | semantic | med | — | 8 | ` beat`×3, ` over`×2, ` defeated`, ` defeating`, ` against`, ` off`, ` vs` |
+| 29908 | 11 topical — human genetics / rare variants | semantic | med | — | 5 | ` rare`×4, ` variants`×3, ` frequency`×2, ` mutations`, ` coding` |
+| 20990 | **12** — clause-initial subordinator | denominator only | high | — | 15 | ` As`×8, `As`×6, ` as`×2 introducing attribution/circumstance; governor = matrix clause; prong 1(b) confirmed in-record |
+| 105490 | **12** — anaphoric demonstrative | denominator only | med-high | — | 16 | ` that`×14, `that`, ` those`; governor = antecedent. **Boundary case: if anaphora confers no governor this becomes class 2 and enters the numerator** |
+| 60751 | 10 indeterminate | denominator only | — | **I-THIN** | 2 | 15/16 from one food-safety page |
+| 90863 | 10 indeterminate | denominator only | — | **I-THIN** | 2 | n_firings = 2 |
+| 134801 | 10 indeterminate | denominator only | — | **I-THIN** | 2 | 15/16 from one BD corporate page |
+| 15095 | 10 indeterminate | denominator only | — | **I-THIN** | 6 | 11/16 from one comment-report widget |
+| 15430 | 10 indeterminate | denominator only | med | I-DIVERSE | 16 | 16 types/16 |
+| 86258 | 10 indeterminate | denominator only | med | I-DIVERSE | 14 | 14 types/16 |
+| 159845 | 10 indeterminate | denominator only | med | I-DIVERSE | 9 | 6/16 from one dictionary page |
+| 120545 | 10 indeterminate | denominator only | med | I-DIVERSE | 16 | 16 types/16 |
+| 124705 | 10 indeterminate | denominator only | med | I-DIVERSE | 15 | 16 types/16 |
+| 128788 | 10 indeterminate | denominator only | med | I-DIVERSE | 16 | 14 types/16 |
+| 84087 | 10 indeterminate | denominator only | med | I-DIVERSE | 12 | 16 types/16 |
+| 137584 | 10 indeterminate | denominator only | med | I-DIVERSE | 12 | programming reading covers ~7/16 |
+| 81977 | 10 indeterminate | denominator only | med | I-DIVERSE | 15 | 14 types/16 |
+| 151841 | 10 indeterminate | denominator only | med | I-DIVERSE | 14 | 14 types/16 |
+| 65931 | 10 indeterminate | denominator only | med | I-DIVERSE | 12 | **highest-firing feature in the column: 15,318 firings, 99.3rd pctile, no pattern** |
+| 72648 | 10 indeterminate | denominator only | med | I-DIVERSE | 14 | 16 types/16 |
+| 10455 | 10 indeterminate | denominator only | med | I-DIVERSE | 15 | 16 types/16 |
+| 140622 | 10 indeterminate | denominator only | med | I-DIVERSE | 16 | 16 types/16 |
+| 135599 | 10 indeterminate | denominator only | med | I-DIVERSE | 13 | 15 types/16 |
+| 103491 | 10 indeterminate | denominator only | med | I-DIVERSE | 14 | 16 types/16 |
+
+### 10.1 MARKER-NATIVE ROWS — a second hole of the §14.1 shape
+
+These 31 rows have **no `pre_marker_class`**, because they were never adjudicated without markers.
+§11.1's conservative tally resets rows whose class moved toward the numerator on marker access; a
+marker-native row cannot move, so it enters the conservative tally unreset by construction.
+
+This is structurally identical to the parked-row gap §14.1 closed, and it is **larger**: 31 rows
+versus 2. Of the 9 pre-marker Qwen rows, exactly one moved numerator-ward (14081, from a park).
+Whether that rate should be imputed to the 31 marker-native rows, or whether the conservative tally
+simply cannot bound this column, is **not decided by Rater 1.**
+
+### 10.2 SUPPORT CONCENTRATION IS THE QWEN COLUMN'S LIMITING DEFECT
+
+Five rows are `I-THIN`, four of them with **one document supplying 11–15 of 16 records**
+(60751, 134801, 15095, plus 70945 from the earlier batch). Two more classified rows rest on heavily
+concentrated support (145471 at 11/16 single-document, 117551 at 10/16).
+
+Gemma shows nothing comparable: its records come from a packed stream and spread across documents
+by construction. **Matched depth (16/16) did not deliver matched support.** This is an unmatched
+axis between the columns, discovered after the depth ruling, and it is directional — thin support
+pushes rows to `indeterminate`, which deflates the surface-form count.
+
+**QWEN COLUMN COMPLETE: 40 of 40 rows carry a class. Zero parked. Both columns closed.**
+
+**Tally not computed here**, per the standing bar on Rater 1 seeing either composition.
