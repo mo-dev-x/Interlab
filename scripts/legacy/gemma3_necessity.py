@@ -653,6 +653,44 @@ ACTIVE_NONTARGET_MAX_SHARE = 0.5
 # lower-bound proxy on the true two-sided-eligible population).
 ACTIVE_NONTARGET_STRENGTH_BAND = (0.8, 1.25)
 
+# Pre-registered in code, not judged at analysis time (binding rule from
+# this task): under two-sided eligibility, a feature with fewer than this
+# many snippets retaining a non-empty eligible set is not a null result
+# and not a weak effect -- it is a fact about the SAE's own activation
+# structure at the declared band (some target features may simply have
+# few or no other features landing within the band on their own
+# top-activating text). Distinguished as its own status,
+# UNMEASURABLE_AT_THIS_BAND, so a downstream reader never has to infer it
+# from a suspiciously small n. Do not widen ACTIVE_NONTARGET_STRENGTH_BAND
+# if features fall out under it -- that is the finding, not a reason to
+# retune the band after seeing it.
+ACTIVE_NONTARGET_MIN_MEASURABLE_N = 10
+
+
+def _assert_strength_band_applied(
+    requested_band: tuple[float, float] | None, realised_band, *, context: str
+) -> None:
+    """A requested parameter that a call site silently drops is a hard
+    failure, never a silent fallback to a default -- commit 1b88777 added
+    strength_band as an optional parameter that NOTHING actually passed;
+    the job would have run to completion, exited 0, and produced the
+    one-sided design under the label of the two-sided run, indistinguishable
+    in the output from having worked. This compares the REQUESTED band
+    (whatever --strength-band resolved to) against the REALISED band
+    pick_matched_strength_active_nontarget actually used for THIS call
+    (returned in its own result, never inferred or assumed from the
+    request) and raises immediately on any mismatch -- called at every
+    call site, on every record, not a spot check."""
+    requested_norm = tuple(requested_band) if requested_band is not None else None
+    realised_norm = tuple(realised_band) if realised_band is not None else None
+    if requested_norm != realised_norm:
+        raise RuntimeError(
+            f"strength_band wiring FAILED at {context}: requested {requested_norm}, but the "
+            f"selection call actually realised {realised_norm}. A requested parameter that a call "
+            f"site drops is a hard failure -- refusing to proceed rather than run the wrong "
+            f"configuration under the requested one's label."
+        )
+
 
 def pick_matched_strength_active_nontarget(
     feat_acts, target_idx: int, *, strength_fraction: float, rng_seed: int,
@@ -735,6 +773,7 @@ def verify_active_nontarget_control_diversity(
     model, sae, own_text_matrix: list[dict[str, Any]], *,
     strength_fraction: float = ACTIVE_NONTARGET_STRENGTH_FRACTION,
     max_share: float = ACTIVE_NONTARGET_MAX_SHARE,
+    strength_band: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Run once, right after the module-identity/equivalence gates and
     before the main fan-out. REPLACES the prior cardinality check
@@ -768,7 +807,12 @@ def verify_active_nontarget_control_diversity(
         selection_seed = derive_seed("active_nontarget_selection", target_idx, snippet_index)
         _, _, feat_acts = _baseline_pass(model, sae, snippet, baseline_seed)
         pick = pick_matched_strength_active_nontarget(
-            feat_acts, target_idx, strength_fraction=strength_fraction, rng_seed=selection_seed
+            feat_acts, target_idx, strength_fraction=strength_fraction, rng_seed=selection_seed,
+            strength_band=strength_band,
+        )
+        _assert_strength_band_applied(
+            strength_band, pick["strength_band_declared"],
+            context=f"verify_active_nontarget_control_diversity(feature={target_idx}, snippet_index={snippet_index})",
         )
         picks.append({"target_feature_idx": target_idx, "snippet_index": snippet_index, **pick})
 
@@ -788,7 +832,9 @@ def verify_active_nontarget_control_diversity(
         "n_probes": len(picks),
         "n_eligible": n_eligible_total,
         "n_ineligible": len(ineligible_picks),
-        "strength_fraction_declared": strength_fraction,
+        "mode": "two_sided_band" if strength_band is not None else "one_sided_floor",
+        "strength_fraction_declared": strength_fraction if strength_band is None else None,
+        "strength_band_requested": list(strength_band) if strength_band is not None else None,
         "max_share_declared": max_share,
         "chosen_index_distribution": distribution,
         "n_unique_indices": len(distribution),
@@ -801,8 +847,10 @@ def verify_active_nontarget_control_diversity(
         report["passed"] = False
         raise RuntimeError(
             f"active_nontarget_control diversity gate FAILED: every probe snippet had an empty "
-            f"eligible set at strength_fraction={strength_fraction} -- no selection was possible "
-            f"at all. Stop and escalate; do not loosen the threshold after seeing this."
+            f"eligible set under mode={report['mode']} "
+            f"(strength_band={strength_band}, strength_fraction={strength_fraction}) -- no "
+            f"selection was possible at all. Stop and escalate; do not loosen the threshold after "
+            f"seeing this."
         )
     if max_share_observed > max_share:
         report["passed"] = False
@@ -822,14 +870,27 @@ def verify_active_nontarget_control_diversity(
     return report
 
 
-def measure_own_text_cell(model, sae, *, feature: dict[str, Any], snippet_index: int, snippet: str, control_feature_idx: int, checkpoint_hash: str) -> dict[str, Any]:
+def measure_own_text_cell(
+    model, sae, *, feature: dict[str, Any], snippet_index: int, snippet: str,
+    control_feature_idx: int, checkpoint_hash: str,
+    strength_band: tuple[float, float] | None = None,
+) -> dict[str, Any]:
     """Target necessity + two checks, all on F's own top-activating
     snippet (pre-reg section 3-4): cross_feature and within_feature are
     instrument-specificity checks (see INSTRUMENT_SPECIFICITY_NOTE --
     both are guaranteed to read 0.0 here, by construction, and are not
     scientific controls); active_nontarget_control is the falsifiable
     comparator (see ACTIVE_NONTARGET_CONTROL_NOTE) that actually has the
-    capacity to fail."""
+    capacity to fail.
+
+    strength_band MUST be the identical value passed to
+    verify_active_nontarget_control_diversity for this run (main() is
+    responsible for that; both come from the same --strength-band CLI
+    resolution) -- _assert_strength_band_applied raises immediately if
+    this call site's realised selection doesn't match what was requested,
+    rather than silently measuring under a different configuration than
+    the one the gate already certified (commit 1b88777's defect: this
+    parameter existed but nothing forwarded it from here)."""
     target_idx = feature["idx"]
     seed = derive_seed("own_text", target_idx, snippet_index)
 
@@ -841,7 +902,12 @@ def measure_own_text_cell(model, sae, *, feature: dict[str, Any], snippet_index:
     # exactly the selection the gate already reported, not a fresh draw.
     selection_seed = derive_seed("active_nontarget_selection", target_idx, snippet_index)
     pick = pick_matched_strength_active_nontarget(
-        feat_acts, target_idx, strength_fraction=ACTIVE_NONTARGET_STRENGTH_FRACTION, rng_seed=selection_seed
+        feat_acts, target_idx, strength_fraction=ACTIVE_NONTARGET_STRENGTH_FRACTION, rng_seed=selection_seed,
+        strength_band=strength_band,
+    )
+    _assert_strength_band_applied(
+        strength_band, pick["strength_band_declared"],
+        context=f"measure_own_text_cell(feature={target_idx}, snippet_index={snippet_index})",
     )
 
     nll_target = _ablated_pass_nll(model, sae, tokens, target_idx, seed, checkpoint_hash)
@@ -884,6 +950,12 @@ def measure_own_text_cell(model, sae, *, feature: dict[str, Any], snippet_index:
         "active_nontarget_control_eligible": pick["eligible"],
         "active_nontarget_control_n_eligible": pick["n_eligible"],
         "active_nontarget_control_strength_fraction_declared": pick["strength_fraction_declared"],
+        # REALISED configuration, not the requested one -- had this field
+        # existed on job 400342, it would have shown null (one-sided mode)
+        # even if --strength-band had been passed, and the wiring defect
+        # would have been visible in the output instead of requiring a
+        # source read.
+        "active_nontarget_control_strength_band_declared": pick["strength_band_declared"],
         "active_nontarget_control_target_max_activation_on_max_activating_text": pick["target_max_activation"],
         "active_nontarget_control_rng_seed": pick["rng_seed"],
         "active_nontarget_control_idx": pick["chosen_idx"],
@@ -973,6 +1045,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--out-dir", default=str(DEFAULT_OUT_DIR))
     p.add_argument("--dry-run", action="store_true", help="CPU-free: construct the full job matrix and write stub records, no model/SAE load")
     p.add_argument("--control-rng-seed", type=int, default=1337)
+    p.add_argument(
+        "--strength-band", type=str, default=None,
+        help="Two comma-separated floats 'lo,hi' for TWO-SIDED active_nontarget_control "
+        "eligibility (e.g. '0.8,1.25'). Default: one-sided (>= ACTIVE_NONTARGET_STRENGTH_FRACTION), "
+        "matching job 400342. Wired identically into the diversity gate and the measurement loop -- "
+        "a call site that fails to apply this is a hard failure (RuntimeError), never a silent "
+        "fallback to the one-sided default (commit 1b88777 added this parameter to the selection "
+        "function but wired it into neither call site; the job would have run to completion under "
+        "the one-sided design labelled as the two-sided run, indistinguishable in the output)."
+    )
     p.add_argument("--device", default="cuda")
     p.add_argument("--dtype", default="bfloat16")
     p.add_argument("--restart", action="store_true", help="Discard any existing necessity_records.jsonl and regenerate from scratch")
@@ -983,6 +1065,19 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    strength_band: tuple[float, float] | None = None
+    if args.strength_band:
+        parts = args.strength_band.split(",")
+        if len(parts) != 2:
+            raise ValueError(f"--strength-band must be 'lo,hi' (e.g. '0.8,1.25'), got {args.strength_band!r}")
+        strength_band = (float(parts[0]), float(parts[1]))
+    print(
+        f"active_nontarget_control mode requested: "
+        f"{'two_sided_band ' + str(strength_band) if strength_band is not None else 'one_sided_floor (fraction=' + str(ACTIVE_NONTARGET_STRENGTH_FRACTION) + ')'} "
+        f"-- wired into both the diversity gate and the measurement loop; a mismatch between them "
+        f"is a hard failure, not a silent default."
+    )
 
     prereg_bytes = PREREG_PATH.read_bytes()
     prereg_sha = hashlib.sha256(prereg_bytes).hexdigest()
@@ -1054,7 +1149,7 @@ def main(argv: list[str] | None = None) -> int:
         # it (job 400287). Stop-and-escalate on failure, same as the two
         # gates above -- this one raises before a single own-text record
         # is written, not after all of them are.
-        diversity_report = verify_active_nontarget_control_diversity(model, sae, own_text_matrix)
+        diversity_report = verify_active_nontarget_control_diversity(model, sae, own_text_matrix, strength_band=strength_band)
 
         (out_dir / "necessity_module_identity_report.json").write_text(
             json.dumps(
@@ -1094,7 +1189,8 @@ def main(argv: list[str] | None = None) -> int:
                        "mean_delta_nll_cross_feature_control_on_max_activating_text_at_active_positions": None,
                        "active_nontarget_control_eligible": None,
                        "active_nontarget_control_n_eligible": None,
-                       "active_nontarget_control_strength_fraction_declared": ACTIVE_NONTARGET_STRENGTH_FRACTION,
+                       "active_nontarget_control_strength_fraction_declared": ACTIVE_NONTARGET_STRENGTH_FRACTION if strength_band is None else None,
+                       "active_nontarget_control_strength_band_declared": list(strength_band) if strength_band is not None else None,
                        "active_nontarget_control_target_max_activation_on_max_activating_text": None,
                        "active_nontarget_control_rng_seed": None,
                        "active_nontarget_control_idx": None,
@@ -1110,6 +1206,7 @@ def main(argv: list[str] | None = None) -> int:
             payload = measure_own_text_cell(
                 model, sae, feature=cell["feature"], snippet_index=cell["snippet_index"], snippet=cell["snippet"],
                 control_feature_idx=control_feature_idx, checkpoint_hash=checkpoint_hash,
+                strength_band=strength_band,
             )
             payload["generated"] = True
 
@@ -1134,6 +1231,8 @@ def main(argv: list[str] | None = None) -> int:
     # own-text record present (freshly written this run AND resumed from
     # a prior run alike), not just what this invocation itself wrote.
     full_distribution: dict[Any, int] = {}
+    per_feature_eligible: dict[int, int] = {f["idx"]: 0 for f in features}
+    per_feature_total: dict[int, int] = {f["idx"]: 0 for f in features}
     if records_path.exists():
         with records_path.open("r", encoding="utf-8") as f:
             for line in f:
@@ -1147,9 +1246,43 @@ def main(argv: list[str] | None = None) -> int:
                 if rec.get("cell_type") == "own_text":
                     idx = rec.get("active_nontarget_control_idx")
                     full_distribution[idx] = full_distribution.get(idx, 0) + 1
+                    fidx = rec.get("feature_idx")
+                    if fidx in per_feature_total:
+                        per_feature_total[fidx] += 1
+                        if rec.get("active_nontarget_control_eligible"):
+                            per_feature_eligible[fidx] += 1
     print(f"active_nontarget_control_idx distribution across all {sum(full_distribution.values())} own-text record(s): {full_distribution}")
+
+    # Pre-registered in code (ACTIVE_NONTARGET_MIN_MEASURABLE_N), not
+    # judged at analysis time: a feature with too few eligible snippets is
+    # a fact about the SAE's activation structure at this band, not a
+    # null and not a weak effect -- distinguished as its own status so a
+    # downstream reader never has to infer it from a suspiciously small n.
+    per_feature_measurability: dict[str, Any] = {}
+    for fidx, n_elig in per_feature_eligible.items():
+        status = "MEASURABLE" if n_elig >= ACTIVE_NONTARGET_MIN_MEASURABLE_N else "UNMEASURABLE_AT_THIS_BAND"
+        per_feature_measurability[str(fidx)] = {
+            "n_eligible": n_elig,
+            "n_total": per_feature_total[fidx],
+            "min_measurable_n_declared": ACTIVE_NONTARGET_MIN_MEASURABLE_N,
+            "status": status,
+        }
+    print(
+        f"active_nontarget_control per-feature measurability "
+        f"(mode={'two_sided_band ' + str(strength_band) if strength_band is not None else 'one_sided_floor'}): "
+        f"{json.dumps(per_feature_measurability, indent=2)}"
+    )
+
     (out_dir / "active_nontarget_control_distribution.json").write_text(
-        json.dumps({"chosen_index_distribution": full_distribution, "n_unique_indices": len(full_distribution)}, indent=2),
+        json.dumps(
+            {
+                "strength_band_applied": list(strength_band) if strength_band is not None else None,
+                "chosen_index_distribution": full_distribution,
+                "n_unique_indices": len(full_distribution),
+                "per_feature_measurability": per_feature_measurability,
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
 
