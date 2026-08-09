@@ -85,10 +85,13 @@ scientific control -- a check that cannot fail is not a control, and
 prereg section 8's two conditions collapse to testing the same thing here
 for the same reason. See INSTRUMENT_SPECIFICITY_NOTE. A third,
 falsifiable comparator is added on own-text cells only:
-active_nontarget_control ablates the single highest-activating
-NON-target feature on that same snippet (picked deterministically per
-snippet, not a fixed feature -- see ACTIVE_NONTARGET_CONTROL_NOTE), so
-the target's delta-NLL has an actual "cost of removing some arbitrary
+active_nontarget_control ablates a feature sampled uniformly at random,
+per snippet, from non-target features matched in activation STRENGTH to
+the target on that same snippet (not a fixed feature, and NOT the single
+highest-activating one -- two prior selection mechanisms tried exactly
+that and both were degenerate on real data, see
+pick_matched_strength_active_nontarget and ACTIVE_NONTARGET_CONTROL_NOTE),
+so the target's delta-NLL has an actual "cost of removing some arbitrary
 active direction" to be judged against. Old real records (job 399619,
 committed at 15704da) predate this field and must be regenerated with
 --restart -- resume-by-cell-key would otherwise skip them and leave the
@@ -230,22 +233,34 @@ INSTRUMENT_SPECIFICITY_NOTE = (
 
 # The falsifiable comparator prereg section 8 actually needs: how much
 # does removing an ARBITRARY ACTIVE direction cost, on this same snippet,
-# versus removing the target? Picked deterministically per snippet (the
-# single highest-activating non-target feature anywhere in the snippet,
-# via argmax over the already-computed feat_acts from _baseline_pass --
-# no extra forward pass, no hand-picking, reproducible from the recorded
-# index alone) rather than drawn from a fixed RNG like the cross-feature
-# check, because a single fixed feature would not be guaranteed active on
-# every one of the 9 features' own top-16 snippets, and an inactive
-# "active" control would just be the same no-op as the checks above.
+# versus removing the target? TWO prior selection mechanisms were both
+# determined before any weight loaded and both failed on real data: raw
+# argmax over the full sequence selected the <bos> attention-sink feature
+# every time (job 400287); excluding <bos> alone still selected for a
+# feature's intrinsic activation SCALE rather than its relevance, so one
+# large-typical-magnitude feature won on 142/144 real records regardless
+# of target or content. Matched-strength random selection (see
+# pick_matched_strength_active_nontarget) fixes both: sample UNIFORMLY AT
+# RANDOM, seeded per record, from non-target features whose own max
+# activation (excluding <bos>) on this snippet is within a pre-declared
+# fraction of the target's own max on the SAME snippet -- matching the
+# strength variable the checks above are NOT testing, varying the
+# identity variable that is. If no feature qualifies, the cell is marked
+# ineligible and skipped, never falling back to argmax.
 ACTIVE_NONTARGET_CONTROL_NOTE = (
-    "active_nontarget_control ablates the single highest-activating non-target feature on "
-    "this same snippet (picked deterministically per snippet via argmax over feat_acts, "
-    "excluding the target feature index -- reproducible from active_nontarget_control_idx "
-    "alone, not hand-chosen), unlike cross_feature_control's single fixed feature shared "
-    "across all snippets. This is the comparator with the capacity to fail: it measures the "
-    "cost of removing an arbitrary ACTIVE direction on the same text, so the target's "
-    "delta-NLL has a scale to be judged against."
+    "active_nontarget_control ablates a feature sampled uniformly at random (seeded per "
+    "record) from non-target features whose own max activation on this same snippet "
+    "(excluding the <bos> position) is within a pre-declared fraction of the target's own "
+    "max activation on the same snippet -- reproducible from (active_nontarget_control_rng_seed, "
+    "active_nontarget_control_idx) alone, never hand-chosen -- unlike cross_feature_control's "
+    "single fixed feature shared across all snippets. This matches the comparator on activation "
+    "strength (not under test) and varies it on feature identity (under test), which is what "
+    "'an arbitrary active direction' requires; the raw most-active feature is the extreme of the "
+    "activation distribution, not a draw from it, and is not used here. If no feature qualifies, "
+    "the cell is recorded as ineligible and the ablation is skipped -- never a fallback to "
+    "argmax. This is the comparator with the capacity to fail: it measures the cost of removing "
+    "an arbitrary active direction on the same text, so the target's delta-NLL has a scale to be "
+    "judged against."
 )
 
 DEFAULT_OUT_DIR = REPO_ROOT / "results" / "gemma3_necessity"
@@ -599,29 +614,57 @@ def _ablated_pass_nll(model, sae, tokens, feature_idx: int, seed: int, checkpoin
     return model.loss_fn(logits, tokens, per_token=True)
 
 
-def _pick_active_nontarget_feature_idx(feat_acts, target_idx: int) -> tuple[int, float]:
-    """Deterministic per-snippet pick: the single feature (excluding
-    target_idx) with the highest activation anywhere in this snippet
-    EXCLUDING position 0, via argmax over feat_acts[0, 1:] (shape
-    [seq_len-1, d_sae]) after masking out the target column. Reproducible
-    from the recorded index alone, not hand-chosen -- no RNG involved,
-    since "highest-activating" is already a deterministic function of
-    this snippet's own feat_acts (ties broken by argmax's own
-    deterministic first-index convention).
+# Declared BEFORE any run against real data, per instruction -- neither
+# threshold is adjusted after seeing a distribution.
+#
+# STRENGTH_FRACTION: an eligible non-target feature's own max activation
+# (excluding <bos>) must be at least this fraction of the target's own
+# max activation on the SAME snippet, and genuinely active (> 0). This
+# matches the control on the variable not under test (activation
+# strength) and varies it on the variable under test (feature identity) --
+# what "an arbitrary active direction" literally requires. 0.5 is
+# proposed as "same order of magnitude as the target," loose enough that
+# most snippets have a non-empty eligible set, tight enough to exclude
+# the long tail of near-zero-activation features an unconstrained draw
+# would mostly land on.
+ACTIVE_NONTARGET_STRENGTH_FRACTION = 0.5
 
-    Position 0 (<bos>) is excluded because job 400287 found it is an
-    attention-sink position with anomalously large activation on a FIXED
-    feature (180) regardless of input content -- an unguarded argmax over
-    the full sequence selected feature 180, bit-identically, on all 144
-    real records. Ablating a content-independent sink direction is a
-    maximally damaging ablation, not a per-snippet "arbitrary active
-    direction" comparator; it sets an artificially high bar the target
-    features would almost never clear, which would have misread as
-    "necessity not demonstrated" when the real finding was "the
-    comparator was wrong." verify_active_nontarget_control_diversity
-    (below) checks position 0 was not the only degenerate position rather
-    than assuming this fix is sufficient. See ACTIVE_NONTARGET_CONTROL_NOTE
-    for why this comparator exists instead of a single fixed feature."""
+# MAX_SHARE: no single feature index may account for more than this share
+# of a real selection sample, or the diversity gate raises. This REPLACES
+# a cardinality check (len(set(idx)) > 1), which job 400287's successor
+# defect showed is not a diversity check: 142-identical-of-144 selections
+# is 2 unique values, satisfying cardinality > 1 while being exactly the
+# failure the gate exists to catch. 0.5 -- "no single feature is a
+# majority of the sample" -- is declared here, before any real
+# distribution exists to fit it to.
+ACTIVE_NONTARGET_MAX_SHARE = 0.5
+
+
+def pick_matched_strength_active_nontarget(feat_acts, target_idx: int, *, strength_fraction: float, rng_seed: int) -> dict[str, Any]:
+    """Third fix to this comparator's selection mechanism. First fix
+    excluded <bos> (job 400287: an attention-sink position with
+    anomalously large activation on a fixed feature regardless of input,
+    selected bit-identically on every record). That alone was not
+    sufficient: raw-activation argmax over the remaining positions still
+    selects for a feature's intrinsic activation SCALE, not its relevance
+    to this snippet -- one large-typical-magnitude feature won on
+    142/144 real records regardless of target or snippet content, and
+    "the most-active feature" is the extreme of the activation
+    distribution, not a draw from it, which was never what "an arbitrary
+    active direction" meant.
+
+    Matched-strength random selection instead: excludes <bos> (unchanged
+    from the prior fix), computes the target's own max activation on this
+    snippet, builds the ELIGIBLE set of non-target features whose own max
+    activation on this snippet is >= strength_fraction * target_max AND
+    genuinely active (> 0), then samples UNIFORMLY AT RANDOM from that
+    eligible set -- seeded per record (rng_seed) so the draw is
+    reproducible from (rng_seed, chosen index) alone, never hand-chosen.
+    If the eligible set is empty, returns eligible=False; the caller
+    records that explicitly and skips the ablation for this cell --
+    it never falls back to argmax, which is how the second defect
+    happened."""
+    import numpy as np
     import torch
 
     acts = feat_acts[0, 1:, :]  # exclude position 0 (<bos> attention sink -- job 400287)
@@ -631,83 +674,121 @@ def _pick_active_nontarget_feature_idx(feat_acts, target_idx: int) -> tuple[int,
             "-- cannot proceed with a single-token (BOS-only) snippet."
         )
     per_feature_max = acts.max(dim=0).values.clone()
-    per_feature_max[target_idx] = float("-inf")
-    idx = int(per_feature_max.argmax().item())
-    return idx, float(per_feature_max[idx].item())
+    target_max = float(per_feature_max[target_idx].item())
+    per_feature_max[target_idx] = float("-inf")  # exclude the target itself from eligibility
+
+    threshold = strength_fraction * target_max
+    eligible_mask = (per_feature_max >= threshold) & (per_feature_max > 0.0)
+    eligible_idxs = torch.nonzero(eligible_mask, as_tuple=True)[0]
+    n_eligible = int(eligible_idxs.numel())
+
+    result: dict[str, Any] = {
+        "target_max_activation": target_max,
+        "strength_fraction_declared": strength_fraction,
+        "n_eligible": n_eligible,
+        "rng_seed": rng_seed,
+    }
+    if n_eligible == 0:
+        result.update({"eligible": False, "chosen_idx": None, "chosen_activation": None, "strength_match_ratio": None})
+        return result
+
+    rng = np.random.default_rng(rng_seed)
+    chosen_pos = int(rng.integers(0, n_eligible))
+    chosen_idx = int(eligible_idxs[chosen_pos].item())
+    chosen_activation = float(per_feature_max[chosen_idx].item())
+    ratio = (chosen_activation / target_max) if target_max > 0 else None
+    result.update({"eligible": True, "chosen_idx": chosen_idx, "chosen_activation": chosen_activation, "strength_match_ratio": ratio})
+    return result
 
 
-def verify_active_nontarget_control_diversity(model, sae, features: list[dict[str, Any]], snippets_by_feature: dict[int, list[str]]) -> dict[str, Any]:
+def verify_active_nontarget_control_diversity(
+    model, sae, own_text_matrix: list[dict[str, Any]], *,
+    strength_fraction: float = ACTIVE_NONTARGET_STRENGTH_FRACTION,
+    max_share: float = ACTIVE_NONTARGET_MAX_SHARE,
+) -> dict[str, Any]:
     """Run once, right after the module-identity/equivalence gates and
-    before the main fan-out -- binding beyond this script, per instruction:
-    ANY control whose selection is supposed to vary per input must be
-    shown to actually vary before the expensive loop runs on it, not
-    discovered degenerate after the fact by a human reading the output.
-    Job 400287 ran to completion on all 144 real records (deltas ranging
-    0.046 to 0.863 -- plausible-looking variation) before Engineer 1 caught
-    that the SAME feature (180, the <bos> sink) was selected every time;
-    "the numbers came out different" is not verification that a control
-    varies with the thing it is supposed to vary with, since only each
-    snippet's interaction with that one fixed feature differed, not the
-    selection itself.
+    before the main fan-out. REPLACES the prior cardinality check
+    (len(set(idx)) > 1) -- that check is satisfied by 142-identical-of-144
+    (2 unique values), which is exactly the failure it was written to
+    guard against: a cardinality check is not a diversity check. This
+    gate instead asserts no single chosen index exceeds max_share of a
+    REAL selection sample.
 
-    Probes one snippet per feature (9 snippets -- the cheapest sample that
-    exercises every feature's own text) and asserts BOTH that the chosen
-    feature index is not constant across all 9, AND that the raw
-    activation value used to pick it is not bit-identical across all 9
-    (the second half of job 400287's exact symptom -- a constant index
-    with a constant activation is possible even if the first check alone
-    passed on a different fixed sink position). Raises loudly on failure.
-    Always returns and prints the full chosen-index distribution, whether
-    it passes or fails, and whatever the diversity level -- a low but
-    non-trivial spread (say, 2 of 9 snippets sharing one index) is not a
-    clean pass to be reported as one; the distribution is the evidence,
-    not the pass/fail boolean alone."""
-    picks: list[tuple[int, int, float]] = []  # (feature_idx, chosen_idx, activation)
-    for feature in features:
-        target_idx = feature["idx"]
-        snippet = snippets_by_feature[target_idx][0]
-        seed = derive_seed("active_nontarget_diversity_probe", target_idx)
-        _, _, feat_acts = _baseline_pass(model, sae, snippet, seed)
-        chosen_idx, activation = _pick_active_nontarget_feature_idx(feat_acts, target_idx)
-        picks.append((target_idx, chosen_idx, activation))
+    Runs the actual selection (pick_matched_strength_active_nontarget) on
+    EVERY (feature, snippet) pair in own_text_matrix -- the full real
+    population this run will measure, not a small subsample -- using
+    baseline-pass-only forward passes (no ablation), so this is cheap
+    relative to the measurement loop's 3-ablation-passes-per-record cost,
+    but the resulting distribution IS the real one, not a proxy for it.
+    measure_own_text_cell (below) re-derives the identical selection later
+    using the identical seed -- deterministic given the seed, so the real
+    run's distribution matches what this gate reports exactly, not
+    approximately.
+
+    Binding rule from this task: any gate whose verdict is a boolean must
+    also emit the evidence the verdict was computed from. Always returns
+    and prints the full chosen-index distribution and the
+    eligible/ineligible split, whether it passes or fails."""
+    picks: list[dict[str, Any]] = []
+    for cell in own_text_matrix:
+        target_idx = cell["feature"]["idx"]
+        snippet_index = cell["snippet_index"]
+        snippet = cell["snippet"]
+        baseline_seed = derive_seed("own_text", target_idx, snippet_index)
+        selection_seed = derive_seed("active_nontarget_selection", target_idx, snippet_index)
+        _, _, feat_acts = _baseline_pass(model, sae, snippet, baseline_seed)
+        pick = pick_matched_strength_active_nontarget(
+            feat_acts, target_idx, strength_fraction=strength_fraction, rng_seed=selection_seed
+        )
+        picks.append({"target_feature_idx": target_idx, "snippet_index": snippet_index, **pick})
+
+    eligible_picks = [p for p in picks if p["eligible"]]
+    ineligible_picks = [p for p in picks if not p["eligible"]]
 
     distribution: dict[int, int] = {}
-    for _, chosen_idx, _ in picks:
-        distribution[chosen_idx] = distribution.get(chosen_idx, 0) + 1
+    for p in eligible_picks:
+        distribution[p["chosen_idx"]] = distribution.get(p["chosen_idx"], 0) + 1
 
-    unique_idxs = {p[1] for p in picks}
-    unique_activations = {p[2] for p in picks}
+    n_eligible_total = len(eligible_picks)
+    max_count = max(distribution.values()) if distribution else 0
+    max_share_observed = (max_count / n_eligible_total) if n_eligible_total > 0 else None
+    dominant_idx = max(distribution, key=distribution.get) if distribution else None
 
     report = {
         "n_probes": len(picks),
-        "picks": [{"probed_feature_idx": f, "chosen_idx": c, "activation": a} for f, c, a in picks],
+        "n_eligible": n_eligible_total,
+        "n_ineligible": len(ineligible_picks),
+        "strength_fraction_declared": strength_fraction,
+        "max_share_declared": max_share,
         "chosen_index_distribution": distribution,
-        "n_unique_indices": len(unique_idxs),
-        "n_unique_activations": len(unique_activations),
+        "n_unique_indices": len(distribution),
+        "dominant_idx": dominant_idx,
+        "max_share_observed": max_share_observed,
     }
-    print(f"active_nontarget_control diversity probe:\n{json.dumps(report, indent=2)}")
+    print(f"active_nontarget_control diversity gate (full real population):\n{json.dumps(report, indent=2)}")
 
-    if len(unique_idxs) <= 1:
+    if n_eligible_total == 0:
         report["passed"] = False
         raise RuntimeError(
-            f"active_nontarget_control diversity gate FAILED: the same feature index "
-            f"({picks[0][1]}) was selected on all {len(picks)} probe snippets -- this is "
-            f"exactly the job-400287 degenerate-selection symptom (a fixed, input-independent "
-            f"feature, not a per-snippet 'arbitrary active direction'). Distribution: "
-            f"{distribution}. Stop and escalate; do not proceed with a comparator shown not "
-            f"to vary with input."
+            f"active_nontarget_control diversity gate FAILED: every probe snippet had an empty "
+            f"eligible set at strength_fraction={strength_fraction} -- no selection was possible "
+            f"at all. Stop and escalate; do not loosen the threshold after seeing this."
         )
-    if len(unique_activations) <= 1:
+    if max_share_observed > max_share:
         report["passed"] = False
         raise RuntimeError(
-            f"active_nontarget_control diversity gate FAILED: the selected activation value "
-            f"is bit-identical ({picks[0][2]}) across all {len(picks)} probe snippets even "
-            f"though the chosen index varies -- the second half of the job-400287 symptom. "
-            f"Stop and escalate."
+            f"active_nontarget_control diversity gate FAILED: feature {dominant_idx} accounts for "
+            f"{max_count}/{n_eligible_total} ({max_share_observed:.1%}) of eligible selections, "
+            f"exceeding the declared max share {max_share:.1%}. Distribution: {distribution}. "
+            f"Stop and escalate; do not proceed with a comparator dominated by one feature."
         )
 
     report["passed"] = True
-    print(f"active_nontarget_control diversity gate PASSED (n_unique_indices={len(unique_idxs)}/{len(picks)})")
+    print(
+        f"active_nontarget_control diversity gate PASSED "
+        f"(n_unique_indices={len(distribution)}, max_share_observed={max_share_observed:.1%} <= "
+        f"{max_share:.1%} declared, n_ineligible={len(ineligible_picks)}/{len(picks)})"
+    )
     return report
 
 
@@ -724,18 +805,36 @@ def measure_own_text_cell(model, sae, *, feature: dict[str, Any], snippet_index:
 
     tokens, nll_baseline, feat_acts = _baseline_pass(model, sae, snippet, seed)
     active_mask = (feat_acts[..., target_idx] > 0)[:, :-1]  # align to per_token loss: position i predicts token i+1
-    active_nontarget_idx, active_nontarget_activation = _pick_active_nontarget_feature_idx(feat_acts, target_idx)
+
+    # Identical seed derivation to verify_active_nontarget_control_diversity's
+    # pre-flight pass -- deterministic given the seed, so this reproduces
+    # exactly the selection the gate already reported, not a fresh draw.
+    selection_seed = derive_seed("active_nontarget_selection", target_idx, snippet_index)
+    pick = pick_matched_strength_active_nontarget(
+        feat_acts, target_idx, strength_fraction=ACTIVE_NONTARGET_STRENGTH_FRACTION, rng_seed=selection_seed
+    )
 
     nll_target = _ablated_pass_nll(model, sae, tokens, target_idx, seed, checkpoint_hash)
     nll_control = _ablated_pass_nll(model, sae, tokens, control_feature_idx, seed, checkpoint_hash)
-    nll_active_nontarget = _ablated_pass_nll(model, sae, tokens, active_nontarget_idx, seed, checkpoint_hash)
 
     delta_target = (nll_target - nll_baseline)[0]
     delta_control = (nll_control - nll_baseline)[0]
-    delta_active_nontarget = (nll_active_nontarget - nll_baseline)[0]
     mask = active_mask[0]
     n_active = int(mask.sum().item())
     n_total = int(mask.shape[0])
+
+    # Never falls back to argmax when ineligible (job 400287's second
+    # defect) -- an empty eligible set is recorded explicitly and the
+    # ablation is skipped for this cell; the target/cross-feature halves
+    # above are unaffected and still reported.
+    if pick["eligible"]:
+        nll_active_nontarget = _ablated_pass_nll(model, sae, tokens, pick["chosen_idx"], seed, checkpoint_hash)
+        delta_active_nontarget = (nll_active_nontarget - nll_baseline)[0]
+        mean_delta_active_nontarget = delta_active_nontarget.mean().item()
+        mean_delta_active_nontarget_active_pos = delta_active_nontarget[mask].mean().item() if n_active > 0 else None
+    else:
+        mean_delta_active_nontarget = None
+        mean_delta_active_nontarget_active_pos = None
 
     return {
         "cell_type": "own_text",
@@ -752,10 +851,16 @@ def measure_own_text_cell(model, sae, *, feature: dict[str, Any], snippet_index:
         "cross_feature_control_idx": control_feature_idx,
         "mean_delta_nll_cross_feature_control_on_max_activating_text": delta_control.mean().item(),
         "mean_delta_nll_cross_feature_control_on_max_activating_text_at_active_positions": delta_control[mask].mean().item() if n_active > 0 else None,
-        "active_nontarget_control_idx": active_nontarget_idx,
-        "active_nontarget_control_activation_on_max_activating_text": active_nontarget_activation,
-        "mean_delta_nll_active_nontarget_control_on_max_activating_text": delta_active_nontarget.mean().item(),
-        "mean_delta_nll_active_nontarget_control_on_max_activating_text_at_active_positions": delta_active_nontarget[mask].mean().item() if n_active > 0 else None,
+        "active_nontarget_control_eligible": pick["eligible"],
+        "active_nontarget_control_n_eligible": pick["n_eligible"],
+        "active_nontarget_control_strength_fraction_declared": pick["strength_fraction_declared"],
+        "active_nontarget_control_target_max_activation_on_max_activating_text": pick["target_max_activation"],
+        "active_nontarget_control_rng_seed": pick["rng_seed"],
+        "active_nontarget_control_idx": pick["chosen_idx"],
+        "active_nontarget_control_activation_on_max_activating_text": pick["chosen_activation"],
+        "active_nontarget_control_strength_match_ratio": pick["strength_match_ratio"],
+        "mean_delta_nll_active_nontarget_control_on_max_activating_text": mean_delta_active_nontarget,
+        "mean_delta_nll_active_nontarget_control_on_max_activating_text_at_active_positions": mean_delta_active_nontarget_active_pos,
         "construct_note": CONSTRUCT_NOTE,
         "falsification_conditions": FALSIFICATION_CONDITIONS,
         "instrument_specificity_note": INSTRUMENT_SPECIFICITY_NOTE,
@@ -919,7 +1024,7 @@ def main(argv: list[str] | None = None) -> int:
         # it (job 400287). Stop-and-escalate on failure, same as the two
         # gates above -- this one raises before a single own-text record
         # is written, not after all of them are.
-        diversity_report = verify_active_nontarget_control_diversity(model, sae, features, snippets_by_feature)
+        diversity_report = verify_active_nontarget_control_diversity(model, sae, own_text_matrix)
 
         (out_dir / "necessity_module_identity_report.json").write_text(
             json.dumps(
@@ -957,8 +1062,14 @@ def main(argv: list[str] | None = None) -> int:
                        "cross_feature_control_idx": control_feature_idx,
                        "mean_delta_nll_cross_feature_control_on_max_activating_text": None,
                        "mean_delta_nll_cross_feature_control_on_max_activating_text_at_active_positions": None,
+                       "active_nontarget_control_eligible": None,
+                       "active_nontarget_control_n_eligible": None,
+                       "active_nontarget_control_strength_fraction_declared": ACTIVE_NONTARGET_STRENGTH_FRACTION,
+                       "active_nontarget_control_target_max_activation_on_max_activating_text": None,
+                       "active_nontarget_control_rng_seed": None,
                        "active_nontarget_control_idx": None,
                        "active_nontarget_control_activation_on_max_activating_text": None,
+                       "active_nontarget_control_strength_match_ratio": None,
                        "mean_delta_nll_active_nontarget_control_on_max_activating_text": None,
                        "mean_delta_nll_active_nontarget_control_on_max_activating_text_at_active_positions": None,
                        "construct_note": CONSTRUCT_NOTE, "falsification_conditions": FALSIFICATION_CONDITIONS,
