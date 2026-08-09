@@ -14,19 +14,20 @@ which remain the primary record for their own items.
 > different expansion ratios, different training provenances, and different relative depths — that
 > converge on the same qualitative finding: a skew toward surface-form feature detectors.**
 
-**This is not a controlled comparison and is not presented as one.** At **seven** unmatched axes the
+**This is not a controlled comparison and is not presented as one.** At **six** unmatched axes the
 honest framing is convergent evidence from independent setups, which is a recognised and often
 strong form of inference, and it is the stronger argument available from these facts. The
-alternative framing — "a controlled comparison with seven confounds" — describes the same data and
+alternative framing — "a controlled comparison with six confounds" — describes the same data and
 sounds damaged.
 
 > *Corrected 2026-08-08.* This paragraph said **five** twice while §0.1's own table listed **six**
 > and §4.10 was titled "a sixth unmatched axis" — the count was understated in the most-read
-> paragraph in the document, which is the one place it cannot be. The **seventh** is
-> **distinct-source support at matched depth** (§4.11, added the same day): at depth 16 Qwen carries
-> a mean of 11.23 distinct documents (exact) against Gemma's ≈15.53 (proxy; Gemma supplies no
-> document identifier, so no exact figure exists). **A reviewer who counts table rows must
-> arrive at the same number as a reader who reads the prose.**
+> paragraph in the document, which is the one place it cannot be. **A reviewer who counts table
+> rows must arrive at the same number as a reader who reads the prose.**
+> *(A seventh — distinct-source support — was added and then **demoted the same day**: see §4.11.
+> The count is **six**. The demotion is recorded rather than silently reverted, because a number
+> that moved 5 → 6 → 7 → 6 in one day is itself evidence about how carefully this document needs
+> reading.)*
 
 **Existence and direction only. Never magnitude.** The expansion gap (32× vs ~4.2×) is a plausible
 alternative explanation for the *size* of any skew — a narrower dictionary has less capacity and
@@ -442,7 +443,44 @@ mastheads and boilerplate while Gemma evidence often does not. That tilts Qwen t
 and title-flavoured readings — **class 4, in the numerator** — for purely instrumental reasons.
 Disclosed, not fixed; the opening-line rule (§4.6) is the mitigation.
 
-### 4.11 Distinct-source support is a seventh unmatched axis — matched counts did not match support
+### 4.11 Distinct-source support — DEMOTED from an unmatched axis to a Qwen-column caveat
+
+> ### ⚠ DEMOTED 2026-08-08, second correction to this section on the same day, same root cause.
+>
+> This section was twice built on a **records-versus-documents** confusion. The first version set
+> Qwen's exact document count against Gemma's mean **record** count (15.65 — a figure both columns
+> share by construction). The replacement set it against a **text-clustering proxy**, and that proxy
+> fails the same way one level down:
+>
+> - **It is censored at its ceiling.** **35 of 40** Gemma features return the maximum possible value
+>   of 16. *A measure that returns its maximum in 87.5% of cases is not resolving variation — it is
+>   failing to detect duplication.* Qwen's exact `doc_id` measure spans 2–16 with mass throughout and
+>   only 8 of 40 at ceiling. **These are not two measurements of one quantity with different noise;
+>   they have different dynamic ranges.**
+> - **It counts the wrong unit.** **355 of 782** Gemma records pack more than one document, so a
+>   single record window contributes **one** cluster but **two or more** documents. **Gemma's true
+>   distinct-document count is therefore unbounded above 16, while Qwen's cannot exceed it.** The
+>   ceiling is not even the right bound.
+> - **It is not a bound in either direction.** Two opposing biases operate at once: clustering misses
+>   duplicates drawn from distant parts of one long document (**over**counts distinct sources), while
+>   packing merges separate documents into one window (**under**counts them). Neither dominates
+>   demonstrably, so the proxy is **not** an upper bound, as previously stated, and not a lower one.
+> - **The proxy detects essentially zero genuine document-collapse in the Gemma column**, where Qwen
+>   has three features whose 16 records collapse to 2. Either Neuronpedia's sampling almost never
+>   repeats a document, or the proxy cannot see it when it does. **The data cannot distinguish those,
+>   and the first is not claimed.**
+>
+> **Ruling: this is no longer an unmatched axis. The count returns to six.** A cross-model comparison
+> requires both sides measured; **the Gemma side is unmeasurable with the available data** —
+> Neuronpedia returns `dataIndex: null` on all 626 records and supplies no document identifier at
+> all. What survives is an **exact, within-column property of the Qwen evidence**, recorded below.
+>
+> **This axis's direction was *conservative for the claim*** — thinner Qwen support deflates Qwen's
+> numerator, so a skew found anyway would be stronger evidence. **Withdrawing it therefore costs a
+> rhetorical point and no result**, which is exactly why the conservative disposition is cheap here
+> and should be taken. **Twice wrong on one axis in one day argues for taking it.**
+
+**What survives — an exact Qwen-column support caveat, not a comparison.**
 
 Found 2026-08-08 by asking the mirror question about degenerate repetition — *if Gemma repeats
 snippets, does Qwen?* — on an axis **neither column had measured.**
