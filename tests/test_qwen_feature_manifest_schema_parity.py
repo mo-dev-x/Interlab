@@ -9,6 +9,7 @@ different name. That is the whole point of the firing_rate->density,
 max_activation->maxActApprox, top_examples->snippets mapping: achieving
 parity in field NAMES, not just in field meaning.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -160,6 +161,47 @@ def test_adapter_features_exactly_equal_manifest_features():
 
     manifest_rejected_idxs = {r["idx"] for r in qwen_manifest["rejected_features"]}
     assert qwen_tool_adapter.REJECTED_FEATURE_IDXS == manifest_rejected_idxs
+
+
+def test_adapter_import_does_not_require_untracked_characterize_lite_files(monkeypatch, tmp_path):
+    """The actual guard: results/characterize_lite/rwu04lpb{,_taxonomy40}/
+    characterize_lite.json are UNTRACKED (.gitignore:19 excludes results/,
+    and unlike the tracked feature_manifest.json these two were never
+    force-added). A prior version of qwen_tool_adapter.py called
+    build_qwen_feature_manifest.build_manifest() -- which reads both of
+    those files -- at MODULE IMPORT time. On any machine without them (a
+    fresh clone, a Space, quite possibly the cluster), importing the
+    adapter raised before the tool could even report a missing manifest.
+    The existing set-equality test above passes on this machine only
+    because the untracked files happen to be present here; it would not
+    have caught this.
+
+    Simulated by pointing both characterize_lite paths at files that do
+    not exist and forcing a fresh import of qwen_tool_adapter: if anything
+    on the import path still calls build_manifest(), this raises
+    FileNotFoundError instead of importing cleanly.
+    """
+    # Read the tracked manifest directly, BEFORE patching, as the ground
+    # truth to compare the fresh import against -- not via build_manifest()
+    # (that would hit the now-patched, nonexistent paths too).
+    tracked_manifest_path = qwen_build.OUT_DIR / qwen_build.MANIFEST_FILENAME
+    tracked_idxs = {f["idx"] for f in json.loads(tracked_manifest_path.read_text(encoding="utf-8"))["features"]}
+
+    nonexistent = tmp_path / "does_not_exist.json"
+    monkeypatch.setattr(qwen_build, "TIER1_CHARACTERIZE_LITE_PATH", nonexistent)
+    monkeypatch.setattr(qwen_build, "TIER2_CHARACTERIZE_LITE_PATH", nonexistent)
+
+    original_module = sys.modules.get("qwen_tool_adapter")
+    sys.modules.pop("qwen_tool_adapter", None)
+    try:
+        import qwen_tool_adapter as fresh_adapter  # re-executes module-level code under the patch
+        assert len(fresh_adapter.FEATURES) == 12
+        assert {f["idx"] for f in fresh_adapter.FEATURES} == tracked_idxs
+    finally:
+        if original_module is not None:
+            sys.modules["qwen_tool_adapter"] = original_module
+        else:
+            sys.modules.pop("qwen_tool_adapter", None)
 
 
 def test_resolved_control_index_is_in_neither_adapter_nor_manifest_features():

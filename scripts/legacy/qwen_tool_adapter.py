@@ -15,18 +15,27 @@ SAE, k=100, d_sae=163840, layer 28 of Qwen/Qwen2.5-14B-Instruct,
 hook blocks.28.hook_resid_post. Do not confuse with the superseded
 9odeg5hb/pile-10k checkpoint (see gemma3_sweep.py's own correction note).
 
-FEATURES/OPTIONAL_FEATURES/REJECTED_FEATURE_IDXS below are IMPORTED from
-build_qwen_feature_manifest.py, not redefined here. That module was
-previously a second, disjoint 9-feature manifest at a different path
-(results/qwen_sweep/) while this adapter carried its own separate
-3-feature FEATURES constant -- resolve_control_feature_idx (gemma3_tool.py)
-builds its exclusion set from THIS module's FEATURES, so the two could
-diverge silently: all 9 of the other manifest's features were eligible to
-be drawn as "the random control" despite the tool's own header claiming
-the control uses "the same exclusion set the D2.1 sweep uses". Importing
-rather than duplicating makes that claim true by construction instead of
-by convention -- see tests/test_qwen_feature_manifest_schema_parity.py's
-adapter/manifest set-equality assertion, which is the actual guard.
+FEATURES/OPTIONAL_FEATURES/REJECTED_FEATURE_IDXS below are derived from the
+TRACKED manifest at results/qwen_tool/feature_manifest.json, read at import
+time -- NOT from calling build_qwen_feature_manifest.build_manifest(),
+which reads two UNTRACKED characterize_lite.json files (.gitignore:19
+excludes results/; those two were never force-added, unlike the manifest
+itself). An earlier version of this file called build_manifest() directly
+at module scope: it worked on this machine because those files happen to
+be present here, and would raise ModuleNotFoundError-adjacent ImportError
+on any fresh clone, Space, or cluster checkout that only has the tracked
+manifest -- the artifact that would have prevented the crash, unread.
+Same defect class as the Gemma manifest fix earlier this week, one layer
+deeper: an ignore rule silently excluding something a downstream consumer
+requires.
+
+This also matches Gemma's own pattern exactly: gemma3_sweep.py's tool
+contract consumes a pre-staged manifest file and never regenerates one at
+runtime. build_qwen_feature_manifest.py remains the REGENERATOR -- run it
+directly (`python scripts/legacy/build_qwen_feature_manifest.py`) or call
+write_feature_manifest() below -- but nothing on the import path calls it.
+The exclusion set and the manifest a human reads now come from the same
+bytes on disk, not two derivations that happen to agree today.
 """
 
 from __future__ import annotations
@@ -42,6 +51,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import build_qwen_feature_manifest as _manifest_builder  # noqa: E402
 
+# Cheap, no file I/O: these are plain literals on the builder module, not a
+# build_manifest() call.
 DEFAULT_OUT_DIR = _manifest_builder.OUT_DIR
 FEATURE_MANIFEST_FILENAME = _manifest_builder.MANIFEST_FILENAME
 
@@ -56,26 +67,31 @@ L0_VARIANT = _manifest_builder.L0_VARIANT
 
 MAX_ACT_APPROX_CAVEAT = _manifest_builder.MAX_ACT_APPROX_CAVEAT
 
-# Single source of truth: the merged manifest build_qwen_feature_manifest.py
-# produces (tier 1: 3 concept-validated features, tier 2: 9 taxonomy-derived
-# + 1 optional). FEATURES here IS that manifest's own "features" list (12
-# entries, tier 1 first) -- not a copy, the same values, so the two cannot
-# drift apart the way the old 3-vs-9 split did.
-_MANIFEST: dict[str, Any] = _manifest_builder.build_manifest()
+
+def load_feature_manifest(path: Path) -> dict[str, Any]:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Qwen feature manifest not found at {path}; regenerate it deliberately (requires "
+            "the untracked characterize_lite.json inputs, unlike loading the tracked manifest "
+            "itself): python scripts/legacy/build_qwen_feature_manifest.py"
+        )
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+# Import-time read of the TRACKED manifest only -- see module docstring.
+# This is the one line that must never become build_qwen_feature_manifest.build_manifest().
+_MANIFEST: dict[str, Any] = load_feature_manifest(DEFAULT_OUT_DIR / FEATURE_MANIFEST_FILENAME)
 FEATURES: list[dict[str, Any]] = _MANIFEST["features"]
 OPTIONAL_FEATURES: list[dict[str, Any]] = [_MANIFEST["optional_feature"]]
 REJECTED_FEATURE_IDXS: frozenset[int] = frozenset(r["idx"] for r in _MANIFEST["rejected_features"])
 
 
 # ---------------------------------------------------------------------------
-# Feature manifest -- same open schema as gemma3_sweep.py's, pre-staged once
-# and read by gemma3_tool.py via load_feature_manifest(), never derived at
-# tool-startup time. Written from _MANIFEST directly (build_qwen_feature_
-# manifest.build_manifest()'s own output) rather than reconstructed from
-# FEATURES here -- FEATURES already IS a slice of that same manifest, so
-# rebuilding it a second, slightly-different way (as the old
-# build_feature_manifest_records did, dropping every field but a handful)
-# is exactly the kind of divergence this file now exists to prevent.
+# Regeneration -- deliberate only, never on import. Rebuilds from the
+# untracked characterize_lite.json inputs via build_qwen_feature_manifest
+# and overwrites the tracked manifest. Run this after the underlying
+# characterize_lite data changes; nothing else in this file calls it.
 # ---------------------------------------------------------------------------
 
 
@@ -83,24 +99,11 @@ def write_feature_manifest(out_dir: Path, *, include_optional: bool = False) -> 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / FEATURE_MANIFEST_FILENAME
-    payload = dict(_MANIFEST)
+    payload = _manifest_builder.build_manifest()
     if not include_optional:
         payload = {**payload, "optional_feature": None}
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
-
-
-def load_feature_manifest(path: Path) -> dict[str, Any]:
-    path = Path(path)
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Qwen feature manifest not found at {path}; run this once to pre-stage it: "
-            "python -c \"from pathlib import Path; import importlib.util as u; "
-            "spec = u.spec_from_file_location('qwen_tool_adapter', "
-            "'scripts/legacy/qwen_tool_adapter.py'); m = u.module_from_spec(spec); "
-            "spec.loader.exec_module(m); m.write_feature_manifest(Path('results/qwen_tool'))\""
-        )
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
