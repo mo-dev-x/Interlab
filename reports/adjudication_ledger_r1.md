@@ -247,7 +247,16 @@ either column was opened.
 | idx | pre_marker_class | pre_marker_bucket | post-marker class | bucket | conf | marker evidence | reset? |
 |---|---|---|---|---|---|---|---|
 | 14622 | 11 film/cinema | semantic | **5 named entities — titles of works** | semantic | high | terminal token of a title, **16/16**: `Silver Lin**ings**`, `The Desc**endants**` ×2, `Sky**fall**` ×4, `Lin**coln**` ×2, `Up In The **Air**`, `The Fault in Our **Stars**`, `Good Night, And Good **Luck**`, `Vicky **Cristina** Barcelona` ×2, `Michael **Clayton**`. cpos 0.04–0.74 | no — bucket unchanged |
-| 126804 | 2 lexical — *revise* | surface-form | **2 confirmed** | surface-form | high | `REV**ISED**` ×2, ` revised` ×8, `**ise**` ×2, `**vised**`, ` revision`, ` revise` — **16/16**. cpos 0.01–0.95 | n/a |
+| 126804 | 2 lexical — *revise* | surface-form | **2 confirmed** | surface-form | high | `REV**ISED**` ×2, ` revised` **×9**, `**ise**` ×2, `**vised**`, ` revision`, ` revise` — **16/16**. cpos 0.01–0.95. *(Corrected from ×8: Rater 1 transcription error, verified against the file; class unaffected.)* | n/a |
+
+> ⚠ **QWEN MARKER FILE RE-CUT AND NOT AUDITABLE.** `qwen_max_activating_tokens.json` was re-cut from
+> `60e920aa3485fb19…` to `b6bf9710a92a1bce37089f9ff69663dc951c7e97eab974428ca190a01ccdb3f6`. Unlike the
+> Gemma file, **this one is untracked in git**, so the superseded version is unrecoverable and no
+> byte-level diff is possible. Verification fell back to comparing recorded marker distributions:
+> **14622, 14081 and 33008 match exactly**; 126804's single discrepancy resolved as a Rater 1
+> transcription error. That is reasonable assurance, **not** the proof obtained for Gemma.
+> **Recommendation: commit the marker files.** The Gemma re-cut was fully auditable because its file
+> was tracked; this one is not, for no reason other than that nobody added it.
 | 107244 | 10 indeterminate | denominator only | **5 named entities — titles/name-strings** | **semantic** | med | title-internal token, **12/16**: `Let Us **Be** on Our Way`, `Repelling an Attack **With** the Heart`, `Critical Choices that **Change** Lives`, `Don't **Believe** a Word`, `Right **Off** the Bat`, `The Phillie Phanatic **Goes** Hollywood`. cpos 0.07–0.95 | no — not numerator-ward |
 | 71905 | 10 indeterminate | denominator only | **10 confirmed · I-DIVERSE** | denominator only | med | 15 distinct types/16; boilerplate reading covers 4/16; max act 8.88 | n/a |
 | 70945 | 10 indeterminate | denominator only | **10 confirmed · I-THIN** | denominator only | med | support still **2 documents** (4239 ×12, 2916 ×4); markers vary but nothing is falsifiable at n=2 | n/a |
