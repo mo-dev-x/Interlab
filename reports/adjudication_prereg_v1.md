@@ -1,9 +1,9 @@
-# BINDING PRE-REGISTRATION v1.15 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.16 — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.15 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
+> ## ⛔ v1.16 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
 >
 > §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
@@ -12,7 +12,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 → v1.14 → v1.15 this (§15). The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 → v1.14 → v1.15 → v1.16 this (§16). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.15**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.16**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.15)*
+v1.16)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.15)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.15)* — same table shape, separate section, produced independently.
+v1.16)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -1338,3 +1338,69 @@ Qwen's surface-form count — so a skew found on that column despite the concent
 evidence, not weaker. **Numerator rows resting on concentrated support are listed individually in the
 write-up**, on the same principle that listed Gemma's unauditable numerator rows: where the claim is
 strongest, the evidence base must be shown, not summarised.
+
+---
+
+## 16. AMENDMENTS v1.16 — the composition is NOT computed yet, and why
+
+Both columns closed at 40/40 with zero parked rows, so §12.2's preconditions are met and the
+composition became computable. **It was attempted and the result is withheld.**
+
+### 16.1 THE LEDGERS ARE PROSE, AND A PROSE TALLY IS AN UNVALIDATED INSTRUMENT
+
+The two rater partitions carry their rows in markdown tables whose **column layout differs by
+section** — some place the class second, some after a pre-marker column, some interpose a
+disposition. §11.4 specified a fixed schema; the sections drifted from it as rulings added fields.
+
+**Two successive parses of the same two files returned two different Gemma compositions.** That is
+disqualifying on its own terms: **a number whose instrument has not been validated is not a number**,
+and publishing one here would repeat precisely the failure this document has ruled against four times
+today — the degenerate control that varied plausibly, the diversity gate that tested cardinality, the
+proxy censored at its ceiling, the seam rate measured with the wrong detector.
+
+> **Binding: no composition, no rate and no §14.2 result is computed from prose tables.** Each rater
+> emits their own rows in a **canonical machine-readable form** — one record per feature, fixed
+> fields, no free text in any field the tally reads. The raters emit their own partitions only, so
+> the blind is unaffected. **The merge and tally instrument is built by an engineer, with tests,
+> against a synthetic ledger of known composition** — and it must **refuse to proceed** on a
+> duplicate feature, a feature outside the pool, a missing feature, or an unparseable field, rather
+> than tallying what it can read.
+
+### 16.2 WHOSE CALL ENTERS THE COMPOSITION — UNDEFINED UNTIL NOW, AND IT IS WHAT MOVED THE NUMBERS
+
+The instability had a substantive cause, not only a formatting one. **Ten Gemma rows carry calls from
+both raters** — the calibration overlap — and **nothing in §11.6, §12.1 or anywhere else says whose
+call the composition uses.** A merge that lets file order decide silently swaps ten of forty rows.
+
+> **Ruling: the column has one adjudicator of record. Rater 1 adjudicated all 40 rows in both
+> columns, so the composition is rater 1's calls throughout. Rater 2's ten are a second independent
+> pass whose sole purpose is measuring reliability, and they never enter a tally.**
+>
+> This is the standard design — a single-rater measurement with a measured reliability — and the
+> alternative would be worse in a specific way: **letting the second rater's calls override on the
+> overlap would make the composition partly a function of which rows happened to be drawn for
+> calibration**, which is a selection effect introduced by the reliability arm into the thing it was
+> meant to check.
+>
+> **Directional-bias test (§12.4): NEUTRAL, and it is neutral only because it was decided before
+> either set of calls was tallied.** Had it been settled after seeing both, it would have been a
+> choice between two compositions with the answer visible — which is outcome-switching at the
+> row level, the fourth level at which this pre-registration guards against it.
+
+### 16.3 WHAT IS ALREADY KNOWN WITHOUT A TALLY
+
+Stated so the delay is not mistaken for an absence of results:
+
+- **Both columns are complete at 40/40 with zero parked rows.** §11.2's tally-void no longer applies
+  to either column on parking grounds — the first time in this study that has been true.
+- **The causal arm is largely null on two independent instruments.** The dose sweep is complete at
+  1736/1736 cells: 35 of 54 dose-cells reportable after the saturation gate, contrasts spanning
+  −0.047 to +0.090 against a pooled replicate noise floor of 0.0624, **all but one inside the floor**,
+  and the single exception unadjusted for multiplicity. The necessity arm's comparator has been
+  degenerate three times over and is on its fourth design.
+- **Three scheme gaps were found by adjudication** and are reported as a count, not absorbed into
+  `indeterminate`: two closed by class 12, one (`degraded/misspelled text`) still uncovered.
+- **Seven instrument failure modes** characterised, plus a detector false negative in the governance
+  tooling that was silent for its entire live window.
+
+**None of these depends on a tally, and none is weakened by withholding one.**
