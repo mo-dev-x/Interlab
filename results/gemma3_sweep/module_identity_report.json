@@ -1,0 +1,33 @@
+{
+  "module_identity": {
+    "hook_name": "blocks.31.hook_resid_post",
+    "module_path": "blocks.31.hook_resid_post",
+    "hooked_tensor_shape": [
+      1,
+      11,
+      3840
+    ],
+    "n_layers": 48,
+    "d_model": 3840,
+    "passed": true
+  },
+  "raw_hf_equivalence": {
+    "prompt": "Tell me about your day.",
+    "seed": 2025623193,
+    "cosine_similarity": 1.000009298324585,
+    "relative_l2_error": 0.001077396096661687,
+    "cosine_min_declared": 0.999,
+    "rel_l2_max_declared": 0.01,
+    "passed": true
+  },
+  "gpu_memory_at_gate": {
+    "allocated_bytes": 29810932736,
+    "max_allocated_bytes": 53641001472,
+    "reserved_bytes": 54117007360
+  },
+  "gpu_memory_after_hf_model_free": {
+    "allocated_bytes": 29810932736,
+    "max_allocated_bytes": 53641001472,
+    "reserved_bytes": 30058479616
+  }
+}
