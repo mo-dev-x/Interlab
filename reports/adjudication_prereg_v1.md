@@ -1,9 +1,9 @@
-# BINDING PRE-REGISTRATION v1.11 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.12 — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.11 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
+> ## ⛔ v1.12 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
 >
 > §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
@@ -12,7 +12,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 this (§13.5–13.7). The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 this (§13.8). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.11**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.12**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.11)*
+v1.12)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.11)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.11)* — same table shape, separate section, produced independently.
+v1.12)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -1047,3 +1047,80 @@ surface-form; conservative tally `indeterminate`.**
 sixteen other high tokens in its own record, so there is no position to name.** Naming one would be
 supplying structure the evidence does not contain. **Prong 2 requires a position that exists, not a
 description that fits.**
+
+### 13.8 THE BARRIER GAINS A PATH SCAN, `.py` PROSE, AND AN UNTRACKED FETCH PATH
+
+Three additions, two of them raised by the engineer who built the barrier rather than requested.
+
+**(a) Path scan — APPROVED, and it closes a gap §13.1 created.** §13.1 says reserved evidence is
+*"fetched on demand, in seed order, under the §10.0b protocol"* — and the established convention for
+that protocol is one file per feature named by index (`gemma_neuronpedia_raw/<idx>.json`). **So the
+moment reserved evidence lands, the index becomes a bare tracked filename** — the least deniable leak
+form there is, and **structurally invisible to any content scan however broadly scoped, because a
+path is not content.** The scan has zero false-positive surface (paths are not prose, so the
+generated-text collision cannot recur). Raised unprompted and correctly.
+
+**(b) `.py` prose — INCLUDE.** Docstrings and comments carry load-bearing engineering prose that a
+rater or the PI reads exactly as they read a governance document; the surface is identical in kind to
+what `.md` protects. The false-positive incident was driven by **generated** text at volume; `.py` is
+human-authored and low-volume, so the collision rate that broke the unscoped scan does not apply.
+Feature constants already in scripts hold composition-40 and sweep indices, which are spent and pass
+by construction — **a reserved index could only appear in a script by being hardcoded, which is
+precisely what should be blocked.**
+
+**(c) Reserved evidence is fetched to an UNTRACKED path — amends §10.0b.** Approved, and it is the
+better of the two mechanisms rather than a supplement to it.
+
+> Reserved-pool evidence lands in a **gitignored** directory with no `.md` negation, mirroring
+> `calibration_pool_reserved.json`. It is **hash-bound in `VERIFICATION_LOG.md` and never tracked**
+> — the R6-V5B precedent already holds that for a gitignored artifact the SHA-256 *is* the durable
+> identity, so nothing is lost. Evidence may be promoted into the tracked tree **only after its index
+> is spent** (§13.2: spent = present in the merged ledger).
+>
+> **This converts the control from detecting the leak to making it impossible**, which is the same
+> layer-of-the-failure move as constructed adjudicator packages, partitioned ledgers and slot
+> indirection. The path scan stays as the backstop for the case where someone bypasses the
+> convention — a detector behind a structural guarantee, not instead of one.
+
+**On the incident itself.** The unscoped scan blocked a legitimate commit of a completed 1736-record
+sweep on ordinary numbers inside model-generated prose — a first-person age, a year in a history
+essay, a street number. The engineer **stopped and asked rather than using `--no-verify`**, which is
+the behaviour the barrier exists to produce and the reason this cost minutes. **`--no-verify` was
+refused**: it disables every hook including the `commit-msg` check, and a scan that yields to *"an
+engineer inspected it and judged it fine"* is the honour system restored under another name. **The
+defect was scope, not sensitivity** — reserved values collide with years, prices and street numbers
+in any natural-language corpus, so **collision is intrinsic and no regex fixes it.**
+
+### 13.9 THE BARRIER CAUGHT THE ORCHESTRATOR, WITHIN MINUTES OF §13.8 BEING WRITTEN
+
+**The first commit of §13.8 was blocked by the hook §13.8 authorises, on indices this document had
+just quoted.** Four reserved indices had been written into §13.8's own prose as examples of why
+collision is intrinsic — **an illustration of the rule, committed as a violation of it** — and three
+more appeared via the incident examples relayed from the engineer, which turn out to be reserved
+values rather than the innocent numbers everyone (including me) took them for.
+
+**How I had the indices at all, given §13.2 says the orchestrator never opens the reserved file.**
+I never opened it. **I printed them myself.** Verifying §13.1's prefix-stability claim required
+running the seeded draw, and that verification printed two dozen reserved indices into my own working
+context. **The check performed to make the pool safe is what compromised it.** The engineer's
+generator does the same job correctly — asserts, then prints slot counts and a file path, never an
+index, with an exact-stdout test rather than a substring scan. Mine printed the array.
+
+> **Binding: any verification touching the reserved pool returns a BOOLEAN, never the values.**
+> A verification that must expose what it protects is not a verification, and "I will look but not
+> remember" is the honour system with an extra step. `--no-verify` was **not** used here either;
+> refusing it for an engineer and taking it for myself would have ended the control on the spot.
+
+**A second defect, and this one is in the pool rather than the hook.** Some reserved values are small
+integers that occur in ordinary governance prose — counts of files, section numbers, quantities — so
+`.md` scoping does **not** remove collision on the documents the barrier most needs to cover. Six
+such collisions in one pre-existing ledger paragraph, all legitimate prose predating the pool. **This
+is the cry-wolf condition that the engineer predicted twice and that has now arrived three times; a
+barrier that blocks true prose will be disabled, and a disabled barrier is worse than none.**
+
+> **Binding: the reserved pool excludes indices below 1000; replacements are drawn by continuing the
+> same seeded sequence.** **This filter is content-blind** — SAE dictionary position is arbitrary
+> with respect to what a feature detects, so filtering on the magnitude of the index cannot correlate
+> with any property of the feature. It is declared here rather than left implicit, and it applies to
+> the **calibration-reserved pool only**; the composition draw of 40 is untouched, as it is at every
+> other point in §13.
