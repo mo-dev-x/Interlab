@@ -41,7 +41,7 @@ No agent analyzed this data before this report. This is the first read of it.
 
 ## 2. Headline, stated plainly
 
-Of 9 features, **2 (250, 2048) show a necessity effect clearly separated from both controls,
+Of 9 features, **2 (250, 2048) show a necessity effect clearly separated from zero on both instrument-specificity checks (§3),
 consistent across both the whole-snippet and active-position measures, and consistent in sign
 across most of their 16 snippets.** The remaining **7 show either no signal distinguishable from
 zero, an inconsistent sign between measures, or a mean driven by one or two outlier snippets rather
@@ -49,46 +49,73 @@ than a majority effect.** This is not a "mostly positive, some noise" result —
 feature (2500) the effect is flatly absent by every measure used here, and for two more (3500, 4500)
 the headline mean is actively misleading on its own (see §5).
 
-**No number below is reported without its control beside it**, per instruction. Read §3 before
+**No number below is reported without its check/comparator beside it**, per instruction. Read §3 before
 trusting any single mean.
 
 ---
 
-## 3. Why both controls read exactly 0.0 — mechanism, not a bug
+## 3. Why both checks read exactly 0.0 — and why that means they are not controls
 
-Every one of the 144 cross-feature-control values (both the whole-snippet and active-position
-measures) and every one of the 77 *verified* within-feature-control values is **bit-exact 0.0** —
-not "small," identically zero, checked directly against the raw JSONL rather than assumed from a
-mean of 0.000. This is the mechanically expected consequence of two facts together, not an
-instrumentation failure:
+**A check that cannot fail is not a control.** Every one of the 144 cross-feature values (both the
+whole-snippet and active-position measures) and every one of the 77 *verified* within-feature values
+is **bit-exact 0.0** — not "small," identically zero, checked directly against the raw JSONL rather
+than assumed from a mean of 0.000. This is not a surprising empirical result; it is the *guaranteed*
+consequence of two facts that were both true before the job ran:
 
 1. `attach()`'s ablate hook is a **targeted single-direction edit** (subtract `a · decoder_direction`
    for the one clamped feature), not a full SAE encode-decode replacement of the residual stream.
-2. Both controls ablate a feature that is, by construction or by explicit verification, **already
-   inactive (`a = 0`) at every position of the text being ablated**: the cross-feature control's
+2. Both conditions ablate a feature that is, by construction or by explicit verification, **already
+   inactive (`a = 0`) at every position of the text being ablated**: the cross-feature check's
    feature (idx 8950) never fires above threshold on any of these 144 snippets (inferred from this
-   exact-zero result — unlike the within-feature control, this run did not independently record
+   exact-zero result — unlike the within-feature check, this run did not independently record
    8950's own activation, so this is a mechanistic inference, not a directly logged check); the
-   within-feature control only proceeds after an explicit `verified_non_firing` check.
+   within-feature check only proceeds after an explicit `verified_non_firing` check.
 
-Subtracting `0 · direction` is an exact floating-point no-op (`x - 0.0 = x`, bit-for-bit). So both
-controls are **necessarily** 0.0 whenever the ablated feature is inactive on that text — this is a
-positive confirmation that the hook only perturbs the forward pass when the ablated feature is
-actually contributing something, not evidence the hook is silently disabled. The target condition's
-nonzero deltas (below) confirm the same hook does change computation when the ablated feature *is*
-active.
+Subtracting `0 · direction` is an exact floating-point no-op (`x - 0.0 = x`, bit-for-bit). Given (1)
+and (2), **the result was determined before any weight was loaded** — no measurement on real data
+could have produced anything but 0.0. That is precisely why neither of these is a **scientific
+control**, whatever the code's own field names (`cross_feature_control_idx`,
+`mean_delta_nll_cross_feature_control_...`) call them — those field names are not renamed here, since
+real data is already committed under them, but this report does not use the word "control" for
+either going forward. Both are correctly understood as an **instrument specificity check**: they
+confirm the hook is surgical — it touches only the intended feature, and produces zero effect
+exactly when and where the ablated feature was already silent. That is a real and useful thing to
+have confirmed. It is not evidence about *F*.
 
-**Consequence for §8's two falsification conditions:** because both controls collapse to the *same*
+**Consequence for §8's two falsification conditions:** because both checks collapse to the *same*
 number (0.0) for the *same* mechanistic reason, this dataset cannot separate "not meaningfully above
-cross-feature control" from "not meaningfully above within-feature control" — both conditions reduce
-to the identical question, "is ΔNLL for F meaningfully above zero?" The two-control design's
+cross-feature check" from "not meaningfully above within-feature check" — both conditions reduce to
+testing the identical thing: "is ΔNLL for F meaningfully above zero?" The two-control design's
 intended falsifiability *in both directions* (prereg §4) does not yield two independent readings
-here; it yields one. This is reported as a limitation of this specific ablation mechanism's
-interaction with these two controls, not a reason to weaken either control's definition.
+here; it yields one, for a mechanistic reason that was knowable in advance. This is reported as a
+limitation of pairing this specific ablation mechanism with these two particular checks, not a
+reason to weaken either check's definition, and not a reason to trust §4/§7 below any less on their
+own terms — they still show 2 of 9 features clearing zero and 7 that do not.
+
+## 3a. The comparator that can fail — added after this critique, not yet run
+
+Zero has no scale. "F's ΔNLL is above zero" says less than "F's ΔNLL is above the cost of removing
+*some other* direction that was equally active on the same text." `gemma3_necessity.py` now measures
+exactly that: **`active_nontarget_control`** ablates the single highest-activating *non-target*
+feature on each snippet — picked deterministically per snippet (argmax over the already-computed
+SAE activations, excluding the target feature; reproducible from the recorded feature index alone,
+never hand-chosen), not one fixed feature shared across all 144 snippets the way the cross-feature
+check is. A fixed feature is not guaranteed active on every one of 9 features' own top-16 snippets;
+an inactive "active" check would just be another guaranteed-zero, per §3. This one cannot be
+guaranteed zero in advance — it ablates a feature confirmed active on that exact text, so its
+ΔNLL is a real empirical quantity that could come out larger than, comparable to, or smaller than
+the target's.
+
+**This has not been run yet.** Job 399619's committed data predates this field. Producing real
+numbers requires a fresh Tamia run (dry run already confirms 288 records with the new fields
+present, `None`-filled correctly in dry-run mode) — the code is built and verified but this report
+does not fabricate what that run would show. §4–§7 below are the existing job 399619 result,
+unchanged and not softened; this section exists so the next version of this report has a place to
+put the real comparator once it exists, rather than retrofitting the framing after seeing a number.
 
 ---
 
-## 4. Per-feature results, with dispersion, controls beside every mean
+## 4. Per-feature results, with dispersion, checks beside every mean
 
 No formal significance test was pre-registered for "meaningfully above." The heuristic used below —
 disclosed, not authoritative — is: mean vs. standard error (`sem = sd/√16`) as a rough
@@ -125,10 +152,11 @@ All units are nats/token, mean over the 16 snippets. n=16 per feature throughout
 | 12800 | −0.01387 | +0.00514 | 0.07639 | 0.01910 | [−0.22266, +0.08496] | 9/7 | 27 | **0.0** |
 | 900* | +0.01596 | +0.00438 | 0.03703 | 0.00926 | [−0.04126, +0.08350] | 10/6 | 20 | **0.0** |
 
-`within-ctrl` is the verified within-feature-control's ΔNLL, whenever at least one candidate passed
-verification for that feature (see §6 for how many did, and how unevenly).
+`within-ctrl` is the verified within-feature check's ΔNLL (an instrument-specificity check, not a
+scientific control -- see §3), whenever at least one candidate passed verification for that feature
+(see §6 for how many did, and how unevenly).
 
-**Every control cell in both tables above is 0.0 — see §3.**
+**Every check cell in both tables above is 0.0 — see §3 for why that is guaranteed, not a result.**
 
 ---
 
@@ -146,7 +174,7 @@ its own terms:
   when it fires, it appears to matter a great deal locally.
 - **2500 shows no signal by either measure.** Whole-snippet: mean≈0, sign split 7/9 (a coin flip).
   Active-position: mean is *negative* (−0.00182), sign split 10/6, sem larger than the mean. There
-  is nothing here distinguishable from the (zero) controls in either direction.
+  is nothing here distinguishable from the (necessarily zero) checks in either direction.
 - **3500 and 4500's active-position means are misleading if read alone.** 3500's active-position
   mean (+0.316) is driven almost entirely by one snippet (max +2.328); the **median is negative**
   (−0.022) and **10 of 16 snippets show a negative delta**. 4500 shows the same pattern at smaller
@@ -191,9 +219,9 @@ isolation.
 Density alone does not predict this: 12800 has the **lowest** density (0.00078) in the table and the
 **lowest** rejection rate (0%) — it essentially never co-fires on 900's top text. 500 has a
 mid-range density (0.00731) but the **highest** rejection rate (87.5%) — it co-fires often on
-2048's top text specifically. This means the within-feature control's *statistical power* (how many
+2048's top text specifically. This means the within-feature check's *statistical power* (how many
 verified cells it can offer) varies from 2 (500) to 16 (12800) — for 500, 4500, and 250/900, the
-within-feature control rests on very few (2–6) verified snippets, and any claim built on those means
+within-feature check rests on very few (2–6) verified snippets, and any claim built on those means
 should be read as low-n.
 
 ---
@@ -201,7 +229,7 @@ should be read as low-n.
 ## 7. Falsification conditions (prereg §8), checked explicitly per feature
 
 Both conditions reduce to the same test here (§3): is ΔNLL for F meaningfully above **zero**
-(both controls read 0.0)?
+(both checks read 0.0, guaranteed in advance -- see §3)?
 
 | feature | condition 1 (vs. cross-feature ctrl) | condition 2 (vs. within-feature ctrl) |
 |---|---|---|
@@ -211,8 +239,8 @@ Both conditions reduce to the same test here (§3): is ΔNLL for F meaningfully 
 | 2500 | **fires** — no signal at either measure, one measure even slightly negative | **fires** — same evidence |
 | 3500 | **fires** when judged by median/majority sign (10/16 negative at active positions); ambiguous by mean alone | same as condition 1 |
 | 4500 | **fires** by the same logic as 3500 (median 13× smaller than mean, sign near dead-split) | same as condition 1 |
-| 11000 | **fires** at the active-position measure (dead-split sign, small negative mean); weak non-fire at whole-snippet measure | same as condition 1 (only 15 verified — one of the better-powered controls, still fires) |
-| 12800 | **fires** at the active-position measure (negative mean, sign 9/7); does not clearly fire at whole-snippet measure (sem ratio ≈2.4) | same as condition 1 (16/16 verified — the best-powered within-feature control in the set, and it still fires at active positions) |
+| 11000 | **fires** at the active-position measure (dead-split sign, small negative mean); weak non-fire at whole-snippet measure | same as condition 1 (only 15 verified — one of the better-powered checks, still fires) |
+| 12800 | **fires** at the active-position measure (negative mean, sign 9/7); does not clearly fire at whole-snippet measure (sem ratio ≈2.4) | same as condition 1 (16/16 verified — the best-powered within-feature check in the set, and it still fires at active positions) |
 | 900 | **does not clearly fire, but weak** — positive at both measures, sign 10/6 both, below the bar cleared by 250/2048; consistent with the pre-existing `low_confidence` flag | same as condition 1 (only 6 verified) |
 
 **Net: condition 1 and/or condition 2 fire, at least partially, for 7 of 9 features.** Only 250 and
@@ -229,8 +257,12 @@ the instrument again.
 - **Not a point estimate of "how necessary is this feature on typical text."** Every number here is
   conditioned on the feature's own top-16 activating snippets — an upper bound by construction
   (prereg §5).
-- **Not evidence the ablation hook is broken.** §3 explains why every control reads exactly 0.0 as a
+- **Not evidence the ablation hook is broken.** §3 explains why every check reads exactly 0.0 as a
   mechanistic certainty, not a null result to be alarmed by.
 - **Not a reason to re-run with a different instrument.** Per prereg §8, both a clean pass and a
   falsification are valid outcomes of this design; this run produced a mix (2 features clear,
   7 do not, unevenly), and that mix is the result.
+- **Not yet carrying the falsifiable comparator.** `active_nontarget_control` (§3a) is built,
+  dry-run verified, and not yet run against real weights — this version of the report does not
+  contain it. A future version will, once a real run exists; it will not replace the §4–§7 numbers
+  above, which stand as reported here.
