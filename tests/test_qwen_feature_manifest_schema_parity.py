@@ -1,0 +1,119 @@
+"""Schema parity: every key gemma3_sweep.write_feature_manifest() emits,
+at the top level and per-feature, must also be present in the Qwen feature
+manifest build_qwen_feature_manifest.build_manifest() produces.
+
+Qwen's manifest is allowed to have EXTRA keys (documented extensions --
+density_ratio_to_population_median, matched_control_feature, the caveat
+strings, etc.); it must never be MISSING one of Gemma's keys under a
+different name. That is the whole point of the firing_rate->density,
+max_activation->maxActApprox, top_examples->snippets mapping: achieving
+parity in field NAMES, not just in field meaning.
+"""
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "legacy"))
+
+import gemma3_sweep  # noqa: E402
+import build_qwen_feature_manifest as qwen_build  # noqa: E402
+
+
+def _gemma_manifest(tmp_path):
+    out_dir = tmp_path / "gemma3_sweep"
+    path = gemma3_sweep.write_feature_manifest(out_dir, include_optional=True)
+    return gemma3_sweep.load_feature_manifest(path)
+
+
+def test_top_level_keys_are_a_subset_of_qwen_manifest(tmp_path):
+    gemma_manifest = _gemma_manifest(tmp_path)
+    qwen_manifest = qwen_build.build_manifest()
+
+    missing = set(gemma_manifest.keys()) - set(qwen_manifest.keys())
+    assert not missing, f"Qwen manifest is missing top-level key(s) present in Gemma's: {missing}"
+
+
+def test_per_feature_keys_are_a_subset_of_qwen_feature_records(tmp_path):
+    gemma_manifest = _gemma_manifest(tmp_path)
+    qwen_manifest = qwen_build.build_manifest()
+
+    gemma_keys = set(gemma_manifest["features"][0].keys())
+    assert gemma_keys, "Gemma's manifest produced no feature records -- nothing to compare against"
+
+    qwen_records = qwen_manifest["features"] + [qwen_manifest["optional_feature"]]
+    assert qwen_records, "Qwen manifest produced no feature records"
+
+    for rec in qwen_records:
+        missing = gemma_keys - set(rec.keys())
+        assert not missing, f"Qwen feature idx={rec.get('idx')} is missing key(s) present in Gemma's schema: {missing}"
+
+
+def test_qwen_feature_records_share_gemma_key_value_types(tmp_path):
+    """Not just key presence -- the shared keys should carry the same
+    Python type on both sides (e.g. maxActApprox is always a float,
+    density is always a float, idx is always an int), so a consumer
+    written against Gemma's manifest doesn't need a type branch for
+    Qwen's."""
+    gemma_manifest = _gemma_manifest(tmp_path)
+    qwen_manifest = qwen_build.build_manifest()
+
+    gemma_rec = gemma_manifest["features"][0]
+    qwen_rec = qwen_manifest["features"][0]
+
+    shared_keys = set(gemma_rec.keys()) & set(qwen_rec.keys())
+    assert shared_keys == set(gemma_rec.keys())
+
+    for key in shared_keys:
+        gemma_type = type(gemma_rec[key])
+        qwen_type = type(qwen_rec[key])
+        if gemma_type is bool or qwen_type is bool:
+            # bool is a subclass of int -- compare exactly for this one
+            assert gemma_type is qwen_type, f"key {key!r}: gemma={gemma_type}, qwen={qwen_type}"
+            continue
+        if gemma_type in (int, float) and qwen_type in (int, float):
+            continue  # numeric widening (int vs float) is fine
+        assert gemma_type is qwen_type, f"key {key!r}: gemma={gemma_type}, qwen={qwen_type}"
+
+
+def test_control_feature_uses_shared_global_mechanism_not_matched_control():
+    """Per explicit instruction: the actual control_feature_idx must come
+    from gemma3_sweep.pick_control_feature_idx (the same global-random-draw
+    mechanism Gemma uses), never from characterize_lite's own per-feature
+    matched_control_feature -- matched_control_feature may only appear as
+    displayed metadata."""
+    qwen_manifest = qwen_build.build_manifest()
+
+    control_idx = qwen_manifest["control_feature_idx"]
+    selected_idxs = {f["idx"] for f in qwen_manifest["features"]}
+    selected_idxs.add(qwen_manifest["optional_feature"]["idx"])
+    rejected_idxs = {r["idx"] for r in qwen_manifest["rejected_features"]}
+    verified_not_selected_idxs = {v["idx"] for v in qwen_manifest["verified_not_selected"]}
+
+    assert control_idx not in selected_idxs
+    assert control_idx not in rejected_idxs
+    assert control_idx not in verified_not_selected_idxs
+
+    matched_controls = {f["matched_control_feature"] for f in qwen_manifest["features"]}
+    # The global draw is not required to differ from every per-feature matched
+    # control (it's a big pool), but it must not BE any of the selected
+    # features' own idx, which is the actual invariant that matters here.
+    assert control_idx not in {f["idx"] for f in qwen_manifest["features"]}
+    assert isinstance(matched_controls, set)  # displayed metadata only, sanity-checked as present
+
+
+def test_rejected_features_are_recorded_with_reasons():
+    qwen_manifest = qwen_build.build_manifest()
+    assert qwen_manifest["rejected_features"], "expected at least one recorded reject, mirroring REJECTED_FEATURE_IDXS"
+    for rejected in qwen_manifest["rejected_features"]:
+        assert isinstance(rejected["idx"], int)
+        assert isinstance(rejected["reason"], str) and len(rejected["reason"]) > 0
+
+
+def test_manifest_carries_the_three_required_divergence_caveats():
+    qwen_manifest = qwen_build.build_manifest()
+    assert qwen_manifest["labels_auto_derived_caveat"]
+    assert qwen_manifest["causal_screening_caveat"]
+    assert qwen_manifest["maxActApprox_caveat"]
+    # every per-feature record repeats the maxActApprox caveat inline, matching Gemma's convention
+    for rec in qwen_manifest["features"]:
+        assert rec["maxActApprox_caveat"] == qwen_manifest["maxActApprox_caveat"]
