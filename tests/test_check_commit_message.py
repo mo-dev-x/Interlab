@@ -29,7 +29,26 @@ def _load(name: str, path: Path):
 
 checker = _load("check_commit_message", SCRIPT)
 
-RESERVED = [12403, 8950, 250]
+RESERVED = [12403, 8950, 250]  # arbitrary stand-ins, disjoint from any real pool content
+REAL_POOL = REPO_ROOT / "reports" / "calibration_pool_reserved.json"
+
+
+def _assert_fixture_stand_ins_are_safe() -> None:
+    """Same guard as test_check_reserved_indices.py's, same fixture
+    literals, same risk: a hardcoded stand-in that coincides with a REAL
+    reserved index burns that slot the moment this file is committed and
+    tracked. A count only, checked once at collection time."""
+    if not REAL_POOL.exists():
+        return
+    real_reserved = set(checker.load_reserved_indices(REAL_POOL))
+    colliding = [v for v in RESERVED if v in real_reserved]
+    assert not colliding, (
+        f"{len(colliding)} of this file's RESERVED stand-in(s) now collide with the real "
+        "reserved pool -- replace them with different placeholder values before committing."
+    )
+
+
+_assert_fixture_stand_ins_are_safe()
 
 
 # ---------------------------------------------------------------------------
