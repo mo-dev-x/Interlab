@@ -1,26 +1,16 @@
 ==============================================================================
 D2.1 GEMMA 3 SWEEP -- ANALYSIS
 ==============================================================================
-records file lines read : 900
-records parsed          : 900
+records file lines read : 1736
+records parsed          : 1736
 feature manifest        : D:\qwen-sae-interp\results\gemma3_sweep\analysis\feature_manifest.json
 
 pre-registered cells    : 1736
 enumerated from harness : 1736  [OK]
-cells observed          : 900  (51.84%)
-cells missing           : 836
+cells observed          : 1736  (100.0%)
+cells missing           : 0
 
-******************************************************************************
-INCOMPLETE -- THIS ANALYSIS RUNS ON A PARTIAL FILE
-******************************************************************************
-  836 of 1736 cells are absent (48.16% of the grid).
-  FEATURES WITH NO DATA AT ALL (4): [900, 4500, 11000, 12800]
-    (each owes 192 cells)
-  missing by feature: {'11000': 192, '12800': 192, '3500': 68, '4500': 192, '900': 192}
-  missing by mode   : {'ablate': 452, 'steer': 384}
-  Every missing cell is enumerated in the JSON under 'missing_cells'.
-  Curves below are computed only over observed cells; incomplete dose points are
-  flagged per point via 'complete', and per curve via 'curve_complete'.
+COMPLETE -- all pre-registered cells present.
 
 ------------------------------------------------------------------------------
 PRE-REGISTERED RULINGS (fixed before the complete file existed)
@@ -39,12 +29,20 @@ STEER DOSE-RESPONSE  (divergence vs same-prompt baseline; 1.0 = no shared vocabu
      250 target            0.880    0.865    0.927    0.936    0.971    0.996S
      500 random_feature    0.893    0.902    0.875    0.968    1.000S   1.000S
      500 target            0.855    0.855    0.856    0.928    0.998S   1.000S
+     900 random_feature    0.837    0.890    0.885    0.891    0.958    1.000S
+     900 target            0.892    0.906    0.853    0.898    0.944    1.000S
     2048 random_feature    0.887    0.882    0.900    0.961    1.000S   1.000S
     2048 target            0.878    0.938    0.990    0.995S   1.000S   1.000S
     2500 random_feature    0.881    0.889    0.865    0.874    0.912    1.000S
     2500 target            0.864    0.852    0.870    0.874    0.938    0.957 
     3500 random_feature    0.874    0.882    0.902    0.942    1.000S   1.000S
     3500 target            0.879    0.864    0.909    0.974    0.996S   0.999S
+    4500 random_feature    0.852    0.859    0.915    0.939    0.996S   1.000S
+    4500 target            0.881    0.868    0.879    0.933    1.000S   1.000S
+   11000 random_feature    0.833    0.884    0.879    0.900    0.912    1.000S
+   11000 target            0.864    0.903    0.894    0.855    0.950    0.996S
+   12800 random_feature    0.869    0.887    0.884    0.945    1.000S   1.000S
+   12800 target            0.897    0.860    0.895    0.955    0.993S   1.000S
                                                                   [x]      [x]
 
 ------------------------------------------------------------------------------
@@ -57,13 +55,21 @@ ABLATE -- SIX REPLICATES OF ONE CONDITION, NOT A DOSE CURVE
      250 target            48    0.863    0.064    0.653    0.982 yes
      500 random_feature    48    0.863    0.077    0.560    0.986 yes
      500 target            48    0.867    0.057    0.739    0.983 yes
+     900 random_feature    48    0.874    0.059    0.671    0.977 yes
+     900 target            48    0.881    0.067    0.657    1.000 yes
     2048 random_feature    48    0.875    0.057    0.746    1.000 yes
     2048 target            48    0.882    0.060    0.701    0.983 yes
     2500 random_feature    48    0.862    0.075    0.678    1.000 yes
     2500 target            48    0.854    0.064    0.569    0.968 yes
-    3500 random_feature    12    0.904    0.058    0.787    0.984 yes
-    3500 target            16    0.870    0.078    0.750    0.975 yes
-  pooled within-arm sd across 10 ablate arms: mean 0.064647, range 0.056616-0.07771
+    3500 random_feature    48    0.871    0.065    0.707    0.984 yes
+    3500 target            48    0.871    0.069    0.651    0.975 yes
+    4500 random_feature    48    0.870    0.057    0.776    1.000 yes
+    4500 target            48    0.861    0.060    0.679    0.976 yes
+   11000 random_feature    48    0.868    0.066    0.585    0.986 yes
+   11000 target            48    0.879    0.057    0.738    0.984 yes
+   12800 random_feature    48    0.869    0.056    0.738    0.975 yes
+   12800 target            48    0.880    0.056    0.685    0.985 yes
+  pooled within-arm sd across 18 ablate arms: mean 0.062377, range 0.055615-0.076522
   A steer effect smaller than this dispersion is not distinguishable from replicate-to-replicate noise.
 
 ------------------------------------------------------------------------------
@@ -72,13 +78,17 @@ TARGET vs CONTROL  (steer) -- REFUSED where the control arm saturates
      250   +0.039   -0.043   +0.000  REFUSED  REFUSED  REFUSED   reportable 3/6
            !! control saturates BEFORE target at dose(s) [4.0, 8.0] -- not functioning as a control
      500   -0.038   -0.047   -0.019   -0.039  REFUSED  REFUSED   reportable 4/6
+     900   +0.055   +0.015   -0.032   +0.007  REFUSED  REFUSED   reportable 4/6
     2048   -0.009   +0.056   +0.090   +0.034  REFUSED  REFUSED   reportable 4/6
     2500   -0.017   -0.037   +0.005   +0.000  REFUSED  REFUSED   reportable 4/6
            !! control saturates BEFORE target at dose(s) [16.0] -- not functioning as a control
     3500   +0.005   -0.018   +0.007   +0.031  REFUSED  REFUSED   reportable 4/6
+    4500   +0.029   +0.010   -0.036   -0.006  REFUSED  REFUSED   reportable 4/6
+   11000   +0.031   +0.019   +0.015   -0.045  REFUSED  REFUSED   reportable 4/6
+   12800   +0.028   -0.027   +0.011   +0.011  REFUSED  REFUSED   reportable 4/6
   A refusal is a result, not a gap: where the control saturates the cell cannot
   discriminate target from control, so no contrast is defined.
 
 Surface-form text metrics against the same-prompt baseline generation. They quantify how far a clamp moved the output, NOT whether it moved toward the feature's nominal concept. No domain class is assigned or validated here.
 
-STATUS: INCOMPLETE (partial sweep)
+STATUS: COMPLETE / CLEAN
