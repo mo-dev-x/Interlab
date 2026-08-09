@@ -1,18 +1,18 @@
-# BINDING PRE-REGISTRATION v1.6 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.7 — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.6 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11 FIRST.
+> ## ⛔ v1.7 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11 FIRST.
 >
-> §11 (2026-08-08) makes the **marked activating token** primary evidence on both columns,
+> §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
 > on every `indeterminate`, and requires the adjudication to live in a **hash-bound file** rather
 > than in a report. It also **voids the first inter-rater calibration** and specifies its re-run.
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 this. The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 this (§11.8–11.9). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.6**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.7**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.6)*
+v1.7)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.6)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.6)* — same table shape, separate section, produced independently.
+v1.7)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -394,7 +394,7 @@ direction only; no magnitude, no subtraction.
 
 ---
 
-## 11. AMENDMENTS v1.6 — 2026-08-08 (governs on any conflict with §1–§10)
+## 11. AMENDMENTS v1.6–v1.7 — 2026-08-08 (governs on any conflict with §1–§10)
 
 Four independent reports converged on the same structural gap: **the adjudicators have been
 inferring which token fires, when the data says which token fires.** §11.1 closes that. §11.2–§11.4
