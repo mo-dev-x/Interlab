@@ -28,23 +28,25 @@ Pulled from Tamia and re-hashed on both sides (not trusting rsync's exit code); 
 Secret-scanned (HF token pattern, `Bearer` headers, key/secret/password assignments) —
 0 hits.
 
-## 2026-08-08 — D2.1-necessity jobs 400287 → 400297: three successive control
-designs, hash-bound
+## 2026-08-08 — D2.1-necessity jobs 400287 → 400297 → 400342: four successive
+control designs, hash-bound
 
-Committed at `b9888f2` (400287) and `b974ec3` (400297). Both runs' evidence held
-deliberately, per instruction — three successive `active_nontarget_control` designs, each
-degenerate for a different reason, is a more useful record than one clean run.
+Committed at `b9888f2` (400287), `b974ec3` (400297), `d6ea3e9` (400342). All three real
+runs' evidence held deliberately, per instruction — successive `active_nontarget_control`
+designs, each degenerate for a different reason until the fourth, is a more useful record
+than one clean run alone.
 
 | Job | sacct: State/ExitCode/Elapsed/MaxRSS | `active_nontarget_control_idx` distribution (144 own-text records) |
 |---|---|---|
 | 399619 | COMPLETED / 0:0 / 00:03:17 / — | pre-fix; cross/within-feature controls guaranteed 0.0 by construction (not a scientific control) |
 | 400287 | COMPLETED / 0:0 / 00:03:47 / `135191928K` | `{180: 144}` — argmax over the full sequence selected the position-0 (`<bos>`) attention-sink feature bit-identically on every record; caught by inspection, not by any gate (none existed yet) |
 | 400297 | COMPLETED / 0:0 / 00:03:52 / `135392988K` | `{221: 142, 107: 2}` — position 0 excluded (`be9cade`); pre-flight diversity gate PASSED (2 unique indices / 9 unique activations on the probe); full-run distribution is real but thin, one feature still dominant in ~98.6% of records |
+| 400342 | COMPLETED / 0:0 / 00:04:07 / `135570080K` | argmax replaced entirely with matched-strength uniform random sampling (`a1f736d`); max-share diversity gate PASSED over the full 144-record population (137 unique indices, dominant index at 2.1% share, 0 empty-eligible-set skips). `strength_match_ratio` spread: min 0.504, p25 0.594, median 0.757, p75 0.996, max 5.315 — the eligibility criterion has a declared lower bound (≥0.5×) but no upper bound, so some matched picks are markedly stronger than the target on that snippet |
 
-**MaxRSS is a headroom fact, not a budget constraint.** All three completions land at
-`~135GK` MaxRSS on a whole-node H100×4 allocation, all finishing in under four minutes.
-This job can be re-fired freely on the next control-design iteration rather than rationed —
-the cost of another `--restart` is minutes, not an allocation concern.
+**MaxRSS is a headroom fact, not a budget constraint.** All completions land at
+`~135GK` MaxRSS on a whole-node H100×4 allocation, all finishing in under four-and-a-half
+minutes. This job can be re-fired freely on the next control-design iteration rather than
+rationed — the cost of another `--restart` is minutes, not an allocation concern.
 
 ## 2026-08-07 — Pre-registration documents: hash-bound before any result exists
 
