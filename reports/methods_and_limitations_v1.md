@@ -10,9 +10,42 @@ which remain the primary record for their own items.
 
 ## 0. The claim, stated exactly
 
-> **Two independently-conducted measurements — on different models, different SAE architectures,
-> different expansion ratios, different training provenances, and different relative depths — that
-> converge on the same qualitative finding: a skew toward surface-form feature detectors.**
+> ### ⚠ THE ORIGINAL CLAIM IS WITHDRAWN. It read:
+> > *"Two independently-conducted measurements … that converge on the same qualitative finding:
+> > **a skew toward surface-form feature detectors**."*
+>
+> **It is not supported, and it is withdrawn rather than softened.** The pre-registration bound this
+> document to publish the uniform-draw figure *whichever direction it moved*, fixed before the number
+> existed. It moved from a browsed **58%** to **22.5%**, and then failed to resolve at all.
+
+> ## The claim, as it now stands
+>
+> **Three quantified methodological results, mutually reinforcing, on a question the study set out to
+> answer and could not:**
+>
+> 1. **Browsing inflates the surface-form fraction by 2.6×.** Browsing Neuronpedia and eyeballing
+>    features is how a great many practitioners form impressions of SAE composition. Both methods were
+>    run **on the same SAE** and the gap measured: **58% browsed vs 22.5% uniform.** *This is about how
+>    features are **selected**.*
+> 2. **Under uniform sampling the composition is not rater-stable.** *In this study — one scheme, two
+>    raters, n = 40 — the rater effect was comparable in magnitude to the effect being measured:*
+>    **50% of semantic rows changed bucket under a second rater applying the same pre-registered rule
+>    more strictly.** *This is about how features are **classified**.*
+> 3. **Judged steering scores swing 3.7× on a one-word concept-string change**, over identical
+>    generations, with the random-feature control invariant at exactly 1.00 across all six scales.
+>
+> **(1) and (2) are two independent reasons the eyeball-taxonomy method does not support the claims
+> routinely made with it — one about selection, one about classification.**
+>
+> **Scope, deliberately narrow.** (2) is a **demonstration, not a general law**: an existence proof
+> against the assumption that such tallies are stable, which is what it needs to be. It is **not** the
+> claim that feature-taxonomy adjudication does not work.
+>
+> **The directional question is unresolved, and the convergence structure survives on that.** Neither
+> column supports a direction, **by independent mechanisms** — Gemma from rater instability, Qwen from
+> a 60% `indeterminate` rate on a different evidence pipeline. **Two instruments independently finding
+> the question unresolvable at this power is a joint claim**, and it is the one the two columns
+> genuinely support.
 
 **This is not a controlled comparison and is not presented as one.** At **six** unmatched axes the
 honest framing is convergent evidence from independent setups, which is a recognised and often

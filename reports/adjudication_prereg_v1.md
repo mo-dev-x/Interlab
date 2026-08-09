@@ -1,9 +1,9 @@
-# BINDING PRE-REGISTRATION v1.18 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.19 FINAL — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.18 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
+> ## ⛔ v1.19 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
 >
 > §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
@@ -12,7 +12,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 → v1.14 → v1.15 → v1.16 → v1.17 → v1.18 this (§17). The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 → v1.14 → v1.15 → v1.16 → v1.17 → v1.18 → v1.19 FINAL this (§18). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.18**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.19 FINAL**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.18)*
+v1.19)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.18)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.18)* — same table shape, separate section, produced independently.
+v1.19)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -1525,3 +1525,68 @@ and *"not obviously inconsistent"* was true of both 3070 and 6515 before anyone 
 later corrected, by 4 under full rater-2 substitution, and by 4 under the admissible class-12
 collapse.** Every outstanding question moves the margin within 4–6 and none of them reaches zero.
 **Reporting that range is stronger than defending a point.**
+
+---
+
+## 18. FINAL — THE DIRECTIONAL QUESTION IS UNRESOLVED, AND THE BOUND IS THE ANSWER
+
+### 18.1 BOTH BOUNDS ARE REPORTED, AND THE INTERVAL BRACKETS ZERO
+
+The rater-2 substitution was **partial: 18 of 40 Gemma rows carry no rater-2 call.** Extrapolating the
+observed rater effect to them:
+
+| variant | surface-form | semantic | |
+|---|---|---|---|
+| published (rater 1, adjudicator of record) | 9 | 14 | semantic +5 |
+| **asymmetric bound** — semantic loss extrapolated at the observed 50%, surface-form held | **8.00** | **7.00** | **surface-form +1** |
+| **symmetric bound** — observed flip rate applied to both arms | **6.40** | **7.00** | **semantic +0.6** |
+
+> **Both are published; neither is adopted as "the" answer. The interval brackets zero.** No direction
+> is available *regardless of which extrapolation assumption is taken* — and **that insensitivity is
+> what makes the non-resolution solid rather than an artifact of choosing a bound.** Reporting one
+> alone would be weaker and would invite the question of why that one.
+
+**A mechanism argument was tested against the data and failed.** The asymmetric bound holds
+surface-form constant on the reasoning that §11.1 trigger-primacy maps to surface-form *by
+construction*, so stricter application should push rows into the numerator. **Observed, rater 2 moved
+2 of 5 surface-form rows *out*, both to class 12.** Stricter application routes to
+relational-positional, not into the numerator. **Demanding the bound was right; deriving its
+parameters from what the rule ought to do rather than from measured rater behaviour was not. Bounds
+take their parameters from data, like everything else.**
+
+### 18.2 COMPLETION IS ABANDONED — AND NOT BECAUSE OF CONTAMINATION
+
+A fresh adjudicator working from a constructed package (§12.6) is technically obtainable, so
+contamination alone does not close this. **The decisive argument is that completion cannot resolve the
+question: the limiting factor is rater instability, not sample size.** A third rater on the remaining
+16 rows produces a **third number, not a resolution** — adding data to an instrument already
+demonstrated insufficient for the measurement. **The bound is the answer.**
+
+### 18.3 WHAT THE STUDY FOUND
+
+**The directional question is unresolved and no direction is claimed in either direction.** In its
+place, three quantified results, each on separate evidence:
+
+1. **Browsing inflates the surface-form fraction 2.6×** — 58% browsed vs 22.5% uniform, **on the same
+   SAE**. About how features are **selected**.
+2. **The composition is not rater-stable under uniform sampling** — *in this study, one scheme, two
+   raters, n = 40*, **50% of semantic rows changed bucket** under a second rater applying the same
+   pre-registered rule more strictly. About how features are **classified**.
+3. **Judged steering scores swing 3.7×** on a one-word concept-string change over identical
+   generations, control invariant at exactly 1.00 across all six scales.
+
+**(1) and (2) are two independent reasons the eyeball-taxonomy method does not support the claims
+routinely made with it.** **(2) is scoped as a demonstration, not a general law** — an existence proof
+against tally stability, which is sufficient and defensible; it is **not** the claim that taxonomy
+adjudication does not work.
+
+**Convergence survives, on non-resolution.** Both columns fail to resolve **by independent
+mechanisms** — Gemma from rater instability, Qwen from a 60% `indeterminate` rate on a different
+evidence pipeline. **Two instruments independently finding a question unresolvable at this power is a
+joint claim**, and §12.2's exactly-one branch permits it because **both** columns support it rather
+than one carrying it alone.
+
+**What makes any of this reportable rather than a walk-back:** every rule that governs these numbers
+was fixed before the numbers existed — the uniform draw as authoritative *whichever way it moved*,
+the four-bucket scheme, the depth match, the adversarial bound, the conservative floor, the
+adjudicator of record. **Eighteen amendments, and not one of them was made with a tally visible.**
