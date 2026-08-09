@@ -209,10 +209,10 @@ rows. Depth 16, array order.
 | feature_idx | class | bucket | conf | reason_code | distinct_sources | bos_in_window / multi_doc | marker_token | deciding_quote |
 |---|---|---|---|---|---|---|---|---|
 | 9012 | 4 formatting | **surface-form** | high | — | 16 | 0 / 5 | `,` ×13, `—`/`–` ×3 — **delimiter punctuation 16/16** | " …residents of Quebec**,** including temporary and undocumented" / "…user data**—**through apps, web browsing" / "…provided support **–** very likely including financial support" |
-| 9105 | 10 indeterminate | denominator only | med | **I-SILENT** | 16 | 0 / 9 | 11 distinct: *form, links, information, System, website, bar, it, app, interface, used, materials* | Marker is the **complement of *use*** in 14/16 and *use[d]* itself in 2/16: "Please **use** this **form**" / "By **using** the Sterling Service Dogs **website**" / "Taurus can be **used** to start every room" |
+| 9105 | **12 relational/positional** (§13.3 retrofit; was 10 indeterminate) | denominator only | med | — (`I-SILENT` withdrawn) | 16 | 0 / 9 | 11 distinct: *form, links, information, System, website, bar, it, app, interface, used, materials* | Marker is the **complement of *use*** in 14/16 and *use[d]* itself in 2/16: "Please **use** this **form**" / "By **using** the Sterling Service Dogs **website**" / "Taurus can be **used** to start every room" |
 | 11029 | 2 lexical/n-gram — *chemical* | **surface-form** | high | — | 16 | 1 / 4 | *chemical / Chemical / chemicals / cial* — **16/16** | "protecting **Chemcial** Vapor Deposition (CVD) furnace hot zones" / "if you ask **chemical** engineer Yunfeng Lu" / "a primary feedstock for the **chemical** industry" / "including **chemical** peels, microdermabrasion" |
 | 11149 | 9 discourse-register — promotional/service copy | denominator only | med | — | 16 | 0 / 10 | **16/16 distinct**: *SEO, gout, ia, window, messages, loan, theatre, shooting, parking, attorney, homes, PC, limousine, railroads, way, orer* | Marker sits on the advertised keyword across unrelated industries: "enhancing local **SEO**" / "a very effective **gout** treatment" / "an immigration **attorney** on your side" / "wood b**orer** fumigation" |
-| 11763 | 9 discourse-register — post-copular superlative assertion | denominator only | med | — | 16 | 1 / 3 | `the` ×15, `a` ×1 | Determiner opening a predicate nominative after a copula, 16/16: "slips and trips continue to be **the** most common cause" / "tiredness is **the** number one complaint" / "Communication is **the** answer" / "at $10,000 is **the** culprit" |
+| 11763 | **12 relational/positional** (§13.3 retrofit; was 9 discourse-register) | denominator only | med | — | 16 | 1 / 3 | `the` ×15, `a` ×1 | Determiner opening a predicate nominative after a copula, 16/16: "slips and trips continue to be **the** most common cause" / "tiredness is **the** number one complaint" / "Communication is **the** answer" / "at $10,000 is **the** culprit" |
 | 12403 | 11 topical domain — software/filesystem configuration | semantic | med | — | 16 | 0 / 4 | 12 distinct; 8/16 path-lexical (`$` ×3, *mkdir, dir, directory, folder* ×2) | "chmod -R g+w **$**REMOTEPATH" / "failed to **mkdir** \"/srv/mediawiki/php-master/images" / "the \"src/assets/stylesheets\" **folder** of your project directory" |
 | 12449 | 11 topical domain — soil/earth | semantic | high | — | 16 | 0 / 9 | *soil, Soil, clay, Clay, dirt, bed, brown, grading, otechnical, rained* — ~10/16 soil-lexical | "nutritious bio-diverse **soil**, adequate water" / "a Professor of **Soil** Physics" / "**Clay** brick machine is used to produce clay brick" / "the completion of a Ge**otechnical** Study" |
 | 13746 | 10 indeterminate | denominator only | med | **I-AMBIGUOUS** | 16 | 1 / 8 | 9 distinct; punctuation 11/16 (`,` ×5, `.` ×3, `\n\n`, `(` ×2) | Class 4 (heterogeneous punctuation marker) and class 9 (consumer product-advice register) both survive the marker, different buckets: "picked up the GB Pockit**,**" / "These may be just the right touch**.**" / "**Choose** a head with more shower settings" |
@@ -229,6 +229,23 @@ rows. Depth 16, array order.
 | 14719 | Prong 2 — prong 1 passes (14 distinct), but no single position covers markers spanning copulas, prepositions, determiners and content nouns. | Routed to class 11. |
 
 **Neither prong was stretched, and no class was invented.** Recorded for the orchestrator.
+
+> **RESOLVED — §13.3 retrofit, and this table is now historical.** The orchestrator ruled both
+> near-misses right and replaced the test (prereg v1.10 §13.3): **9105 → class 12** and
+> **11763 → class 12**. Prong 1(a) now counts *records* whose marker is non-modal rather than
+> distinct marker types, which admits 11763 (`the` ×15); prong 2 permits **naming a governor**
+> while still forbidding naming the marker, which admits 9105 (governor = the licensing predicate).
+> `I-SILENT` is withdrawn from 9105 on the 5231 precedent — the code recorded a scheme defect, and
+> §13.3 repairs the defect.
+>
+> **Both moves are bucket-neutral**: class 10 → 12 and class 9 → 12 are denominator-only in both
+> directions. Neither the numerator nor the denominator changes.
+>
+> **13746 and 14719 were not ruled and are unchanged** at class 10 and class 11. **11149 is
+> unchanged at class 9** — Rater 1 holds no ruling on it and does not retrofit it by inference.
+>
+> *This paragraph was written at canonicalisation, after the ruling had been applied everywhere
+> except this section. The rows above were stale; the ruling was not.*
 
 ---
 
@@ -363,11 +380,11 @@ Evidence: `qwen_max_activating_tokens.json` (`b6bf9710a92a1bce…`) over `centre
 | 117551 | 3 code/identifiers — statutory citations | **surface-form** | med | — | 5 | tokens inside `P.L. 99-457`, `Title 17, Chapter 1`, `Directive 2001/20/EC` |
 | 37230 | 5 named entities — *iPod* | semantic | high | — | 14 | `iPod`/`Pod`/`od` **16/16**, one referent throughout (cf. 9115, where *drum* spanned unrelated referents → class 2) |
 | 73803 | 5 named entities — fighter surnames | semantic | med-high | — | 5 | `son`, `nar`, `aub`, `aggi`, `rage`, ` Johnson`×2, ` Edgar`, ` Nelson` |
-| 89363 | 5 named entities | semantic | med | — | 14 | 13/16 inside proper names: `C**heet**os`, `Gil**well**`, `Wo**bbl**ies`, `M**ino**an`, `POTEM**K**IN`, `W**emble**y`. **Live alternative: rare-word subword continuation (surface-form, bucket-changing), covers 11/16** |
+| 89363 | 5 named entities | semantic | med | — | 14 | 13/16 inside proper names: `C**heet**os`, `Gil**well**`, `Wo**bbl**ies`, `M**ino**an`, `POTEM**K**IN`, `W**emble**y`. **Live alternative: rare-word subword continuation (surface-form, bucket-changing), covers 11/16 — TESTED AND REJECTED as causally prior in §11.2; class 5 stands, row did not move** |
 | 73791 | 7 abstract — competitive defeat | semantic | med | — | 8 | ` beat`×3, ` over`×2, ` defeated`, ` defeating`, ` against`, ` off`, ` vs` |
 | 29908 | 11 topical — human genetics / rare variants | semantic | med | — | 5 | ` rare`×4, ` variants`×3, ` frequency`×2, ` mutations`, ` coding` |
 | 20990 | **12** — clause-initial subordinator | denominator only | high | — | 15 | ` As`×8, `As`×6, ` as`×2 introducing attribution/circumstance; governor = matrix clause; prong 1(b) confirmed in-record |
-| 105490 | **12** — anaphoric demonstrative | denominator only | med-high | — | 16 | ` that`×14, `that`, ` those`; governor = antecedent. **Boundary case: if anaphora confers no governor this becomes class 2 and enters the numerator** |
+| 105490 | ~~**12** — anaphoric demonstrative~~ **SUPERSEDED BY §11.1 → class 2, surface-form, high** | ~~denominator only~~ **surface-form** | ~~med-high~~ **high** | — | 16 | ` that`×14, `that`, ` those`. The boundary flagged here was ruled and then measured: an antecedent is not a governor, and the firing set is demonstrative-syntax-selective while `this`/`these` never fire. **See §11.1 — this row is in the numerator.** |
 | 60751 | 10 indeterminate | denominator only | — | **I-THIN** | 2 | 15/16 from one food-safety page |
 | 90863 | 10 indeterminate | denominator only | — | **I-THIN** | 2 | n_firings = 2 |
 | 134801 | 10 indeterminate | denominator only | — | **I-THIN** | 2 | 15/16 from one BD corporate page |
