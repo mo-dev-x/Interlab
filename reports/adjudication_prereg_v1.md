@@ -1,9 +1,9 @@
-# BINDING PRE-REGISTRATION v1.16 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.17 — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.16 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
+> ## ⛔ v1.17 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
 >
 > §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
@@ -12,7 +12,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 → v1.14 → v1.15 → v1.16 this (§16). The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 → v1.14 → v1.15 → v1.16 → v1.17 this (§16.4–16.5). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.16**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.17**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.16)*
+v1.17)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.16)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.16)* — same table shape, separate section, produced independently.
+v1.17)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -1404,3 +1404,50 @@ Stated so the delay is not mistaken for an absence of results:
   tooling that was silent for its entire live window.
 
 **None of these depends on a tally, and none is weakened by withholding one.**
+
+### 16.4 A PARKED ROW IN THE RELIABILITY RATER'S FILE DOES NOT VOID A TALLY
+
+Rater 2 emitted a parked row as `class: null, disposition: "parked"`, breaking the stated type and
+enum **loudly**, and flagged it rather than resolving it. **The reasoning is right and is adopted
+verbatim as the general principle**: the three conforming alternatives were to fabricate a class
+(§11.2 forbids collapsing a park), to write `10` (§11.2 forbids collapsing it into `indeterminate`),
+or to **omit the row — which is the worst, because a parked row voids a tally while an omitted row
+voids nothing.** The instrument would have tallied nine rows and emitted a number that should not
+exist: **silent loss of a publication-blocking state, inside the file built to prevent exactly that.**
+
+Independently, the merge instrument already refuses on a parked rater-2 row, with its own test. **Two
+lanes converged on making this loud from opposite directions**, which is why it surfaced as a ruling
+rather than as a wrong number.
+
+> **Schema: `"parked"` joins the `disposition` enum, and `class: null` is permitted only when it is
+> set.** Parked rows stay visible to the instrument and can never reach a class count.
+>
+> **Disposition, which §11.2 did not distinguish and now must:**
+> - **Parked in the ADJUDICATOR OF RECORD's file → voids that column's tally** (§11.2 unchanged).
+>   The composition would have a row whose bucket is unknown.
+> - **Parked in the RELIABILITY rater's file → does NOT void the composition.** Their rows never
+>   enter a tally (§16.2), and the adjudicator of record has a call on that feature, so the column is
+>   complete. **It is excluded from the agreement denominator, and that exclusion is reported** —
+>   agreement over 9 of 10, stated as such, never as 10.
+>
+> **A park by the second rater is a reliability signal, not a completeness gap.** Conflating the two
+> would let the reliability arm block the measurement it exists to characterise.
+
+### 16.5 THE PARSE INSTABILITY IS EXPLAINED, AND IT WAS SUBSTANTIVE
+
+Canonicalisation surfaced the cause. **Three prose rows were stale — rulings had landed everywhere
+except the tables they governed.** Two were bucket-neutral. **The third was not: a row still showed
+class 12 / denominator in one section while a later section had superseded it to class 2 /
+surface-form.** A parse reading the earlier section and stopping gets a denominator row; one reading
+the later gets a **numerator** row.
+
+**That is a one-row swing between the two divergent compositions, and it was found by the rater
+transcribing their own ledger, not by the parser.** It vindicates withholding the number: the
+instability was not a formatting nuisance, it was **an internally inconsistent record in which two
+sections asserted different buckets for the same feature**. Either parse would have produced a
+publishable-looking composition and one of them would have been wrong.
+
+**Generalised: a document that accumulates rulings must have every governed row re-checked against
+each ruling, not merely the section where the ruling was written.** This is the fourth instance
+today of a correction landing in one place while its consequences sat elsewhere — the v1.3 title,
+the v1.2 banner, the methods worked examples, and now the ledger tables.
