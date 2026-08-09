@@ -89,6 +89,38 @@ another bypass). The control has not been bypassed across any of the
 four incidents -- every one was reported and fixed at the layer it
 actually lived in, which is the entire point of this module's approach.
 
+THE PATTERN IS NOT SPECIFIC TO THIS MODULE. Two further instances, kept
+here because they are the same shape as the four above, not a different
+lesson:
+
+- A separate rule -- "never `git add` then `git commit`; always commit
+  by explicit pathspec" -- was adopted to close a real concurrent-commit
+  hazard (a shared index is shared mutable state). It had a blind spot
+  its own author didn't see: `git commit -- <path>` errors on a path
+  that was never tracked, so every file created AFTER that rule took
+  effect became uncommittable by the mandated procedure. 18 sprint
+  deliverables -- including this module and its own launcher -- sat
+  uncommitted for the rest of the sprint as a result, and every
+  "committed cleanly" status in the interim was true only of files
+  already tracked before the rule existed. A control introduced to stop
+  one silent failure created a larger one, and it landed on the person
+  who wrote the rule.
+- tests/test_check_reserved_indices.py itself once hardcoded a
+  reserved-shaped placeholder number in a regression test for the
+  records.jsonl false positive. That number turned out to ALSO be a real
+  reserved index -- committing the test file would have burned that slot
+  permanently, inside the one file whose entire job is preventing exactly
+  that. Fixed by asserting the safety property (below the magnitude
+  floor) rather than trusting a literal to happen to be safe; a second,
+  independent instance of the same mistake was found one level up, in the
+  code comment explaining the first one, and fixed the same way -- by
+  removing the value from the prose rather than trying to phrase around
+  it.
+
+Both are the fourth incident's asymmetry again, one layer removed: a
+control is itself an artifact, and an artifact can have exactly the kind
+of blind spot it was written to close in something else.
+
 WHY *.md AND *.py FOR CONTENT, NOT EVERY FILE: the reserved pool is drawn
 uniformly from range(16384) (see make_calibration_pool.py), so any
 sufficiently large corpus of ordinary numbers collides with a meaningful
