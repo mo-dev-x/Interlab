@@ -1,9 +1,9 @@
-# BINDING PRE-REGISTRATION v1.14 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.15 — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.14 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
+> ## ⛔ v1.15 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
 >
 > §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
@@ -12,7 +12,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 → v1.14 this (§14.6). The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 → v1.14 → v1.15 this (§15). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.14**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.15**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.14)*
+v1.15)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.14)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.14)* — same table shape, separate section, produced independently.
+v1.15)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -1256,3 +1256,85 @@ blocked rather than bypassed.** `--no-verify` has been refused three times, incl
 orchestrator on the section authorising the hook. **That the control has never once been bypassed is
 the load-bearing fact here**, and it holds because each block was routed to whoever owned the defect
 instead of being judged around by whoever hit it.
+
+---
+
+## 15. AMENDMENTS v1.15 — 2026-08-08, both columns closed
+
+### 15.1 THE QWEN CONSERVATIVE FLOOR IS A RANGE, NOT A POINT
+
+**31 of 40 Qwen rows are marker-native** — never adjudicated pre-marker, so they have no
+`pre_marker_class`. §11.1's floor resets rows that moved **numerator-ward on marker access**, and
+**a row that cannot move enters the floor unreset by construction.** This is §14.1's hole at fifteen
+times the scale, and it is not repairable the same way: a parked row at least had a recorded state.
+
+**The measurement that would settle it does not exist and cannot be recovered.** Rater 1 has seen the
+markers and cannot un-see them; a pre-marker adjudication by them is now impossible. Rater 2 built the
+Qwen marker file and is likewise not clean for this purpose. **A quantity that requires a
+counterfactual nobody can now occupy is not measurable, and imputing it from the 9 rows that do have a
+pre-marker class — of which exactly one moved numerator-ward — would be inference from n = 9 to n = 31
+on a subsample never shown to be representative.**
+
+> **Ruling: the Qwen floor is reported as an INTERVAL, and the interval is computed, not estimated.**
+>
+> - **Lower end (maximally conservative):** reset **every** marker-native row that landed in the
+>   numerator. Assumes the amendment did all the work.
+> - **Upper end (measured-movers only):** reset only rows with a recorded numerator-ward move.
+> - **The true floor lies between them and cannot be located with available evidence. Both ends are
+>   published with that sentence attached.**
+>
+> **The convergence claim binds to the LOWER END.** §12.5 already binds convergence to the floor;
+> where the floor is an interval, it binds to the interval's most conservative point. **A range that
+> still supports the direction is a strong statement. A range that does not is an honest null, and
+> it is reported as one.**
+>
+> **Gemma is unaffected** — its rows carry pre-marker classes and its floor is a point. **The two
+> columns' floors are therefore constructed differently, which is itself declared**, and it is the
+> reason convergence binds to the interval's lower end rather than to a midpoint: comparing a point
+> floor against an interval's centre would smuggle in precision that only one column has.
+
+### 15.2 AN ANTECEDENT IS NOT A GOVERNOR — AND THAT DOES NOT DECIDE THE ROW
+
+Escalated on a bucket-changing row where class 12 versus class 2 turns on whether an anaphor's
+antecedent counts as a governor under prong 2.
+
+**It does not. Government is a *syntactic licensing* relation** — a head licensing a dependent's
+position (verb→object, preposition→complement, copula→predicate). **Anaphora is a *referential*
+relation: an antecedent supplies reference, not position.** An anaphor sits in subject or object
+position like any other noun phrase; there is no distinctive position for the antecedent to name.
+**Class 12 is unavailable on that basis.**
+
+**But class 12 being unavailable does not make it class 2, and the direction is why that matters.**
+Class 2 covers *"a specific token, morpheme, **POS category**, or fixed collocation"*, and anaphors
+are a closed POS category — so class 2 is *available*, which would put the row in the numerator. **The
+discriminating question is whether the trigger is the category or the function:**
+
+> **Test — do NON-anaphoric uses of the same tokens fire?** Expletive *it* (*"it is raining"*),
+> deictic *this*, cataphoric uses.
+> - **They fire too** → the trigger is the **POS category** → **class 2, surface-form.**
+> - **Only anaphoric uses fire** → the invariant is a **referential function**, which §6 does not
+>   encode → **`indeterminate` / `I-SILENT`**, denominator.
+>
+> **Directional-bias test (§12.4): NEUTRAL a priori** — the test can land in either bucket and is
+> decided by evidence in the marker file, not by the ruling. **Ruling the governor question alone
+> would have decided a numerator row by definition rather than by measurement**, which is why it is
+> split in two.
+
+### 15.3 SUPPORT CONCENTRATION IS A QWEN-COLUMN DEFECT, NOT A REINSTATED AXIS
+
+Rater 1's finding stands and is exact: **five `I-THIN` rows, four with a single document supplying
+11–15 of 16 records**, plus classified rows resting on comparable concentration — one of them in the
+numerator at low confidence with 11 of 16 records from one page.
+
+**This is measured, not proxied, and it belongs in the Qwen column's own methods section.** It does
+**not** reinstate §4.11's cross-model axis: the Qwen side is exact via `doc_id`, the Gemma side
+remains unmeasurable, and *"Gemma has nothing comparable because packed-stream records spread across
+documents by construction"* is a **structural argument, not a measurement** — plausible, and exactly
+the kind of claim the demoted proxy was unable to check. **Recording it as a within-column defect
+keeps the exact part and discards the unverifiable comparison.**
+
+**Direction: conservative for the claim.** Thin support pushes rows toward `indeterminate`, deflating
+Qwen's surface-form count — so a skew found on that column despite the concentration is stronger
+evidence, not weaker. **Numerator rows resting on concentrated support are listed individually in the
+write-up**, on the same principle that listed Gemma's unauditable numerator rows: where the claim is
+strongest, the evidence base must be shown, not summarised.
