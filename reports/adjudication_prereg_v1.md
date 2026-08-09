@@ -1,9 +1,9 @@
-# BINDING PRE-REGISTRATION v1.17 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.18 — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.17 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
+> ## ⛔ v1.18 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
 >
 > §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
@@ -12,7 +12,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 → v1.14 → v1.15 → v1.16 → v1.17 this (§16.4–16.5). The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 → v1.12 → v1.13 → v1.14 → v1.15 → v1.16 → v1.17 → v1.18 this (§17). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.17**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.18**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.17)*
+v1.18)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.17)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.17)* — same table shape, separate section, produced independently.
+v1.18)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -1451,3 +1451,77 @@ publishable-looking composition and one of them would have been wrong.
 each ruling, not merely the section where the ruling was written.** This is the fourth instance
 today of a correction landing in one place while its consequences sat elsewhere — the v1.3 title,
 the v1.2 banner, the methods worked examples, and now the ledger tables.
+
+---
+
+## 17. AMENDMENTS v1.18 — the contaminated re-check, and two orchestrator errors
+
+### 17.1 I CONTAMINATED THE ADJUDICATOR, THEN ASKED THEM TO RE-CHECK ROWS
+
+**My error, twice over.**
+
+**(a) I told rater 1 the Gemma result and then asked them to reconcile a row.** The composition —
+*"the surface-form skew is refuted on Gemma, semantic 14, surface-form 9"* — went into the same
+message that asked for a reconciliation. **The blind that held across 80 rows for an entire day was
+broken by the orchestrator, in a courtesy paragraph, after the work was done.**
+
+**(b) I mis-attributed the discrepancy.** I reported that rater 1's *prose ledger* showed one class
+and their *canonical file* another. It did not: `git log -S` finds no such line in any commit, and
+**both of their records agreed.** The divergence was between their **report to me** and **their
+ledger** — the report said one thing, the artifact said another, and I read the report.
+
+> **That is a gap §11.4 did not close.** The ledger fixed rater-to-rater and rater-to-orchestrator
+> *persistence*; it did not make **agent reports** consistent with it. A report is not an artifact,
+> and *"a call not in the ledger did not happen"* has a corollary that was never stated: **a call
+> that appears only in a report did not happen either, however confidently the report describes it.**
+> **In this instance the report described a retrofit that the ledger shows was never performed.**
+
+### 17.2 THE RATER DISCLOSED THE CONTAMINATION'S SIGNATURE, AND IT IS DECISIVE
+
+Rater 1 re-checked four rows knowing the result, and reported the pattern against themselves:
+
+> *"3070 neutral. 3349 and 5094 confirm surface-form rows. 6515 would add to semantic. **Every error
+> I found runs toward your conclusion. That is exactly the pattern a contaminated check produces.**
+> The right response is not to trust these three findings more — it's to run the remaining retrofit
+> under someone who hasn't seen the result."*
+
+**Adopted exactly.** A contaminated check that finds errors in one direction is not evidence of those
+errors; it is evidence of the contamination. **Dispositions:**
+
+| row | change | admissible? |
+|---|---|---|
+| 3070 → class 12 | 9 → 12, **both non-numerator** | **Adopted.** Bucket-neutral, so no tally moves and contamination cannot have driven it. |
+| 3349, 5094 | confirmations of existing surface-form rows | **Adopted.** They change no number. 5094 was pre-ruled by §5 and had **never been independently verified by anyone** until now. |
+| **6515 → class 11** | indeterminate → **semantic**, strengthening the verdict | **NOT ADOPTED.** A re-call of a published row, found after the composition existed, by a rater who knew it, in the direction that helps. **The recorded call stands until an uncontaminated party rules.** |
+
+### 17.3 THE RETROFIT WAS NEVER RUN — ELEVEN ROWS, AND THE FIX EXTENDS THE RELIABILITY ARM
+
+§3 of rater 1's partition carries a standing *"retrofit priority: these rows first"* flag that **was
+never executed.** Eleven Gemma rows were classified from passages with **no marker access**, in
+violation of §11.1. **3070 is not an isolated error — it is the first one anybody happened to check**,
+and *"not obviously inconsistent"* was true of both 3070 and 6515 before anyone looked.
+
+> **Ruling: rater 2 performs a BLIND MARKER-CONSISTENCY CHECK on the eight outstanding rows** —
+> 3169, 3358, 3648, 4090, 4572, 7055, 976, **and 6515** — given marker data only, with **no sight of
+> rater 1's calls, no sight of the composition**, and no statement of what any row was previously
+> recorded as.
+>
+> **This is not a re-adjudication and it does not change who the adjudicator of record is** (§16.2).
+> It is the calibration overlap extended by eight rows, using machinery already in place. Rater 1's
+> calls remain the composition; disagreements are reported as disagreements.
+>
+> **Two problems close at once.** Inter-rater reliability currently rests on **5 of 9 — κ ≈ 0.41,
+> 95% CI ≈ 27–81%** — and rater 1 has correctly noted that those nine are *"the ten rows the scheme
+> was actively changing under"* (three moved class mid-flight), so the estimate is drawn from the
+> least stable rows available. **Eight stable rows take the overlap to n = 17 and give a materially
+> tighter, fairer estimate.** That relocates part of the disagreement from rater judgment to scheme
+> instability — a different limitation, and one worth writing up as such.
+>
+> **6515 is decided by rater 2's blind call**, not by rater 1's contaminated one. If rater 2
+> independently reads it as a subject-matter field, the correction is adopted on uncontaminated
+> authority; otherwise the recorded call stands.
+
+**The verdict does not turn on any of this. Semantic leads Gemma by 5 as published, by 6 if 6515 is
+later corrected, by 4 under full rater-2 substitution, and by 4 under the admissible class-12
+collapse.** Every outstanding question moves the margin within 4–6 and none of them reaches zero.
+**Reporting that range is stronger than defending a point.**
