@@ -410,7 +410,7 @@ Four design decisions illustrate the reasoning behind this architecture, and one
 
 The immutability-via-derivation principle introduced above underlies all three: none of these identities or statuses are hand-maintained fields that could silently drift out of sync with reality — they are either content hashes computed from the artifact bytes (ED-27, ED-28) or a status computed on demand from the registry at chain-assembly time — which is precisely what made an error like the ED-33 baseline correction something that could be caught and fixed cleanly rather than propagating silently through every certificate downstream.
 
-Verification culture is concrete rather than aspirational: 583 tests across 61 test files pass as of the ED-33 migration (git commit 1d54b52), covering identity tests, golden delta tests, battery-snapshot tests, and schema round-trip tests across all twelve artifact types. The identity test (Gate G3) checks that a no-op intervention is bit-identical to its input and runs in continuous integration on every commit. The golden delta test checks that delta-form steering on a fixed prompt matches a pinned reference within an ULP (unit-in-the-last-place) tolerance — set at MAX_ULP 32 for ordinary cross-platform CPU kernel rounding differences, and widened to MAX_ULP 128 specifically and only to accommodate the ED-33 stack migration's different TopK kernel rounding, not loosened arbitrarily. Certification-lane jobs enforce the ED-32 version baseline with fail-closed behavior: a version mismatch exits with code 4 — a distinct, explicit environment-failure exit code — rather than completing silently against an unverified stack.
+Verification culture is concrete rather than aspirational: 1,040 tests across 77 test files pass as of 2026-08-09 (583 across 61 at the ED-33 migration, git commit 1d54b52), covering identity tests, golden delta tests, battery-snapshot tests, and schema round-trip tests across all twelve artifact types. The identity test (Gate G3) checks that a no-op intervention is bit-identical to its input and runs in continuous integration on every commit. The golden delta test checks that delta-form steering on a fixed prompt matches a pinned reference within an ULP (unit-in-the-last-place) tolerance — set at MAX_ULP 32 for ordinary cross-platform CPU kernel rounding differences, and widened to MAX_ULP 128 specifically and only to accommodate the ED-33 stack migration's different TopK kernel rounding, not loosened arbitrarily. Certification-lane jobs enforce the ED-32 version baseline with fail-closed behavior: a version mismatch exits with code 4 — a distinct, explicit environment-failure exit code — rather than completing silently against an unverified stack.
 
 ### 5.3 Lodestar: A Research Platform for Judged Evaluation
 
@@ -469,9 +469,13 @@ flowchart LR
     A9J --> A11["A11 claim_report\nDESIGNED (GATE G4)"]
 ```
 
-Every job additionally writes an A10 run_card (IMPLEMENTED; five in the registry as of this run); run cards are omitted from the diagram for clarity since they attach to every stage rather than sitting on the main chain.
+Every job additionally writes an A10 run_card (IMPLEMENTED; six in the registry as of 2026-08-09); run cards are omitted from the diagram for clarity since they attach to every stage rather than sitting on the main chain.
 
-The honest status, stated plainly rather than smoothed over: the production chain is live and exercised from A1 through A6 — Gate G1 — and stops there. A5 (four checkpoints, three of them backfilled rather than trained under the blueprint directly) and A6 (four certificates) are populated, alongside A1, A3, and A10 for the certification lane's own bookkeeping. Beyond Gate G1, SS7 (the intervention/hook engine) and SS9 (the statistics module) are implemented as trunk components — hooks pass their identity test and golden-delta test, and the statistics functions (bootstrap confidence intervals, false-discovery correction) are coded and tested — but intervention_result (A9) has never been populated: zero live A9 artifacts exist in the registry, and `jobs/steer.py` is a stub. Chain-assembly logic for claim reports (`interplab/reports/chain.py`) is written but has never been exercised end to end, because it requires a judged A9′ artifact as input and none exists.
+The honest status, stated plainly rather than smoothed over: the production chain is live and exercised from A1 through A6 — Gate G1 — and stops there. **That sentence is still true as of 2026-08-09, and the August work did not change it or attempt to**; the August science ran deliberately outside the chain, through `scripts/legacy/`, and Section 5.5 addresses what governed it instead. A5 (**five** checkpoints, three of them backfilled rather than trained under the blueprint directly) and A6 (**four** certificates) are populated, alongside A1, A3, and A10 for the certification lane's own bookkeeping. The A5/A6 asymmetry is deliberate to record: a certify config for the fifth checkpoint exists (`configs/certify/hm03l7yz.yaml`) and no certificate followed it, and nothing in the tree distinguishes *not run* from *run and rejected* — an absence that the chain, as currently designed, cannot itself explain.
+
+Beyond Gate G1, SS7 (the intervention/hook engine) and SS9 (the statistics module) are implemented as trunk components — hooks pass their identity test and golden-delta test, and the statistics functions (bootstrap confidence intervals, false-discovery correction) are coded and tested — but intervention_result (A9) has never been populated: zero live A9 artifacts exist in the registry.
+
+**A correction to an earlier version of this section, which described `jobs/steer.py` as a stub.** That was wrong when written, not merely stale. The module is 428 lines — the largest job module in the package, and it was already 407 lines on the date this report was first issued — carrying claim mode, two hooked control arms, a no-hook `prompt_baseline`, inline blinding, and the ED-22 and ED-34 requirements, under sixteen tests in `tests/test_jobs_steer.py`. The accurate statement is **implemented and tested, never run against a live checkpoint**. The distinction matters because "stub" and "never executed" recommend opposite next actions: one says write the code, the other says run it. Recording the correction rather than silently amending it, since an infrastructure section whose own status table misreports its code is making exactly the error the chain exists to prevent. Chain-assembly logic for claim reports (`interplab/reports/chain.py`) is written but has never been exercised end to end, because it requires a judged A9′ artifact as input and none exists.
 
 This is the fact that must not be read against Section 3, and the distinction is stated here explicitly rather than left implicit: the absence of a live A9 pipeline is a statement about Interlab's own SS8 integration boundary — the blinding module and Lodestar adapter are present as stubs but untested on real generations — not a statement that steering was never judged at all in this report. It was judged, extensively, by Lodestar running standalone (Section 5.3); what has not yet happened is folding those judged results back into Interlab's own content-addressed A9 artifact type.
 
@@ -479,9 +483,9 @@ This is the fact that must not be read against Section 3, and the distinction is
 
 | Component | Status | Evidence |
 |---|---|---|
-| Certify lane (A1, A3, A5, A6, A10) | IMPLEMENTED, populated | 15 total registry artifacts across 5 of 11 chain types |
+| Certify lane (A1, A3, A5, A6, A10) | IMPLEMENTED, populated | 17 total registry artifacts across 5 of 11 chain types (1 A1, 1 A3, 5 A5, 4 A6, 6 A10) as of 2026-08-09 |
 | Intervention engine (SS7 hooks) | IMPLEMENTED (trunk), unpopulated | Identity test + golden-delta fixture pass; 0 live A9 |
-| Intervention result (A9) | DESIGNED, EMPTY | Schema drafted; 0 artifacts; `jobs/steer.py` stub only |
+| Intervention result (A9) | DESIGNED, EMPTY | Schema drafted; 0 artifacts; `jobs/steer.py` is **implemented and tested (428 lines, 16 tests)**, never run against a live checkpoint |
 | SS8 Lodestar–Interlab boundary | DESIGNED, untested on real generations | Blinding module present; Lodestar adapter stubs; no live judging inside Interlab |
 | Statistics & chain assembly (SS9) | IMPLEMENTED (trunk) / DESIGNED (A11) | `interplab.stats` coded and tested; `chain.py` written but never exercised end-to-end |
 | Claim report (A11) | DESIGNED, EMPTY | Schema drafted; 0 artifacts; requires A9′ as input |
@@ -489,6 +493,64 @@ This is the fact that must not be read against Section 3, and the distinction is
 *Source: architecture inventory §C, §D, §J, §K (T0.3 registry snapshot: 15 artifacts across 5 of 11 chain types — 1 A1, 1 A3, 4 A5, 4 A6, 5 A10).*
 
 This is a snapshot of current population, not a verdict on the design: the architecture's own closing assessment records no remaining architectural gaps, and the frontier for a fully live pipeline is specifically SS5/SS6 feature work and SS7/SS8 steering under certification discipline — engineering time, not a redesign.
+
+---
+
+### 5.5 What August Added: A Fail-Closed Environment Gate, and a Second Governance Apparatus
+
+Two infrastructure deliveries postdate the sections above. Neither advances the certificate chain
+past Gate G1 — that boundary is unchanged and unchallenged — but omitting them would leave a reader
+unable to account for how the August science was governed at all.
+
+**ED-36: the environment bundle builder.** `interplab/core/environment_bundle.py` is 5,148 lines,
+roughly forty per cent of the entire `interplab` package, under 4,709 lines of tests across two
+files. It builds and validates a pinned, hash-bound wheel bundle for Tamia's air-gapped compute
+nodes and emits two new schema-governed artifact types, `environment_acquisition_manifest` and
+`environment_install_manifest`. Critically it **fails closed**: a certification-lane job — `certify`,
+`characterize`, `validate`, `steer` — that reaches a cluster run without those manifests aborts
+rather than proceeding against an unverified stack. It was built between 2026-08-03 and 08-05,
+audited through eleven review cycles to R9-V11, accepted against an exact commit, and then frozen by
+directive when the sprint's priorities changed.
+
+It belongs in this section for the same reason ED-32/ED-33 do, and it is the sharper example. ED-33
+caught a *recorded* version baseline that had never been verified against the artifacts. ED-36
+generalises that from a version string to the whole environment, and moves the check from "someone
+remembered to verify" to "the job cannot start otherwise." Note that these two new schema types sit
+outside the A-numbered chain: `schemas/` now holds fourteen artifact-type directories where §5.2
+says twelve, and the chain count of twelve is what still holds.
+
+**A second governance apparatus, which is not part of Interlab.** The August cross-model work
+required something Interlab does not provide and was never designed to. Interlab constrains
+*artifacts*: content-addressed, schema-validated, gated. What the adjudication needed constrained
+*the analyst*: a pre-registration fixing every parameter before any count existed, a reserved pool
+of feature indices held back so an inter-rater reliability arm could not be contaminated by the
+composition draw, and machine-readable ledgers so that a tally could not drift between two readings
+of the same prose. It is the same thesis — certificates rather than recollection — pointed at human
+judgment instead of at files.
+
+Its components, and what each one refuses:
+
+| Instrument | Refuses |
+|---|---|
+| `adjudication_prereg_v1.md` (107 KB, v1.19) | Nineteen amendments, **none made with a tally visible.** Every parameter fixed before the number it governs exists |
+| `merge_adjudication.py` (24 KB) | **Refuses rather than tallying** what it can read: a duplicate index, an out-of-pool feature, a column that is not exactly 40, an unparseable class, all produce a non-zero exit and no composition. Pools are derived from evidence, never transcribed |
+| `make_calibration_pool.py` (17 KB) | Holds the composition denominator at 40 while extending the pool for calibration only, with a reserved floor that cannot be reduced |
+| `check_reserved_indices.py` + two git hooks | Blocks any commit staging a reserved index. Five incidents, five structural fixes, **zero bypasses** — including one that blocked the author of the rule and one that blocked the author of the tool |
+| Canonical ledgers, r1 and r2, in prose *and* JSON | Prose is for the reader; the JSON is what the instrument reads. The prose ledger was demoted after two successive parses of it gave two different answers |
+
+The apparatus produced its own instructive failure. The contamination scanner carried a false
+negative for its entire live window — a trailing-period exclusion meant a reserved index at the end
+of a sentence was never detected — and it was found by accident rather than by test, after it had
+already let one real index through. The remediation script that fixed it **retires and replaces in a
+single process**, printing only counts, so the leaked values never cross a process boundary. That
+episode is the strongest single argument for this section's thesis: a guard nobody has tried to
+defeat is indistinguishable from a guard that does not work, and this one was only shown to be real
+by being caught failing.
+
+The connection to Section 3.8 is direct and should be stated. The four-stage analyst-choice result
+is the *measurement* of how much unconstrained analyst discretion is worth in a pipeline of this
+shape. This apparatus is the *response*. Neither would have been visible from inside a workflow
+where the analyst records only the final number.
 
 ---
 
