@@ -1,0 +1,33 @@
+# Line-ending policy. Added 2026-08-09 after a deployment audit, and deliberately
+# NARROW: the first version of this file said `* text=auto eol=lf`, which renormalised
+# fourteen files -- among them reports/methods_and_limitations_v1.md,
+# scripts/legacy/qwen_max_activating_tokens.json, reports/adjudication_merged.json,
+# reports/adjudication_ledger_r2.canonical.json and results/gemma3_sweep/analysis/
+# sweep_analysis.json. Their content was untouched; only line endings changed. But
+# VERIFICATION_LOG.md records 84 sha256 digests and names two of those files directly,
+# and in this project the digest IS the artifact's identity -- a hash-bound file whose
+# bytes change has lost the thing that binds it, whether or not a human can see a
+# difference. A tidy-up rule would have silently invalidated the provenance chain that
+# the whole adjudication discipline rests on. It was reverted before it was committed.
+#
+# So the default here is the opposite of tidiness: freeze the bytes.
+* -text
+
+# The one exception, and it is preventive rather than corrective. An audit flagged
+# slurm/launch_certify.sh as CRLF; on inspection that was true only of the Windows
+# working copy (2140 bytes, mixed 31 CRLF / 17 LF). The committed blob is clean LF at
+# 2109 bytes, shebang `#!/bin/bash` with no trailing \r, so every cluster checkout has
+# always received a runnable script and nothing was ever broken. The rule stays anyway:
+# a CRLF shebang makes Linux report "bad interpreter: /bin/bash^M", an error that names
+# the interpreter rather than the file and so reads as a broken environment rather than
+# a broken script. This pins .sh to LF in the repository so a Windows-side working copy
+# can never commit that failure into a blob. No .sh here is hash-bound, so the rule
+# costs nothing.
+*.sh text eol=lf
+
+# Gitignored today, but declare them binary so a future force-add cannot be mangled.
+*.pt binary
+*.safetensors binary
+*.png binary
+*.jpg binary
+*.pdf binary
