@@ -7,7 +7,27 @@
 
 ## Abstract
 
-We report a single-model reproduction of Anthropic's Golden Gate Claude (GGC) feature-steering demonstration on an open-weight target, Qwen2.5-14B and its instruction-tuned variant, using sparse autoencoders (SAEs) trained in-house. The headline result is feature 9056, an identity-substitution "cheese" feature discovered on the instruct-model SAE (rwu04lpb, layer 28), which at steering scale 55 produces coherent, prompt-responsive text under LLM-judged evaluation: coherence 5.38, concept relevance 5.50. To assess feature quality beyond a single steering run, we developed a triangulated methodology combining open-ended survey statistics, rate-matched selectivity controls, and judged steering sweeps, three independent measurements that agree on the same feature ranking. We also report four negative results as findings in their own right: an exhaustive multi-attempt failure to isolate a clean "poutine" feature, a self-corrected discovery that an apparent Montreal/Quebec feature is bilingually entangled, evidence that base-model SAEs do not transfer to instruct-model geometry, and a fluency-before-topicality failure at high steering scale. Equally central to this internship is the research infrastructure built to support it. Lodestar, a six-rubric LLM-judge evaluation harness, was implemented and heavily exercised throughout: every judged operating point reported here is a Lodestar output. Interlab, a certificate-based provenance laboratory spanning eleven chain artifact types across twelve subsystems, is exercised end-to-end only as far as SAE certification (Gate G1); its remaining chain — feature validation, steering results, and claim assembly — is designed and schema-complete but not yet populated with live artifacts, by researcher decision rather than architectural gap. A cross-model arm (Gemma Scope) was staged but not run; findings here are scoped to Qwen2.5-14B(-Instruct) only.
+We report a single-model reproduction of Anthropic's Golden Gate Claude (GGC) feature-steering demonstration on an open-weight target, Qwen2.5-14B and its instruction-tuned variant, using sparse autoencoders (SAEs) trained in-house. The headline result is feature 9056, an identity-substitution "cheese" feature discovered on the instruct-model SAE (rwu04lpb, layer 28), which at steering scale 55 produces coherent, prompt-responsive text under LLM-judged evaluation: coherence 5.38, concept relevance 5.50. To assess feature quality beyond a single steering run, we developed a triangulated methodology combining open-ended survey statistics, rate-matched selectivity controls, and judged steering sweeps, three independent measurements that agree on the same feature ranking. We also report four negative results as findings in their own right: an exhaustive multi-attempt failure to isolate a clean "poutine" feature, a self-corrected discovery that an apparent Montreal/Quebec feature is bilingually entangled, evidence that base-model SAEs do not transfer to instruct-model geometry, and a fluency-before-topicality failure at high steering scale. Equally central to this internship is the research infrastructure built to support it. Lodestar, a six-rubric LLM-judge evaluation harness, was implemented and heavily exercised throughout: every judged operating point reported here is a Lodestar output. Interlab, a certificate-based provenance laboratory spanning eleven chain artifact types across twelve subsystems, is exercised end-to-end only as far as SAE certification (Gate G1); its remaining chain — feature validation, steering results, and claim assembly — is designed and schema-complete but not yet populated with live artifacts, by researcher decision rather than architectural gap. Both of the scope boundaries stated in the July version of this report have since been closed, and
+closing them is the substance of the August work reported in Sections 3.5–3.8 and 4.5. The
+cross-model arm was **run**, on Gemma-3-12B with Gemma Scope 2 (layer 31, width 16k) rather than the
+originally scoped Gemma-2-9B: a full dose–response sweep of 1,736 records over 54 dose-cells, of
+which 35 are reportable after a pre-registered refusal rule discards cells where the control arm
+saturates. A necessity arm was **run**: nine features ablated with matched-strength random controls,
+of which two give a clear result and one — feature 2048 — is unanimous at 16/16 active positions and
+survives Bonferroni correction across all eighteen tests. Neither closure produced the outcome the
+July report anticipated. The steer-versus-control contrasts span −0.047 to +0.090 against a
+replicate noise floor of σ = 0.0624, so all but one fall inside the noise; and the cross-model
+comparison of feature composition, adjudicated over 40 features per model under a pre-registered
+protocol, **yields no usable direction**: the defensible bounds are 8.00 vs 7.00 under one
+tie-breaking rule and 6.40 vs 7.00 under another, an interval that brackets zero. Completion was
+abandoned deliberately, because the limit is rater instability rather than sample size.
+
+The finding that survives all of this is methodological, and it is the report's strongest
+contribution: **at four independent stages of the analysis — which features are sampled, how their
+evidence is classified, how generations are judged, and how necessity is measured — an unstated
+analyst choice moves the reported answer by more than the effect being reported.** The four
+displacements are 2.6×, 50% of the affected rows, 3.7×, and a sign reversal respectively. One
+positive causal result survives every one of them.
 
 ---
 
@@ -21,7 +41,28 @@ Within that single-model scope, this report's contribution is not merely reprodu
 
 The remainder of this report proceeds as follows. Section 2 describes the methods: the nine-stage pipeline, the four training runs, SAE certification, feature discovery, characterization, steering and judged evaluation, multilingual analysis, and seven methodological fixes made along the way. Section 3 reports the quantitative results, led by the cheese-feature headline result and the triangulation analysis. Section 4 reports the negative results. Section 5 describes the two infrastructure contributions. Sections 6 and 7 address threats to validity and reproducibility. Section 8 discusses the broader implications, and Section 9 lists future work. Appendix A provides a claim-by-claim evidence ledger, and Appendix B lists the supplementary material accompanying this submission.
 
-To state the scope boundary plainly at the outset: this is a systematic, single-model reproduction and methodology study on Qwen2.5-14B(-Instruct). It does not claim cross-model generality — the Gemma Scope arm that would test that generality was staged but not executed — and its steering claims are, unless stated otherwise, sufficiency demonstrations (clamping a feature produces an effect), not necessity demonstrations (no ablation control was run to show the effect disappears without the feature). Both boundaries recur, with full detail, later in this report.
+To state the scope plainly at the outset, and to be clear about what changed: the July version of
+this report closed with two admitted boundaries — no cross-model generality, because the Gemma arm
+was staged but not executed; and sufficiency claims only, because no ablation control had been run.
+**Both were subsequently closed, and this report is the version in which they are.** That is the
+arc: a single-model reproduction with two named things it could not claim, followed by the work
+that went and claimed them.
+
+What came back was not a confirmation. The cross-model arm ran and produced a comparison whose
+direction cannot be established — the two defensible tie-breaking rules give bounds that bracket
+zero, so no claim about which model's features are more surface-form is available in either
+direction. The necessity arm ran and found two clear results out of nine features, with the
+steer-versus-control contrasts otherwise sitting inside the replicate noise floor. **A reader
+expecting this section to announce that the effect generalises should stop here: it does not say
+that, and the reasons it does not are the most useful thing in the report.**
+
+Three of the four negative results in the July version were about individual features. The August
+work adds a fourth kind, one level up: a finding about the *measurement apparatus itself*. At four
+independent stages, an unstated analyst choice moves the reported answer by more than the effect
+under study. Section 3.8 gives all four with their magnitudes. The practical consequence is that a
+paper reporting only a final number from this pipeline — any pipeline of this shape — would be
+reporting a quantity whose value was substantially set before the data was consulted. One positive
+causal result survives every stage, and it is reported as such rather than as a headline.
 
 ---
 
