@@ -102,15 +102,35 @@ Leave this terminal attached for the whole demo -- Ctrl-C here ends the
 session and releases the allocation.
 
 **2. From your own laptop** (not the login node) -- opens an SSH tunnel
-through the login node to the compute node's Gradio port, substituting
-`<NODE>` from step 1's output:
+whose final hop lands **on the compute node**, substituting `<NODE>` from
+step 1's output:
 
 ```bash
-ssh -L 7860:<NODE>:7860 yazid@tamia.alliancecan.ca
+ssh -J yazid@tamia.alliancecan.ca -L 7860:localhost:7860 yazid@<NODE>
 ```
 
 Leave that SSH session open too, then browse to `http://127.0.0.1:7860`
 on your laptop.
+
+> **The `-J` is load-bearing; an earlier revision of this file was wrong.**
+> It said `ssh -L 7860:<NODE>:7860 yazid@tamia.alliancecan.ca`, which
+> terminates on the **login** node and asks *it* to open a TCP connection to
+> `<NODE>:7860`. The payload binds Gradio to `127.0.0.1` on the compute node
+> (`gemma3_tool_payload.sh`, deliberately -- `0.0.0.0` on a shared node would
+> expose the demo to every other user on the cluster). A loopback listener is
+> reachable only from the machine it runs on, so the login node's connection
+> is refused and the browser sees nothing.
+>
+> With `-J`, the session terminates **on `<NODE>`**, so `localhost` in the
+> `-L` resolves to the compute node's own loopback and reaches the listener.
+> The security property is unchanged: nothing is ever exposed beyond the node.
+>
+> This failure could only have appeared *after* the allocation was granted and
+> the 12B model had loaded -- the most expensive moment available. If `ssh` to
+> the compute node is refused by cluster policy (Alliance Canada normally
+> permits it for a node where you hold a running job), the fallback is to bind
+> the payload to the node's routable interface instead; **prefer fixing the
+> tunnel over widening the bind.**
 
 ## What the UI shows
 
