@@ -19,6 +19,20 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# The two tests below genuinely exercise the REGENERATOR, so they need
+# results/characterize_lite/** -- which .gitignore's `results/` rule excludes,
+# so it is absent on CI and on any fresh clone. Skip rather than fail: a test
+# that cannot run is not the same as a test that failed, and pretending
+# otherwise is how a red suite stops being informative. Every other test in
+# this file reads the tracked artifact instead.
+TRACKED_QWEN_MANIFEST = REPO_ROOT / "results" / "qwen_tool" / "feature_manifest.json"
+_CHARACTERIZE_LITE = REPO_ROOT / "results" / "characterize_lite" / "rwu04lpb" / "characterize_lite.json"
+requires_regenerator = pytest.mark.skipif(
+    not _CHARACTERIZE_LITE.exists(),
+    reason="results/characterize_lite/** is gitignored and absent in this checkout",
+)
+
 ADAPTER_SCRIPT = REPO_ROOT / "scripts" / "legacy" / "qwen_tool_adapter.py"
 TOOL_SCRIPT = REPO_ROOT / "scripts" / "legacy" / "gemma3_tool.py"
 GEMMA_SWEEP_SCRIPT = REPO_ROOT / "scripts" / "legacy" / "gemma3_sweep.py"
@@ -125,6 +139,7 @@ REQUIRED_MANIFEST_FIELDS = (
 )
 
 
+@requires_regenerator
 def test_build_manifest_feature_records_round_trip_all_required_fields():
     # build_feature_manifest_records() used to live on the adapter and
     # build exactly 3 hardcoded records; write_feature_manifest()/
@@ -158,6 +173,7 @@ def test_load_feature_manifest_missing_file_raises():
         qwen.load_feature_manifest(REPO_ROOT / "does" / "not" / "exist.json")
 
 
+@requires_regenerator
 def test_pretaged_manifest_artifact_is_up_to_date():
     """The committed results/qwen_tool/feature_manifest.json is a real,
     pre-staged artifact (same convention as results/gemma3_sweep/
@@ -181,7 +197,7 @@ def test_pretaged_manifest_artifact_is_up_to_date():
 
 
 def test_tool_feature_helpers_work_against_qwen_manifest(tmp_path):
-    manifest = qwen.load_feature_manifest(qwen.write_feature_manifest(tmp_path))
+    manifest = qwen.load_feature_manifest(TRACKED_QWEN_MANIFEST)
     choices = tool.feature_dropdown_choices(manifest)
     assert len(choices) == 12  # 3 tier-1 concept-validated + 9 tier-2 taxonomy-derived
     for _label, idx in choices:
@@ -230,7 +246,7 @@ def test_pick_control_feature_idx_matches_gemma_sweeps_implementation_bit_for_bi
 
 
 def test_resolve_control_feature_idx_works_against_qwen_adapter(tmp_path):
-    manifest = qwen.load_feature_manifest(qwen.write_feature_manifest(tmp_path))
+    manifest = qwen.load_feature_manifest(TRACKED_QWEN_MANIFEST)
     control_idx = tool.resolve_control_feature_idx(qwen, manifest, control_rng_seed=1337)
     assert control_idx not in {f["idx"] for f in manifest["features"]}
     assert control_idx not in qwen.REJECTED_FEATURE_IDXS

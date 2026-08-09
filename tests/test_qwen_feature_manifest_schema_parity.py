@@ -20,6 +20,22 @@ import build_qwen_feature_manifest as qwen_build  # noqa: E402
 import gemma3_sweep  # noqa: E402
 import qwen_tool_adapter  # noqa: E402
 
+# ---------------------------------------------------------------------------
+# Read the TRACKED manifest artifact, never a rebuild from untracked inputs.
+# build_manifest() reads results/characterize_lite/**, which .gitignore's
+# `results/` rule excludes -- so on CI, or any fresh clone, calling it raises
+# FileNotFoundError. That is not a test result, it is the test harness
+# depending on a file that only exists on the author's machine. The staged
+# artifact is verified byte-equal to a fresh build by
+# test_pretaged_manifest_artifact_is_up_to_date, so reading it loses no
+# coverage -- and gains some, since it is what the tool actually loads.
+# ---------------------------------------------------------------------------
+TRACKED_QWEN_MANIFEST = REPO_ROOT / "results" / "qwen_tool" / "feature_manifest.json"
+
+
+def _qwen_manifest():
+    return json.loads(TRACKED_QWEN_MANIFEST.read_text(encoding="utf-8"))
+
 
 def _gemma_manifest(tmp_path):
     out_dir = tmp_path / "gemma3_sweep"
@@ -29,7 +45,7 @@ def _gemma_manifest(tmp_path):
 
 def test_top_level_keys_are_a_subset_of_qwen_manifest(tmp_path):
     gemma_manifest = _gemma_manifest(tmp_path)
-    qwen_manifest = qwen_build.build_manifest()
+    qwen_manifest = _qwen_manifest()
 
     missing = set(gemma_manifest.keys()) - set(qwen_manifest.keys())
     assert not missing, f"Qwen manifest is missing top-level key(s) present in Gemma's: {missing}"
@@ -37,7 +53,7 @@ def test_top_level_keys_are_a_subset_of_qwen_manifest(tmp_path):
 
 def test_per_feature_keys_are_a_subset_of_qwen_feature_records(tmp_path):
     gemma_manifest = _gemma_manifest(tmp_path)
-    qwen_manifest = qwen_build.build_manifest()
+    qwen_manifest = _qwen_manifest()
 
     gemma_keys = set(gemma_manifest["features"][0].keys())
     assert gemma_keys, "Gemma's manifest produced no feature records -- nothing to compare against"
@@ -57,7 +73,7 @@ def test_qwen_feature_records_share_gemma_key_value_types(tmp_path):
     written against Gemma's manifest doesn't need a type branch for
     Qwen's."""
     gemma_manifest = _gemma_manifest(tmp_path)
-    qwen_manifest = qwen_build.build_manifest()
+    qwen_manifest = _qwen_manifest()
 
     gemma_rec = gemma_manifest["features"][0]
     qwen_rec = qwen_manifest["features"][0]
@@ -83,7 +99,7 @@ def test_control_feature_uses_shared_global_mechanism_not_matched_control():
     mechanism Gemma uses), never from characterize_lite's own per-feature
     matched_control_feature -- matched_control_feature may only appear as
     displayed metadata."""
-    qwen_manifest = qwen_build.build_manifest()
+    qwen_manifest = _qwen_manifest()
 
     control_idx = qwen_manifest["control_feature_idx"]
     selected_idxs = {f["idx"] for f in qwen_manifest["features"]}
@@ -104,7 +120,7 @@ def test_control_feature_uses_shared_global_mechanism_not_matched_control():
 
 
 def test_rejected_features_are_recorded_with_reasons():
-    qwen_manifest = qwen_build.build_manifest()
+    qwen_manifest = _qwen_manifest()
     assert qwen_manifest["rejected_features"], "expected at least one recorded reject, mirroring REJECTED_FEATURE_IDXS"
     for rejected in qwen_manifest["rejected_features"]:
         assert isinstance(rejected["idx"], int)
@@ -112,7 +128,7 @@ def test_rejected_features_are_recorded_with_reasons():
 
 
 def test_manifest_carries_the_required_divergence_caveats():
-    qwen_manifest = qwen_build.build_manifest()
+    qwen_manifest = _qwen_manifest()
     assert qwen_manifest["labels_auto_derived_caveat"]
     assert qwen_manifest["causal_screening_caveat"]
     assert qwen_manifest["maxActApprox_caveat"]
@@ -127,7 +143,7 @@ def test_manifest_carries_the_required_divergence_caveats():
 
 
 def test_two_evidence_tiers_present_tier1_first_not_merged():
-    qwen_manifest = qwen_build.build_manifest()
+    qwen_manifest = _qwen_manifest()
     features = qwen_manifest["features"]
 
     tiers = [rec["evidence_tier"] for rec in features]
@@ -149,7 +165,7 @@ def test_adapter_features_exactly_equal_manifest_features():
     manifest JSON happens to be on disk. If those two ever diverge again,
     the tool's own claim that the control "uses the same exclusion set the
     D2.1 sweep uses" becomes false without anything raising."""
-    qwen_manifest = qwen_build.build_manifest()
+    qwen_manifest = _qwen_manifest()
 
     manifest_feature_idxs = {f["idx"] for f in qwen_manifest["features"]}
     adapter_feature_idxs = {f["idx"] for f in qwen_tool_adapter.FEATURES}
@@ -205,7 +221,7 @@ def test_adapter_import_does_not_require_untracked_characterize_lite_files(monke
 
 
 def test_resolved_control_index_is_in_neither_adapter_nor_manifest_features():
-    qwen_manifest = qwen_build.build_manifest()
+    qwen_manifest = _qwen_manifest()
     control_idx = qwen_tool_adapter._MANIFEST["control_feature_idx"]
 
     adapter_exclusion_set = (
