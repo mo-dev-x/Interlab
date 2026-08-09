@@ -1,0 +1,18 @@
+#!/bin/sh
+# Tracked canonical copy of the commit-msg hook (Prereg v1.10 SS13.4,
+# reports/adjudication_prereg_v1.md). .git/hooks/ is not itself tracked by
+# git, so this file is the source of truth other clones install from --
+# it must stay byte-identical to whatever is installed at
+# .git/hooks/commit-msg.
+#
+# One-time install on a new clone (no `git config` needed):
+#   cp scripts/legacy/githooks/commit-msg .git/hooks/commit-msg
+#   chmod +x .git/hooks/commit-msg
+set -e
+repo_root=$(git rev-parse --show-toplevel)
+if command -v python3 >/dev/null 2>&1; then
+  PY=python3
+else
+  PY=python
+fi
+"$PY" "$repo_root/scripts/legacy/check_commit_message.py" "$1"

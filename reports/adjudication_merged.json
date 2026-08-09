@@ -128,8 +128,8 @@
           },
           {
             "bucket": "discourse-register",
-            "count": 4,
-            "fraction": 0.1
+            "count": 3,
+            "fraction": 0.075
           },
           {
             "bucket": "indeterminate",
@@ -138,8 +138,8 @@
           },
           {
             "bucket": "relational-positional",
-            "count": 6,
-            "fraction": 0.15
+            "count": 7,
+            "fraction": 0.175
           }
         ],
         "class_counts": {
@@ -151,38 +151,73 @@
           "6": 0,
           "7": 3,
           "8": 0,
-          "9": 4,
+          "9": 3,
           "10": 7,
           "11": 11,
-          "12": 6
+          "12": 7
         },
         "note": "Five rows. Class 12 is reported separately; collapsing it into discourse-register or indeterminate would misreport those counts. surface-form and semantic do not sum to 1 by construction."
       },
       "agreement": {
         "column": "gemma",
-        "n_overlap_candidates": 10,
-        "n_excluded_parked": 1,
+        "n_overlap_candidates": 24,
+        "n_excluded_parked": 2,
         "excluded_parked_features": [
+          869,
           12403
         ],
-        "denominator_note": "agreement computed over 9 of 10 candidate overlap rows; 1 excluded as parked in the reliability rater's file (SS16.4)",
-        "n_overlap": 9,
+        "denominator_note": "agreement computed over 22 of 24 candidate overlap rows; 2 excluded as parked in the reliability rater's file (SS16.4)",
+        "n_overlap": 22,
         "overlap_features": [
+          819,
+          1041,
+          1423,
+          2582,
+          2848,
+          7164,
+          7223,
+          7314,
+          7623,
+          8024,
           9012,
           9105,
           11029,
           11149,
+          11270,
           11763,
           12449,
           13746,
           13825,
-          14719
+          13848,
+          14719,
+          15054
         ],
-        "exact_class_agreement": 5,
-        "exact_class_agreement_rate": 0.555556,
-        "bucket_agreement": 5,
-        "bucket_agreement_rate": 0.555556,
+        "exact_class_agreement": 14,
+        "exact_class_agreement_rate": 0.636364,
+        "bucket_agreement": 14,
+        "bucket_agreement_rate": 0.636364,
         "disagreements": [
+          {
+            "feature_idx": 819,
+            "r1_class": 11,
+            "r2_class": 10,
+            "r1_bucket": "semantic",
+            "r2_bucket": "indeterminate"
+          },
+          {
+            "feature_idx": 2582,
+            "r1_class": 7,
+            "r2_class": 10,
+            "r1_bucket": "semantic",
+            "r2_bucket": "indeterminate"
+          },
+          {
+            "feature_idx": 7314,
+            "r1_class": 2,
+            "r2_class": 12,
+            "r1_bucket": "surface-form",
+            "r2_bucket": "relational-positional"
+          },
           {
             "feature_idx": 9012,
             "r1_class": 4,
@@ -203,6 +238,13 @@
             "r2_class": 4,
             "r1_bucket": "indeterminate",
             "r2_bucket": "surface-form"
+          },
+          {
+            "feature_idx": 13848,
+            "r1_class": 11,
+            "r2_class": 10,
+            "r1_bucket": "semantic",
+            "r2_bucket": "indeterminate"
           },
           {
             "feature_idx": 14719,
@@ -298,8 +340,8 @@
       "class": 11,
       "bucket": "semantic",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 10,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },
@@ -311,7 +353,7 @@
       "source": "r1",
       "rater2_class": null,
       "rater2_in_overlap": false,
-      "rater2_parked": false,
+      "rater2_parked": true,
       "rater2_entered_tally": false
     },
     {
@@ -331,8 +373,8 @@
       "class": 12,
       "bucket": "relational-positional",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 12,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },
@@ -342,8 +384,8 @@
       "class": 3,
       "bucket": "surface-form",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 3,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },
@@ -353,8 +395,8 @@
       "class": 7,
       "bucket": "semantic",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 10,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },
@@ -364,8 +406,8 @@
       "class": 10,
       "bucket": "indeterminate",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 10,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },
@@ -383,8 +425,8 @@
     {
       "column": "gemma",
       "feature_idx": 3070,
-      "class": 9,
-      "bucket": "discourse-register",
+      "class": 12,
+      "bucket": "relational-positional",
       "source": "r1",
       "rater2_class": null,
       "rater2_in_overlap": false,
@@ -507,8 +549,8 @@
       "class": 7,
       "bucket": "semantic",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 7,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },
@@ -518,8 +560,8 @@
       "class": 10,
       "bucket": "indeterminate",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 10,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },
@@ -529,8 +571,8 @@
       "class": 2,
       "bucket": "surface-form",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 12,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },
@@ -540,8 +582,8 @@
       "class": 12,
       "bucket": "relational-positional",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 12,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },
@@ -551,8 +593,8 @@
       "class": 11,
       "bucket": "semantic",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 11,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },
@@ -628,8 +670,8 @@
       "class": 10,
       "bucket": "indeterminate",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 10,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },
@@ -694,8 +736,8 @@
       "class": 11,
       "bucket": "semantic",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 10,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },
@@ -716,8 +758,8 @@
       "class": 11,
       "bucket": "semantic",
       "source": "r1",
-      "rater2_class": null,
-      "rater2_in_overlap": false,
+      "rater2_class": 11,
+      "rater2_in_overlap": true,
       "rater2_parked": false,
       "rater2_entered_tally": false
     },

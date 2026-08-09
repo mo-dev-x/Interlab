@@ -1,0 +1,17 @@
+#!/bin/sh
+# Tracked canonical copy of the pre-commit hook (Prereg v1.9 SS13.2a,
+# reports/adjudication_prereg_v1.md). .git/hooks/ is not itself tracked by
+# git, so this file is the source of truth other clones install from --
+# it must stay byte-identical to whatever is installed at .git/hooks/pre-commit.
+#
+# One-time install on a new clone (no `git config` needed):
+#   cp scripts/legacy/githooks/pre-commit .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+set -e
+repo_root=$(git rev-parse --show-toplevel)
+if command -v python3 >/dev/null 2>&1; then
+  PY=python3
+else
+  PY=python
+fi
+"$PY" "$repo_root/scripts/legacy/check_reserved_indices.py"

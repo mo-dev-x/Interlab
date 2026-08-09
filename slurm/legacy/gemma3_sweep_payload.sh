@@ -15,7 +15,14 @@ MODEL_PATH="${1:?usage: gemma3_sweep_payload.sh <model_snapshot_path> <sae_snaps
 SAE_PATH="${2:?usage: gemma3_sweep_payload.sh <model_snapshot_path> <sae_snapshot_path> [extra args...]}"
 shift 2
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# NOT derived from BASH_SOURCE[0]: Slurm copies a script submitted directly
+# to sbatch (as this one is -- no --wrap) into /var/spool/... before
+# executing it, so BASH_SOURCE[0] there resolves to a spool path, not this
+# repo (confirmed: job 398628 failed in 3s on `can't open file
+# '/var/spool/scripts/legacy/gemma3_sweep.py'`). SLURM_SUBMIT_DIR is the
+# directory `sbatch` was invoked from (launch_gemma3_sweep.sh runs it from
+# the repo root), which is the correct and portable source of truth here.
+REPO_ROOT="${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR is unset -- refusing to guess the repo root}"
 cd "$REPO_ROOT"
 
 module purge
@@ -28,6 +35,16 @@ source "${SPRINT_VENV_DIR:-$HOME/sprint-venv}/bin/activate"
 # unrecoverable.
 unset HF_TOKEN
 export HF_HUB_OFFLINE=1
+# `python scripts/legacy/gemma3_sweep.py` (a script PATH) puts the script's
+# own directory in sys.path[0], not $REPO_ROOT -- interplab is not
+# pip-installed in sprint-venv, so `from interplab.core import hashing`
+# (compute_checkpoint_hash, hit even under --dry-run) raises
+# ModuleNotFoundError without this. Confirmed via a free CPU-only --dry-run
+# on the login node before this line was added; harness itself untouched.
+# Prepend, not overwrite: `module load arrow/25.0.0` sets its own
+# PYTHONPATH for pyarrow's bindings (job 398618 broke `import pyarrow` by
+# overwriting instead of prepending).
+export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
 
 python scripts/legacy/gemma3_sweep.py \
   --model-path "$MODEL_PATH" \
