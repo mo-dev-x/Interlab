@@ -37,6 +37,31 @@ which remain the primary record for their own items.
 > **(1) and (2) are two independent reasons the eyeball-taxonomy method does not support the claims
 > routinely made with it — one about selection, one about classification.**
 >
+> ### The unifying result: at four independent stages, an unstated analyst choice moves the answer by more than the effect being reported
+>
+> | stage | the unstated choice | measured consequence |
+> |---|---|---|
+> | **Selection** — which features you look at | browse vs uniform draw | **2.6×** on the surface-form fraction, same SAE |
+> | **Classification** — what you call them | how strictly trigger-primacy is applied | **50%** of semantic rows change bucket; the directional question stops resolving |
+> | **Causal judging** — how you score steering | one word in the concept string | **3.7×** on identical generations; control invariant at 1.00 |
+> | **Necessity** — how you measure ablation cost | whole-snippet vs active-position ΔNLL | **sign reversal** on feature 500: control costs more by one measure, target by the other |
+>
+> **Each row is a decision an analyst makes silently, and each was measured to move the result by more
+> than the effect anyone would report from it.** None was discovered by looking for it — every one
+> surfaced as an obstacle while trying to answer a different question.
+>
+> **A fifth instance sits one level down, at the statistic rather than the stage:** feature 2048's
+> whole-snippet **mean is −0.023 while its median is +0.0026 and 11 of 16 snippets are positive** — a
+> single outlier reversing the sign *inside* the strength-matched band built to remove exactly that
+> class of distortion.
+>
+> **This is why the null is not the story.** The study set out to measure a property of SAE features
+> and instead measured the sensitivity of that measurement to choices nobody records. **The positive
+> causal result survives all of it:** feature 2048 is necessary at its active positions in **16 of 16
+> snippets — unanimous**, against a strength-matched comparator that can fail, and it survives a naive
+> Bonferroni across all 18 feature×measure tests. *(Snippets within a feature are not independent, so
+> the effective n is below 16; the unanimity is the claim, not a p-value.)*
+>
 > **Scope, deliberately narrow.** (2) is a **demonstration, not a general law**: an existence proof
 > against the assumption that such tallies are stable, which is what it needs to be. It is **not** the
 > claim that feature-taxonomy adjudication does not work.
