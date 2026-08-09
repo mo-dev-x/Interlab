@@ -14,11 +14,18 @@ which remain the primary record for their own items.
 > different expansion ratios, different training provenances, and different relative depths — that
 > converge on the same qualitative finding: a skew toward surface-form feature detectors.**
 
-**This is not a controlled comparison and is not presented as one.** At five unmatched axes the
+**This is not a controlled comparison and is not presented as one.** At **seven** unmatched axes the
 honest framing is convergent evidence from independent setups, which is a recognised and often
 strong form of inference, and it is the stronger argument available from these facts. The
-alternative framing — "a controlled comparison with five confounds" — describes the same data and
+alternative framing — "a controlled comparison with seven confounds" — describes the same data and
 sounds damaged.
+
+> *Corrected 2026-08-08.* This paragraph said **five** twice while §0.1's own table listed **six**
+> and §4.10 was titled "a sixth unmatched axis" — the count was understated in the most-read
+> paragraph in the document, which is the one place it cannot be. The **seventh** is
+> **distinct-source support at matched depth** (§4.11, added the same day): at depth 16 Qwen carries
+> a mean of 11.22 distinct documents against Gemma's 15.65. **A reviewer who counts table rows must
+> arrive at the same number as a reader who reads the prose.**
 
 **Existence and direction only. Never magnitude.** The expansion gap (32× vs ~4.2×) is a plausible
 alternative explanation for the *size* of any skew — a narrower dictionary has less capacity and
@@ -204,12 +211,21 @@ better; they fail differently, and both needed fixing.
 
 ### 3.5 Support is reported as distinct sources, not record count
 
-Sixteen records can be re-reads of a handful of documents. Gemma idx **14622** looked decisive at
+Sixteen records can be re-reads of a handful of documents. **Qwen** idx **14622** looked decisive at
 16-of-16 and collapsed to **7 distinct documents** (doc 3498 ×5, doc 4607 ×4), at which point a
 competing reading — awards/recognition, 6 of 7 — became live against film/cinema, 5 of 7. The class
-was revised from high to **medium** confidence with the alternative recorded. Gemma has the same
-exposure (idx 7164 carried two records with near-identical text), so this is a **matched**
-improvement, not a Qwen-only adjustment.
+was revised downward with the alternative recorded; **the ledger records confidence `low`.** Gemma
+has the same exposure (idx 7164 carried two records with near-identical text), so this is a
+**matched** improvement, not a Qwen-only adjustment.
+
+> *Corrected 2026-08-08.* This paragraph said **Gemma** idx 14622. **It is a Qwen feature** — the
+> ledger row reads `14622 | qwen`. The error mattered more than a mislabel: 14622 is the flagship
+> example for the whole distinct-source rule, prereg §11.6 cites it as an independently reproduced
+> result, and the closing sentence *"Gemma has the same exposure … not a Qwen-only adjustment"* only
+> parses if 14622 is Qwen — so **the paragraph contradicted itself and the contradiction was the
+> clue.** Confidence was stated as "revised from high to medium"; `medium` is the *second*
+> adjudicator's value, `low` is the first adjudicator's and the one in the ledger. Reporting the
+> second rater's number as the column's is the same class of error as the mislabel.
 
 **The bucket is often stable across competing readings even when the class is not** — 14622 is
 semantic under either. Where that holds, the four-way composition is unaffected and only the
@@ -386,9 +402,9 @@ not.
 two.* Reproducibility certifies only the path the pulls share. The checksum gate must be read as
 **within-path consistency**, never as verification.
 
-### 4.9 Instrument failure modes — six, all characterised
+### 4.9 Instrument failure modes — seven, all characterised
 
-A methods section listing six characterised instrument failures is *more* trustworthy than one
+A methods section listing seven characterised instrument failures is *more* trustworthy than one
 listing none.
 
 | # | Mode | Evidence |
@@ -399,6 +415,7 @@ listing none.
 | 4 | **Tie collapse** — duplicate `maxValue`s deduplicated | idx 3648: three records at 1155.9937 returned as one |
 | 5 | **Scaffold drop** — the enumeration pass itself omitting values | idx 7623 (3983.001, correctly ordered between 4023.3096 and 3981.8379) and idx 2848 (1052.2909) |
 | 6 | **Reproducible fabrication** | idx 7164 returned "15 entries under a Top 16 header" **twice, reproducibly**; the byte-exact source holds **20**. Feature-specific reproducibility was read as pointing at the record set; it pointed at the summarizer |
+| 7 | **Packed-stream splice** — unrelated documents fused at a seam with no separator | `…opinionTomahawk`, `…kainateA new ransomware`. Measured exactly on `<bos>` markers: **291/626 records = 46.5%**, no feature clean (min 2/16 at idx 3039, max **14/16** at idx 7623, median 7). **A lower bound:** both example seams above are in idx 3358 and carry *no* `<bos>`, so unmarked seams demonstrably exist. A surface heuristic (no-space lower→Upper at a token boundary) flagged 57.2% but was **~97% false positive** on inspection — `B2B`, `InfoGroup`, `WinRAR`, `CompTIA`, `AZ-16A` are tokenizer splits, not seams. **46.5% is the floor; the true rate is higher and is not measurable by surface pattern.** Unlike modes 1–6 this is a property of the *corpus*, not the channel — no re-pull removes it |
 
 Further observed: insertion (idx 2848, a value 1333.11 absent from its enumeration, rounded to
 2 d.p.); truncation to 110–200 characters; array-length variance of 15/16/19/20 for the same cached
@@ -423,6 +440,43 @@ and many records visibly splice two unrelated documents. So Qwen evidence always
 mastheads and boilerplate while Gemma evidence often does not. That tilts Qwen toward formatting-
 and title-flavoured readings — **class 4, in the numerator** — for purely instrumental reasons.
 Disclosed, not fixed; the opening-line rule (§4.6) is the mitigation.
+
+### 4.11 Distinct-source support is a seventh unmatched axis — matched counts did not match support
+
+Found 2026-08-08 by asking the mirror question about degenerate repetition — *if Gemma repeats
+snippets, does Qwen?* — on an axis **neither column had measured.**
+
+At the matched depth of **16**, mean distinct documents per feature: **Qwen 11.22, Gemma 15.65.**
+Gemma is 16/16 distinct on **39 of 40** features. Qwen has **13 of 40** features resting on ≤ 8
+distinct documents and **four** (70945, 60751, 134801, 90863) whose 16 records are just **2**
+documents. **Qwen's support is 1.39× thinner at the same nominal depth.**
+
+**§7.1 matched the columns on record count; §3.5 rules that support is distinct sources, not record
+count. The two rulings never met.** Matching the number did not match the construct — the same
+mistake the depth ruling was written to prevent, one level down.
+
+**Direction, and it is conservative for the claim.** Thinner support means less varied evidence,
+which pushes rows toward `indeterminate` — the identical failure shape §4.3 documents for short
+windows. That **deflates Qwen's surface-form numerator.** So this artifact makes the convergence
+*harder* to support, not easier: a skew found on the Qwen column despite thinner support is stronger
+evidence, not weaker. **This is the first of the seven axes whose direction favours the conclusion by
+disfavouring the data**, and it is stated here so that it is on the record before either tally exists.
+
+**Not fixable, and the unavailable fix is worth naming.** A distinct-source floor — truncating both
+columns to matched support — would **drop the four 2-document Qwen features from the denominator**,
+which §9 voids outright. Declared divergence is the only available disposition. Recorded as
+measured-and-accepted, never repaired.
+
+**Different cause, same surface, and only one is a channel failure.** Qwen's duplicates are genuine
+document reuse — the same document at different token positions, which is what top-k over a chunked
+corpus *does*. Gemma's repetition (mode 3, idx 7223) was a summarizer emitting one snippet eleven
+times. **Only the Gemma one is an instrument defect**; conflating them would credit the Qwen column
+with a bug it does not have.
+
+**A stated asymmetry also flips here.** Window censoring (§4.7) is **total but uniform** on Gemma —
+every record exactly 256 tokens, 626/626, zero variance — and **partial but variable** on Qwen (≤512,
+52% truncated). **Uniform censoring cannot tilt a comparison; variable censoring can.** The axis is
+real, but its risk sits on the Qwen side, which is the opposite of how §4.7 reads.
 
 ---
 
@@ -654,6 +708,17 @@ review; the same six found by a reviewer is not.
   (40 / 40) are **different populations answering different questions and must never share a
   denominator.**
 - Building any claim on the **opening lines of Qwen evidence** (§4.6).
+- **Publishing a composition while any row in that column is still `parked`** (prereg §11.2). A
+  parked row is not `indeterminate`, is not dropped, and does not reduce the denominator — an
+  unresolved park **voids the tally for its column.** *Live as of 2026-08-08: 2 Qwen and 9 Gemma
+  rows are parked, so **both tallies are void right now.** A reader of this section would not have
+  known that, which is why it is stated here and not only in the pre-registration.*
+- **Reporting the primary tally without the conservative floor beside it** (prereg §11.1). The
+  marked-token amendment favours the hypothesis by construction, so the convergence claim binds to
+  the floor, **floor-against-floor across both columns**, and both numbers are published — the gap
+  between them *is* the measurement of how much the amendment moved things, and suppressing it makes
+  the floor unauditable.
+- **Comparing the two columns at unequal distinct-source support** without declaring it (§4.11).
 
 ---
 

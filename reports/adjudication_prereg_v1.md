@@ -1,9 +1,9 @@
-# BINDING PRE-REGISTRATION v1.7 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.8 — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.7 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11 FIRST.
+> ## ⛔ v1.8 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11 AND §12 FIRST.
 >
 > §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
@@ -12,7 +12,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 this (§11.8–11.9). The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 this (§12). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.7**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.8**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.7)*
+v1.8)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.7)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.7)* — same table shape, separate section, produced independently.
+v1.8)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -648,3 +648,151 @@ in index order.** Sweeping the column in index order would leave the numerator's
 last, which is the ordering most likely to run out of time exactly where it matters. Retrofitted
 rows keep their original call in `pre_marker_class`; the diff between the two is data, not
 correction.
+
+---
+
+## 12. AMENDMENTS v1.8 — 2026-08-08 later (governs on any conflict with §1–§11)
+
+### 12.1 §11.4 AND §11.6 WERE IN DIRECT CONTRADICTION — AND THE FIX IS THAT THE BLIND CHANGES DIRECTION
+
+The second adjudicator reported the conflict correctly: **§11.4 mandates a shared hash-bound ledger;
+§11.6 mandates a blind second adjudicator. The ledger is the one artifact they are required to write
+to and required not to read.** They discovered it by being sent to the ledger *by* §11.4, at which
+point 12 further indices were burned. It recurs on every draw and worsens as the ledger grows.
+
+**It is not a real conflict, because the second draw's blind runs the other way.** Rater 2 has now
+adjudicated ten rows — 9012, 9105, 11029, 11149, 11763, 12403, 12449, 13746, 13825, 14719 — that
+rater 1 **has not touched.** On those rows rater 2 is *first*, and **rater 1 is the blind second
+adjudicator.** Rater 1 has never read rater 2's calls. So the overlap sample is available after all,
+and it is strictly better than the void one: **both raters have marker access, so it is
+evidence-symmetric by construction** (§11.6 defect 2 cannot recur), and none of the ten is named in
+the prereg or the methods document (§11.6 defect 1 cannot recur).
+
+**Binding, and it is what makes this stable rather than a one-time escape:**
+
+1. **The ledger is partitioned by rater.** `adjudication_ledger_r1.md` and
+   `adjudication_ledger_r2.md`. Each rater writes only their own file and **never opens the other.**
+   Both are hash-bound. **The orchestrator alone merges** into `adjudication_ledger.md`, which is a
+   *derived* artifact neither rater reads.
+2. **Blind direction is per-row, not per-rater.** Whoever adjudicates a row second is blind on that
+   row. There is no permanent "second adjudicator" role.
+3. **A rater is never sent to a file containing another rater's calls, for any reason** — not to
+   write, not for schema reference, not to check a digest. Instruction-level contamination controls
+   are void by construction; this is the same finding as *"worked examples travel further than the
+   instruction not to read them,"* applied to the artifact rather than the document.
+
+**The pool arithmetic is therefore not fatal, but it is one row from being so, and that stands.**
+Two independent computations agree the surviving clean Gemma set was **11** of 40 — 9012, 9105,
+11029, 11149, 11763, 12403, 12449, 13746, 13825, 14719, **15054** — against a §11.6 requirement of
+10. **Margin: one.** Union of indices named in the ledger (23), the prereg (17) and the methods
+document (12) is **31 of 40.** Quarantining the methods document's worked examples recovers exactly
+**one** row (only 7223 of its three pool indices is in the adjudication pool), so **the
+appendix/quarantine move was never the load-bearing fix** — the ledger and prereg had already
+absorbed the burn. **Freeze that 11-index set now; any new document naming one more Gemma pool index
+makes a clean draw impossible.**
+
+### 12.2 THE ADVERSARIAL BOUND — PRE-REGISTERED BEFORE ANY COMPOSITION IS VISIBLE
+
+Ratified from the PM ruling, and fixed here **before either tally exists.** Nine parked Gemma rows
+against a denominator of 40 is ~22% of the sample — **large enough to flip which bucket leads, not
+merely to perturb a magnitude.** So parking does not only deflate a count that may not be claimed
+anyway; it can **manufacture a false negative on direction**, which is the only thing being claimed.
+
+**Procedure, per column, run only once every row is either classified or parked:**
+
+1. Compute the composition over **unparked** rows.
+2. Identify the leader among {surface-form, semantic}.
+3. Assign **every** parked row in that column to whichever of those two **maximally disfavours the
+   leader.**
+4. The leader **survives** if it still exceeds the other bucket.
+
+| Outcome | Disposition |
+|---|---|
+| Leader survives in **both** columns | **Report qualitatively**, existence and direction only, and **state the adversarial bound explicitly** — *"leads even if all 11 parked rows are assigned against it."* That sentence is **stronger than an unqualified tally**, because it is robust by construction rather than by assertion. |
+| Leader survives in **neither** column | **Hold.** And **no qualitative claim either** — asserting a direction the evidence does not fix. |
+| Leader survives in **exactly one** column | **⚠ GAP IN THE RULING AS ISSUED — resolved here, flagged to the PM.** Convergence is a **joint** claim: if one column's direction is robust and the other's is not, there is **one measurement, not two converging.** So **no convergence claim.** The surviving column reports **alone**, as a single-model result with its own methods section; the non-surviving column reports **no direction.** This follows from what convergence means and is not a new rule, but it was undefined and the mixed case is the *likeliest* outcome. |
+
+**This removes the conflict where the author of a rule also judges its cost.** The check decides.
+
+### 12.3 CLASS 12 — RELATIONAL/POSITIONAL TRIGGER (denominator-only)
+
+`I-SILENT` came up **three for three on one shape**: 5231 (complement of a negator), 9105 (object of
+*use*), 11149 (head of each document's own topical compound). In each the trigger **varies lexically
+across all 16** and the invariant is **where the token sits, not what it is.** §6 classifies triggers
+by *identity* — token, morpheme, POS, collocation, entity, field — and has no vocabulary for
+relational position. That is a real gap, and under trigger-primacy it will keep producing `I-SILENT`.
+
+**12. relational/positional trigger** — the activation lands on a **syntactic or discourse position**
+rather than on any recurring string, morpheme, category or field. **Denominator only; in neither
+numerator.**
+
+- **Test:** the marker's token differs across ≥ 12 of 16 records, **and** the position it occupies is
+  describable without naming any of the tokens.
+- **Why the bucket is already determined by §3, not chosen here.** A positional trigger survives
+  *both* §3 tests — paraphrase preserves the position (→ would read semantic) and form-preserving
+  nonsense preserves it too (→ would read surface-form). §3 step 3 sends both-yes to *neither
+  numerator*. **So §3 fixed the bucket all along; only the class name was missing.**
+- **vs class 2:** class 2 requires a recurring *string or category* at the marker. In-span is not
+  at-marker (§11.5).
+- **vs class 9:** class 9 is communicative function. Class 12 is grammatical position, which may
+  carry no stance at all.
+
+> **Directional-bias test, per §12.4 — this amendment works AGAINST the hypothesis.** A naive
+> reading routes these rows to class 2 and into the numerator; class 12 keeps them out of it. Same
+> adverse direction as class 11, opposite to §11.1.
+> **And it moves no row between buckets**, because `I-SILENT` rows were already denominator-only —
+> so the primary and conservative tallies are both unchanged by adopting it. It is a **naming**
+> refinement that replaces "no class describes this" with "three rows share one shape," which is a
+> result rather than an absence. Retrofit 5231, 9105, 11149 from `I-SILENT` to class 12; `I-SILENT`
+> is retained for genuinely uncovered shapes.
+
+### 12.4 EVERY NEW RULE IS TESTED FOR DIRECTIONAL BIAS BEFORE ADOPTION
+
+Adopted verbatim from the PM's standing addition. **Six instances now — five instruments and one
+convention — and all six pushed the same way.** The sixth was caught only because an adjudicator
+noticed it against their own throughput. **That was luck, and the seventh should not need any.**
+
+**Binding: no adjudication or bookkeeping rule is adopted until its entry states which way its
+default pushes the tally.** Three outcomes, three obligations:
+
+| Direction | Obligation |
+|---|---|
+| **Adverse** (pushes away from the hypothesis) | Adopt and record the direction. Class 11, class 12. |
+| **Neutral** (moves no row between buckets) | Adopt; state *why* it is neutral, since "neutral" is the easiest thing to assert wrongly. Reason codes (§11.3), class 12's naming. |
+| **Favourable** (pushes toward the hypothesis) | Adopt **only with a published conservative floor** that assumes the rule away, and the headline binds to the floor. §11.1. |
+
+Applied to this document's own new rules: **§12.1** neutral (changes who reads what, no row moves);
+**§12.2** adverse by construction (it is an adversarial bound); **§12.3** adverse and
+bucket-neutral; **§12.4** neutral (meta-rule). **§11.1 remains the only favourable amendment, and
+the only one carrying a floor.**
+
+### 12.5 CONVERGENCE BINDS TO THE FLOOR, FLOOR-AGAINST-FLOOR, BOTH PUBLISHED
+
+Ratified from the PM ruling, tightening §11.1:
+
+- **Both tallies are published**, never the floor alone. **The primary–floor gap is itself the
+  measurement of how far the marked-token amendment moved things**; suppressing it would make the
+  floor unauditable.
+- **Symmetric:** both columns produce a primary and a floor, and **convergence is floor-against-floor.**
+  A floor-vs-primary comparison would reintroduce the exact asymmetry §11.1 exists to close.
+- **Inter-rater reliability is `unmeasured`, not "weakly measured."** One row yields no agreement
+  statistic. **No downstream document may cite a calibration figure until the §11.6 re-run lands** —
+  and per §12.1 that re-run is now available.
+
+### 12.6 THE ADJUDICATOR PACKAGE IS CONSTRUCTED, NOT NAVIGATED
+
+Ratified from the PM ruling; an appendix is insufficient **by this project's own principle.**
+Contamination boundaries cannot be enforced by honour system, and an appendix is one scroll from the
+instruction not to read it. **Three rules, because the contamination had three distinct causes and
+document structure fixes only the first:**
+
+1. **A constructed standalone package** — snippets, the marker file, the four buckets, the decision
+   rule. **Nothing else, and no path to any outcome.** Outcomes live in files adjudicators are never
+   given. If the methods document is needed for reference, an **adjudicator-safe redacted variant**
+   is produced; navigation discipline is not relied upon. *(Fixes the 4 contaminated rows.)*
+2. **The calibration sample excludes any feature named anywhere in the protocol or methods
+   documents.** **5094 was a sample-construction failure, not a document-structure one** — §5
+   pre-rules it, so any two compliant raters must match, and no appendix move prevents that.
+   *(Fixes 5094.)*
+3. **Byte-identical evidence packages to both raters**, verified by digest before either begins.
+   *(Fixes the 5 asymmetric rows.)*
