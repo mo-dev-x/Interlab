@@ -229,3 +229,56 @@ rows. Depth 16, array order.
 | 14719 | Prong 2 — prong 1 passes (14 distinct), but no single position covers markers spanning copulas, prepositions, determiners and content nouns. | Routed to class 11. |
 
 **Neither prong was stretched, and no class was invented.** Recorded for the orchestrator.
+
+---
+
+## 7. QWEN MARKER RETROFIT — §11.1 SYMMETRY CLOSED
+
+Evidence: `scripts/legacy/qwen_max_activating_tokens.json`, sha
+`60e920aa3485fb1981e0d7fd603a1893e2be74dd90e0b557d37dca004acd69b0`. 972/972 emitted, 0 length
+mismatches, 0 index mismatches, two-way reconstruction gate. Built from `centred_1164`
+(`72e73f26…`), the same artifact the pre-marker calls used. **No splice seams** (one `doc_id` per
+record). **100% document-initial**, so §4.6's opening-line rule applies to every row;
+`position_fraction_in_chunk` used throughout, never `position_fraction`.
+
+Pre-marker classes were frozen in §1 of this file at commit `5cf9900`, before any marker file for
+either column was opened.
+
+| idx | pre_marker_class | pre_marker_bucket | post-marker class | bucket | conf | marker evidence | reset? |
+|---|---|---|---|---|---|---|---|
+| 14622 | 11 film/cinema | semantic | **5 named entities — titles of works** | semantic | high | terminal token of a title, **16/16**: `Silver Lin**ings**`, `The Desc**endants**` ×2, `Sky**fall**` ×4, `Lin**coln**` ×2, `Up In The **Air**`, `The Fault in Our **Stars**`, `Good Night, And Good **Luck**`, `Vicky **Cristina** Barcelona` ×2, `Michael **Clayton**`. cpos 0.04–0.74 | no — bucket unchanged |
+| 126804 | 2 lexical — *revise* | surface-form | **2 confirmed** | surface-form | high | `REV**ISED**` ×2, ` revised` ×8, `**ise**` ×2, `**vised**`, ` revision`, ` revise` — **16/16**. cpos 0.01–0.95 | n/a |
+| 107244 | 10 indeterminate | denominator only | **5 named entities — titles/name-strings** | **semantic** | med | title-internal token, **12/16**: `Let Us **Be** on Our Way`, `Repelling an Attack **With** the Heart`, `Critical Choices that **Change** Lives`, `Don't **Believe** a Word`, `Right **Off** the Bat`, `The Phillie Phanatic **Goes** Hollywood`. cpos 0.07–0.95 | no — not numerator-ward |
+| 71905 | 10 indeterminate | denominator only | **10 confirmed · I-DIVERSE** | denominator only | med | 15 distinct types/16; boilerplate reading covers 4/16; max act 8.88 | n/a |
+| 70945 | 10 indeterminate | denominator only | **10 confirmed · I-THIN** | denominator only | med | support still **2 documents** (4239 ×12, 2916 ×4); markers vary but nothing is falsifiable at n=2 | n/a |
+| 140672 | 10 indeterminate | denominator only | **10 confirmed · I-DIVERSE** | denominator only | med | 16 distinct types/16, 16 docs, max act 4.31 | n/a |
+| 114256 | 10 indeterminate | denominator only | **10 confirmed · I-DIVERSE** | denominator only | med | 16 distinct types/16, 15 docs, max act 3.92 | n/a |
+| **14081** | *parked* (1 vs 11) | *none* | **1 numeric/quantitative** | **surface-form** | high | `$` ×10, digits `5`/`8`/`4`/`4` ×4, ` for` ×2 — **14/16 numeral or currency**. Prong 1(a) fails on the pinned records count (6 non-modal < 12); prong 2 fails on no-governor | **see §7.1** |
+| **33008** | *parked* (2 vs 7) | *none* | **7 abstract concepts — contrasted pair** | **semantic** | med | marker on the contrasted term, **12/16**: ` modes, systems, tribes, charts, frameworks, versions, goals, recipes`; ` two` only 4/16. Prong 1(a) passes, prong 2 fails on precision | **see §7.1** |
+
+### 7.1 OPEN QUESTION — parked rows and the conservative floor
+
+§11.1 resets rows *whose class changed on marker access toward the numerator*. A parked row never
+had a class, so **14081 has nothing to reset from** and, read literally, enters the conservative
+tally in the numerator unreset. If §11.2's premise holds — that parking is numerator-enriched by
+construction — then a conservative tally that admits resolved parks unreset **is not a floor.**
+
+Empirically, of the two parked rows one resolved to surface-form (14081) and one to semantic
+(33008). n = 2 does not support the strong form of §11.2's concern. **Ruling required; not decided
+by Rater 1.**
+
+### 7.2 RATER 1 CORRECTION — Finding 1 was over-applied
+
+107244 was classified `indeterminate` **because** Rater 1 discarded a titles reading as an
+opening-line artifact (§4.6, Finding 1). Finding 1 was correct that the *window* evidence for titles
+was manufactured by `full_chunk` beginning at character 0. It was over-generalised into "the titles
+reading is non-evidence." The marker shows the reading was independently right: 12/16 markers are
+title-internal at chunk positions 0.07–0.95, nowhere near the document opening.
+
+**The rule stays; its scope narrows.** Opening-line *position* is non-evidence. A *content* pattern
+that happens to be visible at an opening is not thereby disqualified — it requires independent
+support, which the marker now supplies.
+
+**Qwen after retrofit: 9 rows resolved (7 classified + 2 parks closed), 0 parked, 31 outstanding.**
+§11.2's tally-void no longer applies to Qwen on parking grounds; the column remains incomplete.
+**Both columns are now marker-informed — the §8 evidence asymmetry is closed.**
