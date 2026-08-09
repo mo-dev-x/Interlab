@@ -2,6 +2,22 @@
 Neuronpedia activation record, parsed directly from the raw curl-fetched
 JSON (scripts/legacy/gemma_neuronpedia_raw/<idx>.json). No LLM-mediated
 reading of the parallel tokens[]/values[] arrays -- json.load + argmax only.
+
+Cross-checks argmax(values) against the source's own maxValueTokenIndex
+field and asserts agreement; reports every disagreement rather than
+silently trusting either side.
+
+Detects "splice seams" -- unseparated document boundaries inside the
+corpus packing (e.g. " hyperlink" immediately followed by "In" with no
+leading space: two documents concatenated with no separator token at
+all, not even <bos>). A seam is flagged when either:
+  (a) a literal <bos> token appears inside the context window (an
+      explicit boundary marker), or
+  (b) a token with no leading whitespace starts with an uppercase letter
+      immediately after a token ending in a lowercase letter (an implicit,
+      unmarked boundary -- the "opinionTomahawk" pattern).
+Context is truncated at the nearest seam on each side of the argmax
+token, not read through it.
 """
 import hashlib
 import json
@@ -15,11 +31,34 @@ RAW_DIR = Path(__file__).parent / "gemma_neuronpedia_raw"
 OUT_PATH = Path(__file__).parent / "gemma_max_activating_tokens.json"
 CONTEXT_RADIUS = 10
 
+
+def is_seam(tokens: list[str], j: int) -> bool:
+    if j == 0:
+        return False
+    tok = tokens[j]
+    if tok == "<bos>":
+        return True
+    if not tok or tok[0].isspace():
+        return False
+    if not tok[0].isupper():
+        return False
+    prev = tokens[j - 1]
+    if not prev:
+        return False
+    last = prev[-1]
+    return last.isalpha() and last.islower()
+
+
+def find_seams_in_range(tokens: list[str], lo: int, hi: int) -> list[int]:
+    return [j for j in range(lo, hi) if is_seam(tokens, j)]
+
+
 result: dict[str, list[dict]] = {}
 skipped_len_mismatch: list[dict] = []
-maxvalue_mismatches: list[dict] = []
+index_mismatches: list[dict] = []
 total_records = 0
 total_emitted = 0
+splice_count = 0
 
 for idx in FEATURES:
     path = RAW_DIR / f"{idx}.json"
@@ -43,21 +82,37 @@ for idx in FEATURES:
 
         argmax_index = max(range(len(values)), key=lambda i: values[i])
         argmax_value = values[argmax_index]
+        source_index = a.get("maxValueTokenIndex")
         reported_max = a["maxValue"]
-        matches = (argmax_value == reported_max)
-        if not matches:
-            maxvalue_mismatches.append({
+
+        indices_agree = (source_index == argmax_index)
+        if not indices_agree:
+            source_value = values[source_index] if source_index is not None and 0 <= source_index < len(values) else None
+            index_mismatches.append({
                 "feature": idx,
                 "record_index": rec_i,
-                "argmax_value": argmax_value,
-                "reported_maxValue": reported_max,
                 "argmax_index": argmax_index,
-                "maxValueTokenIndex_field": a.get("maxValueTokenIndex"),
+                "argmax_value": argmax_value,
+                "maxValueTokenIndex": source_index,
+                "value_at_maxValueTokenIndex": source_value,
+                "reported_maxValue": reported_max,
+                "values_tie": (source_value == argmax_value) if source_value is not None else False,
             })
 
-        ctx_start = max(0, argmax_index - CONTEXT_RADIUS)
-        ctx_end = min(len(tokens), argmax_index + CONTEXT_RADIUS + 1)
         n = len(tokens)
+        ctx_start = max(0, argmax_index - CONTEXT_RADIUS)
+        ctx_end = min(n, argmax_index + CONTEXT_RADIUS + 1)
+
+        seams = find_seams_in_range(tokens, ctx_start, ctx_end)
+        seams = [s for s in seams if s != argmax_index]
+        left_seams = [s for s in seams if s <= argmax_index]
+        right_seams = [s for s in seams if s > argmax_index]
+        trunc_start = max(left_seams) if left_seams else ctx_start
+        trunc_end = min(right_seams) if right_seams else ctx_end
+        has_seam = bool(seams)
+        if has_seam:
+            splice_count += 1
+
         position_fraction = argmax_index / (n - 1) if n > 1 else 0.0
 
         entries.append({
@@ -67,10 +122,13 @@ for idx in FEATURES:
             "argmax_token": tokens[argmax_index],
             "argmax_value": argmax_value,
             "reported_maxValue": reported_max,
-            "argmax_matches_maxValue": matches,
-            "maxValueTokenIndex_field": a.get("maxValueTokenIndex"),
-            "context_tokens": tokens[ctx_start:ctx_end],
-            "context_start_index": ctx_start,
+            "maxValueTokenIndex": source_index,
+            "indices_agree": indices_agree,
+            "context_tokens": tokens[trunc_start:trunc_end],
+            "context_start_index": trunc_start,
+            "context_end_index": trunc_end,
+            "context_window_requested": [ctx_start, ctx_end],
+            "splice_seam": has_seam,
             "position_fraction": position_fraction,
         })
         total_emitted += 1
@@ -84,10 +142,18 @@ payload = {
         "total_records_emitted": total_emitted,
         "n_skipped_len_mismatch": len(skipped_len_mismatch),
         "skipped_len_mismatch": skipped_len_mismatch,
-        "n_maxvalue_mismatches": len(maxvalue_mismatches),
-        "maxvalue_mismatches": maxvalue_mismatches,
+        "n_index_mismatches": len(index_mismatches),
+        "index_mismatches": index_mismatches,
+        "n_splice_seam_records": splice_count,
         "context_radius": CONTEXT_RADIUS,
         "position_fraction_formula": "argmax_index / (n_tokens - 1), 0.0 if n_tokens <= 1",
+        "splice_seam_definition": (
+            "<bos> token inside the +/-10 window, OR a token with no leading "
+            "whitespace starting with an uppercase letter immediately after a "
+            "token ending in a lowercase letter (unmarked document-concatenation "
+            "boundary). Context is truncated at the nearest such seam on each "
+            "side of the argmax token."
+        ),
     },
     "features": result,
 }
@@ -101,10 +167,11 @@ print(f"n_skipped_len_mismatch={len(skipped_len_mismatch)}")
 for s in skipped_len_mismatch:
     print(f"  SKIPPED: feature={s['feature']} record_index={s['record_index']} "
           f"len_tokens={s['len_tokens']} len_values={s['len_values']}")
-print(f"n_maxvalue_mismatches={len(maxvalue_mismatches)}")
-for m in maxvalue_mismatches:
+print(f"n_index_mismatches={len(index_mismatches)}")
+for m in index_mismatches:
     print(f"  MISMATCH: feature={m['feature']} record_index={m['record_index']} "
-          f"argmax_value={m['argmax_value']} reported_maxValue={m['reported_maxValue']} "
-          f"argmax_index={m['argmax_index']} maxValueTokenIndex_field={m['maxValueTokenIndex_field']}")
+          f"argmax_index={m['argmax_index']} maxValueTokenIndex={m['maxValueTokenIndex']} "
+          f"values_tie={m['values_tie']}")
+print(f"n_splice_seam_records={splice_count} / {total_emitted}")
 print(f"output={OUT_PATH}")
 print(f"sha256={sha}")
