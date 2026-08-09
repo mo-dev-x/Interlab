@@ -168,3 +168,40 @@ count is 14. They are not reinstated by assertion.
    decided without markers and remain pre-marker; they feed the conservative tally unchanged.
 5. **Parking is not neutral (§11.2)** — the gate selects for strong patterns, so the parked set is
    enriched for classifiable rows and the residue for `indeterminate`.
+
+---
+
+## 6. CALIBRATION OVERLAP — TEN GEMMA ROWS, MARKER-INFORMED
+
+Evidence: `scripts/legacy/gemma_max_activating_tokens.json`, sha
+`d4f505beb10baf1e1a58acd179cf7c6f3770aa94f51b75efc79da9d4cbdb22a4`. 782/782 records emitted, 0
+length mismatches, 0 argmax-vs-`maxValueTokenIndex` disagreements. Context radius ±10, **truncated
+at splice seams by the generator** (§11.7 enforced in data, both `<bos>` and unmarked-concatenation
+seams).
+
+Adjudicated **under §11.1 trigger-primacy**. Blind: Rater 1 has not seen Rater 2's calls on these
+rows. Depth 16, array order.
+
+| feature_idx | class | bucket | conf | reason_code | distinct_sources | seams | marker_token | deciding_quote |
+|---|---|---|---|---|---|---|---|---|
+| 9012 | 4 formatting | **surface-form** | high | — | 16 | 0/16 | `,` ×13, `—`/`–` ×3 — **delimiter punctuation 16/16** | " …residents of Quebec**,** including temporary and undocumented" / "…user data**—**through apps, web browsing" / "…provided support **–** very likely including financial support" |
+| 9105 | 10 indeterminate | denominator only | med | **I-SILENT** | 16 | 2/16 | 11 distinct: *form, links, information, System, website, bar, it, app, interface, used, materials* | Marker is the **complement of *use*** in 14/16 and *use[d]* itself in 2/16: "Please **use** this **form**" / "By **using** the Sterling Service Dogs **website**" / "Taurus can be **used** to start every room" |
+| 11029 | 2 lexical/n-gram — *chemical* | **surface-form** | high | — | 16 | 1/16 | *chemical / Chemical / chemicals / cial* — **16/16** | "protecting **Chemcial** Vapor Deposition (CVD) furnace hot zones" / "if you ask **chemical** engineer Yunfeng Lu" / "a primary feedstock for the **chemical** industry" / "including **chemical** peels, microdermabrasion" |
+| 11149 | 9 discourse-register — promotional/service copy | denominator only | med | — | 16 | 1/16 | **16/16 distinct**: *SEO, gout, ia, window, messages, loan, theatre, shooting, parking, attorney, homes, PC, limousine, railroads, way, orer* | Marker sits on the advertised keyword across unrelated industries: "enhancing local **SEO**" / "a very effective **gout** treatment" / "an immigration **attorney** on your side" / "wood b**orer** fumigation" |
+| 11763 | 9 discourse-register — post-copular superlative assertion | denominator only | med | — | 16 | 1/16 | `the` ×15, `a` ×1 | Determiner opening a predicate nominative after a copula, 16/16: "slips and trips continue to be **the** most common cause" / "tiredness is **the** number one complaint" / "Communication is **the** answer" / "at $10,000 is **the** culprit" |
+| 12403 | 11 topical domain — software/filesystem configuration | semantic | med | — | 16 | 3/16 | 12 distinct; 8/16 path-lexical (`$` ×3, *mkdir, dir, directory, folder* ×2) | "chmod -R g+w **$**REMOTEPATH" / "failed to **mkdir** \"/srv/mediawiki/php-master/images" / "the \"src/assets/stylesheets\" **folder** of your project directory" |
+| 12449 | 11 topical domain — soil/earth | semantic | high | — | 16 | 1/16 | *soil, Soil, clay, Clay, dirt, bed, brown, grading, otechnical, rained* — ~10/16 soil-lexical | "nutritious bio-diverse **soil**, adequate water" / "a Professor of **Soil** Physics" / "**Clay** brick machine is used to produce clay brick" / "the completion of a Ge**otechnical** Study" |
+| 13746 | 10 indeterminate | denominator only | med | **I-AMBIGUOUS** | 16 | 1/16 | 9 distinct; punctuation 11/16 (`,` ×5, `.` ×3, `\n\n`, `(` ×2) | Class 4 (heterogeneous punctuation marker) and class 9 (consumer product-advice register) both survive the marker, different buckets: "picked up the GB Pockit**,**" / "These may be just the right touch**.**" / "**Choose** a head with more shower settings" |
+| 13825 | 2 lexical/n-gram — *job* | **surface-form** | high | — | 16 | 2/16 | *job / Job / JOB / Jobholding* — **16/16** | "**JOB** HUNTING. I'm currently applying for jobs" / "**Job**holding rates declined dramatically for young men" / "according to the **job** site Indeed" / "the **job** is now to win the tournament" |
+| 14719 | 11 topical domain — mechanical/physical components | semantic | med | — | 16 | 2/16 | 14 distinct, mostly function words (*their, have, is, with, are, to, the, has*) | "valves are working themselves against **their** seats" / "The sensor element **is** a ceramic cylinder plated with porous platinum" / "the chain and SRAM cassette **are** a bit louder" / "the **blade** is removable" |
+
+### §12.3 near-misses recorded, not resolved
+
+| feature_idx | class 12 prong that failed | consequence |
+|---|---|---|
+| 9105 | *"describable without naming any token"* — the position is **the complement of *use***, which cannot be stated without naming *use*. Prong 1 also marginal (11 distinct < 12). | Routed to `I-SILENT`. |
+| 11763 | *"marker differs across ≥12 of 16"* — the marker is `the` in **15 of 16**. The trigger is positional (Det of a predicate nominative) but the position is **lexically constrained**, so it is occupied by a constant token. | Routed to class 9. §2's own lexicon test independently rejects class 2 — a `{the}` lexicon fires on nearly every document, not these 16. |
+| 13746 | Prong 1 — 9 distinct markers. | Routed to `I-AMBIGUOUS`. |
+| 14719 | Prong 2 — prong 1 passes (14 distinct), but no single position covers markers spanning copulas, prepositions, determiners and content nouns. | Routed to class 11. |
+
+**Neither prong was stretched, and no class was invented.** Recorded for the orchestrator.
