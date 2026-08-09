@@ -16,8 +16,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "legacy"))
 
-import gemma3_sweep  # noqa: E402
 import build_qwen_feature_manifest as qwen_build  # noqa: E402
+import gemma3_sweep  # noqa: E402
 import qwen_tool_adapter  # noqa: E402
 
 
@@ -160,7 +160,7 @@ def test_adapter_features_exactly_equal_manifest_features():
     assert adapter_optional_idxs == {manifest_optional_idx}
 
     manifest_rejected_idxs = {r["idx"] for r in qwen_manifest["rejected_features"]}
-    assert qwen_tool_adapter.REJECTED_FEATURE_IDXS == manifest_rejected_idxs
+    assert manifest_rejected_idxs == qwen_tool_adapter.REJECTED_FEATURE_IDXS
 
 
 def test_adapter_import_does_not_require_untracked_characterize_lite_files(monkeypatch, tmp_path):

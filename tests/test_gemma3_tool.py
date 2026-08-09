@@ -408,6 +408,11 @@ def test_generate_hooked_generated_only_passes_prompt_token_count_as_prompt_leng
         dose_multiple=1.0, max_act_approx=10.0,
     )
     assert text == "stub-completion"
+    # ablate clamps to 0.0 regardless of the dose passed (dose_to_absolute_clamp);
+    # the dose slot is carried for provenance/seed uniformity only. Asserting it here
+    # rather than discarding it -- ruff flagged the unpacked name as unused, which it
+    # was, because the invariant it carries had never been checked.
+    assert clamp == 0.0
     assert captured["positions"] == "generated_only"
     assert captured["prompt_lengths"] == 7  # NOT None -- this is the ED-4 contract this call site owes
 

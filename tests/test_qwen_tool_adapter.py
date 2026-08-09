@@ -77,7 +77,7 @@ def test_features_are_real_characterize_lite_numbers_not_padded_to_nine():
 
 def test_optional_features_and_rejected_idxs_are_honestly_empty():
     assert qwen.OPTIONAL_FEATURES == []
-    assert qwen.REJECTED_FEATURE_IDXS == frozenset()
+    assert not qwen.REJECTED_FEATURE_IDXS
 
 
 # ---------------------------------------------------------------------------
