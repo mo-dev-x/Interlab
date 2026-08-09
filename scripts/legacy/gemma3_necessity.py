@@ -601,21 +601,114 @@ def _ablated_pass_nll(model, sae, tokens, feature_idx: int, seed: int, checkpoin
 
 def _pick_active_nontarget_feature_idx(feat_acts, target_idx: int) -> tuple[int, float]:
     """Deterministic per-snippet pick: the single feature (excluding
-    target_idx) with the highest activation anywhere in this snippet, via
-    argmax over feat_acts[0] (shape [seq_len, d_sae]) after masking out
-    the target column. Reproducible from the recorded index alone, not
-    hand-chosen -- no RNG involved, since "highest-activating" is already
-    a deterministic function of this snippet's own feat_acts (ties broken
-    by argmax's own deterministic first-index convention). See
-    ACTIVE_NONTARGET_CONTROL_NOTE for why this beats a single fixed
-    control feature."""
+    target_idx) with the highest activation anywhere in this snippet
+    EXCLUDING position 0, via argmax over feat_acts[0, 1:] (shape
+    [seq_len-1, d_sae]) after masking out the target column. Reproducible
+    from the recorded index alone, not hand-chosen -- no RNG involved,
+    since "highest-activating" is already a deterministic function of
+    this snippet's own feat_acts (ties broken by argmax's own
+    deterministic first-index convention).
+
+    Position 0 (<bos>) is excluded because job 400287 found it is an
+    attention-sink position with anomalously large activation on a FIXED
+    feature (180) regardless of input content -- an unguarded argmax over
+    the full sequence selected feature 180, bit-identically, on all 144
+    real records. Ablating a content-independent sink direction is a
+    maximally damaging ablation, not a per-snippet "arbitrary active
+    direction" comparator; it sets an artificially high bar the target
+    features would almost never clear, which would have misread as
+    "necessity not demonstrated" when the real finding was "the
+    comparator was wrong." verify_active_nontarget_control_diversity
+    (below) checks position 0 was not the only degenerate position rather
+    than assuming this fix is sufficient. See ACTIVE_NONTARGET_CONTROL_NOTE
+    for why this comparator exists instead of a single fixed feature."""
     import torch
 
-    acts = feat_acts[0]  # [seq_len, d_sae]
+    acts = feat_acts[0, 1:, :]  # exclude position 0 (<bos> attention sink -- job 400287)
+    if acts.shape[0] == 0:
+        raise RuntimeError(
+            "snippet has no non-BOS positions to select an active-nontarget feature from "
+            "-- cannot proceed with a single-token (BOS-only) snippet."
+        )
     per_feature_max = acts.max(dim=0).values.clone()
     per_feature_max[target_idx] = float("-inf")
     idx = int(per_feature_max.argmax().item())
     return idx, float(per_feature_max[idx].item())
+
+
+def verify_active_nontarget_control_diversity(model, sae, features: list[dict[str, Any]], snippets_by_feature: dict[int, list[str]]) -> dict[str, Any]:
+    """Run once, right after the module-identity/equivalence gates and
+    before the main fan-out -- binding beyond this script, per instruction:
+    ANY control whose selection is supposed to vary per input must be
+    shown to actually vary before the expensive loop runs on it, not
+    discovered degenerate after the fact by a human reading the output.
+    Job 400287 ran to completion on all 144 real records (deltas ranging
+    0.046 to 0.863 -- plausible-looking variation) before Engineer 1 caught
+    that the SAME feature (180, the <bos> sink) was selected every time;
+    "the numbers came out different" is not verification that a control
+    varies with the thing it is supposed to vary with, since only each
+    snippet's interaction with that one fixed feature differed, not the
+    selection itself.
+
+    Probes one snippet per feature (9 snippets -- the cheapest sample that
+    exercises every feature's own text) and asserts BOTH that the chosen
+    feature index is not constant across all 9, AND that the raw
+    activation value used to pick it is not bit-identical across all 9
+    (the second half of job 400287's exact symptom -- a constant index
+    with a constant activation is possible even if the first check alone
+    passed on a different fixed sink position). Raises loudly on failure.
+    Always returns and prints the full chosen-index distribution, whether
+    it passes or fails, and whatever the diversity level -- a low but
+    non-trivial spread (say, 2 of 9 snippets sharing one index) is not a
+    clean pass to be reported as one; the distribution is the evidence,
+    not the pass/fail boolean alone."""
+    picks: list[tuple[int, int, float]] = []  # (feature_idx, chosen_idx, activation)
+    for feature in features:
+        target_idx = feature["idx"]
+        snippet = snippets_by_feature[target_idx][0]
+        seed = derive_seed("active_nontarget_diversity_probe", target_idx)
+        _, _, feat_acts = _baseline_pass(model, sae, snippet, seed)
+        chosen_idx, activation = _pick_active_nontarget_feature_idx(feat_acts, target_idx)
+        picks.append((target_idx, chosen_idx, activation))
+
+    distribution: dict[int, int] = {}
+    for _, chosen_idx, _ in picks:
+        distribution[chosen_idx] = distribution.get(chosen_idx, 0) + 1
+
+    unique_idxs = {p[1] for p in picks}
+    unique_activations = {p[2] for p in picks}
+
+    report = {
+        "n_probes": len(picks),
+        "picks": [{"probed_feature_idx": f, "chosen_idx": c, "activation": a} for f, c, a in picks],
+        "chosen_index_distribution": distribution,
+        "n_unique_indices": len(unique_idxs),
+        "n_unique_activations": len(unique_activations),
+    }
+    print(f"active_nontarget_control diversity probe:\n{json.dumps(report, indent=2)}")
+
+    if len(unique_idxs) <= 1:
+        report["passed"] = False
+        raise RuntimeError(
+            f"active_nontarget_control diversity gate FAILED: the same feature index "
+            f"({picks[0][1]}) was selected on all {len(picks)} probe snippets -- this is "
+            f"exactly the job-400287 degenerate-selection symptom (a fixed, input-independent "
+            f"feature, not a per-snippet 'arbitrary active direction'). Distribution: "
+            f"{distribution}. Stop and escalate; do not proceed with a comparator shown not "
+            f"to vary with input."
+        )
+    if len(unique_activations) <= 1:
+        report["passed"] = False
+        raise RuntimeError(
+            f"active_nontarget_control diversity gate FAILED: the selected activation value "
+            f"is bit-identical ({picks[0][2]}) across all {len(picks)} probe snippets even "
+            f"though the chosen index varies -- the second half of the job-400287 symptom. "
+            f"Stop and escalate."
+        )
+
+    report["passed"] = True
+    print(f"active_nontarget_control diversity gate PASSED (n_unique_indices={len(unique_idxs)}/{len(picks)})")
+    return report
 
 
 def measure_own_text_cell(model, sae, *, feature: dict[str, Any], snippet_index: int, snippet: str, control_feature_idx: int, checkpoint_hash: str) -> dict[str, Any]:
@@ -820,6 +913,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"GPU memory at gate: {gpu_mem_at_gate}")
         print(f"GPU memory after hf_model free: {gpu_mem_after_free}")
 
+        # Third hard gate, still before the fan-out: a control whose
+        # selection is supposed to vary per input must be shown to vary
+        # before spending the GPU time to run the full 144-cell loop on
+        # it (job 400287). Stop-and-escalate on failure, same as the two
+        # gates above -- this one raises before a single own-text record
+        # is written, not after all of them are.
+        diversity_report = verify_active_nontarget_control_diversity(model, sae, features, snippets_by_feature)
+
         (out_dir / "necessity_module_identity_report.json").write_text(
             json.dumps(
                 {
@@ -827,6 +928,7 @@ def main(argv: list[str] | None = None) -> int:
                     "raw_hf_equivalence": equivalence_report,
                     "gpu_memory_at_gate": gpu_mem_at_gate,
                     "gpu_memory_after_hf_model_free": gpu_mem_after_free,
+                    "active_nontarget_control_diversity_probe": diversity_report,
                 },
                 indent=2,
             ),
@@ -882,6 +984,33 @@ def main(argv: list[str] | None = None) -> int:
         })
         append_record(records_path, payload)
         n_written += 1
+
+    # Full-run distribution, not just the 9-snippet pre-flight probe --
+    # "report the distribution either way," including if a fresh run
+    # turns up low-but-nonzero diversity that the pre-flight gate above
+    # would have passed without it being a clean result. Read back from
+    # disk rather than accumulating in-loop, so this reflects every
+    # own-text record present (freshly written this run AND resumed from
+    # a prior run alike), not just what this invocation itself wrote.
+    full_distribution: dict[Any, int] = {}
+    if records_path.exists():
+        with records_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if rec.get("cell_type") == "own_text":
+                    idx = rec.get("active_nontarget_control_idx")
+                    full_distribution[idx] = full_distribution.get(idx, 0) + 1
+    print(f"active_nontarget_control_idx distribution across all {sum(full_distribution.values())} own-text record(s): {full_distribution}")
+    (out_dir / "active_nontarget_control_distribution.json").write_text(
+        json.dumps({"chosen_index_distribution": full_distribution, "n_unique_indices": len(full_distribution)}, indent=2),
+        encoding="utf-8",
+    )
 
     n_rejected = n_within_written = 0
     for cell in within_candidates:
