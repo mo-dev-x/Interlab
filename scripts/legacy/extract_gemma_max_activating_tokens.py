@@ -7,17 +7,30 @@ Cross-checks argmax(values) against the source's own maxValueTokenIndex
 field and asserts agreement; reports every disagreement rather than
 silently trusting either side.
 
-Detects "splice seams" -- unseparated document boundaries inside the
-corpus packing (e.g. " hyperlink" immediately followed by "In" with no
-leading space: two documents concatenated with no separator token at
-all, not even <bos>). A seam is flagged when either:
-  (a) a literal <bos> token appears inside the context window (an
-      explicit boundary marker), or
-  (b) a token with no leading whitespace starts with an uppercase letter
-      immediately after a token ending in a lowercase letter (an implicit,
-      unmarked boundary -- the "opinionTomahawk" pattern).
-Context is truncated at the nearest seam on each side of the argmax
-token, not read through it.
+Two DIFFERENT splice-related measurements are reported, and they are not
+combined into one "rate":
+
+1. is_multi_document_record (the reported floor, 46.5% top-16-restricted,
+   matches the independent audit's number exactly): the record contains
+   more than one literal <bos> token anywhere in its full token sequence
+   -- i.e. the record itself packs more than one document, full stop,
+   regardless of where the argmax token falls.
+
+2. unmarked_fusion_heuristic (kept for the record, NOT reported as a rate):
+   a token with no leading whitespace starting with an uppercase letter
+   immediately after a token ending in a lowercase letter, inside the
+   +/-10 context window -- catches genuine unmarked splices like
+   " hyperlink"+"In", but an independent check found ~97% false positives
+   (B2B, WinRAR, CompTIA, AZ-16A and similar are tokenizer splits, not
+   seams). No defensible unmarked-splice criterion currently exists; the
+   true unmarked-splice rate is higher than the marked floor but
+   unquantified. This field is diagnostic only.
+
+Context truncation uses ONLY the reliable signal: a literal <bos> falling
+strictly inside the +/-10 window (bos_in_context_window). The heuristic
+never truncates context, since truncating on a ~97%-false-positive signal
+would cut good context on false alarms far more often than it would catch
+a real seam.
 """
 import hashlib
 import json
@@ -32,12 +45,14 @@ OUT_PATH = Path(__file__).parent / "gemma_max_activating_tokens.json"
 CONTEXT_RADIUS = 10
 
 
-def is_seam(tokens: list[str], j: int) -> bool:
+def is_bos_seam(tokens: list[str], j: int) -> bool:
+    return j != 0 and tokens[j] == "<bos>"
+
+
+def is_unmarked_fusion_candidate(tokens: list[str], j: int) -> bool:
     if j == 0:
         return False
     tok = tokens[j]
-    if tok == "<bos>":
-        return True
     if not tok or tok[0].isspace():
         return False
     if not tok[0].isupper():
@@ -49,8 +64,8 @@ def is_seam(tokens: list[str], j: int) -> bool:
     return last.isalpha() and last.islower()
 
 
-def find_seams_in_range(tokens: list[str], lo: int, hi: int) -> list[int]:
-    return [j for j in range(lo, hi) if is_seam(tokens, j)]
+def find_in_range(tokens: list[str], lo: int, hi: int, predicate) -> list[int]:
+    return [j for j in range(lo, hi) if predicate(tokens, j)]
 
 
 result: dict[str, list[dict]] = {}
@@ -58,7 +73,9 @@ skipped_len_mismatch: list[dict] = []
 index_mismatches: list[dict] = []
 total_records = 0
 total_emitted = 0
-splice_count = 0
+multi_document_count = 0
+bos_window_count = 0
+unmarked_fusion_count = 0
 
 for idx in FEATURES:
     path = RAW_DIR / f"{idx}.json"
@@ -103,15 +120,26 @@ for idx in FEATURES:
         ctx_start = max(0, argmax_index - CONTEXT_RADIUS)
         ctx_end = min(n, argmax_index + CONTEXT_RADIUS + 1)
 
-        seams = find_seams_in_range(tokens, ctx_start, ctx_end)
-        seams = [s for s in seams if s != argmax_index]
-        left_seams = [s for s in seams if s <= argmax_index]
-        right_seams = [s for s in seams if s > argmax_index]
+        n_bos_total = sum(1 for t in tokens if t == "<bos>")
+        is_multi_document_record = n_bos_total > 1
+        if is_multi_document_record:
+            multi_document_count += 1
+
+        bos_seams = find_in_range(tokens, ctx_start, ctx_end, is_bos_seam)
+        bos_seams = [s for s in bos_seams if s != argmax_index]
+        left_seams = [s for s in bos_seams if s <= argmax_index]
+        right_seams = [s for s in bos_seams if s > argmax_index]
         trunc_start = max(left_seams) if left_seams else ctx_start
         trunc_end = min(right_seams) if right_seams else ctx_end
-        has_seam = bool(seams)
-        if has_seam:
-            splice_count += 1
+        bos_in_context_window = bool(bos_seams)
+        if bos_in_context_window:
+            bos_window_count += 1
+
+        fusion_hits = find_in_range(tokens, ctx_start, ctx_end, is_unmarked_fusion_candidate)
+        fusion_hits = [s for s in fusion_hits if s != argmax_index]
+        unmarked_fusion_heuristic = bool(fusion_hits)
+        if unmarked_fusion_heuristic:
+            unmarked_fusion_count += 1
 
         position_fraction = argmax_index / (n - 1) if n > 1 else 0.0
 
@@ -128,7 +156,10 @@ for idx in FEATURES:
             "context_start_index": trunc_start,
             "context_end_index": trunc_end,
             "context_window_requested": [ctx_start, ctx_end],
-            "splice_seam": has_seam,
+            "is_multi_document_record": is_multi_document_record,
+            "n_bos_total": n_bos_total,
+            "bos_in_context_window": bos_in_context_window,
+            "unmarked_fusion_heuristic": unmarked_fusion_heuristic,
             "position_fraction": position_fraction,
         })
         total_emitted += 1
@@ -144,16 +175,29 @@ payload = {
         "skipped_len_mismatch": skipped_len_mismatch,
         "n_index_mismatches": len(index_mismatches),
         "index_mismatches": index_mismatches,
-        "n_splice_seam_records": splice_count,
-        "context_radius": CONTEXT_RADIUS,
-        "position_fraction_formula": "argmax_index / (n_tokens - 1), 0.0 if n_tokens <= 1",
-        "splice_seam_definition": (
-            "<bos> token inside the +/-10 window, OR a token with no leading "
-            "whitespace starting with an uppercase letter immediately after a "
-            "token ending in a lowercase letter (unmarked document-concatenation "
-            "boundary). Context is truncated at the nearest such seam on each "
-            "side of the argmax token."
+        "n_multi_document_records": multi_document_count,
+        "multi_document_record_definition": (
+            "REPORTED FLOOR. Record contains more than one literal <bos> token "
+            "anywhere in its full token sequence -- the record packs more than "
+            "one document, independent of where the argmax token falls. Matches "
+            "the independently-audited exact-marked rate exactly when restricted "
+            "to top-16-by-maxValue."
         ),
+        "n_bos_in_context_window": bos_window_count,
+        "n_unmarked_fusion_heuristic": unmarked_fusion_count,
+        "unmarked_fusion_heuristic_caveat": (
+            "NOT a reported rate. An independent check found ~97% false "
+            "positives on this signal (B2B, WinRAR, CompTIA, AZ-16A and similar "
+            "are tokenizer splits, not document seams). No defensible unmarked-"
+            "splice criterion currently exists; kept as a diagnostic field only, "
+            "never used for context truncation."
+        ),
+        "context_radius": CONTEXT_RADIUS,
+        "context_truncation_rule": (
+            "Truncated only at a literal <bos> strictly inside the +/-10 window "
+            "(the reliable signal). Never truncated on unmarked_fusion_heuristic."
+        ),
+        "position_fraction_formula": "argmax_index / (n_tokens - 1), 0.0 if n_tokens <= 1",
     },
     "features": result,
 }
@@ -172,6 +216,8 @@ for m in index_mismatches:
     print(f"  MISMATCH: feature={m['feature']} record_index={m['record_index']} "
           f"argmax_index={m['argmax_index']} maxValueTokenIndex={m['maxValueTokenIndex']} "
           f"values_tie={m['values_tie']}")
-print(f"n_splice_seam_records={splice_count} / {total_emitted}")
+print(f"n_multi_document_records (reported floor)={multi_document_count} / {total_emitted}")
+print(f"n_bos_in_context_window (truncation trigger)={bos_window_count} / {total_emitted}")
+print(f"n_unmarked_fusion_heuristic (diagnostic only, ~97% false-positive rate)={unmarked_fusion_count} / {total_emitted}")
 print(f"output={OUT_PATH}")
 print(f"sha256={sha}")
