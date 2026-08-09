@@ -1,121 +1,30 @@
-# ADJUDICATION LEDGER — D3.3 feature-class composition
+# ADJUDICATION LEDGER — DERIVED ARTIFACT, DO NOT ADJUDICATE FROM THIS FILE
 
-Binding artifact under prereg v1.6 §11.4 (`6194e13a8f464bc15f24172134d633d3f5f08a60d4423dbbb0602f7e66ee1052`,
-commit `20a3d3a`). **A call not in this ledger did not happen.**
+**Superseded as a source of truth on 2026-08-08 by prereg §12.1 (ledger partition).**
 
-Adjudicator: Lab assistant B (first adjudicator), both columns.
-Schema: `feature_idx | column | class | bucket | conf | reason_code | distinct_sources | n_firings | marker_token | pre_marker_class | deciding_quote | disposition`
+## Authoritative sources
 
-**No tally is computed in this file.** Two rows are `parked`; under §11.2 an unresolved parked row
-voids the tally for its column.
-
----
-
-## Evidence provenance
-
-| column | primary evidence | depth | marker access |
-|---|---|---|---|
-| Qwen | `example_context_centred1164.json` `centred_1164` (sha `72e73f263176163fa44e4b6b9c7b6a925d4c1f0f03bb0f9667ab5fc971e5b21c`); `full_chunk` is the sensitivity arm | top-16, array order | **not yet** |
-| Gemma | Neuronpedia `gemma-3-12b / 31-gemmascope-2-res-16k`, summarizer-mediated relay | top-16, array order | **not yet** |
-
-Under §11.1 no row in either column may be classified under trigger-primacy until both columns have
-marker access. Every `marker_token` and `pre_marker_class` field below is therefore empty by
-construction, and every class recorded here is a **pre-marker** class.
-
----
-
-## QWEN — ARM_PRIMARY (n=40)
-
-| feature_idx | column | class | bucket | conf | reason_code | distinct_sources | n_firings | marker_token | pre_marker_class | deciding_quote | disposition |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| 14622 | qwen | 11 topical domain — film/cinema | semantic | low | — | 7 | 131 | — | — | "Congratulations to Jennifer Lawrence who has won Best Performance by an Actress in a Motion Picture (Musical or Comedy) for 'Silver Linings Playbook'!" | classified |
-| 126804 | qwen | 2 lexical/n-gram — *revise* | surface-form | high | — | 13 | 736 | — | — | "\*REVISED EDITION FEATURING NEW RECIPES & LAY-FLAT BINDING\*" / "an increase of 15,000 from the previous week's revised figure of 367,000" / "REVISED DECLARATION OF HANA WHITFIELD" / "trans. Charles Cotton, revised by William Carew Hazlett" | classified |
-| 107244 | qwen | 10 indeterminate | denominator only | med | I-DIVERSE | 16 | 4013 | — | — | papal memoir vs NC job listings vs aikido vs guitar tablature vs plasma-cutter marketing vs K-pop fandom — no field coheres | classified |
-| 71905 | qwen | 10 indeterminate | denominator only | med | I-DIVERSE | 14 | 53 | — | — | "Heroic Halls of Reflection is a place where this truly shines — mobs come in waves" vs "ANDREA DAVIS IS NOT NOW NOR HAS SHE EVER BEEN LICENSED AS A LICENSED PRACTICAL NURSING IN THE STATE OF ALABAMA" | classified |
-| 70945 | qwen | 10 indeterminate | denominator only | med | **I-THIN** | **2** | 841 | — | — | "The Queen last year chose to wear blue on 29 per cent of her public engagements" (12/16 records) vs "A Japanese legend claims that Jesus escaped Jerusalem and made his way to Aomori in Japan" (4/16) | classified |
-| 140672 | qwen | 10 indeterminate | denominator only | med | I-DIVERSE | 16 | 125 | — | — | "Why is it that when light travels from a more dense to a less dense medium, its speed is higher?" vs "Leopoldstadt gained the nickname Mazzesinsel ('Matzoh Island')" — max activation 4.31 | classified |
-| 114256 | qwen | 10 indeterminate | denominator only | med | I-DIVERSE | 15 | 32 | — | — | "Warm 1 tbs of the oil in a large, deep, heavy frypan over medium heat" vs "you must configure your firewall to accept cookies from the \*.aip.org domain" — max activation 3.92 | classified |
-| **14081** | qwen | **1 numeric/quantitative** *vs* **11 topical domain** | **surface-form vs semantic** | — | — | 6 (effectively 5) | 442 | — | — | "Advanced tickets are $10 for adults and $8 for children and seniors under 12" / "Regular Pricing $11.50 Adults; $10.50 Seniors; $8.50 Children ages 3-11" / "C$6.80 per day adult, C$5.80 senior, C$3.40 youth 6–16" | **parked** |
-| **33008** | qwen | **2 lexical/n-gram** *vs* **7 abstract concepts** | **surface-form vs semantic** | — | — | 15 | 5945 | — | — | "The two are not mutually exclusive" / "the two modes are effectively two sides of the same combat coin" / "those two goals are frequently at odds" / "People get those two words confused all the time" | **parked** |
-
-### Parked rows — resolving observation (§11.2)
-
-| feature_idx | competing classes | buckets | observation that settles it |
-|---|---|---|---|
-| 14081 | 1 numeric/quantitative vs 11 topical domain (ticketed public attractions) | surface-form vs semantic | **Marked activating token.** If it is a numeral or currency symbol → class 1. If it sits on content words distributed through the passage → class 11. Supporting argument already on record: in docs 2780 and 3793 the price tier is parenthetical to documents about hiking and hospital bills, so the firing tracks the passage form rather than the subject. |
-| 33008 | 2 lexical/n-gram (*two*/*both*) vs 7 abstract concepts (contrasted pair) | surface-form vs semantic | **Marked activating token.** If it is *two* or *both* → class 2. If it sits on the contrasted terms themselves → class 7. Three of fifteen documents carry *two* as plain enumeration ("his first two years in the NFL", "two reasons", "Two Smoking Bans") rather than pairing, which is what makes the lexical reading non-trivial. |
-
-**Qwen status: 7 classified, 2 parked, 31 not yet adjudicated. Tally voided by §11.2 while parked
-rows stand.**
-
----
-
-## GEMMA — seeded uniform draw, seed 42, n=40
-
-⚠ **Fields below are recorded at the fidelity actually available.** Rows 3039–7055 were adjudicated
-before distinct-source support and reason codes became binding, and their per-row density and
-deciding quotes are not recoverable from the reports that survive. They are marked `—`, not
-reconstructed. Retrofit is queued against the byte-exact Neuronpedia file (§11.4 append discipline).
-
-| feature_idx | column | class | bucket | conf | reason_code | distinct_sources | density | marker_token | pre_marker_class | deciding_quote | disposition |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| 3039 | gemma | 10 indeterminate → **overruled to 4 formatting** (§11.5) | denominator only → **surface-form** | — | — | — | — | `:` ×4, `\n\n` ×2, `(`, `<`, `"` | 10 indeterminate | verbatim repetition / templated boilerplate; PM ruling: the delimiters fire, the repetition is why they are frequent | **overruled** |
-| 3070 | gemma | 9 discourse-register | denominator only | — | — | — | — | — | — | first-person interview register | classified (unrevised — §11.6 demonstration case) |
-| 3169 | gemma | 11 topical domain — electoral politics | semantic | — | — | — | — | — | — | — | classified |
-| 3349 | gemma | 3 code | surface-form | — | — | — | — | — | — | — | classified |
-| 3358 | gemma | 9 discourse-register | denominator only | — | — | — | — | — | — | promotional register spanning unrelated subjects | classified |
-| 3648 | gemma | 11 topical domain — document typesetting | semantic | — | — | — | — | — | — | — | classified |
-| 4090 | gemma | 10 indeterminate | denominator only | med | I-DIVERSE | — | 0.003116 | — | — | ".NET stack traces, accounting citation lists, Russian torrent listings, hadith, athletics biography, ToS boilerplate, rugby commentary" | classified |
-| 4572 | gemma | 11 topical domain — software & IT | semantic | med-high | — | — | 0.002114 | — | — | "On the Site Settings page, under Users and Permissions, click People and Groups" / "Q6.5.5 – Why can't I launch a job on multiple nodes on Euramoo?" | classified |
-| 5094 | gemma | 2 lexical/POS/n-gram | surface-form | — | — | — | — | — | — | pre-ruled by §5; **cannot measure inter-rater agreement** (§11.6) | classified (pre-ruled) |
-| 5231 | gemma | 2 lexical — negation particles → **overruled to 10 indeterminate** (§11.5) | surface-form → **denominator only** | — | **I-SILENT** | — | — | complement, not negator | 2 lexical | trigger varies lexically across all 16 (*sad, industry, secretive, town, highest, immune, -inate, individuals*); invariant is a structural position §6 does not encode | **overruled** |
-| 6515 | gemma | 10 indeterminate | denominator only | med | I-DIVERSE | — | 0.003508 | — | — | four-digit years present in ~10 of 16 but absent from six; historical-narrative field covers only ~5 | classified |
-| 7055 | gemma | 11 topical domain — programming & mathematics | semantic | med | — | — | 0.000609 | — | — | "increment statement is --k, meaning k = k - 1… the condition will become false and we will exit the loop" / "compress/gzip Package gzip implements reading and writing of gzip format compressed files, as specified in RFC 1952" | classified |
-| 212 | gemma | 9 discourse-register | denominator only | med | — | — | — | — | — | "I do not agree with all of his views" / "I don't like either party, I don't like the Clintons, I don't like the track record" / "Don't panic. If everything goes to hell you can roll your own dice" | classified |
-| 976 | gemma | 7 abstract concepts — rule-of-thumb | semantic | med-high | — | — | — | — | — | "Dr. Bartlett's rule of 70 is the same as the more common 'rule of 72'" / "Using the 90% rule of thumb" / "As a rough rule, two months should be a safe amount of time" / "A rule of thumb is, getting a fire burning as the highest priority" | classified |
-
-### Gemma live alternatives on record
-
-| feature_idx | recorded alternative | bucket effect |
+| File | Rater | Written by |
 |---|---|---|
-| 212 | class 2 lexical — negation. First-person negation appears in **16 of 16** records, several times each, including one blog post that breaks the conversational-register reading while retaining dense negation. Recorded as **live and numerator-bound**. | denominator only → **surface-form** if the marker sits on the negator |
+| `reports/adjudication_ledger_r1.md` | rater 1 | rater 1 only |
+| `reports/adjudication_ledger_r2.md` | rater 2 | rater 2 only |
 
-### Gemma parked (relay-truncated text, certified maxValue sequences)
+**No rater opens the other rater's file, and no rater opens this one.** Blind is per-row, not
+per-rater: whoever adjudicates a row second is blind on that row. This file is regenerated from the
+two sources by the orchestrator when a merged view is needed; it is never edited in place and it is
+never a rater's input.
 
-`819, 869, 1041, 1423, 2582, 2848, 7164, 7314, 8024` — nine features. Text uncertified through the
-summarizer relay; maxValue sequences monotonic and reproducible. Resolving observation: the
-byte-exact Neuronpedia JSON, curled by Engineer 1. Not classified, not dropped.
+## Why the previous contents were discarded rather than patched
 
-**Gemma status: 12 classified, 2 overruled, 9 relay-parked, 17 not yet adjudicated.**
+This file's prior contents were written before §12.1 existed. They contained rater 2's ten draw-2
+rows **and** rater 1's earlier rows in one place, and rater 2's copy predated the §12.3 → §13.3
+class-12 retrofits (9105, 11149, 11763). Merging the two source files against that copy would have
+**duplicated ten rows in two different states.** Rater 2 identified the hazard and was correctly
+barred from fixing it, since the file contains rater 1's calls.
 
----
+**A derived artifact is rebuilt, not repaired.** Patching it would have preserved exactly the
+ambiguity — two versions of ten rows, no record of which governed — that the partition exists to
+prevent. The two source files are complete and hash-bound independently; nothing is lost.
 
-## ⚠ COUNT DISCREPANCY — unresolved
-
-The first adjudicator's running count reported **16** Gemma rows classified. **14 are nameable** and
-appear above (12 classified + 2 overruled). The gap arises between a pre-compaction summary listing
-eight rows before 4090 and a post-compaction report implying ten. The two unnameable rows are not
-recoverable from surviving reports.
-
-Under §11.4 those two calls **did not happen** and the Gemma classified count is 14, not 16. If the
-raw transcript yields them, they are appended here with their evidence; they are not reinstated by
-assertion.
-
----
-
-## Directional artifacts affecting these rows (recorded, not corrected)
-
-1. **Qwen opening-line trap (§4.6).** `full_chunk` begins every record at document character 0, so
-   title/headline patterns are guaranteed by construction. 107244 was nearly classified from one.
-   `centred_1164` reduces but does not remove it — **38.37% of rows still clip at chunk start.**
-   Opening-line evidence is refused throughout.
-2. **Gemma packed-stream splice (§11.7).** 2–11 of 16 records per feature splice unrelated documents
-   with no separator. Cross-seam patterns cannot support a class.
-3. **Context-length residual.** Qwen `centred_1164` achieves median 997 / mean 936 against Gemma's
-   byte-exact median 1164 / mean 1148 — **−14% median, −18% mean, biased against Qwen.** The prior
-   `full_chunk` arm ran **+75%**, biased against Gemma. Both declared; neither corrected further.
-   The `1269–2847` Gemma interval and every figure binned against it are **void**.
-4. **Marker asymmetry (§11.1).** Neither column has marker access at time of writing. All classes
-   above are pre-marker.
-5. **Parking is not neutral (§11.2).** The gate selects for strong patterns, so the parked set is
-   enriched for classifiable rows and the unparked residue is enriched for `indeterminate`.
+**An index is spent the moment it enters this file** (§13.2). Regenerate only when a merged view is
+actually required, because regenerating it burns nothing but reading it does.
