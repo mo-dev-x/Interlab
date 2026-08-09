@@ -24,7 +24,8 @@ sounds damaged.
 > and §4.10 was titled "a sixth unmatched axis" — the count was understated in the most-read
 > paragraph in the document, which is the one place it cannot be. The **seventh** is
 > **distinct-source support at matched depth** (§4.11, added the same day): at depth 16 Qwen carries
-> a mean of 11.22 distinct documents against Gemma's 15.65. **A reviewer who counts table rows must
+> a mean of 11.23 distinct documents (exact) against Gemma's ≈15.53 (proxy; Gemma supplies no
+> document identifier, so no exact figure exists). **A reviewer who counts table rows must
 > arrive at the same number as a reader who reads the prose.**
 
 **Existence and direction only. Never magnitude.** The expansion gap (32× vs ~4.2×) is a plausible
@@ -446,10 +447,40 @@ Disclosed, not fixed; the opening-line rule (§4.6) is the mitigation.
 Found 2026-08-08 by asking the mirror question about degenerate repetition — *if Gemma repeats
 snippets, does Qwen?* — on an axis **neither column had measured.**
 
-At the matched depth of **16**, mean distinct documents per feature: **Qwen 11.22, Gemma 15.65.**
-Gemma is 16/16 distinct on **39 of 40** features. Qwen has **13 of 40** features resting on ≤ 8
-distinct documents and **four** (70945, 60751, 134801, 90863) whose 16 records are just **2**
-documents. **Qwen's support is 1.39× thinner at the same nominal depth.**
+> ### ⚠ CORRECTED 2026-08-08, same day, before publication — the first version of this section
+> compared two different quantities.
+>
+> It read *"mean distinct documents per feature: Qwen 11.22, Gemma 15.65."* **15.65 is not Gemma's
+> distinct-document count. It is Gemma's mean RECORD count**, and the arithmetic is exact rather
+> than coincidental: `39 features × 16 records + idx 8667's 2 = 626; 626 / 40 = 15.6500`.
+> **The identical figure holds on the Qwen side** — `39 × 16 + idx 90863's 2 = 626`, mean `15.6500`.
+> So 15.65 is a number **both columns share by construction** and cannot distinguish them at all.
+> The section as first written set an exact count of *documents* against a count of *records* — a
+> construct mismatch of exactly the kind §4.11 was added to name, committed inside §4.11 itself.
+> Caught by an independent recomputation, not by review.
+
+At the matched depth of **16**, mean distinct sources per feature: **Qwen 11.23** (exact, by
+`doc_id`) against **Gemma ≈ 15.53** (**proxy**, by text clustering). Qwen has **13 of 40** features
+resting on ≤ 8 distinct documents and **three** — 70945, 60751, 134801 — whose 16 records are just
+**2** documents.
+
+**Gemma's figure is a proxy and cannot be made exact.** Neuronpedia returns `dataIndex: null` on all
+626 records, so Gemma supplies **no document identifier**; distinct sources can only be estimated by
+clustering the record texts. **That estimate is an upper bound** — clustering detects only duplicate
+sources visible inside a ~1164-character window, so two windows drawn from distant parts of one long
+document read as distinct. **The instrument asymmetry inflates the apparent gap**, and the two sides
+of this comparison are therefore measured by different instruments — which is itself the thing this
+document says voids magnitude claims.
+
+**So: the direction survives and the magnitude does not, which is the standing framing rather than a
+strain on it.** The structural difference is robust to the proxy's blindness — Gemma would need
+massive undetected duplication to reach Qwen's 13-of-40-at-≤8 — but *"1.39× thinner"* is withdrawn
+and no ratio replaces it.
+
+**One collapse count corrected downward.** 90863 was listed among the 2-document features. It has
+**2 firings in total**, so each of its 2 records *is* its own document — that is `I-THIN`, not
+collapse. Grouping it with the other three overstated the collapse count. **Three genuine collapses,
+not four.**
 
 **§7.1 matched the columns on record count; §3.5 rules that support is distinct sources, not record
 count. The two rulings never met.** Matching the number did not match the construct — the same

@@ -1,9 +1,9 @@
-# BINDING PRE-REGISTRATION v1.9 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.10 — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.9 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
+> ## ⛔ v1.10 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
 >
 > §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
@@ -12,7 +12,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 this (§13). The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 this (§13.3–13.4). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.9**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.10**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.9)*
+v1.10)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.9)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.9)* — same table shape, separate section, produced independently.
+v1.10)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -873,3 +873,92 @@ against a failure at the data layer. Label contamination (fetch protocol, not ad
 instruction), the summarizer bypass (curl, not a caution about fabrication), constructed adjudicator
 packages (not an appendix), partitioned ledgers (not "do not read the other rows"), and now slot
 indirection (not "do not quote indices").
+
+### 13.3 §12.3's TEST IS REPLACED — IT MISDIAGNOSED POSITIONALITY IN TWO OPPOSITE DIRECTIONS
+
+Rater 1 applied §12.3's test **as written**, recorded two near-misses rather than stretching either
+prong, and escalated. Both are correct, and they fail on opposite prongs:
+
+- **11763** — a positional trigger whose position is occupied by a **constant** token. The marker is
+  ` the` in 15 of 16, so **prong 1 (marker differs across ≥12 of 16) fails** — yet the trigger is
+  plainly the determiner opening a post-copular predicate nominative (*"slips and trips continue to
+  be **the** most common cause"*, *"tiredness is **the** number one complaint"*). **Determiner
+  positions are lexically closed, so a positional feature there is obliged to show a constant
+  marker.** Prong 1 used marker variation as a *proxy* for positionality, and the two come apart
+  exactly where the position is a closed class.
+- **9105** — a positional trigger defined **relative to a governing lexeme.** The marker is the
+  complement of *use* in 14 of 16 (*form, links, information, website, bar, app, interface,
+  materials*), so **prong 2 (describable without naming any token) fails** — the position cannot be
+  stated without naming *use*. But **"argument of a specific verb" is a syntactic position, not a
+  recurring string.**
+
+**§12.3's definition covered both rows; its test excluded both.** Replaced:
+
+> **Test for class 12 — both prongs must hold.**
+>
+> **(1) The marker is not the invariant.** Either
+> **(a)** the marker tokens **differ** across ≥ 12 of 16 records; **or**
+> **(b)** the marker is constant but belongs to a **closed class** — determiner, preposition,
+> auxiliary, conjunction, pronoun, particle — **and** that same token occurs elsewhere in the same
+> 16 records **without firing.**
+>
+> > **⚠ Constancy of an OPEN-class token is evidence of a LEXICAL trigger, not a positional one.**
+> > `chemical` at 16/16 across CVD furnaces and skin peels is **class 2**, and nothing in this
+> > revision may be read to move it. Closed-class items are too frequent for their constancy to
+> > carry information: a `{the}` lexicon would fire on nearly every document in the corpus rather
+> > than on these 16, which **§2's own test independently rejects** — that independent rejection is
+> > what makes 11763 safe to route here, not the closed-class label alone.
+>
+> **(2) The invariant is statable as a role.** **Naming a *governor* is permitted** — "complement of
+> *use*", "argument of verb V" — because a governor names the position, not the trigger. **Naming
+> the *marker* is not.**
+
+**Retrofit: 11763 → class 12** (from class 9) and **9105 → class 12** (from `I-SILENT`).
+
+> **Directional-bias test (§12.4): NEUTRAL, and the guard is what makes it neutral.** Both retrofits
+> move within the denominator — 9 → 12 and `I-SILENT` → 12 — so **no bucket changes and neither
+> tally moves.** The only way this revision could have been favourable-or-adverse is by reaching
+> into class 2, and prong 1(a)/(b)'s open-versus-closed split is precisely the guard that stops it.
+> **9105 converts a claimed scheme defect into a covered case, which reduces the `I-SILENT` count** —
+> that count is a result about the scheme, so it is corrected downward here and reported as
+> corrected, not quietly.
+
+### 13.4 CONCURRENT COMMITS TO ONE WORKING TREE — THE INDEX IS SHARED MUTABLE STATE
+
+Three lanes independently reported it and one was bitten: an engineer ran `git commit --allow-empty`
+expecting an empty provenance marker and **committed two other files another lane had staged in the
+interim**, under a message describing unrelated work. Their diagnosis is exactly right —
+`--allow-empty` *permits* an empty commit, it does not *force* one — and **the root cause is mine**:
+I dispatched parallel engineers into a single working tree, where `git add` writes to shared mutable
+state.
+
+**Binding, and it removes the hazard rather than warning about it:**
+
+> **Never `git add` then `git commit`. Always commit by explicit pathspec:**
+> `git commit -m "…" -- path/one path/two`
+>
+> A pathspec commit takes the current content of exactly those paths and **does not consult the
+> staged index at all**, so a concurrent lane's staging cannot be swept in. This is the same
+> layer-of-the-failure principle as everywhere else in this document: not "check the index before
+> committing," but "do not use the shared index."
+
+**No history is rewritten.** Unpicking the mixed commit means either rewriting shared history while
+other lanes are actively committing, or a revert that strips their work from `HEAD`. **Both are worse
+than a wrong commit message**, and the engineer was right to stop and ask rather than act. Corrected
+by `git notes` on the affected commit; the pre-registration is unaffected because it does not live in
+commit messages — both sweep rulings are constants in source and are persisted into
+`sweep_analysis.json` under `preregistration`, so **the declaration travels with the artifact.**
+
+**A second, quieter leak in the same surface.** A commit message recorded *"3 surface-form, 3
+semantic, 4 denominator"* for a calibration batch. Those ten rows are a subset of the Gemma 40, so
+that string is **partial composition information about a column whose tally is void**, written into
+history that any rater may read — and the pre-commit index scan does not look at commit messages.
+Self-reported by the rater who wrote it, which is the behaviour that makes it recoverable.
+
+- **Not amended** — same reasoning as above; rewriting history in a concurrently-committed tree costs
+  more than it recovers.
+- **New rule: no tally, bucket count, or composition fragment in any commit message**, in any column,
+  at any stage. Rows and classes are fine; **counts by bucket are not.** Enforced by a `commit-msg`
+  hook alongside the existing `pre-commit` index scan.
+- **Directional-bias test: neutral** — it moves no row and constrains only where a number may be
+  written.
