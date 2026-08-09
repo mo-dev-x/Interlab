@@ -1,9 +1,9 @@
-# BINDING PRE-REGISTRATION v1.10 — feature-class adjudication scheme
+# BINDING PRE-REGISTRATION v1.11 — feature-class adjudication scheme
 
 **Handoff packet for the Gemma Scope 2 assistant.** This is the sole remaining dependency for
 the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudicate is below.
 
-> ## ⛔ v1.10 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
+> ## ⛔ v1.11 SUPERSEDES EVERYTHING BELOW WHERE THEY CONFLICT — READ §11–§13 FIRST.
 >
 > §11 (2026-08-08, v1.6→v1.7) makes the **marked activating token** primary evidence on both columns,
 > creates **`parked`** as a disposition distinct from `indeterminate`, requires **reason codes**
@@ -12,7 +12,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 > Two named rows are ruled there. **§11 governs; then §7.1; then the rest.**
 >
 > *(Version history: v1.1 `40e40b98…` → v1.2 → v1.3 `108c576d…` → v1.4 `77f629c0…` → v1.5
-> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 this (§13.3–13.4). The v1.3 title survived the v1.4/v1.5 edits by oversight —
+> `6ebaac18…` class 11 → v1.6 `6194e13a…` → v1.7 → v1.8 `44828591…` → v1.9 → v1.10 → v1.11 this (§13.5–13.7). The v1.3 title survived the v1.4/v1.5 edits by oversight —
 > the body was current, the header was not. That is the same header-lags-body defect that made
 > the v1.2 packet self-contradictory. Corrected here; the fix is the reason the version line now
 > appears exactly twice, in §9's two methods lines, both auto-checkable against this title.)*
@@ -45,7 +45,7 @@ the n = 40 Gemma adjudication. It is self-contained: everything needed to adjudi
 
 | | |
 |---|---|
-| **Version** | **v1.10**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
+| **Version** | **v1.11**, frozen 2026-08-08. Depth history `5 → 16 → 20 → 16`, every move evidence-driven, **no counts existed at any point** — see §7.1. |
 | **Status** | **BINDING on both models.** Written *before* the 40-feature `rwu04lpb` adjudication data exists. |
 | **Source of truth** | `reports/cross_model_comparison_qwen_column.md` §9. This file is a verbatim extract for handoff; if the two ever differ, §9 governs. |
 | **Applies to** | Qwen `rwu04lpb` layer 28 (n = 40) and Gemma Scope 2 layer 31 (n = 40), identically |
@@ -351,7 +351,7 @@ interpretable, because `indeterminate` is depth-sensitive by construction.
 
 **Result B — Gemma Scope 2 L31 composition** *(uniform draw, n = 40, seed …, layer 31, JumpReLU
 ~4.2×; **evidence depth 16/feature — top 16 by activation**; adjudicated per pre-registration
-v1.10)*
+v1.11)*
 
 | Bucket | Count |
 |---|---|
@@ -363,7 +363,7 @@ v1.10)*
 
 **Result A — Qwen `rwu04lpb` composition** *(uniform draw, n = 40, seed …, layer 28, TopK 32×;
 **evidence depth 16/feature — top 16 of 25 by plain slice**; adjudicated per pre-registration
-v1.10)* — same table shape, separate section, produced independently.
+v1.11)* — same table shape, separate section, produced independently.
 
 **Convergence statement** — separate section, written **only after both land**, by the PM: what
 each measurement independently found, and what the two **jointly** support. Existence and
@@ -962,3 +962,88 @@ Self-reported by the rater who wrote it, which is the behaviour that makes it re
   hook alongside the existing `pre-commit` index scan.
 - **Directional-bias test: neutral** — it moves no row and constrains only where a number may be
   written.
+
+### 13.5 PUNCTUATION IS CLOSED-CLASS — AND PRONG 2 SEPARATES LAYOUT FROM SYNTAX
+
+**The flag (§10.5, escalated not improvised).** §13.3 enumerates the closed classes as determiner,
+preposition, auxiliary, conjunction, pronoun, particle. **Punctuation is not on the list**, yet
+§13.3's own rationale applies to it with full force: a `{,}` lexicon would fire on nearly every
+document in the corpus rather than on these 16, which is exactly the independent §2 rejection cited
+as what makes 11763 safe to route to class 12.
+
+**The consequence that makes this a scheme change rather than an adjudicator's call, correctly
+identified by the rater who raised it:** §6 class 4 is *"delimiters, whitespace/punctuation
+structure."* **A class-4 row is by construction a near-constant punctuation marker that occurs
+elsewhere without firing.** If punctuation is closed-class, essentially every class-4 row satisfies
+prong 1(b) — and **class 4 ceases to exist as a numerator class.**
+
+**Ruling: punctuation IS closed-class. Class 4 survives, because prong 2 was already doing the
+work and the boundary it draws is one class 4's own wording contains.**
+
+> **Class 4 is *"layout and typography."* That is not the same thing as grammatical punctuation.**
+> An appositive comma is **syntax**; a `Category: … Type: …` template delimiter is **layout**. The
+> scheme already distinguishes them; nothing in it ever said class 4 owned every punctuation mark.
+>
+> **Prong 2, for punctuation markers — name the position, then read which vocabulary you needed:**
+> - **Grammatical vocabulary** (appositive, coordination, complement, predicate, clause juncture)
+>   → the trigger is a **syntactic position** → **class 12, denominator.**
+> - **Document vocabulary** (template slot, header, list item, field separator, boilerplate frame)
+>   → the trigger is a **layout position** → **class 4, surface-form.**
+> - **Neither vocabulary fits** → `indeterminate`. **It does not default to class 4** — defaulting
+>   to a numerator class on a failed test is the directional artifact in its purest form.
+
+**Applied to the three affected rows:**
+
+| idx | position, named | vocabulary | outcome |
+|---|---|---|---|
+| **9012** | the delimiter introducing an **appositive or elaborating continuation** | grammatical | **class 4 → class 12**, leaves the numerator |
+| 3039 | the delimiter inside a repeated `Category:/Type:/Transaction:` **template block** | document | **class 4 stands** |
+| 13746 | — | — | **class 4 stands**; fails prong 1 on both limbs regardless (9 distinct marker types, 11 non-modal records against a threshold of 12, and the marker is not constant at 5/16 modal) |
+
+**9012's own evidence says this rather than the rule saying it.** 173 commas across its 16 records;
+the comma is the argmax **13 times**, and **155 occurrences sit below half-max.** A feature that
+fires on ~7.5% of the commas available to it **is not a comma detector** — it is detecting which
+commas, which is a position. The rule and the measurement agree, which is the only reason to trust
+either.
+
+> **Directional-bias test (§12.4): ADVERSE.** It removes a row from the surface-form numerator and
+> can remove more; it cannot add any. Class 4 is *narrowed*, never widened. So this cannot be
+> outcome-driven, and the count of class-4 rows reclassified is reported rather than absorbed.
+
+**Knock-on to the §11.1 conservative-reset list, tracked centrally from here.** 11763 drops off — in
+class 12 it is denominator-only both before and after the marker, so it never moved numerator-ward.
+9012 now drops off for the same reason. **Rows still on the list: 11029, 13825, 13746 (rater 2) and
+212 (rater 1).**
+
+### 13.6 PRONG 1(a) COUNTS RECORDS, NOT MARKER TYPES
+
+Pinned, because §13.3 was ambiguous between *"≥12 distinct marker types"* and *"≥12 records whose
+marker is non-modal."* **§13.3's own worked example settles it: 9105 has 11 distinct types but 12
+non-modal records, and §13.3 routes 9105 to class 12 — so the criterion counts RECORDS.** Under the
+types reading **9105 would fail the retrofit §13.3 was written to justify**, which is a
+self-contradiction the packet would otherwise have shipped. Both raters applied the records reading;
+it is now the text.
+
+### 13.7 TWO ADJUDICATOR RULINGS ACCEPTED AS REASONED
+
+**212 → class 2 (negation morpheme), surface-form. A numerator flip, logged as one.** The marker is
+the negation morpheme in 16 of 16 — `t` from *don't/didn't/doesn't/Haven't* ×15, and ` not` once.
+Prong 1(b) is satisfied and verified (*"I don't like either party, I don't like the…"* fires on the
+first only), but **prong 2 fails for a principled reason worth adopting as the general articulation
+of prong 2:**
+
+> **In every class-12 row the trigger sits in a position defined by something else** — 5231's
+> complement is governed by the negator, 9105's by *use*, 11763's determiner by the copular
+> construction, 3070's coordinator by the clause juncture. **212's marker *is* the negator. Nothing
+> governs it, so the position cannot be named without naming the marker.**
+> **A self-governing trigger is lexical, not positional.** `morpheme` is explicit in class 2.
+
+Under §11.1 this is a marker-driven change toward the numerator: **primary tally class 2
+surface-form; conservative tally `indeterminate`.**
+
+**14719 stays `I-DIVERSE`, and the restraint is the right call.** It passes prong 1(a) and a role
+*could* be written for it — *"predicate-initial token after a subject NP"* — but **279 tokens sit at
+≥50% of record max, ~17 per record, against 23 total for 9012. The argmax is not distinguished from
+sixteen other high tokens in its own record, so there is no position to name.** Naming one would be
+supplying structure the evidence does not contain. **Prong 2 requires a position that exists, not a
+description that fits.**
