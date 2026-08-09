@@ -312,6 +312,27 @@ artifact.
 
 ---
 
+## 9. THE LAST SEVEN — GEMMA COLUMN COMPLETE AT 40
+
+| idx | class | bucket | conf | reason | marker evidence |
+|---|---|---|---|---|---|
+| 7223 | 10 indeterminate | denominator only | med | **I-SILENT** | Markers land **inside malformed word forms**: `infor**mation**` (sic, "informmation"), `upsat**irs**`, `predel**ictions**`, `abil**ites**`, `T**OTA**` (Catalan). Contexts are typo-ridden, OCR-garbled or ungrammatical: "AetU'HY I'AHK, N" · "We is being patient. The Elder Cat tells us that Santa Claws" · "free yourself **form** the hassles". Stable pattern — **degraded/misspelled text** — but **no §6 class describes it.** Scheme defect, not evidence defect. |
+| 7623 | **12 relational/positional** — existential *there* | denominator only | **high** | — | ` are` **16/16**, always the copula of an existential: "**There are** two types of airports in India" · "**There are** no Guarantees!" · "**There are** 658 names in this family tree" · "**There are** cricket tragics throughout Trade Me". Prong 2 satisfied with a genuine **governor (existential *there*)**, never naming the marker. §2's lexicon test independently fails — *There are* fires corpus-wide. |
+| 8667 | 10 indeterminate | denominator only | — | **I-THIN** | **Only 2 records exist** (structural, n_firings=2): ` directorial` in "The screenwriter's **directorial** debut hits theaters tomorrow" and ` approximate` in "these are **approximate** and no responsibility is taken". Nothing is falsifiable at n=2. |
+| 9115 | 2 lexical/n-gram — *drum* | **surface-form** | **high** | — | **16/16** on the string: ` Drum`/`Drum`/` drum`/`drum`/`rums`/` Drums`. Referents are unrelated — **Drum**roaster Coffee (a brand), Tyler **Drum**heller (a surname), drum kits, drum circles, *Drums Along the Mohawk* (a wargame), "**drum** roll", "**drum**beating". The string, not the concept. Open-class constancy → class 2 per the §13.3 guard. |
+| 11270 | 10 indeterminate | denominator only | med | **I-DIVERSE** | 13 distinct markers; only 6/16 cohere ("to the **power** of", "the **Powers** of Two"). Remainder spans foreclosure cleanouts, shipping fees, ToS liability, a defrost warning, workplace logout, rental limitations. Prong 1(a) fails (11 non-modal < 12). |
+| 13848 | 11 topical — hardware/electronic components | semantic | med | — | 4/16 domain-lexical (` cryogenic`, ` element`, ` inkjet`, ` Failing`); passages uniformly hardware: camera sensors and lens elements, XAAR printheads, a 6½" woofer and tweeter, piezoresistive pressure devices, fusion CPU/GPU chips, hermetically-sealed laser emitters, Ward Leonard DC motor control, laminated-glass roofs. Prong 2 fails — no single position. |
+| 15054 | 11 topical — cooking/recipes | semantic | **high** | — | **16/16** cooking: ` Recipes`, ` recipe` ×3, `Muff**ins**`, ` favorite` dishes — "Cafe Rio Shredded Chicken Taco **Recipe**" · "the keto pumpkin cheese cake **recipe**" · "From Helen Corbitt's Cookbook. Serves 4." · "Mix the salt, cumin, paprika, garlic powder". |
+
+**GEMMA COLUMN COMPLETE: 40 of 40 rows carry a class. Zero parked.** §11.2's tally-void no longer
+applies to Gemma on parking grounds.
+
+**Tally not computed here.** The Gemma composition now embeds the nine formerly-parked rows, whose
+buckets are the input to §14.2's pre-registered test. Computing the composition would compute the
+test. Deferred to the orchestrator by default.
+
+---
+
 **Qwen after retrofit: 9 rows resolved (7 classified + 2 parks closed), 0 parked, 31 outstanding.**
 §11.2's tally-void no longer applies to Qwen on parking grounds; the column remains incomplete.
 **Both columns are now marker-informed — the §8 evidence asymmetry is closed.**
