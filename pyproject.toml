@@ -48,6 +48,21 @@ dev = [
   # tests/golden/generate_stats_reference.py to produce pinned reference
   # values -- interplab.stats itself stays pure-numpy, never imports scipy.
   "scipy",
+  # TEST-ONLY, and deliberately here rather than skipped. The Week-2 steer/ablate
+  # tool (scripts/legacy/gemma3_tool.py) is out-of-chain and gradio is NOT a runtime
+  # dependency of interplab -- adding it here does not certify that tool, and the
+  # operator still installs gradio into ~/sprint-venv by hand on the cluster.
+  #
+  # It is here because one test needs it: the header the tool feeds into its
+  # gr.Markdown component must carry the "sample-max proxy over Neuronpedia's
+  # activation set, not a corpus max" caveat, and the test asserts that by rendering
+  # the real Gradio config rather than by inspecting a string. Testing a extracted
+  # pure function instead would verify the wording exists but not that it reaches a
+  # rendered component, which is the entire property at issue. Marking the test
+  # skip-if-missing would have been cheaper and would have meant the caveat guard
+  # never ran anywhere enforced -- a skipped test reports nothing, which is the same
+  # false-negative asymmetry this project has been caught by repeatedly.
+  "gradio>=6.22,<7",
 ]
 analysis = [
   "pandas",

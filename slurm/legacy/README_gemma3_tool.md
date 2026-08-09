@@ -9,9 +9,19 @@ at runtime.
 
 ## One-time setup (login node, has internet)
 
-`gradio` is not in `pyproject.toml` (this tool is out-of-chain, same as
-the sweep and necessity harnesses) and is not yet in `~/sprint-venv`.
-Install it once, from the **login node**:
+`gradio` is **not a runtime dependency of `interplab`** -- this tool is
+out-of-chain, same as the sweep and necessity harnesses, and adding the
+package did not certify it. As of 2026-08-09 it appears in
+`pyproject.toml` only under the `dev` extra, and only because one test
+renders the real Gradio config to prove the UI header still carries the
+sample-max-proxy caveat; CI could not run that guard otherwise. An earlier
+revision of this file said gradio was absent from `pyproject.toml`
+entirely, which is no longer true.
+
+None of that helps you here: `~/sprint-venv` is built from the offline
+wheelhouse, not from the `dev` extra, so gradio is still absent on the
+cluster and still has to be installed by hand. Do it once, from the
+**login node** (compute nodes have no internet):
 
 ```bash
 module load StdEnv/2023 python/3.11 arrow/25.0.0
