@@ -40,7 +40,30 @@ table.
 Steering/ablation hooking is interplab.interventions.hooks._make_clamp_hook,
 imported unmodified. It is shared with the sweep's own attach() call and
 the necessity harness -- forking it here could let this tool disagree with
-numbers already reported elsewhere.
+numbers already reported elsewhere; it is never forked, only ever imported.
+
+--sweep-module (default gemma3_sweep.py) makes the model/feature contract
+this tool consumes swappable: FEATURES, OPTIONAL_FEATURES,
+REJECTED_FEATURE_IDXS, WIDTH, load_feature_manifest, load_model_and_sae,
+pick_control_feature_idx. scripts/legacy/qwen_tool_adapter.py implements
+the same seven names against the Qwen checkpoint (rwu04lpb) via
+interplab.characterization's already-tested loaders, so this one UI runs
+against either model without a second copy of it.
+
+Hook positions default to "generated_only" (clamps only the tokens the
+model itself generates), not "all" (clamps the prompt tokens too, which
+rewrites the model's own read of the question it was asked before it
+answers -- the likely mechanism behind "it hallucinates when I ask it
+something"). Every number this project has published so far in the sweep
+and necessity reports was measured at positions="all"; the UI says so next
+to the toggle so a demo run here is never mistaken for a like-for-like
+replay of a published number.
+
+Doses 8 and 16 stay selectable in the dose dropdown even though
+scripts/analyze_gemma3_sweep.py pre-registers them as
+uninformative-by-saturation: hiding a saturated/negative result would look
+like an informative curve nobody checked, which is worse than showing it
+labelled.
 """
 
 from __future__ import annotations
@@ -56,6 +79,7 @@ from typing import Any
 from interplab.interventions.hooks import _make_clamp_hook
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_SWEEP_MODULE_PATH = Path(__file__).resolve().parent / "gemma3_sweep.py"
 DEFAULT_MANIFEST_PATH = REPO_ROOT / "results" / "gemma3_sweep" / "feature_manifest.json"
 DEFAULT_SNIPPETS_PATH = REPO_ROOT / "results" / "gemma3_sweep" / "gemma3_tool_snippets.json"
 SNIPPETS_NOT_STAGED_MESSAGE = "example snippets not yet pre-staged"
@@ -63,18 +87,56 @@ DOSE_GRID: tuple[float, ...] = (0.5, 1.0, 2.0, 4.0, 8.0, 16.0)
 MODES: tuple[str, ...] = ("steer", "ablate")
 DEFAULT_CONTROL_RNG_SEED = 1337  # matches gemma3_sweep.py's --control-rng-seed default (job 399312)
 DEFAULT_MAX_NEW_TOKENS = 200
+POSITION_MODES: tuple[str, ...] = ("generated_only", "all")
+DEFAULT_POSITIONS = "generated_only"
+PUBLISHED_NUMBERS_POSITIONS_NOTE = (
+    "Every number published so far in this project's sweep and necessity reports was "
+    "measured at positions=\"all\" (the clamp/ablation applied across the prompt tokens "
+    "too, not just the generated continuation). This tool defaults to "
+    "\"generated_only\" instead, so a fresh generation here is not directly comparable "
+    "to those published numbers unless you switch this control to \"all\"."
+)
 
 
 # ---------------------------------------------------------------------------
-# Dynamic import of the frozen sweep module (same pattern as
+# Dynamic import of the sweep-contract module (same pattern as
 # gemma3_necessity.py's _load_sweep_module). Read-only, by file path --
 # scripts/legacy has no __init__.py by design.
+#
+# "Sweep-contract module" rather than "the frozen sweep module": this loader
+# now accepts --sweep-module so this tool can run against any module that
+# exposes the same seven names gemma3_sweep.py does (FEATURES,
+# OPTIONAL_FEATURES, REJECTED_FEATURE_IDXS, WIDTH, load_feature_manifest,
+# load_model_and_sae, pick_control_feature_idx) -- e.g.
+# scripts/legacy/qwen_tool_adapter.py. The default is unchanged, so every
+# existing call site (and every existing test) keeps loading
+# gemma3_sweep.py exactly as before.
 # ---------------------------------------------------------------------------
 
 
-def _load_sweep_module():
-    sweep_path = Path(__file__).resolve().parent / "gemma3_sweep.py"
-    spec = importlib.util.spec_from_file_location("gemma3_sweep", sweep_path)
+def _load_sweep_module(path: str | Path = DEFAULT_SWEEP_MODULE_PATH):
+    sweep_path = Path(path)
+    spec = importlib.util.spec_from_file_location(sweep_path.stem, sweep_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# ---------------------------------------------------------------------------
+# Dynamic import of the sweep ANALYSIS module (scripts/analyze_gemma3_sweep.py),
+# for its pre-registered dose-informativeness ruling only (SATURATION_DIVERGENCE_
+# THRESHOLD, DECLARED_UNINFORMATIVE_DOSES, INFORMATIVE_DOSES). Same
+# by-file-path pattern as _load_sweep_module -- scripts/ has no __init__.py
+# either, and this stays a read-only import of pure-Python constants, no
+# torch/model access.
+# ---------------------------------------------------------------------------
+
+DEFAULT_ANALYZER_MODULE_PATH = Path(__file__).resolve().parents[1] / "analyze_gemma3_sweep.py"
+
+
+def _load_analyzer_module(path: str | Path = DEFAULT_ANALYZER_MODULE_PATH):
+    analyzer_path = Path(path)
+    spec = importlib.util.spec_from_file_location(analyzer_path.stem, analyzer_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -201,11 +263,14 @@ def load_bundle(sweep_module, model_path: str, sae_path: str, *, device: str, dt
     return ModelBundle(model=model, sae=sae, hook_name=sae.cfg.metadata.hook_name)
 
 
-def _generate(bundle: ModelBundle, prompt: str, seed: int, max_new_tokens: int, hook_fn=None) -> str:
+def _generate(
+    bundle: ModelBundle, prompt: str, seed: int, max_new_tokens: int, hook_fn=None, tokens=None
+) -> str:
     import torch
 
     torch.manual_seed(seed)
-    tokens = bundle.model.to_tokens(prompt)
+    if tokens is None:
+        tokens = bundle.model.to_tokens(prompt)
     fwd_hooks = [(bundle.hook_name, hook_fn)] if hook_fn is not None else []
     with bundle.model.hooks(fwd_hooks=fwd_hooks):
         output = bundle.model.generate(
@@ -233,11 +298,27 @@ def generate_hooked(
     dose_multiple: float,
     max_act_approx: float,
     max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+    positions: str = DEFAULT_POSITIONS,
 ) -> tuple[str, float]:
+    """positions="generated_only" (the default) clamps only the tokens the
+    model itself generates, leaving the model's read of the prompt it was
+    asked untouched -- positions="all" (every published number in this
+    project's sweep/necessity reports) also clamps the prompt tokens, which
+    rewrites the model's own representation of the question before it
+    answers. _make_clamp_hook (interplab.interventions.hooks, imported
+    unmodified -- never forked here) already implements both; the tokenizer
+    call is duplicated here (not inside _generate) only so the prompt's own
+    token count is known BEFORE the hook closure is built, since
+    prompt_lengths must be supplied at hook-construction time, not
+    discovered from inside the hook."""
+    if positions not in POSITION_MODES:
+        raise ValueError(f"unknown positions mode: {positions!r}; expected one of {POSITION_MODES}")
     clamp_value = dose_to_absolute_clamp(mode, dose_multiple, max_act_approx)
     stats: list = []
-    hook_fn = _make_clamp_hook(bundle.sae, feature_idx, clamp_value, "all", None, stats)
-    text = _generate(bundle, prompt, seed, max_new_tokens, hook_fn=hook_fn)
+    tokens = bundle.model.to_tokens(prompt)
+    prompt_lengths = tokens.shape[1] if positions == "generated_only" else None
+    hook_fn = _make_clamp_hook(bundle.sae, feature_idx, clamp_value, positions, prompt_lengths, stats)
+    text = _generate(bundle, prompt, seed, max_new_tokens, hook_fn=hook_fn, tokens=tokens)
     return text, clamp_value
 
 
@@ -246,8 +327,36 @@ def generate_hooked(
 # ---------------------------------------------------------------------------
 
 
-def build_ui(bundle: ModelBundle, manifest: dict[str, Any], snippets: dict[str, list[str]], control_feature_idx: int, control_rng_seed: int):
+def dose_dropdown_choices(analyzer) -> list[tuple[str, str]]:
+    """(label, value) pairs for the dose dropdown -- doses pre-registered as
+    uninformative-by-saturation (scripts/analyze_gemma3_sweep.py's
+    DECLARED_UNINFORMATIVE_DOSES, fixed 2026-08-08 before the sweep's
+    complete file existed) stay selectable, labelled with why, rather than
+    removed from the grid: a saturated/negative result is still a result,
+    and hiding it would look like an informative curve that was never
+    checked at those doses."""
+    choices = []
+    for d in DOSE_GRID:
+        if d in analyzer.DECLARED_UNINFORMATIVE_DOSES:
+            label = f"{d} (uninformative-by-saturation)"
+        else:
+            label = str(d)
+        choices.append((label, str(d)))
+    return choices
+
+
+def build_ui(
+    bundle: ModelBundle,
+    manifest: dict[str, Any],
+    snippets: dict[str, list[str]],
+    control_feature_idx: int,
+    control_rng_seed: int,
+    analyzer=None,
+):
     import gradio as gr
+
+    if analyzer is None:
+        analyzer = _load_analyzer_module()
 
     choices = feature_dropdown_choices(manifest)
     default_idx = choices[0][1]
@@ -255,11 +364,20 @@ def build_ui(bundle: ModelBundle, manifest: dict[str, Any], snippets: dict[str, 
     default_dose = DOSE_GRID[0]
 
     header_md = (
-        "## Gemma-3 12B SAE steer / ablate tool\n\n"
+        "## SAE steer / ablate tool\n\n"
         f"SAE: `{manifest['sae_release']}` &nbsp;|&nbsp; model: `{manifest['model_id']}`\n\n"
         f"**{manifest['maxActApprox_caveat']}**\n\n"
         f"Random-feature control: idx `{control_feature_idx}` (fixed; drawn via "
         f"control_rng_seed={control_rng_seed}, the same seed the D2.1 sweep uses)."
+    )
+
+    dose_caveat_md_text = (
+        f"Doses {list(analyzer.DECLARED_UNINFORMATIVE_DOSES)} are pre-registered as "
+        f"uninformative-by-saturation (divergence >= {analyzer.SATURATION_DIVERGENCE_THRESHOLD} "
+        "for both target and control arms in the D2.1 sweep -- at that point neither arm shares "
+        "vocabulary with baseline, and the cell cannot discriminate target from control). Kept "
+        "selectable here rather than removed: a saturated result is still a result. Measured "
+        f"informative range: {list(analyzer.INFORMATIVE_DOSES)}."
     )
 
     with gr.Blocks(title="Gemma-3 SAE steer/ablate") as demo:
@@ -268,8 +386,15 @@ def build_ui(bundle: ModelBundle, manifest: dict[str, Any], snippets: dict[str, 
             feature_dd = gr.Dropdown(choices=choices, value=default_idx, label="Feature")
             mode_radio = gr.Radio(choices=list(MODES), value="steer", label="Mode")
             dose_dd = gr.Dropdown(
-                choices=[str(d) for d in DOSE_GRID], value=str(default_dose), label="Dose (x maxActApprox)"
+                choices=dose_dropdown_choices(analyzer), value=str(default_dose), label="Dose (x maxActApprox)"
             )
+        gr.Markdown(dose_caveat_md_text)
+        positions_radio = gr.Radio(
+            choices=list(POSITION_MODES),
+            value=DEFAULT_POSITIONS,
+            label="Hook positions",
+        )
+        gr.Markdown(PUBLISHED_NUMBERS_POSITIONS_NOTE)
         feature_info_md = gr.Markdown(feature_metadata_markdown(default_feature), label="Feature info")
         snippets_md = gr.Markdown(snippets_display(snippets, default_idx), label="Example snippets")
         clamp_display = gr.Number(
@@ -307,23 +432,25 @@ def build_ui(bundle: ModelBundle, manifest: dict[str, Any], snippets: dict[str, 
                 outputs=[feature_info_md, snippets_md, clamp_display],
             )
 
-        def _on_generate(feature_idx, mode, dose_str, use_control, prompt, seed):
+        def _on_generate(feature_idx, mode, dose_str, positions, use_control, prompt, seed):
             feature = feature_by_idx(manifest, feature_idx)
             seed = int(seed)
             baseline_text = generate_baseline(bundle, prompt, seed)
             target_text, _clamp = generate_hooked(
-                bundle, prompt, seed, feature_idx, mode, float(dose_str), feature["maxActApprox"]
+                bundle, prompt, seed, feature_idx, mode, float(dose_str), feature["maxActApprox"],
+                positions=positions,
             )
             if not use_control:
                 return baseline_text, target_text, ""
             control_text, _ = generate_hooked(
-                bundle, prompt, seed, control_feature_idx, mode, float(dose_str), feature["maxActApprox"]
+                bundle, prompt, seed, control_feature_idx, mode, float(dose_str), feature["maxActApprox"],
+                positions=positions,
             )
             return baseline_text, target_text, control_text
 
         generate_btn.click(
             _on_generate,
-            inputs=[feature_dd, mode_radio, dose_dd, control_toggle, prompt_box, seed_box],
+            inputs=[feature_dd, mode_radio, dose_dd, positions_radio, control_toggle, prompt_box, seed_box],
             outputs=[baseline_out, target_out, control_out],
         )
 
@@ -345,6 +472,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         required=True,
         help="Local filesystem path to the layer_31_width_16k_l0_medium SAE snapshot directory. Never a repo_id.",
     )
+    p.add_argument(
+        "--sweep-module",
+        default=str(DEFAULT_SWEEP_MODULE_PATH),
+        help=(
+            "Path to a module exposing this tool's model/feature contract: FEATURES, "
+            "OPTIONAL_FEATURES, REJECTED_FEATURE_IDXS, WIDTH, load_feature_manifest, "
+            "load_model_and_sae, pick_control_feature_idx. Defaults to gemma3_sweep.py; "
+            "pass scripts/legacy/qwen_tool_adapter.py (with a matching --manifest-path) "
+            "to run this same UI against the Qwen checkpoint instead."
+        ),
+    )
     p.add_argument("--manifest-path", default=str(DEFAULT_MANIFEST_PATH))
     p.add_argument("--snippets-path", default=str(DEFAULT_SNIPPETS_PATH))
     p.add_argument("--control-rng-seed", type=int, default=DEFAULT_CONTROL_RNG_SEED)
@@ -361,7 +499,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    sweep = _load_sweep_module()
+    sweep = _load_sweep_module(args.sweep_module)
 
     manifest = load_manifest(Path(args.manifest_path), sweep)
     snippets = load_snippets(Path(args.snippets_path))

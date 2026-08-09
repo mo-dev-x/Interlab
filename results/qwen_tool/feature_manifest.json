@@ -1,0 +1,52 @@
+{
+  "schema_note": "One record per feature: idx, label, domain_class, maxActApprox, density, sae_id, layer, width, l0_variant. Open schema, same shape as gemma3_sweep.py's manifest -- must satisfy gemma3_tool.py's REQUIRED_MANIFEST_FIELDS.",
+  "maxActApprox_caveat": "Measured max activation over a 5,000-document / 1,712,777-token-position FineWeb sample (scripts/characterize_lite.py, job 383755, 2026-07-26; see docs/characterize_lite_findings.md) -- a sample max over that one stream, not a full-corpus max, and NOT the same provenance as Gemma's Neuronpedia sample-max proxy (gemma3_sweep.MAX_ACT_APPROX_CAVEAT). Do not treat the two numbers as measured the same way.",
+  "sae_release": "rwu04lpb",
+  "sae_location": "tamia:sae_checkpoints/rwu04lpb/final_400001024",
+  "model_id": "Qwen/Qwen2.5-14B-Instruct",
+  "model_revision": "cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8",
+  "features": [
+    {
+      "idx": 9056,
+      "label": "cheese",
+      "domain_class": "topic",
+      "maxActApprox": 47.5,
+      "maxActApprox_caveat": "Measured max activation over a 5,000-document / 1,712,777-token-position FineWeb sample (scripts/characterize_lite.py, job 383755, 2026-07-26; see docs/characterize_lite_findings.md) -- a sample max over that one stream, not a full-corpus max, and NOT the same provenance as Gemma's Neuronpedia sample-max proxy (gemma3_sweep.MAX_ACT_APPROX_CAVEAT). Do not treat the two numbers as measured the same way.",
+      "density": 0.000586,
+      "sae_id": "rwu04lpb",
+      "layer": 28,
+      "width": 163840,
+      "l0_variant": "topk_k100",
+      "low_confidence": false,
+      "verdict": "clean monosemantic (characterize_lite, n=1003 firings, 14.5x median rate)"
+    },
+    {
+      "idx": 47735,
+      "label": "UNESCO World Heritage",
+      "domain_class": "topic",
+      "maxActApprox": 40.75,
+      "maxActApprox_caveat": "Measured max activation over a 5,000-document / 1,712,777-token-position FineWeb sample (scripts/characterize_lite.py, job 383755, 2026-07-26; see docs/characterize_lite_findings.md) -- a sample max over that one stream, not a full-corpus max, and NOT the same provenance as Gemma's Neuronpedia sample-max proxy (gemma3_sweep.MAX_ACT_APPROX_CAVEAT). Do not treat the two numbers as measured the same way.",
+      "density": 0.000408,
+      "sae_id": "rwu04lpb",
+      "layer": 28,
+      "width": 163840,
+      "l0_variant": "topk_k100",
+      "low_confidence": false,
+      "verdict": "clean monosemantic (characterize_lite, n=699 firings, 10.1x median rate)"
+    },
+    {
+      "idx": 44189,
+      "label": "Eurovision",
+      "domain_class": "topic",
+      "maxActApprox": 8.5,
+      "maxActApprox_caveat": "Measured max activation over a 5,000-document / 1,712,777-token-position FineWeb sample (scripts/characterize_lite.py, job 383755, 2026-07-26; see docs/characterize_lite_findings.md) -- a sample max over that one stream, not a full-corpus max, and NOT the same provenance as Gemma's Neuronpedia sample-max proxy (gemma3_sweep.MAX_ACT_APPROX_CAVEAT). Do not treat the two numbers as measured the same way.",
+      "density": 0.000231,
+      "sae_id": "rwu04lpb",
+      "layer": 28,
+      "width": 163840,
+      "l0_variant": "topk_k100",
+      "low_confidence": true,
+      "verdict": "weak/marginal, confirmed entangled -- carry only as the documented weak case (characterize_lite, n=395 firings, 5.7x median rate)"
+    }
+  ]
+}

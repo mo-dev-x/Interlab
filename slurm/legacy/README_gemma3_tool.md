@@ -126,6 +126,48 @@ on your laptop.
   control (on by default, same dose, a fixed feature drawn once via
   `control_rng_seed=1337` -- the same seed and exclusion set the D2.1
   sweep itself uses) generated side by side from the same prompt and seed.
+- Doses 8 and 16 stay in the dropdown but are labelled
+  `(uninformative-by-saturation)`, with a caption naming the threshold --
+  they are `scripts/analyze_gemma3_sweep.py`'s own pre-registered ruling
+  (divergence >= 0.99 in the D2.1 sweep, both arms saturated), not a new
+  claim invented for this tool. Kept selectable rather than removed: a
+  saturated/negative result is still a result.
+- Hook positions: `generated_only` (default) vs `all`. `generated_only`
+  clamps only the tokens the model itself produces, leaving its read of
+  the prompt untouched; `all` also clamps the prompt tokens, which
+  rewrites the model's own representation of the question before it
+  answers. **Every number this project has published so far (the D2.1
+  sweep, the necessity report) was measured at `positions="all"`** -- the
+  UI says so next to the toggle so a demo run here is never mistaken for a
+  replay of a published number.
+
+## Running this tool against the Qwen checkpoint instead
+
+`--sweep-module scripts/legacy/qwen_tool_adapter.py` (plus a matching
+`--manifest-path`) runs the exact same UI against the Qwen
+`Qwen2.5-14B-Instruct` / SAE `rwu04lpb` checkpoint instead of Gemma-3.
+The adapter exposes the same seven names `gemma3_sweep.py` does and writes
+nothing new for model/SAE loading -- it delegates to
+`interplab.characterization.model_loading.load_local_hooked_transformer`
+and `sae_lens.SAE.load_from_pretrained`, the same calls
+`interplab/characterization/feature_index.py` already uses. Its feature
+manifest carries only the 3 features `scripts/characterize_lite.py`
+actually measured (cheese/UNESCO/Eurovision -- see
+`docs/characterize_lite_findings.md`), not 9: real, thinner data beats a
+manifest padded out with invented numbers.
+
+```bash
+bash slurm/legacy/launch_gemma3_tool.sh \
+  /scratch/y/yazid/hf_cache/hub/models--Qwen--Qwen2.5-14B-Instruct/snapshots/<rev> \
+  /scratch/y/yazid/sae_checkpoints/rwu04lpb/final_400001024 \
+  --sweep-module scripts/legacy/qwen_tool_adapter.py \
+  --manifest-path results/qwen_tool/feature_manifest.json
+```
+
+There is no pre-staged Qwen snippets file yet (unlike Gemma's tracked
+`gemma3_tool_snippets.json`) -- the tool degrades to its existing "example
+snippets not yet pre-staged" message per feature, which is the designed
+behaviour, not a bug.
 
 ## Prerequisites this tool assumes are already true
 
