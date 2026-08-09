@@ -75,6 +75,25 @@ DESIGN (pre-registration section 3-8):
   FALSIFICATION_CONDITIONS (section 8) verbatim, so a downstream reader
   never has to infer them or go find this file.
 
+ADDED 2026-08-08, after analyzing job 399619's real data: every
+cross-feature and within-feature value came back bit-exact 0.0 -- both
+ablate a feature already inactive everywhere on the text, and the ablate
+hook's subtraction of activation*direction is an exact no-op on an
+already-zero activation. Both are real INSTRUMENT SPECIFICITY CHECKS (the
+hook only touches the intended feature/positions) but neither is a
+scientific control -- a check that cannot fail is not a control, and
+prereg section 8's two conditions collapse to testing the same thing here
+for the same reason. See INSTRUMENT_SPECIFICITY_NOTE. A third,
+falsifiable comparator is added on own-text cells only:
+active_nontarget_control ablates the single highest-activating
+NON-target feature on that same snippet (picked deterministically per
+snippet, not a fixed feature -- see ACTIVE_NONTARGET_CONTROL_NOTE), so
+the target's delta-NLL has an actual "cost of removing some arbitrary
+active direction" to be judged against. Old real records (job 399619,
+committed at 15704da) predate this field and must be regenerated with
+--restart -- resume-by-cell-key would otherwise skip them and leave the
+new fields permanently absent from those rows.
+
 CONSTRAINTS, unchanged from the sweep: HF_HUB_OFFLINE=1 with local paths
 as required arguments, never a repo_id; module purge && module load
 StdEnv/2023 python/3.11 arrow/25.0.0 then source ~/sprint-venv/bin/activate
@@ -183,6 +202,51 @@ FALSIFICATION_CONDITIONS = {
     ),
     "note": "Either outcome is reported as the finding. Neither is grounds for changing the instrument again.",
 }
+
+# Added 2026-08-08 after the first real run (job 399619) showed every
+# cross-feature and within-feature value at bit-exact 0.0: both ablate a
+# feature verified/constructed to already be inactive everywhere on the
+# text, and attach()'s ablate hook is a single-direction subtraction, so
+# `x - 0*direction = x` is an exact floating-point no-op. Both were
+# GUARANTEED to read 0.0 before the job ran -- they check that the hook
+# only touches the intended feature/positions (a real, valuable
+# INSTRUMENT SPECIFICITY CHECK), but neither is a scientific control: a
+# check that cannot fail is not a control, and prereg section 8's two
+# falsification conditions collapse to testing the identical thing here
+# (delta-NLL vs. zero) for the identical mechanistic reason. This does not
+# retroactively rename cross_feature_control_idx / the two "..._control_"
+# field names already written into committed real data -- see
+# necessity_result_v1.md for the reframing in prose.
+INSTRUMENT_SPECIFICITY_NOTE = (
+    "The cross-feature and within-feature checks both ablate a feature already inactive "
+    "(verified or constructed) everywhere on the text being ablated; attach()'s ablate hook "
+    "subtracts activation*direction, so ablating an already-zero activation is an exact "
+    "floating-point no-op and both were guaranteed to read 0.0 before this job ran. They "
+    "confirm the hook is surgical (touches only the intended feature, at only the intended "
+    "positions) -- a real instrument specificity check -- but neither is a scientific "
+    "control, and prereg section 8's two falsification conditions collapse to one test here "
+    "for the same mechanistic reason."
+)
+
+# The falsifiable comparator prereg section 8 actually needs: how much
+# does removing an ARBITRARY ACTIVE direction cost, on this same snippet,
+# versus removing the target? Picked deterministically per snippet (the
+# single highest-activating non-target feature anywhere in the snippet,
+# via argmax over the already-computed feat_acts from _baseline_pass --
+# no extra forward pass, no hand-picking, reproducible from the recorded
+# index alone) rather than drawn from a fixed RNG like the cross-feature
+# check, because a single fixed feature would not be guaranteed active on
+# every one of the 9 features' own top-16 snippets, and an inactive
+# "active" control would just be the same no-op as the checks above.
+ACTIVE_NONTARGET_CONTROL_NOTE = (
+    "active_nontarget_control ablates the single highest-activating non-target feature on "
+    "this same snippet (picked deterministically per snippet via argmax over feat_acts, "
+    "excluding the target feature index -- reproducible from active_nontarget_control_idx "
+    "alone, not hand-chosen), unlike cross_feature_control's single fixed feature shared "
+    "across all snippets. This is the comparator with the capacity to fail: it measures the "
+    "cost of removing an arbitrary ACTIVE direction on the same text, so the target's "
+    "delta-NLL has a scale to be judged against."
+)
 
 DEFAULT_OUT_DIR = REPO_ROOT / "results" / "gemma3_necessity"
 RECORDS_FILENAME = "necessity_records.jsonl"
@@ -535,20 +599,47 @@ def _ablated_pass_nll(model, sae, tokens, feature_idx: int, seed: int, checkpoin
     return model.loss_fn(logits, tokens, per_token=True)
 
 
+def _pick_active_nontarget_feature_idx(feat_acts, target_idx: int) -> tuple[int, float]:
+    """Deterministic per-snippet pick: the single feature (excluding
+    target_idx) with the highest activation anywhere in this snippet, via
+    argmax over feat_acts[0] (shape [seq_len, d_sae]) after masking out
+    the target column. Reproducible from the recorded index alone, not
+    hand-chosen -- no RNG involved, since "highest-activating" is already
+    a deterministic function of this snippet's own feat_acts (ties broken
+    by argmax's own deterministic first-index convention). See
+    ACTIVE_NONTARGET_CONTROL_NOTE for why this beats a single fixed
+    control feature."""
+    import torch
+
+    acts = feat_acts[0]  # [seq_len, d_sae]
+    per_feature_max = acts.max(dim=0).values.clone()
+    per_feature_max[target_idx] = float("-inf")
+    idx = int(per_feature_max.argmax().item())
+    return idx, float(per_feature_max[idx].item())
+
+
 def measure_own_text_cell(model, sae, *, feature: dict[str, Any], snippet_index: int, snippet: str, control_feature_idx: int, checkpoint_hash: str) -> dict[str, Any]:
-    """Target necessity + cross-feature control, both on F's own
-    top-activating snippet (pre-reg section 3-4)."""
+    """Target necessity + two checks, all on F's own top-activating
+    snippet (pre-reg section 3-4): cross_feature and within_feature are
+    instrument-specificity checks (see INSTRUMENT_SPECIFICITY_NOTE --
+    both are guaranteed to read 0.0 here, by construction, and are not
+    scientific controls); active_nontarget_control is the falsifiable
+    comparator (see ACTIVE_NONTARGET_CONTROL_NOTE) that actually has the
+    capacity to fail."""
     target_idx = feature["idx"]
     seed = derive_seed("own_text", target_idx, snippet_index)
 
     tokens, nll_baseline, feat_acts = _baseline_pass(model, sae, snippet, seed)
     active_mask = (feat_acts[..., target_idx] > 0)[:, :-1]  # align to per_token loss: position i predicts token i+1
+    active_nontarget_idx, active_nontarget_activation = _pick_active_nontarget_feature_idx(feat_acts, target_idx)
 
     nll_target = _ablated_pass_nll(model, sae, tokens, target_idx, seed, checkpoint_hash)
     nll_control = _ablated_pass_nll(model, sae, tokens, control_feature_idx, seed, checkpoint_hash)
+    nll_active_nontarget = _ablated_pass_nll(model, sae, tokens, active_nontarget_idx, seed, checkpoint_hash)
 
     delta_target = (nll_target - nll_baseline)[0]
     delta_control = (nll_control - nll_baseline)[0]
+    delta_active_nontarget = (nll_active_nontarget - nll_baseline)[0]
     mask = active_mask[0]
     n_active = int(mask.sum().item())
     n_total = int(mask.shape[0])
@@ -568,8 +659,14 @@ def measure_own_text_cell(model, sae, *, feature: dict[str, Any], snippet_index:
         "cross_feature_control_idx": control_feature_idx,
         "mean_delta_nll_cross_feature_control_on_max_activating_text": delta_control.mean().item(),
         "mean_delta_nll_cross_feature_control_on_max_activating_text_at_active_positions": delta_control[mask].mean().item() if n_active > 0 else None,
+        "active_nontarget_control_idx": active_nontarget_idx,
+        "active_nontarget_control_activation_on_max_activating_text": active_nontarget_activation,
+        "mean_delta_nll_active_nontarget_control_on_max_activating_text": delta_active_nontarget.mean().item(),
+        "mean_delta_nll_active_nontarget_control_on_max_activating_text_at_active_positions": delta_active_nontarget[mask].mean().item() if n_active > 0 else None,
         "construct_note": CONSTRUCT_NOTE,
         "falsification_conditions": FALSIFICATION_CONDITIONS,
+        "instrument_specificity_note": INSTRUMENT_SPECIFICITY_NOTE,
+        "active_nontarget_control_note": ACTIVE_NONTARGET_CONTROL_NOTE,
         "checkpoint_hash": checkpoint_hash,
     }
 
@@ -758,7 +855,13 @@ def main(argv: list[str] | None = None) -> int:
                        "cross_feature_control_idx": control_feature_idx,
                        "mean_delta_nll_cross_feature_control_on_max_activating_text": None,
                        "mean_delta_nll_cross_feature_control_on_max_activating_text_at_active_positions": None,
+                       "active_nontarget_control_idx": None,
+                       "active_nontarget_control_activation_on_max_activating_text": None,
+                       "mean_delta_nll_active_nontarget_control_on_max_activating_text": None,
+                       "mean_delta_nll_active_nontarget_control_on_max_activating_text_at_active_positions": None,
                        "construct_note": CONSTRUCT_NOTE, "falsification_conditions": FALSIFICATION_CONDITIONS,
+                       "instrument_specificity_note": INSTRUMENT_SPECIFICITY_NOTE,
+                       "active_nontarget_control_note": ACTIVE_NONTARGET_CONTROL_NOTE,
                        "checkpoint_hash": checkpoint_hash}
         else:
             payload = measure_own_text_cell(

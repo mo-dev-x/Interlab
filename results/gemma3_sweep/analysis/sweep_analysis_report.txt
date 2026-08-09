@@ -1,0 +1,84 @@
+==============================================================================
+D2.1 GEMMA 3 SWEEP -- ANALYSIS
+==============================================================================
+records file lines read : 900
+records parsed          : 900
+feature manifest        : D:\qwen-sae-interp\results\gemma3_sweep\analysis\feature_manifest.json
+
+pre-registered cells    : 1736
+enumerated from harness : 1736  [OK]
+cells observed          : 900  (51.84%)
+cells missing           : 836
+
+******************************************************************************
+INCOMPLETE -- THIS ANALYSIS RUNS ON A PARTIAL FILE
+******************************************************************************
+  836 of 1736 cells are absent (48.16% of the grid).
+  FEATURES WITH NO DATA AT ALL (4): [900, 4500, 11000, 12800]
+    (each owes 192 cells)
+  missing by feature: {'11000': 192, '12800': 192, '3500': 68, '4500': 192, '900': 192}
+  missing by mode   : {'ablate': 452, 'steer': 384}
+  Every missing cell is enumerated in the JSON under 'missing_cells'.
+  Curves below are computed only over observed cells; incomplete dose points are
+  flagged per point via 'complete', and per curve via 'curve_complete'.
+
+------------------------------------------------------------------------------
+PRE-REGISTERED RULINGS (fixed before the complete file existed)
+------------------------------------------------------------------------------
+  saturation threshold (divergence) : 0.99
+  doses uninformative-by-saturation : [8.0, 16.0]
+  informative dose range            : [0.5, 1.0, 2.0, 4.0]
+  ablation                          : REPLICATES, never a dose curve
+
+------------------------------------------------------------------------------
+STEER DOSE-RESPONSE  (divergence vs same-prompt baseline; 1.0 = no shared vocabulary)
+  [S] = arm saturated at/above threshold   [x] = dose declared uninformative
+------------------------------------------------------------------------------
+ feature arm                  0.5      1.0      2.0      4.0      8.0     16.0
+     250 random_feature    0.840    0.908    0.927    0.999S   1.000S   1.000S
+     250 target            0.880    0.865    0.927    0.936    0.971    0.996S
+     500 random_feature    0.893    0.902    0.875    0.968    1.000S   1.000S
+     500 target            0.855    0.855    0.856    0.928    0.998S   1.000S
+    2048 random_feature    0.887    0.882    0.900    0.961    1.000S   1.000S
+    2048 target            0.878    0.938    0.990    0.995S   1.000S   1.000S
+    2500 random_feature    0.881    0.889    0.865    0.874    0.912    1.000S
+    2500 target            0.864    0.852    0.870    0.874    0.938    0.957 
+    3500 random_feature    0.874    0.882    0.902    0.942    1.000S   1.000S
+    3500 target            0.879    0.864    0.909    0.974    0.996S   0.999S
+                                                                  [x]      [x]
+
+------------------------------------------------------------------------------
+ABLATE -- SIX REPLICATES OF ONE CONDITION, NOT A DOSE CURVE
+  absolute_clamp_value is 0.0 in every ablate record; the dose slot is inert.
+  Dispersion here is the NOISE FLOOR for the steer arms above.
+------------------------------------------------------------------------------
+ feature arm                n     mean       sd      min      max inert
+     250 random_feature    48    0.872    0.057    0.710    1.000 yes
+     250 target            48    0.863    0.064    0.653    0.982 yes
+     500 random_feature    48    0.863    0.077    0.560    0.986 yes
+     500 target            48    0.867    0.057    0.739    0.983 yes
+    2048 random_feature    48    0.875    0.057    0.746    1.000 yes
+    2048 target            48    0.882    0.060    0.701    0.983 yes
+    2500 random_feature    48    0.862    0.075    0.678    1.000 yes
+    2500 target            48    0.854    0.064    0.569    0.968 yes
+    3500 random_feature    12    0.904    0.058    0.787    0.984 yes
+    3500 target            16    0.870    0.078    0.750    0.975 yes
+  pooled within-arm sd across 10 ablate arms: mean 0.064647, range 0.056616-0.07771
+  A steer effect smaller than this dispersion is not distinguishable from replicate-to-replicate noise.
+
+------------------------------------------------------------------------------
+TARGET vs CONTROL  (steer) -- REFUSED where the control arm saturates
+------------------------------------------------------------------------------
+     250   +0.039   -0.043   +0.000  REFUSED  REFUSED  REFUSED   reportable 3/6
+           !! control saturates BEFORE target at dose(s) [4.0, 8.0] -- not functioning as a control
+     500   -0.038   -0.047   -0.019   -0.039  REFUSED  REFUSED   reportable 4/6
+    2048   -0.009   +0.056   +0.090   +0.034  REFUSED  REFUSED   reportable 4/6
+    2500   -0.017   -0.037   +0.005   +0.000  REFUSED  REFUSED   reportable 4/6
+           !! control saturates BEFORE target at dose(s) [16.0] -- not functioning as a control
+    3500   +0.005   -0.018   +0.007   +0.031  REFUSED  REFUSED   reportable 4/6
+  A refusal is a result, not a gap: where the control saturates the cell cannot
+  discriminate target from control, so no contrast is defined.
+
+Surface-form text metrics against the same-prompt baseline generation. They quantify how far a clamp moved the output, NOT whether it moved toward the feature's nominal concept. No domain class is assigned or validated here.
+
+STATUS: INCOMPLETE (partial sweep)
