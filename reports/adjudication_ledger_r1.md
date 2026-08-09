@@ -279,6 +279,39 @@ title-internal at chunk positions 0.07–0.95, nowhere near the document opening
 that happens to be visible at an opening is not thereby disqualified — it requires independent
 support, which the marker now supplies.
 
+---
+
+## 8. THE NINE RELAY-PARKED GEMMA ROWS — CLOSED FROM MARKERS
+
+Parked because summarizer-relayed *text* was uncertified. Under §11.1 the trigger governs, and
+`gemma_max_activating_tokens.json` carries every trigger byte-exact, so these adjudicate with **no
+text relay in the path at all.** The blocker was the channel; the channel is bypassed.
+
+Seam handling per ruling: truncate only on a literal `<bos>` strictly inside ±10 (19/782 = 2.4%);
+never on the lower→Upper fusion signal (~97% false positive).
+
+**§14.2 note:** these nine are the pre-registered test of §11.2's numerator-enrichment premise.
+**The prediction was not consulted during adjudication and no rate is computed here.** Rows are
+reported as decided; the test is the orchestrator's to run.
+
+| idx | class | bucket | conf | reason | marker evidence |
+|---|---|---|---|---|---|
+| 819 | 11 topical — quantitative/technical academic | semantic | **med-low** | — | Markers structurally uninformative: `' '` ×5, `-` ×3, `1` ×2, `,`, `’` = 12/16 whitespace/punct/digit. Passages cohere (15/16 quantitative-technical: composites mechanics, graph isomorphism, ICASSP citations, yield curves, CARA investor, Luenberger observer, circuit analysis). **Class rests on passage, not trigger — flagged.** |
+| 869 | **12 relational/positional** — sentence-initial coordination | denominator only | med | — | `And`/` And` ×11 sentence-initial, `,` ×5 immediately after a coordinating *and*: "and**,** eventually," · "**And** not just the most well-known festivals" · "**And** neither was he persecuted". §13.5: coordination → class 12. Recurs unfired in-record ("And how you present it… **And** thank you"). |
+| 1041 | **12 relational/positional** — nominal coordination | denominator only | **high** | — | ` and` **16/16**, always joining two NPs: "The male **and** female" · "China **and** the EU" · "Joseph **and** Mary" · "Saturday **and** Sunday" · "iPhone, BlackBerry **and** Windows Mobile". Prong 1(b): recurs unfired in-record ("Fiance **and** his band get up on stage and sing"). |
+| 1423 | 3 code/identifiers | **surface-form** | **high** | — | **16/16** substrings inside URLs, emails, hashtags, handles: `@**the**ginguide.com`, `wild**scape**images.biz`, `cheapn**fl**jerseyschina`, `mn**black**livesmatter`, `trevor**ross**.ca`, `**char**lesortel.com`, `**mich**igan.gov`, `dave**pidge**on.net`, `@**ash**ley_r_perez`. Orthographic, not syntactic — 3349 precedent. |
+| 2582 | 7 abstract concepts — interpersonal connection | semantic | med | — | 16 distinct markers, 9 in one field: ` felt, connect, relationship, connection, kind, emotionally, moment, try, best` — "our **felt** sensing of wisdom" · "time to **connect**" · "a lack of **connection** by positive touch" · "become **emotionally** aware". |
+| 2848 | 10 indeterminate | denominator only | med | **I-DIVERSE** | 13 distinct markers; passages span a printf format string, wedding decor, Lead411 email listings, ASP.NET routing, hosting uptime, Miramichi housing stats, shell scripts, a delete dialog, garbled text. Neither trigger nor passage coheres. |
+| 7164 | 7 abstract concepts — effect/consequence | semantic | **high** | — | **16/16** are effect-nouns across 10 distinct lexemes: ` effects` ×2, ` impact` ×5, ` effect/Effect` ×2, ` affects`, ` implications`, ` ramifications`, ` difference`, ` role`, ` benefits`, ` joy`. Synonym substitution preserves firing (*impact*↔*effect*), so §3 routes semantic, not class 2. |
+| 7314 | 2 lexical/n-gram — *have to* (deontic necessity) | **surface-form** | **high** | — | ` have` ×13, ` got` ×2, ` had` ×1 — **16/16** the semi-modal: "you're just gonna **have** to find out" · "You've **got** to stay at it" · "he knew exactly what he **had** to do" · "we **have** to act now". Prong 2 fails on **no-governor** — the marker *is* the modal (212 precedent). |
+| 8024 | 11 topical — horror/Halloween/supernatural | semantic | med-high | — | 7/16 domain-lexical: ` spooky`, ` Halloween` ×2, ` haunted`, `**erie**` (Eerie), ` legendary`, `how**ls**` — "a knack for **spooky** and abnormal things. I love Tim Burton, Edgar" · "**haunted** by the demon of self-criticism" · "annual Pumpkin Pal[ooza]" · "survive the **legendary** Stygian Abyss". |
+
+**Instrument note:** 7164 is the row whose summarizer relay produced a reproducible 15-of-16
+omission. Byte-exact, it has all 16 and a clean 16/16 pattern. The omission was entirely a relay
+artifact.
+
+---
+
 **Qwen after retrofit: 9 rows resolved (7 classified + 2 parks closed), 0 parked, 31 outstanding.**
 §11.2's tally-void no longer applies to Qwen on parking grounds; the column remains incomplete.
 **Both columns are now marker-informed — the §8 evidence asymmetry is closed.**
