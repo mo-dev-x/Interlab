@@ -26,6 +26,31 @@ for the manifest/calibration -> resolved-absolute-target arithmetic.
 Nothing here downloads weights. Every loader takes LOCAL filesystem paths
 and fails closed if they're missing, misidentified, or dimensionally
 inconsistent with the ratified target -- see final_pairing_targets.py.
+
+Orchestrator review, 2026-08-10, fixed two acceptance-critical defects in
+the first version of this file (commit b4481ec):
+
+1. The Qwen loader used transformers.AutoModel, which -- verified locally
+   against the installed transformers==5.12.1's own MODEL_MAPPING_NAMES --
+   dispatches "qwen3_5" to Qwen3_5Model, a submodule with no GenerationMixin
+   and therefore no .generate(). AutoModelForImageTextToText dispatches to
+   Qwen3_5ForConditionalGeneration instead, which is what the rest of this
+   file (and modeling_qwen3_5.py's own .language_model/.layers structure)
+   was actually verified against. Fixed below.
+2. load_gemma_it_target validated sae_path's identity and then called
+   SAE.from_pretrained(release=..., sae_id=...), which resolves its OWN
+   cached revision through sae_lens's registry with NO cache_dir/revision
+   parameter to pin it to sae_path (verified: SAE.from_pretrained's
+   signature is (release, sae_id, device, dtype, force_download, converter)
+   only) -- so the validated path and the actually-loaded weights could
+   silently disagree. Fixed by capturing every local file sae_lens's own
+   download call resolves (_capture_sae_download_paths, patching
+   sae_lens.loading.pretrained_sae_loaders's OWN hf_hub_download reference,
+   not huggingface_hub's -- that module did `from huggingface_hub import
+   hf_hub_download` at ITS OWN import time, so patching huggingface_hub's
+   attribute would not reach it) and proving every one falls under the
+   validated snapshot (final_pairing_targets.validate_sae_files_match_snapshot)
+   before trusting the load.
 """
 
 from __future__ import annotations
@@ -114,7 +139,9 @@ class QwenScopeSAE:
         return feats.to(self.W_dec.dtype) @ self.W_dec.T + self.b_dec
 
     @classmethod
-    def from_state_dict(cls, state_dict: dict[str, Any], *, k: int, device: str) -> QwenScopeSAE:
+    def from_state_dict(
+        cls, state_dict: dict[str, Any], *, k: int, device: str, target: targets.TargetPairing
+    ) -> QwenScopeSAE:
         import torch
 
         required = ("W_enc", "b_enc", "W_dec")
@@ -125,6 +152,14 @@ class QwenScopeSAE:
                 f"file does not match the schema verified against the release's own app.py "
                 f"(W_enc/b_enc/W_dec); refusing to guess a substitute."
             )
+        targets.validate_qwen_k(k, target)
+        targets.validate_qwen_sae_shapes(
+            w_enc_shape=tuple(state_dict["W_enc"].shape),
+            b_enc_shape=tuple(state_dict["b_enc"].shape),
+            w_dec_shape=tuple(state_dict["W_dec"].shape),
+            b_dec_shape=tuple(state_dict["b_dec"].shape) if "b_dec" in state_dict else None,
+            target=target,
+        )
         w_enc_raw = state_dict["W_enc"].to(dtype=torch.float32, device=device)  # [d_sae, d_model]
         b_enc = state_dict["b_enc"].to(dtype=torch.float32, device=device)
         w_dec = state_dict["W_dec"].to(dtype=torch.float32, device=device)  # [d_model, d_sae]
@@ -140,11 +175,13 @@ class QwenScopeSAE:
         )
 
     @classmethod
-    def from_layer_file(cls, path: str | Path, *, k: int, device: str) -> QwenScopeSAE:
+    def from_layer_file(
+        cls, path: str | Path, *, k: int, device: str, target: targets.TargetPairing
+    ) -> QwenScopeSAE:
         import torch
 
         state_dict = torch.load(str(path), map_location=device, weights_only=True)
-        return cls.from_state_dict(state_dict, k=k, device=device)
+        return cls.from_state_dict(state_dict, k=k, device=device, target=target)
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +377,36 @@ def _require_offline() -> None:
         )
 
 
+def _capture_sae_download_paths(capture: list[str]):
+    """Proves what final_pairing_targets.validate_sae_files_match_snapshot
+    checks: patches sae_lens.loading.pretrained_sae_loaders's OWN
+    hf_hub_download reference (that module does `from huggingface_hub
+    import hf_hub_download` at ITS OWN import time -- patching
+    huggingface_hub.hf_hub_download itself would not reach calls made from
+    inside pretrained_sae_loaders.py, since Python's `from X import Y`
+    binds a local name, not a live reference to the module attribute) so
+    every local file the SAE registry loader actually reads is recorded.
+    Caller MUST restore the returned original via _restore_sae_download_paths
+    in a finally block, whether or not the load succeeded."""
+    import sae_lens.loading.pretrained_sae_loaders as psl
+
+    original = psl.hf_hub_download
+
+    def wrapped(*args, **kwargs):
+        local_path = original(*args, **kwargs)
+        capture.append(local_path)
+        return local_path
+
+    psl.hf_hub_download = wrapped
+    return original
+
+
+def _restore_sae_download_paths(original) -> None:
+    import sae_lens.loading.pretrained_sae_loaders as psl
+
+    psl.hf_hub_download = original
+
+
 def _patch_gemma3_safetensors_shape_lookup() -> None:
     """Verbatim duplicate of gemma3_sweep.py's own patch (same
     duplicate-rather-than-cross-import convention this project already uses
@@ -365,12 +432,14 @@ def _patch_gemma3_safetensors_shape_lookup() -> None:
 
 def load_gemma_it_target(
     model_path: str | Path, sae_path: str | Path, *, device: str = "cuda", dtype: str = "bfloat16",
-    expected_revision: str | None = None,
+    expected_model_revision: str | None = None, expected_sae_revision: str | None = None,
 ):
     """UNTESTED against real weights (no GPU allocation was available for
     this investigation) -- see the report for exactly what is and isn't
     verified. Fails closed via final_pairing_targets' validators at every
-    step that can be checked mechanically."""
+    step that can be checked mechanically. Returns (model, sae, hook_name,
+    provenance) -- provenance is the full machine-readable identity record
+    for the JSON trace."""
     import torch
     from sae_lens import SAE
     from transformer_lens import HookedTransformer
@@ -384,8 +453,12 @@ def load_gemma_it_target(
         raise FileNotFoundError(f"model snapshot directory not found: {model_path}")
     if not sae_path.exists():
         raise FileNotFoundError(f"SAE snapshot directory not found: {sae_path}")
-    targets.validate_local_snapshot_identity(model_path, target, which="model", expected_revision=expected_revision)
-    targets.validate_local_snapshot_identity(sae_path, target, which="sae", expected_revision=expected_revision)
+    model_identity = targets.validate_local_snapshot_identity(
+        model_path, target, which="model", expected_revision=expected_model_revision
+    )
+    sae_identity = targets.validate_local_snapshot_identity(
+        sae_path, target, which="sae", expected_revision=expected_sae_revision
+    )
 
     torch_dtype = getattr(torch, dtype)
     tokenizer = AutoTokenizer.from_pretrained(str(model_path))
@@ -403,7 +476,14 @@ def load_gemma_it_target(
     model.eval()
 
     _patch_gemma3_safetensors_shape_lookup()
-    sae = SAE.from_pretrained(release=target.sae_release, sae_id=target.sae_id, device=device)
+    resolved_sae_files: list[str] = []
+    original_hf_hub_download = _capture_sae_download_paths(resolved_sae_files)
+    try:
+        sae = SAE.from_pretrained(release=target.sae_release, sae_id=target.sae_id, device=device)
+    finally:
+        _restore_sae_download_paths(original_hf_hub_download)
+    targets.validate_sae_files_match_snapshot(resolved_sae_files, sae_path, target)
+
     sae = sae.to(dtype=torch.float32)
     sae.eval()
 
@@ -411,19 +491,52 @@ def load_gemma_it_target(
     targets.validate_hook_identity(hook_name, target)
     targets.validate_hidden_dims(model.cfg.d_model, sae.cfg.d_in, target)
 
-    return model, sae, hook_name
+    provenance = {
+        "target": target.name,
+        "model": {
+            "repository": target.model_repo_id,
+            "local_path": str(model_path),
+            "revision": model_identity["revision"],
+            "revision_verification": model_identity["verification"],
+            "actual_class": type(model).__name__,
+        },
+        "sae": {
+            "repository": target.sae_repo_id,
+            "release": target.sae_release,
+            "sae_id": target.sae_id,
+            "local_path": str(sae_path),
+            "revision": sae_identity["revision"],
+            "revision_verification": sae_identity["verification"],
+            "resolved_files": resolved_sae_files,
+            "actual_class": type(sae).__name__,
+            "format": target.sae_format,
+            "d_in": sae.cfg.d_in,
+            "d_sae": sae.cfg.d_sae,
+            "k": None,
+            "used_zero_b_dec_default": None,
+        },
+        "layer": {
+            "engineering_layer": target.expected_layer,
+            "hook_name": hook_name,
+            "hooked_module_class": "transformer_lens HookPoint (attached by hook_name via model.hooks())",
+        },
+    }
+    return model, sae, hook_name, provenance
 
 
 def load_qwen_target(
     model_path: str | Path, sae_layer_file_path: str | Path, *, layer: int, k: int | None = None,
-    device: str = "cuda", dtype: str = "bfloat16", expected_revision: str | None = None,
+    device: str = "cuda", dtype: str = "bfloat16",
+    expected_model_revision: str | None = None, expected_sae_revision: str | None = None,
 ):
     """UNTESTED against real weights. Raw-HF path (no HookedTransformer --
     transformer_lens==3.2.1 does not know Qwen3.5, verified in
     final_pairing_targets.py). k defaults to the ratified target's
-    expected_k (50) if not overridden."""
+    expected_k (50); an explicit override that disagrees with it raises
+    (see final_pairing_targets.validate_qwen_k). Returns (hf_model,
+    text_decoder, sae, hook_identifier, provenance)."""
     import torch
-    from transformers import AutoModel
+    from transformers import AutoModelForImageTextToText
 
     target = targets.QWEN_3_5_27B_TARGET
     k = target.expected_k if k is None else k
@@ -436,26 +549,69 @@ def load_qwen_target(
         raise FileNotFoundError(f"model snapshot directory not found: {model_path}")
     if not sae_layer_file_path.exists():
         raise FileNotFoundError(f"Qwen-Scope layer file not found: {sae_layer_file_path}")
-    targets.validate_local_snapshot_identity(model_path, target, which="model", expected_revision=expected_revision)
-    targets.validate_local_snapshot_identity(
-        sae_layer_file_path.parent, target, which="sae", expected_revision=expected_revision
+    targets.validate_qwen_layer_filename(sae_layer_file_path, layer)
+    model_identity = targets.validate_local_snapshot_identity(
+        model_path, target, which="model", expected_revision=expected_model_revision
+    )
+    sae_identity = targets.validate_local_snapshot_identity(
+        sae_layer_file_path.parent, target, which="sae", expected_revision=expected_sae_revision
     )
 
     torch_dtype = getattr(torch, dtype)
-    hf_model = AutoModel.from_pretrained(str(model_path), dtype=torch_dtype)
+    # AutoModel (not ...ForImageTextToText) dispatches "qwen3_5" to Qwen3_5Model,
+    # which has no GenerationMixin/.generate() -- verified locally against
+    # transformers==5.12.1's own MODEL_MAPPING_NAMES / MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES.
+    # AutoModelForImageTextToText dispatches to Qwen3_5ForConditionalGeneration, which has both
+    # GenerationMixin and the .model.language_model structure resolve_qwen_text_decoder expects.
+    hf_model = AutoModelForImageTextToText.from_pretrained(str(model_path), dtype=torch_dtype)
     hf_model.eval()
     hf_model.to(device)
 
     text_decoder = resolve_qwen_text_decoder(hf_model)
     hidden_size = text_decoder.config.hidden_size
 
-    sae = QwenScopeSAE.from_layer_file(sae_layer_file_path, k=k, device=device)
+    sae = QwenScopeSAE.from_layer_file(sae_layer_file_path, k=k, device=device, target=target)
     targets.validate_hidden_dims(hidden_size, sae.d_in, target)
+    targets.validate_qwen_sae_shapes(
+        w_enc_shape=(sae.d_sae, sae.d_in), b_enc_shape=(sae.d_sae,),
+        w_dec_shape=(sae.d_in, sae.d_sae), b_dec_shape=(sae.d_in,), target=target,
+    )
 
     hook_identifier = f"{target.expected_hook_name}:layer_{layer}"
     targets.validate_hook_identity(hook_identifier, target)
+    decoder_layer_module = get_qwen_decoder_layer(text_decoder, layer)
 
-    return hf_model, text_decoder, sae, hook_identifier
+    provenance = {
+        "target": target.name,
+        "model": {
+            "repository": target.model_repo_id,
+            "local_path": str(model_path),
+            "revision": model_identity["revision"],
+            "revision_verification": model_identity["verification"],
+            "actual_class": type(hf_model).__name__,
+        },
+        "sae": {
+            "repository": target.sae_repo_id,
+            "release": None,
+            "sae_id": None,
+            "local_path": str(sae_layer_file_path),
+            "revision": sae_identity["revision"],
+            "revision_verification": sae_identity["verification"],
+            "resolved_files": [str(sae_layer_file_path)],
+            "actual_class": type(sae).__name__,
+            "format": target.sae_format,
+            "d_in": sae.d_in,
+            "d_sae": sae.d_sae,
+            "k": sae.k,
+            "used_zero_b_dec_default": sae.used_zero_b_dec_default,
+        },
+        "layer": {
+            "engineering_layer": layer,
+            "hook_name": hook_identifier,
+            "hooked_module_class": type(decoder_layer_module).__name__,
+        },
+    }
+    return hf_model, text_decoder, sae, hook_identifier, provenance
 
 
 # ---------------------------------------------------------------------------
@@ -467,11 +623,18 @@ def resolve_target_value(
     tool_module, *, mode: str, dose_multiple: float | None, calibration_value: float | None,
     raw_clamp_value: float | None,
 ) -> tuple[float, str]:
+    """Resolves the absolute STEER target BEFORE any weights load (callers
+    must invoke this ahead of load_gemma_it_target/load_qwen_target) --
+    zero, negative, NaN, and infinite values are rejected here, so a bad
+    value fails before spending any load time, not after. ABLATE is always
+    exactly 0.0 and is never subject to this check (0.0 is its correct,
+    intentional value, not a rejected one)."""
     if mode == "ablate":
         return 0.0, "ablate (always 0.0 regardless of dose)"
     if raw_clamp_value is not None:
         if dose_multiple is not None or calibration_value is not None:
             raise ValueError("--raw-clamp-value is mutually exclusive with --dose-multiple/--calibration-value")
+        targets.validate_finite_positive(raw_clamp_value, label="--raw-clamp-value")
         return float(raw_clamp_value), "raw engineering value (no manifest/calibration input available)"
     if dose_multiple is None or calibration_value is None:
         raise ValueError(
@@ -479,6 +642,7 @@ def resolve_target_value(
             "--calibration-value"
         )
     resolved = tool_module.dose_to_absolute_clamp("steer", dose_multiple, calibration_value)
+    targets.validate_finite_positive(resolved, label="resolved_absolute_target")
     return resolved, f"dose_multiple={dose_multiple} x calibration_value={calibration_value}"
 
 
@@ -488,7 +652,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--model-path", required=True)
     p.add_argument("--sae-path", required=True, help="Gemma: SAE snapshot dir. Qwen: the specific layerN.sae.pt file.")
     p.add_argument("--qwen-layer", type=int, default=None, help="Required for --target qwen-3.5-27b. Engineering-only.")
-    p.add_argument("--expected-revision", default=None)
+    p.add_argument(
+        "--expected-model-revision", default=None,
+        help="Model revision from Lab Assistant 1's inventory. Also required (in place of HF-cache-layout "
+        "path parsing) to accept a hand-staged model path at all -- see IdentityUnverified.",
+    )
+    p.add_argument(
+        "--expected-sae-revision", default=None,
+        help="SAE revision from Lab Assistant 1's inventory. Independent of --expected-model-revision -- "
+        "model and SAE provenance are never conflated.",
+    )
     p.add_argument("--feature-idx", type=int, required=True)
     p.add_argument("--mode", choices=["steer", "ablate"], required=True)
     p.add_argument("--dose-multiple", type=float, default=None)
@@ -518,10 +691,13 @@ def main(argv: list[str] | None = None) -> int:
     trace: list[InterventionTrace] = []
 
     if args.target == "gemma-3-12b-it":
-        model, sae, hook_name = load_gemma_it_target(
+        model, sae, hook_name, provenance = load_gemma_it_target(
             args.model_path, args.sae_path, device=args.device, dtype=args.dtype,
-            expected_revision=args.expected_revision,
+            expected_model_revision=args.expected_model_revision, expected_sae_revision=args.expected_sae_revision,
         )
+        targets.validate_feature_index(args.feature_idx, sae.cfg.d_sae)
+        provenance["feature_idx"] = args.feature_idx
+
         tokens = model.to_tokens(args.prompt)
         prompt_lengths = tokens.shape[1] if args.positions == "generated_only" else None
         inner_hook = _make_clamp_hook(sae, args.feature_idx, resolved_target_value, args.positions, prompt_lengths, [])
@@ -539,10 +715,13 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.qwen_layer is None:
             raise ValueError("--qwen-layer is required for --target qwen-3.5-27b (engineering-only, no default)")
-        hf_model, text_decoder, sae, hook_name = load_qwen_target(
+        hf_model, text_decoder, sae, hook_name, provenance = load_qwen_target(
             args.model_path, args.sae_path, layer=args.qwen_layer, device=args.device, dtype=args.dtype,
-            expected_revision=args.expected_revision,
+            expected_model_revision=args.expected_model_revision, expected_sae_revision=args.expected_sae_revision,
         )
+        targets.validate_feature_index(args.feature_idx, sae.d_sae)
+        provenance["feature_idx"] = args.feature_idx
+
         # hf_model.generate() is transformers' own GenerationMixin.generate() --
         # Qwen3_5ForConditionalGeneration extends GenerationMixin (verified against
         # modeling_qwen3_5.py), so this is the standard, heavily-exercised HF decode
@@ -572,13 +751,20 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             handle.remove()
 
+    else:
+        raise ValueError(f"unknown target {args.target!r}")
+
     verdict = mechanical_verdict(trace, positions=args.positions)
     payload = {
         "target": args.target,
         "positions": args.positions,
         "requested_mode": args.mode,
+        "requested_dose_multiple": args.dose_multiple,
+        "requested_calibration_value": args.calibration_value,
+        "requested_raw_clamp_value": args.raw_clamp_value,
         "resolved_absolute_target": resolved_target_value,
         "dose_or_raw_label": dose_or_raw_label,
+        "provenance": provenance,
         "trace": [asdict(t) for t in trace],
         "verdict": verdict,
     }

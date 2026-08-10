@@ -73,6 +73,7 @@ module does not default or guess one.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -182,31 +183,163 @@ class TargetIdentityMismatch(ValueError):
     """Raised by every validate_* function below -- fail closed, never warn-and-continue."""
 
 
+class IdentityUnverified(TargetIdentityMismatch):
+    """Raised when a path's identity can be neither mechanically verified
+    (standard HF cache layout) nor treated as trusted via an independently
+    supplied expected revision. Orchestrator review, 2026-08-10: a prior
+    version of validate_local_snapshot_identity treated "cannot verify from
+    the path alone" as license to silently continue -- that is claiming
+    fail-closed verification while not actually performing it. The fix:
+    a non-cache-layout path with no expected_revision now REFUSES rather
+    than passing through; supplying expected_revision (Lab Assistant 1's
+    inventory attesting to it) is the only way to accept such a path, and
+    that acceptance is recorded as explicitly declared, not path-derived."""
+
+
 def validate_local_snapshot_identity(
     path: str | Path, target: TargetPairing, *, which: Literal["model", "sae"], expected_revision: str | None = None
-) -> None:
-    """Fails closed if `path` follows the standard HF cache layout AND the
-    org/repo it encodes disagrees with the target's ratified repo id. Does
-    NOT fail if `path` doesn't follow that layout at all (e.g. a hand-staged
-    directory) -- that is a "cannot verify from the path alone" case, not
-    a confirmed mismatch; callers wanting a hard requirement should also
-    check expected_revision is not None and reject a None parse result
-    themselves (this function only ever raises on a POSITIVE mismatch)."""
+) -> dict[str, str]:
+    """Returns a provenance dict {"verification", "repo_id", "revision"} for
+    the JSON trace. Fails closed on a POSITIVE mismatch (path names a
+    different repo/revision than ratified). For a path that does not follow
+    the standard HF cache layout at all (e.g. a hand-staged directory):
+    requires expected_revision to be supplied as trusted inventory
+    provenance, recording verification="explicit_revision_declared_not_path_derived";
+    if neither the cache layout NOR an expected_revision is available,
+    raises IdentityUnverified rather than silently proceeding -- see that
+    exception's docstring for why this is not the same as the old
+    behavior."""
     expected_repo_id = target.model_repo_id if which == "model" else target.sae_repo_id
     parsed = parse_hf_cache_snapshot_path(path)
-    if parsed is None:
-        return
-    actual_repo_id = f"{parsed['org']}/{parsed['repo']}"
-    if actual_repo_id.lower() != expected_repo_id.lower():
+    if parsed is not None:
+        actual_repo_id = f"{parsed['org']}/{parsed['repo']}"
+        if actual_repo_id.lower() != expected_repo_id.lower():
+            raise TargetIdentityMismatch(
+                f"{which} path {str(path)!r} encodes repo identity {actual_repo_id!r}, but the "
+                f"ratified target is {expected_repo_id!r}. This is the exact silent-wrong-checkpoint "
+                f"failure mode this validator exists to catch -- refusing to proceed."
+            )
+        if expected_revision is not None and parsed["revision"] != expected_revision:
+            raise TargetIdentityMismatch(
+                f"{which} path {str(path)!r} encodes revision {parsed['revision']!r}, but the "
+                f"recorded/expected revision is {expected_revision!r}."
+            )
+        return {"verification": "hf_cache_layout", "repo_id": actual_repo_id, "revision": parsed["revision"]}
+
+    if expected_revision is not None:
+        return {
+            "verification": "explicit_revision_declared_not_path_derived",
+            "repo_id": expected_repo_id,
+            "revision": expected_revision,
+        }
+
+    raise IdentityUnverified(
+        f"{which} path {str(path)!r} does not follow the standard huggingface_hub cache layout "
+        f"(models--<org>--<repo>/snapshots/<revision>), and no expected revision was supplied to "
+        f"treat as trusted inventory provenance. Refusing to proceed with unverified identity -- "
+        f"supply --expected-{which}-revision from Lab Assistant 1's inventory, or re-stage this "
+        f"path under the standard cache layout."
+    )
+
+
+def validate_finite_positive(value: float, *, label: str) -> None:
+    """Rejects zero, negative, NaN, and infinite values -- the exact
+    non-finite/non-positive STEER clamp values orchestrator review flagged
+    as unguarded. Applies to --raw-clamp-value directly and to the
+    dose_multiple x calibration_value product after
+    gemma3_tool.dose_to_absolute_clamp resolves it (that function's own
+    guard rejects non-positive max_act_approx, but `<= 0.0` is False for
+    NaN, so a NaN calibration_value would slip through it silently)."""
+    if math.isnan(value) or math.isinf(value):
+        raise TargetIdentityMismatch(f"{label}={value!r} is not finite; refusing to steer with it.")
+    if value <= 0:
+        raise TargetIdentityMismatch(f"{label}={value!r} is non-positive; refusing to steer with it.")
+
+
+def validate_feature_index(feature_idx: int, d_sae: int, *, label: str = "feature_idx") -> None:
+    if not (0 <= feature_idx < d_sae):
+        raise TargetIdentityMismatch(f"{label}={feature_idx} is outside the loaded SAE's range [0, {d_sae}).")
+
+
+_QWEN_LAYER_FILENAME_RE = re.compile(r"^layer(?P<layer>\d+)\.sae\.pt$")
+
+
+def validate_qwen_layer_filename(path: str | Path, layer: int) -> None:
+    """The Qwen-Scope release ships one file per layer (layerN.sae.pt,
+    verified against the release's own file listing) with no layer field
+    inside the checkpoint itself (per its own app.py, the state_dict is
+    just W_enc/b_enc/W_dec) -- the filename is the only place the layer
+    identity is recorded at all, so it's the fail-closed check available."""
+    name = Path(path).name
+    match = _QWEN_LAYER_FILENAME_RE.match(name)
+    if match is None:
         raise TargetIdentityMismatch(
-            f"{which} path {str(path)!r} encodes repo identity {actual_repo_id!r}, but the "
-            f"ratified target is {expected_repo_id!r}. This is the exact silent-wrong-checkpoint "
-            f"failure mode this validator exists to catch -- refusing to proceed."
+            f"SAE file name {name!r} does not match the release's own layerN.sae.pt convention -- "
+            f"cannot confirm which layer this file is for."
         )
-    if expected_revision is not None and parsed["revision"] != expected_revision:
+    file_layer = int(match.group("layer"))
+    if file_layer != layer:
         raise TargetIdentityMismatch(
-            f"{which} path {str(path)!r} encodes revision {parsed['revision']!r}, but the "
-            f"recorded/expected revision is {expected_revision!r}."
+            f"SAE file {name!r} is for layer {file_layer}, but --qwen-layer={layer} was requested."
+        )
+
+
+def validate_qwen_sae_shapes(
+    *, w_enc_shape: tuple[int, ...], b_enc_shape: tuple[int, ...], w_dec_shape: tuple[int, ...],
+    b_dec_shape: tuple[int, ...] | None, target: TargetPairing,
+) -> None:
+    """Full shape validation (not just the d_model cross-check
+    validate_hidden_dims already does) -- W_enc/b_enc/W_dec/b_dec must all
+    agree with each other AND with the ratified d_model/d_sae, per app.py's
+    own schema (W_enc: [d_sae, d_model] before transpose, b_enc: [d_sae],
+    W_dec: [d_model, d_sae])."""
+    d_model = target.expected_hidden_dim
+    d_sae = target.expected_d_sae
+    if w_enc_shape != (d_sae, d_model):
+        raise TargetIdentityMismatch(f"W_enc shape {w_enc_shape} != expected ({d_sae}, {d_model}).")
+    if b_enc_shape != (d_sae,):
+        raise TargetIdentityMismatch(f"b_enc shape {b_enc_shape} != expected ({d_sae},).")
+    if w_dec_shape != (d_model, d_sae):
+        raise TargetIdentityMismatch(f"W_dec shape {w_dec_shape} != expected ({d_model}, {d_sae}).")
+    if b_dec_shape is not None and b_dec_shape != (d_model,):
+        raise TargetIdentityMismatch(f"b_dec shape {b_dec_shape} != expected ({d_model},).")
+
+
+def validate_qwen_k(k: int, target: TargetPairing) -> None:
+    if target.expected_k is not None and k != target.expected_k:
+        raise TargetIdentityMismatch(
+            f"k={k} != target {target.name!r}'s ratified expected_k={target.expected_k}. k is a "
+            f"structural property of how this TopK SAE was trained (encoded in its own release "
+            f"name, 'L0_50'), not a free engineering knob -- using the wrong k does not match "
+            f"what the dictionary was optimized for."
+        )
+
+
+def validate_sae_files_match_snapshot(resolved_files: list[str], sae_path: str | Path, target: TargetPairing) -> None:
+    """Proves the sae_lens REGISTRY loader actually read from the validated
+    sae_path snapshot, rather than independently resolving a different
+    cached revision through its own release/sae_id lookup. SAE.from_pretrained
+    exposes no cache_dir/revision parameter (verified: its signature is
+    (release, sae_id, device, dtype, force_download, converter) only), so
+    it cannot be pinned to sae_path directly -- this instead captures every
+    local file sae_lens's own hf_hub_download call resolved (see
+    final_pairing_harness._capture_sae_download_paths) and checks each one
+    falls under sae_path. Orchestrator review, 2026-08-10: a prior version
+    validated sae_path's identity and then let SAE.from_pretrained resolve
+    a completely independent path through the registry with no check that
+    the two ever agreed."""
+    if not resolved_files:
+        raise TargetIdentityMismatch(
+            "the SAE registry loader resolved zero local files while loading -- cannot prove it "
+            f"read from the validated snapshot at {str(sae_path)!r}."
+        )
+    sae_path_resolved = str(Path(sae_path).resolve())
+    mismatched = [f for f in resolved_files if not str(Path(f).resolve()).startswith(sae_path_resolved)]
+    if mismatched:
+        raise TargetIdentityMismatch(
+            f"the SAE registry loader resolved file(s) OUTSIDE the validated snapshot "
+            f"{str(sae_path)!r}: {mismatched}. This is the exact silent-wrong-revision failure "
+            f"this check exists to catch, even though the file(s) fetched successfully."
         )
 
 

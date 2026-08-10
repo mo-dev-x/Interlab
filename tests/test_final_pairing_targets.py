@@ -90,11 +90,12 @@ def test_parse_hf_cache_snapshot_path_handles_windows_backslashes():
 # ---------------------------------------------------------------------------
 
 
-def test_validate_local_snapshot_identity_passes_on_matching_repo():
-    targets.validate_local_snapshot_identity(
+def test_validate_local_snapshot_identity_passes_on_matching_repo_and_returns_provenance():
+    provenance = targets.validate_local_snapshot_identity(
         "/scratch/hf_cache/hub/models--google--gemma-3-12b-it/snapshots/abc123",
         targets.GEMMA_3_12B_IT_TARGET, which="model",
-    )  # must not raise
+    )
+    assert provenance == {"verification": "hf_cache_layout", "repo_id": "google/gemma-3-12b-it", "revision": "abc123"}
 
 
 def test_validate_local_snapshot_identity_raises_on_wrong_repo():
@@ -123,12 +124,37 @@ def test_validate_local_snapshot_identity_raises_on_wrong_revision():
         )
 
 
-def test_validate_local_snapshot_identity_does_not_raise_on_non_cache_path():
-    # Cannot verify != confirmed mismatch -- a hand-staged directory must not
-    # be treated as a false positive.
-    targets.validate_local_snapshot_identity(
+def test_validate_local_snapshot_identity_raises_identity_unverified_without_expected_revision():
+    """Orchestrator review, 2026-08-10: a prior version of this test asserted
+    the OLD (wrong) behavior -- that a non-cache-layout path silently passed
+    with no expected_revision given. That was "claiming fail-closed
+    verification while silently continuing." The corrected contract: refuse
+    acceptance rather than treat "cannot verify from the path" as "verified.\""""
+    with pytest.raises(targets.IdentityUnverified):
+        targets.validate_local_snapshot_identity(
+            "/home/y/yazid/hand_staged_gemma_it", targets.GEMMA_3_12B_IT_TARGET, which="model",
+        )
+
+
+def test_validate_local_snapshot_identity_accepts_non_cache_path_with_explicit_expected_revision():
+    """The other half of the fix: a hand-staged path IS acceptable if the
+    caller supplies trusted inventory provenance (Lab Assistant 1's
+    declared revision) -- recorded as explicitly declared, not path-derived,
+    so a reader of the JSON trace can tell the two verification modes apart."""
+    provenance = targets.validate_local_snapshot_identity(
         "/home/y/yazid/hand_staged_gemma_it", targets.GEMMA_3_12B_IT_TARGET, which="model",
-    )  # must not raise
+        expected_revision="deadbeef",
+    )
+    assert provenance == {
+        "verification": "explicit_revision_declared_not_path_derived",
+        "repo_id": "google/gemma-3-12b-it",
+        "revision": "deadbeef",
+    }
+
+
+def test_identity_unverified_is_a_target_identity_mismatch():
+    # So a caller catching the general fail-closed exception still catches this.
+    assert issubclass(targets.IdentityUnverified, targets.TargetIdentityMismatch)
 
 
 # ---------------------------------------------------------------------------
@@ -172,3 +198,137 @@ def test_validate_qwen_layer_choice_rejects_out_of_range():
         targets.validate_qwen_layer_choice(64, targets.QWEN_3_5_27B_TARGET)
     with pytest.raises(targets.TargetIdentityMismatch):
         targets.validate_qwen_layer_choice(-1, targets.QWEN_3_5_27B_TARGET)
+
+
+# ---------------------------------------------------------------------------
+# validate_finite_positive -- zero, negative, NaN, infinite raw STEER values
+# ---------------------------------------------------------------------------
+
+
+def test_validate_finite_positive_accepts_ordinary_value():
+    targets.validate_finite_positive(5000.0, label="x")  # must not raise
+
+
+@pytest.mark.parametrize("bad_value", [0.0, -1.0, -0.0001])
+def test_validate_finite_positive_rejects_non_positive(bad_value):
+    with pytest.raises(targets.TargetIdentityMismatch, match="non-positive"):
+        targets.validate_finite_positive(bad_value, label="x")
+
+
+def test_validate_finite_positive_rejects_nan():
+    with pytest.raises(targets.TargetIdentityMismatch, match="not finite"):
+        targets.validate_finite_positive(float("nan"), label="x")
+
+
+def test_validate_finite_positive_rejects_infinite():
+    with pytest.raises(targets.TargetIdentityMismatch, match="not finite"):
+        targets.validate_finite_positive(float("inf"), label="x")
+    with pytest.raises(targets.TargetIdentityMismatch, match="not finite"):
+        targets.validate_finite_positive(float("-inf"), label="x")
+
+
+# ---------------------------------------------------------------------------
+# validate_feature_index
+# ---------------------------------------------------------------------------
+
+
+def test_validate_feature_index_accepts_in_range():
+    targets.validate_feature_index(0, 100)
+    targets.validate_feature_index(99, 100)
+
+
+def test_validate_feature_index_rejects_out_of_range():
+    with pytest.raises(targets.TargetIdentityMismatch):
+        targets.validate_feature_index(100, 100)
+    with pytest.raises(targets.TargetIdentityMismatch):
+        targets.validate_feature_index(-1, 100)
+
+
+# ---------------------------------------------------------------------------
+# validate_qwen_layer_filename
+# ---------------------------------------------------------------------------
+
+
+def test_validate_qwen_layer_filename_accepts_matching_layer():
+    targets.validate_qwen_layer_filename("/scratch/qwen_scope/layer31.sae.pt", 31)  # must not raise
+
+
+def test_validate_qwen_layer_filename_rejects_mismatched_layer():
+    with pytest.raises(targets.TargetIdentityMismatch, match="layer 31"):
+        targets.validate_qwen_layer_filename("/scratch/qwen_scope/layer31.sae.pt", 40)
+
+
+def test_validate_qwen_layer_filename_rejects_unrecognized_naming():
+    with pytest.raises(targets.TargetIdentityMismatch, match="convention"):
+        targets.validate_qwen_layer_filename("/scratch/qwen_scope/checkpoint.pt", 31)
+
+
+# ---------------------------------------------------------------------------
+# validate_qwen_sae_shapes / validate_qwen_k
+# ---------------------------------------------------------------------------
+
+
+def test_validate_qwen_sae_shapes_accepts_ratified_shapes():
+    targets.validate_qwen_sae_shapes(
+        w_enc_shape=(81920, 5120), b_enc_shape=(81920,), w_dec_shape=(5120, 81920), b_dec_shape=(5120,),
+        target=targets.QWEN_3_5_27B_TARGET,
+    )  # must not raise
+    targets.validate_qwen_sae_shapes(
+        w_enc_shape=(81920, 5120), b_enc_shape=(81920,), w_dec_shape=(5120, 81920), b_dec_shape=None,
+        target=targets.QWEN_3_5_27B_TARGET,
+    )  # b_dec is optional (unconfirmed in the real checkpoint)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"w_enc_shape": (100, 5120), "b_enc_shape": (81920,), "w_dec_shape": (5120, 81920), "b_dec_shape": None},
+        {"w_enc_shape": (81920, 5120), "b_enc_shape": (100,), "w_dec_shape": (5120, 81920), "b_dec_shape": None},
+        {"w_enc_shape": (81920, 5120), "b_enc_shape": (81920,), "w_dec_shape": (100, 81920), "b_dec_shape": None},
+        {"w_enc_shape": (81920, 5120), "b_enc_shape": (81920,), "w_dec_shape": (5120, 81920), "b_dec_shape": (100,)},
+    ],
+)
+def test_validate_qwen_sae_shapes_rejects_any_mismatched_shape(kwargs):
+    with pytest.raises(targets.TargetIdentityMismatch):
+        targets.validate_qwen_sae_shapes(target=targets.QWEN_3_5_27B_TARGET, **kwargs)
+
+
+def test_validate_qwen_k_accepts_ratified_k():
+    targets.validate_qwen_k(50, targets.QWEN_3_5_27B_TARGET)  # must not raise
+
+
+def test_validate_qwen_k_rejects_mismatched_k():
+    with pytest.raises(targets.TargetIdentityMismatch, match="structural"):
+        targets.validate_qwen_k(100, targets.QWEN_3_5_27B_TARGET)
+
+
+# ---------------------------------------------------------------------------
+# validate_sae_files_match_snapshot -- proves the registry loader actually
+# read from the validated snapshot rather than an independently resolved one.
+# ---------------------------------------------------------------------------
+
+
+def test_validate_sae_files_match_snapshot_accepts_files_under_the_snapshot(tmp_path):
+    snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    resolved = [str(snapshot / "cfg.json"), str(snapshot / "sae_weights.safetensors")]
+    targets.validate_sae_files_match_snapshot(resolved, snapshot, targets.GEMMA_3_12B_IT_TARGET)  # must not raise
+
+
+def test_validate_sae_files_match_snapshot_rejects_files_outside_the_snapshot(tmp_path):
+    """The exact defect orchestrator review found: the registry loader
+    resolving a DIFFERENT cached revision than the one that was validated."""
+    validated_snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    validated_snapshot.mkdir(parents=True)
+    different_revision = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "deadbeef"
+    different_revision.mkdir(parents=True)
+    resolved = [str(different_revision / "cfg.json")]
+    with pytest.raises(targets.TargetIdentityMismatch, match="OUTSIDE"):
+        targets.validate_sae_files_match_snapshot(resolved, validated_snapshot, targets.GEMMA_3_12B_IT_TARGET)
+
+
+def test_validate_sae_files_match_snapshot_rejects_empty_resolution(tmp_path):
+    snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    with pytest.raises(targets.TargetIdentityMismatch, match="zero local files"):
+        targets.validate_sae_files_match_snapshot([], snapshot, targets.GEMMA_3_12B_IT_TARGET)

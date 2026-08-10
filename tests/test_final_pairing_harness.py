@@ -8,6 +8,7 @@ and real weights this investigation did not have access to).
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -197,9 +198,23 @@ def _fake_qwen_state_dict(d_model=6, d_sae=10, include_b_dec=False):
     return state_dict
 
 
+class _TinyTargetForShapeTests:
+    """A TargetPairing-shaped stand-in with small d_model/d_sae/k so tests
+    don't need real 5120x81920 tensors -- construction validation in
+    QwenScopeSAE.from_state_dict is generic over the target passed in."""
+
+    expected_hidden_dim = 6
+    expected_d_sae = 10
+    expected_k = 3
+    name = "tiny-test-target"
+
+
+_TINY_TARGET = _TinyTargetForShapeTests()
+
+
 def test_qwen_scope_sae_shapes_and_topk_sparsity():
     sd = _fake_qwen_state_dict(d_model=6, d_sae=10)
-    sae = harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu")
+    sae = harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu", target=_TINY_TARGET)
     assert sae.d_in == 6
     assert sae.d_sae == 10
     x = torch.randn(1, 2, 6)
@@ -215,14 +230,14 @@ def test_qwen_scope_sae_shapes_and_topk_sparsity():
 
 def test_qwen_scope_sae_missing_b_dec_defaults_to_zero_and_flags_it():
     sd = _fake_qwen_state_dict(include_b_dec=False)
-    sae = harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu")
+    sae = harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu", target=_TINY_TARGET)
     assert sae.used_zero_b_dec_default is True
     assert torch.equal(sae.b_dec, torch.zeros_like(sae.b_dec))
 
 
 def test_qwen_scope_sae_uses_real_b_dec_when_present():
     sd = _fake_qwen_state_dict(include_b_dec=True)
-    sae = harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu")
+    sae = harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu", target=_TINY_TARGET)
     assert sae.used_zero_b_dec_default is False
     assert torch.equal(sae.b_dec, sd["b_dec"])
 
@@ -231,7 +246,7 @@ def test_qwen_scope_sae_raises_on_missing_required_key():
     sd = _fake_qwen_state_dict()
     del sd["W_dec"]
     with pytest.raises(targets.TargetIdentityMismatch, match="W_dec"):
-        harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu")
+        harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu", target=_TINY_TARGET)
 
 
 def test_qwen_scope_sae_works_with_real_make_clamp_hook():
@@ -241,7 +256,7 @@ def test_qwen_scope_sae_works_with_real_make_clamp_hook():
     from interplab.interventions.hooks import _make_clamp_hook
 
     sd = _fake_qwen_state_dict(d_model=6, d_sae=10, include_b_dec=True)
-    sae = harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu")
+    sae = harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu", target=_TINY_TARGET)
     stats: list = []
     hook_fn = _make_clamp_hook(sae, feature_index=0, clamp_value=5.0, positions="all", prompt_lengths=None, stats=stats)
     resid = torch.randn(1, 2, 6)
@@ -249,6 +264,182 @@ def test_qwen_scope_sae_works_with_real_make_clamp_hook():
     assert out.shape == resid.shape
     assert len(stats) == 1
     assert stats[0].delta_norm >= 0.0
+
+
+def test_qwen_scope_sae_from_state_dict_rejects_mismatched_k():
+    sd = _fake_qwen_state_dict(d_model=6, d_sae=10)
+    with pytest.raises(targets.TargetIdentityMismatch, match="structural"):
+        harness.QwenScopeSAE.from_state_dict(sd, k=5, device="cpu", target=_TINY_TARGET)
+
+
+def test_qwen_scope_sae_from_state_dict_rejects_mismatched_shapes():
+    """W_enc built for the wrong d_model must fail closed at construction,
+    not surface as a cryptic torch shape-mismatch error three calls later."""
+    sd = _fake_qwen_state_dict(d_model=99, d_sae=10)
+    with pytest.raises(targets.TargetIdentityMismatch):
+        harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu", target=_TINY_TARGET)
+
+
+# ---------------------------------------------------------------------------
+# _capture_sae_download_paths / _restore_sae_download_paths -- the SAE
+# provenance proof (orchestrator review defect: validated sae_path and then
+# let SAE.from_pretrained resolve an independent cached revision with no
+# check the two agreed).
+# ---------------------------------------------------------------------------
+
+
+def test_capture_sae_download_paths_records_calls_and_restores_cleanly(monkeypatch):
+    import sae_lens.loading.pretrained_sae_loaders as psl
+
+    def fake_hf_hub_download(repo_id, filename, **kwargs):
+        return f"/fake/cache/{repo_id}/{filename}"
+
+    monkeypatch.setattr(psl, "hf_hub_download", fake_hf_hub_download)
+    captured: list = []
+    saved_original = harness._capture_sae_download_paths(captured)
+    try:
+        result = psl.hf_hub_download(repo_id="google/gemma-scope-2-12b-it", filename="cfg.json")
+    finally:
+        harness._restore_sae_download_paths(saved_original)
+
+    assert result == "/fake/cache/google/gemma-scope-2-12b-it/cfg.json"
+    assert captured == [result]
+    # restored to whatever was patched in immediately before capture, not
+    # some hardcoded "real" function -- proves restore is a true pop, not a
+    # guess at what "original" means.
+    assert psl.hf_hub_download is fake_hf_hub_download
+
+
+def test_capture_sae_download_paths_records_multiple_calls(monkeypatch):
+    import sae_lens.loading.pretrained_sae_loaders as psl
+
+    monkeypatch.setattr(psl, "hf_hub_download", lambda repo_id, filename, **k: f"{repo_id}/{filename}")
+    captured: list = []
+    saved_original = harness._capture_sae_download_paths(captured)
+    try:
+        psl.hf_hub_download(repo_id="r", filename="a.json")
+        psl.hf_hub_download(repo_id="r", filename="b.safetensors")
+    finally:
+        harness._restore_sae_download_paths(saved_original)
+
+    assert captured == ["r/a.json", "r/b.safetensors"]
+
+
+# ---------------------------------------------------------------------------
+# load_qwen_target -- the exact auto-class defect orchestrator review found.
+# ---------------------------------------------------------------------------
+
+
+class _FakeQwenTextDecoder:
+    def __init__(self):
+        self.config = SimpleNamespace(hidden_size=5120)
+        self.layers = [SimpleNamespace() for _ in range(64)]
+
+
+class _FakeQwen3_5Model:
+    """Stands in for what transformers.AutoModel actually dispatches
+    "qwen3_5" to -- Qwen3_5Model, which has NO GenerationMixin/.generate()
+    (verified locally against transformers==5.12.1's own
+    MODEL_MAPPING_NAMES). If load_qwen_target used AutoModel, this is what
+    it would get back."""
+
+    def __init__(self):
+        self.language_model = _FakeQwenTextDecoder()
+
+    def eval(self):
+        return self
+
+    def to(self, device):
+        return self
+
+
+class _FakeQwen3_5ForConditionalGeneration:
+    """Stands in for what transformers.AutoModelForImageTextToText
+    dispatches "qwen3_5" to -- HAS .generate() (GenerationMixin) and the
+    .model.language_model structure verified against modeling_qwen3_5.py."""
+
+    def __init__(self):
+        self.model = SimpleNamespace(language_model=_FakeQwenTextDecoder())
+
+    def eval(self):
+        return self
+
+    def to(self, device):
+        return self
+
+    def generate(self, **kwargs):
+        return "generated"
+
+
+class _FakeSaeForQwenLoadTest:
+    d_in = 5120
+    d_sae = 81920
+    k = 50
+    used_zero_b_dec_default = False
+
+
+def test_load_qwen_target_uses_auto_model_for_image_text_to_text_not_auto_model(monkeypatch, tmp_path):
+    """The exact defect: a prior version called transformers.AutoModel,
+    which dispatches to Qwen3_5Model (no .generate()). This test fails
+    against that code (AutoModel's fake has no .model attribute, so
+    resolve_qwen_text_decoder's fallback path would return
+    _FakeQwen3_5Model.language_model directly -- still missing .generate()
+    on the returned hf_model) and passes against AutoModelForImageTextToText."""
+    import transformers
+
+    monkeypatch.setattr(
+        transformers.AutoModelForImageTextToText, "from_pretrained",
+        staticmethod(lambda path, **kwargs: _FakeQwen3_5ForConditionalGeneration()),
+    )
+
+    def _auto_model_must_not_be_used(*args, **kwargs):
+        raise AssertionError(
+            "transformers.AutoModel must not be used for Qwen3.5 -- it dispatches to "
+            "Qwen3_5Model, which has no .generate()."
+        )
+
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", staticmethod(_auto_model_must_not_be_used))
+    monkeypatch.setattr(
+        harness.QwenScopeSAE, "from_layer_file",
+        staticmethod(lambda path, *, k, device, target: _FakeSaeForQwenLoadTest()),
+    )
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+
+    model_dir = tmp_path / "qwen_model"
+    model_dir.mkdir()
+    sae_file = tmp_path / "layer31.sae.pt"
+    sae_file.write_bytes(b"fake")
+
+    hf_model, _text_decoder, _sae, _hook_identifier, provenance = harness.load_qwen_target(
+        model_dir, sae_file, layer=31, expected_model_revision="rev1", expected_sae_revision="rev1",
+    )
+
+    assert hasattr(hf_model, "generate"), "load_qwen_target must return a model with a callable .generate()"
+    assert callable(hf_model.generate)
+    assert provenance["model"]["actual_class"] == "_FakeQwen3_5ForConditionalGeneration"
+    assert provenance["layer"]["engineering_layer"] == 31
+    assert provenance["sae"]["k"] == 50
+    assert provenance["sae"]["used_zero_b_dec_default"] is False
+
+
+def test_load_qwen_target_rejects_layer_filename_mismatch(monkeypatch, tmp_path):
+    import transformers
+
+    monkeypatch.setattr(
+        transformers.AutoModelForImageTextToText, "from_pretrained",
+        staticmethod(lambda path, **kwargs: _FakeQwen3_5ForConditionalGeneration()),
+    )
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+
+    model_dir = tmp_path / "qwen_model"
+    model_dir.mkdir()
+    sae_file = tmp_path / "layer31.sae.pt"  # filename says layer 31
+    sae_file.write_bytes(b"fake")
+
+    with pytest.raises(targets.TargetIdentityMismatch, match="layer 31"):
+        harness.load_qwen_target(
+            model_dir, sae_file, layer=40, expected_model_revision="rev1", expected_sae_revision="rev1",
+        )  # --qwen-layer=40 disagrees with the file name
 
 
 # ---------------------------------------------------------------------------
@@ -362,3 +553,109 @@ def test_resolve_target_value_preserves_non_positive_calibration_guard(tool_modu
         harness.resolve_target_value(
             tool_module, mode="steer", dose_multiple=2.0, calibration_value=0.0, raw_clamp_value=None,
         )
+
+
+# ---------------------------------------------------------------------------
+# resolve_target_value -- reject zero/negative/NaN/infinite raw STEER values
+# (orchestrator review defect: --raw-clamp-value had no validation at all).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_value", [0.0, -5.0, float("nan"), float("inf"), float("-inf")])
+def test_resolve_target_value_rejects_non_finite_or_non_positive_raw_clamp_value(tool_module, bad_value):
+    with pytest.raises(targets.TargetIdentityMismatch):
+        harness.resolve_target_value(
+            tool_module, mode="steer", dose_multiple=None, calibration_value=None, raw_clamp_value=bad_value,
+        )
+
+
+def test_resolve_target_value_rejects_nan_calibration_value_that_would_slip_past_dose_to_absolute_clamp(tool_module):
+    """dose_to_absolute_clamp's own guard is `if max_act_approx <= 0.0`,
+    which is False for NaN -- a NaN calibration_value would otherwise
+    silently resolve to a NaN clamp. validate_finite_positive on the
+    RESOLVED value catches it regardless of which input caused it."""
+    with pytest.raises(targets.TargetIdentityMismatch, match="not finite"):
+        harness.resolve_target_value(
+            tool_module, mode="steer", dose_multiple=2.0, calibration_value=float("nan"), raw_clamp_value=None,
+        )
+
+
+def test_resolve_target_value_ablate_is_never_subject_to_the_positive_check(tool_module):
+    # 0.0 is ablate's correct value, not a rejected one.
+    value, _ = harness.resolve_target_value(
+        tool_module, mode="ablate", dose_multiple=None, calibration_value=None, raw_clamp_value=None,
+    )
+    assert value == 0.0
+
+
+# ---------------------------------------------------------------------------
+# main() -- proves the Tamia packet's documented JSON schema is what the
+# actual CLI entry point writes, not an aspirational description of it.
+# ---------------------------------------------------------------------------
+
+
+class _FakeModelForMainTest:
+    cfg = SimpleNamespace(d_model=6)
+
+    def __init__(self):
+        self._hook_fn = None
+
+    def to_tokens(self, prompt):
+        return torch.zeros((1, 3), dtype=torch.long)
+
+    def hooks(self, fwd_hooks):
+        import contextlib
+
+        self._hook_fn = fwd_hooks[0][1]
+        return contextlib.nullcontext()
+
+    def generate(self, tokens, **kwargs):
+        self._hook_fn(torch.randn(1, 3, 6), hook=None)
+        return None
+
+
+def test_main_gemma_writes_the_documented_json_schema(monkeypatch, tmp_path):
+    fake_model = _FakeModelForMainTest()
+    fake_sae = _IdentitySAE()
+    fake_sae.cfg = SimpleNamespace(d_sae=6, d_in=6)
+    fake_provenance = {"target": "gemma-3-12b-it", "model": {}, "sae": {}, "layer": {}}
+
+    monkeypatch.setattr(
+        harness, "load_gemma_it_target",
+        lambda *a, **k: (fake_model, fake_sae, "blocks.31.hook_resid_post", dict(fake_provenance)),
+    )
+
+    out_path = tmp_path / "out.json"
+    argv = [
+        "--target", "gemma-3-12b-it", "--model-path", "x", "--sae-path", "y",
+        "--feature-idx", "0", "--mode", "ablate", "--out", str(out_path),
+    ]
+    exit_code = harness.main(argv)
+
+    payload = json.loads(out_path.read_text())
+    for key in (
+        "target", "positions", "requested_mode", "requested_dose_multiple", "requested_calibration_value",
+        "requested_raw_clamp_value", "resolved_absolute_target", "dose_or_raw_label", "provenance", "trace",
+        "verdict",
+    ):
+        assert key in payload, f"documented Tamia-packet schema key {key!r} missing from main()'s actual output"
+    assert payload["provenance"]["feature_idx"] == 0
+    assert payload["verdict"]["hook_invocation_count"] == 1
+    assert exit_code in (0, 1)
+
+
+def test_main_rejects_bad_raw_clamp_value_before_any_loader_is_called(monkeypatch, tmp_path):
+    """Acceptance: nonpositive/nonfinite raw STEER values fail BEFORE
+    loading weights -- assert the loader is never even reached."""
+
+    def _loader_must_not_be_called(*a, **k):
+        raise AssertionError("load_gemma_it_target must not be called when the raw clamp value is invalid")
+
+    monkeypatch.setattr(harness, "load_gemma_it_target", _loader_must_not_be_called)
+    argv = [
+        "--target", "gemma-3-12b-it", "--model-path", "x", "--sae-path", "y",
+        "--feature-idx", "0", "--mode", "steer", "--raw-clamp-value", "0",
+        "--out", str(tmp_path / "out.json"),
+    ]
+    with pytest.raises(targets.TargetIdentityMismatch):
+        harness.main(argv)
