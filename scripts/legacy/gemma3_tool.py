@@ -71,12 +71,15 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import logging
 import random
 import sys
 from pathlib import Path
 from typing import Any
 
 from interplab.interventions.hooks import _make_clamp_hook
+
+_LOGGER = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SWEEP_MODULE_PATH = Path(__file__).resolve().parent / "gemma3_sweep.py"
@@ -153,12 +156,30 @@ def dose_to_absolute_clamp(mode: str, dose_multiple: float, max_act_approx: floa
     """Mirrors gemma3_sweep.py's build_job_matrix arithmetic exactly:
     ablation always clamps to 0.0 regardless of dose (carried only for
     provenance/seed uniformity); steer scales the feature's own
-    maxActApprox by the chosen dose multiple."""
+    maxActApprox by the chosen dose multiple.
+
+    Raises rather than silently returning 0.0 for a non-positive
+    max_act_approx under steer: a dead/placeholder maxActApprox (e.g. a
+    manifest entry for a checkpoint that hasn't been characterized yet)
+    would otherwise produce clamp_value=0.0 -- indistinguishable on screen
+    from a real steer request, but actually a no-op generation. Surfacing
+    this here means the failure is loud and points at the manifest, not a
+    silent "identical output" a user has to debug from the other end."""
     if mode == "ablate":
         return 0.0
     if mode != "steer":
         raise ValueError(f"unknown mode: {mode!r}; expected 'steer' or 'ablate'")
-    return float(dose_multiple) * float(max_act_approx)
+    max_act_approx = float(max_act_approx)
+    if max_act_approx <= 0.0:
+        raise ValueError(
+            f"max_act_approx={max_act_approx!r} is non-positive for a steer request "
+            f"(dose_multiple={dose_multiple!r}); resulting clamp value would be "
+            f"{float(dose_multiple) * max_act_approx!r}, not a real steering magnitude. "
+            "This feature's manifest entry has no natural activation scale to steer "
+            "against -- fix the manifest (or exclude the feature) rather than proceeding "
+            "with a dose that clamps to zero or negative."
+        )
+    return float(dose_multiple) * max_act_approx
 
 
 def load_manifest(path: Path, sweep_module) -> dict[str, Any]:
@@ -240,7 +261,7 @@ def feature_metadata_markdown(feature: dict[str, Any]) -> str:
 
 
 class ModelBundle:
-    __slots__ = ("model", "sae", "hook_name")
+    __slots__ = ("hook_name", "model", "sae")
 
     def __init__(self, model, sae, hook_name: str):
         self.model = model
@@ -319,7 +340,53 @@ def generate_hooked(
     prompt_lengths = tokens.shape[1] if positions == "generated_only" else None
     hook_fn = _make_clamp_hook(bundle.sae, feature_idx, clamp_value, positions, prompt_lengths, stats)
     text = _generate(bundle, prompt, seed, max_new_tokens, hook_fn=hook_fn, tokens=tokens)
+    _log_hook_diagnostics(
+        stats,
+        mode=mode,
+        dose_multiple=dose_multiple,
+        max_act_approx=max_act_approx,
+        clamp_value=clamp_value,
+        positions=positions,
+    )
     return text, clamp_value
+
+
+def _log_hook_diagnostics(
+    stats: list,
+    *,
+    mode: str,
+    dose_multiple: float,
+    max_act_approx: float,
+    clamp_value: float,
+    positions: str,
+) -> None:
+    """Advanced-mode diagnostics -- backend logging only, no Gradio widget.
+    _make_clamp_hook (interplab.interventions.hooks) already records one
+    CallStats(delta_norm, residual_norm) per hook invocation into `stats`;
+    generate_hooked() used to build that list and then discard it. Run
+    with --log-level DEBUG to see it (console / SLURM job log, never the UI).
+
+    Under positions="generated_only" the FIRST entry is expected to be a
+    masked no-op (delta_norm == 0.0): that call covers the prompt's own
+    positions, including the prompt's last position, whose logits produce
+    the first generated token -- so the first generated token is always
+    sampled unsteered. Steering first becomes visible in the SECOND
+    generated token onward. This is a real property of the KV-cache decode
+    loop (see docs/positions_semantics.md), not a bug in this function --
+    but a hook-fire count of 0, or every entry showing delta_norm == 0.0
+    under positions="all" (where nothing should ever be masked), means the
+    hook did not do what this call asked it to."""
+    if not _LOGGER.isEnabledFor(logging.DEBUG):
+        return
+    _LOGGER.debug(
+        "generate_hooked: mode=%s dose_multiple=%s max_act_approx=%s -> clamp_value=%s positions=%s",
+        mode, dose_multiple, max_act_approx, clamp_value, positions,
+    )
+    fire_count = len(stats)
+    nonzero_fires = sum(1 for s in stats if s.delta_norm > 0.0)
+    _LOGGER.debug("hook fired %d time(s), %d with a nonzero delta_norm", fire_count, nonzero_fires)
+    for i, s in enumerate(stats):
+        _LOGGER.debug("  call %d: delta_norm=%.6f residual_norm=%.6f", i, s.delta_norm, s.residual_norm)
 
 
 # ---------------------------------------------------------------------------
@@ -494,11 +561,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Bind address -- localhost only. Reach it via an SSH port-forward (see README); never 0.0.0.0 on a shared compute node.",
     )
     p.add_argument("--server-port", type=int, default=7860)
+    p.add_argument(
+        "--log-level",
+        default="WARNING",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help=(
+            "Backend diagnostic logging -- console / SLURM job log only, never a Gradio "
+            "widget. DEBUG surfaces generate_hooked()'s per-hook-call CallStats (hook-fire "
+            "count, delta_norm/residual_norm per call) and the (mode, dose_multiple, "
+            "max_act_approx) -> clamp_value it resolved for that request."
+        ),
+    )
     return p.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    logging.basicConfig(level=getattr(logging, args.log_level), format="%(asctime)s %(name)s %(levelname)s %(message)s")
     sweep = _load_sweep_module(args.sweep_module)
 
     manifest = load_manifest(Path(args.manifest_path), sweep)

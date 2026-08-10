@@ -117,6 +117,25 @@ def test_dose_to_absolute_clamp_rejects_unknown_mode():
         tool.dose_to_absolute_clamp("nonsense", 1.0, 100.0)
 
 
+def test_dose_to_absolute_clamp_rejects_non_positive_max_act_approx_under_steer():
+    """A zero or negative maxActApprox (e.g. a manifest entry for a
+    checkpoint that hasn't been characterized yet) must not silently
+    resolve to clamp_value=0.0 -- that is indistinguishable on screen from
+    a real steer request but is actually a no-op generation. This is the
+    'Resulting absolute clamp value: 0' failure mode: fail loudly here,
+    pointing at the manifest, instead of shipping a vacuous experiment."""
+    for bad_max_act_approx in (0.0, -1.0):
+        with pytest.raises(ValueError, match="non-positive"):
+            tool.dose_to_absolute_clamp("steer", 2.0, bad_max_act_approx)
+
+
+def test_dose_to_absolute_clamp_ablate_tolerates_non_positive_max_act_approx():
+    # ablate's clamp is always 0.0 regardless of max_act_approx, so a dead
+    # feature's own (possibly zero) maxActApprox must not raise here --
+    # unlike steer, ablate never scales by it.
+    assert tool.dose_to_absolute_clamp("ablate", 2.0, 0.0) == 0.0
+
+
 # ---------------------------------------------------------------------------
 # _make_clamp_hook must be imported, never redefined
 # ---------------------------------------------------------------------------
@@ -443,6 +462,54 @@ def test_generate_hooked_rejects_unknown_positions_mode():
             bundle, "some prompt", seed=0, feature_idx=5, mode="ablate",
             dose_multiple=1.0, max_act_approx=10.0, positions="prompt_only_typo",
         )
+
+
+def test_generate_hooked_logs_hook_diagnostics_at_debug_level(monkeypatch, caplog):
+    """generate_hooked() used to build the CallStats list _make_clamp_hook
+    populates via its `stats` out-param and then silently discard it --
+    the "hook fires every generated token" claim was uncheckable from the
+    tool's own output. Verify the fire count and delta_norms are actually
+    surfaced now (console/job-log, gated behind --log-level DEBUG), not
+    just computed and dropped again under a different name."""
+    from dataclasses import dataclass
+
+    @dataclass
+    class _FakeCallStats:
+        delta_norm: float
+        residual_norm: float
+
+    def fake_make_clamp_hook(sae_obj, feature_index, clamp_value, positions, prompt_lengths, stats):
+        stats.append(_FakeCallStats(delta_norm=0.0, residual_norm=1.0))  # masked prefill call
+        stats.append(_FakeCallStats(delta_norm=5.0, residual_norm=1.5))  # steered decode step
+        return lambda resid, hook: resid
+
+    monkeypatch.setattr(tool, "_make_clamp_hook", fake_make_clamp_hook)
+    bundle = _StubBundleForGenerate(prompt_len=7)
+
+    with caplog.at_level("DEBUG", logger=tool._LOGGER.name):
+        tool.generate_hooked(
+            bundle, "some prompt", seed=0, feature_idx=5, mode="steer",
+            dose_multiple=2.0, max_act_approx=10.0,
+        )
+
+    assert "clamp_value=20.0" in caplog.text
+    assert "hook fired 2 time(s), 1 with a nonzero delta_norm" in caplog.text
+    assert "delta_norm=5.000000" in caplog.text
+
+
+def test_generate_hooked_diagnostics_silent_below_debug_level(monkeypatch, caplog):
+    def fake_make_clamp_hook(sae_obj, feature_index, clamp_value, positions, prompt_lengths, stats):
+        return lambda resid, hook: resid
+
+    monkeypatch.setattr(tool, "_make_clamp_hook", fake_make_clamp_hook)
+    bundle = _StubBundleForGenerate(prompt_len=7)
+
+    with caplog.at_level("WARNING", logger=tool._LOGGER.name):
+        tool.generate_hooked(
+            bundle, "some prompt", seed=0, feature_idx=5, mode="steer",
+            dose_multiple=2.0, max_act_approx=10.0,
+        )
+    assert caplog.text == ""
 
 
 class _IdentitySAE:
