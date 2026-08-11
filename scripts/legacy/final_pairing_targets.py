@@ -59,16 +59,54 @@ config.json, and the release's own app.py source -- no weights fetched):
     k=50, hook_point="resid_post", one file per layer (layer0.sae.pt ..
     layer63.sae.pt, num_layers=64) -- NOT a sae_lens registry entry and NOT
     the tracked-directory layout sae_lens.SAE.load_from_pretrained expects;
-    a bespoke torch.load()'d dict (keys W_enc/b_enc/W_dec per the release's
-    own app.py) needing a thin duck-typed wrapper, not sae_lens.SAE itself.
-    b_dec's presence is UNCONFIRMED (app.py's own steering shortcut never
-    reads it) -- see QwenScopeSAE's docstring.
+    a bespoke torch.load()'d dict needing a thin duck-typed wrapper, not
+    sae_lens.SAE itself.
 
 Per the ratified target list, the Qwen SIDE's layer is explicitly
 engineering-only and NOT pre-registered here: "Qwen layer selected from the
 official release or available Tamia snapshots" means whichever of the 64
 per-layer files is actually staged locally, supplied by the caller -- this
 module does not default or guess one.
+
+Orchestrator review, 2026-08-11 ("Align Qwen harness with official release
+and Tamia runtime"): Tamia's actual installed transformers is 5.14.1, not
+the 5.12.1 available on this machine, and reports that it dispatches
+model_type="qwen3_5" through AutoModelForCausalLM to Qwen3_5ForCausalLM --
+the same route the official Qwen-Scope release's own application uses
+(hooking model.model.layers[layer] directly, layer 0 in its own example),
+not the AutoModelForImageTextToText/Qwen3_5ForConditionalGeneration
+multimodal route this harness used previously. VERIFIED, not merely taken
+on the orchestrator's word, two ways:
+
+    1. Read from the public transformers GitHub source at tag v5.14.1
+       (the exact version Tamia reports) -- src/transformers/models/auto/
+       modeling_auto.py's MODEL_FOR_CAUSAL_LM_MAPPING_NAMES contains
+       ("qwen3_5", "Qwen3_5ForCausalLM"); Qwen3_5ForCausalLM.model is a
+       Qwen3_5TextModel, whose .layers is its own nn.ModuleList directly
+       (no .language_model indirection -- that nesting is specific to the
+       multimodal Qwen3_5ForConditionalGeneration class this harness no
+       longer loads); Qwen3_5DecoderLayer.forward() still returns a plain
+       tensor, not a tuple.
+    2. Independently re-confirmed against the ACTUAL locally-installed
+       transformers==5.12.1 (not just the public source for 5.14.1): this
+       older pinned version ALREADY has MODEL_FOR_CAUSAL_LM_MAPPING_NAMES
+       ["qwen3_5"] == "Qwen3_5ForCausalLM", and Qwen3_5ForCausalLM.model is
+       already a Qwen3_5TextModel with .layers as its own nn.ModuleList
+       (module inspection: `inspect.getsource(Qwen3_5ForCausalLM.__init__)`
+       / `Qwen3_5TextModel.__init__`), and Qwen3_5DecoderLayer.forward()
+       still ends in `return hidden_states` (a plain tensor). This route
+       was available in the version already on this machine; the previous
+       AutoModelForImageTextToText choice was not required by any version
+       constraint, it was simply the wrong Auto class for this task.
+
+Taken from the work order's stated findings, NOT independently re-verified
+this round (a guessed URL for the official Qwen-Scope application's own
+source 404'd, and no further URL was guessed per this project's policy
+against fabricating URLs): b_dec's presence in the real checkpoint ("the
+checkpoint contract lists b_dec as present"), the ReLU-then-TopK(50)
+activation order, and layer 0 as the release's own documented example.
+QwenScopeSAE now requires and fails closed on a missing b_dec rather than
+defaulting to zero -- see that class's docstring in final_pairing_harness.py.
 """
 
 from __future__ import annotations
@@ -77,13 +115,20 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
 class TargetPairing:
     name: str
     model_repo_id: str
+    # model_architecture is the checkpoint's OWN config.json-declared
+    # "architectures" value (a fact about the checkpoint's metadata) --
+    # distinct from expected_runtime_class below, which is the class this
+    # harness's CHOSEN AutoModelFor... loader must actually produce.
+    # AutoModelFor* dispatch is driven by model_type + that Auto class's
+    # own registered mapping, not by config.json's architectures hint, so
+    # the two can legitimately name different classes.
     model_architecture: str
     model_supported_by_transformer_lens: bool
     sae_repo_id: str
@@ -98,6 +143,7 @@ class TargetPairing:
     expected_d_sae: int | None = None
     expected_k: int | None = None
     expected_num_layers: int | None = None
+    expected_runtime_class: str | None = None
     notes: str = ""
 
 
@@ -134,14 +180,19 @@ QWEN_3_5_27B_TARGET = TargetPairing(
     expected_num_layers=64,
     expected_layer=None,  # engineering-only, supplied by the caller -- see module docstring
     expected_hook_name="resid_post",  # generic hook_point name from the release's own config.json, not a TL hook string
+    expected_runtime_class="Qwen3_5ForCausalLM",
     notes=(
         "model_supported_by_transformer_lens=False is a VERIFIED negative (not an assumption): "
         "'Qwen/Qwen3.5-27B' and every 'qwen3.5'-named entry are absent from transformer_lens==3.2.1's "
         "OFFICIAL_MODEL_NAMES. Loading requires the raw-HF-forward-hooks path (see "
         "final_pairing_harness.load_qwen_target), not HookedTransformer.from_pretrained. "
-        "The model is multimodal (pipeline_tag=image-text-to-text); the text decoder must be "
-        "reached explicitly, mirroring the already-solved Gemma3ForConditionalGeneration pattern "
-        "(docs/pi_directive_plan_2026_08.md's 'reach .language_model explicitly' note)."
+        "Loaded via AutoModelForCausalLM, which dispatches model_type=qwen3_5 to "
+        "Qwen3_5ForCausalLM -- a text-only causal-LM class (self.model.layers reachable directly, "
+        "no vision tower or .language_model indirection), matching both Tamia's actual "
+        "transformers==5.14.1 runtime and the official Qwen-Scope release's own application "
+        "(same Auto class, same model.model.layers[layer] hook path). Superseded the earlier "
+        "AutoModelForImageTextToText/Qwen3_5ForConditionalGeneration multimodal route, which was "
+        "never actually required -- see module docstring's 2026-08-11 orchestrator review."
     ),
 )
 
@@ -290,9 +341,16 @@ def validate_qwen_sae_shapes(
 ) -> None:
     """Full shape validation (not just the d_model cross-check
     validate_hidden_dims already does) -- W_enc/b_enc/W_dec/b_dec must all
-    agree with each other AND with the ratified d_model/d_sae, per app.py's
-    own schema (W_enc: [d_sae, d_model] before transpose, b_enc: [d_sae],
-    W_dec: [d_model, d_sae])."""
+    agree with each other AND with the ratified d_model/d_sae, per the
+    release's own schema (W_enc: [d_sae, d_model] before transpose,
+    b_enc: [d_sae], W_dec: [d_model, d_sae]).
+
+    Orchestrator review, 2026-08-11: the official Qwen-Scope release's own
+    checkpoint contract lists b_dec as PRESENT (no longer an unconfirmed
+    optional key defaulted to zero -- see QwenScopeSAE's docstring), so
+    b_dec_shape=None is now itself a contract violation, not a tolerated
+    "unconfirmed" case -- fails closed rather than silently skipping the
+    check."""
     d_model = target.expected_hidden_dim
     d_sae = target.expected_d_sae
     if w_enc_shape != (d_sae, d_model):
@@ -301,8 +359,45 @@ def validate_qwen_sae_shapes(
         raise TargetIdentityMismatch(f"b_enc shape {b_enc_shape} != expected ({d_sae},).")
     if w_dec_shape != (d_model, d_sae):
         raise TargetIdentityMismatch(f"W_dec shape {w_dec_shape} != expected ({d_model}, {d_sae}).")
-    if b_dec_shape is not None and b_dec_shape != (d_model,):
+    if b_dec_shape is None:
+        raise TargetIdentityMismatch(
+            "b_dec_shape is None, but the release's own checkpoint contract lists b_dec as "
+            "present -- refusing to treat a missing decoder bias as an acceptable, unconfirmed case."
+        )
+    if b_dec_shape != (d_model,):
         raise TargetIdentityMismatch(f"b_dec shape {b_dec_shape} != expected ({d_model},).")
+
+
+def validate_runtime_class(actual_class_name: str, target: TargetPairing) -> None:
+    """Fails closed if the class actually returned by the chosen Auto*
+    loader does not match the target's ratified expected_runtime_class --
+    e.g. a differently-pinned transformers version dispatching model_type
+    "qwen3_5" to a different class than the one this harness was verified
+    against (transformers==5.14.1 -> AutoModelForCausalLM -> "
+    "Qwen3_5ForCausalLM, per this module's docstring)."""
+    if target.expected_runtime_class is None:
+        return
+    if actual_class_name != target.expected_runtime_class:
+        raise TargetIdentityMismatch(
+            f"loaded runtime class {actual_class_name!r} != target {target.name!r}'s ratified "
+            f"expected_runtime_class {target.expected_runtime_class!r}. This usually means the "
+            f"installed transformers version dispatches this model_type differently than the "
+            f"version this harness was verified against -- stop rather than proceed with an "
+            f"unverified class."
+        )
+
+
+def validate_has_callable_generate(obj: Any, *, label: str) -> None:
+    """Confirms the loaded object actually supports generation before any
+    intervention is attempted -- a wrong Auto class or an unexpected
+    dispatch can otherwise return a model that loads fine but has no
+    usable .generate() (e.g. Qwen3_5Model, the base class AutoModel
+    dispatches "qwen3_5" to)."""
+    if not callable(getattr(obj, "generate", None)):
+        raise TargetIdentityMismatch(
+            f"{label} has no callable .generate() -- the loaded class does not support "
+            f"generation; refusing to proceed with a model that cannot run the intervention."
+        )
 
 
 def validate_qwen_k(k: int, target: TargetPairing) -> None:

@@ -33,10 +33,9 @@ the first version of this file (commit b4481ec):
 1. The Qwen loader used transformers.AutoModel, which -- verified locally
    against the installed transformers==5.12.1's own MODEL_MAPPING_NAMES --
    dispatches "qwen3_5" to Qwen3_5Model, a submodule with no GenerationMixin
-   and therefore no .generate(). AutoModelForImageTextToText dispatches to
-   Qwen3_5ForConditionalGeneration instead, which is what the rest of this
-   file (and modeling_qwen3_5.py's own .language_model/.layers structure)
-   was actually verified against. Fixed below.
+   and therefore no .generate(). AutoModelForImageTextToText dispatched to
+   Qwen3_5ForConditionalGeneration instead (the multimodal class) -- since
+   superseded, see the 2026-08-11 review below.
 2. load_gemma_it_target validated sae_path's identity and then called
    SAE.from_pretrained(release=..., sae_id=...), which resolves its OWN
    cached revision through sae_lens's registry with NO cache_dir/revision
@@ -50,7 +49,35 @@ the first version of this file (commit b4481ec):
    hf_hub_download` at ITS OWN import time, so patching huggingface_hub's
    attribute would not reach it) and proving every one falls under the
    validated snapshot (final_pairing_targets.validate_sae_files_match_snapshot)
-   before trusting the load.
+   before trusting the load. UNCHANGED by the 2026-08-11 review below --
+   the Gemma provenance path is not touched by it.
+
+Orchestrator review, 2026-08-11 ("Align Qwen harness with official release
+and Tamia runtime"), replaced the Qwen loading route entirely:
+
+3. AutoModelForImageTextToText/Qwen3_5ForConditionalGeneration (the
+   multimodal route, item 1 above) is replaced with
+   AutoModelForCausalLM/Qwen3_5ForCausalLM -- the route Tamia's actual
+   installed transformers==5.14.1 dispatches model_type="qwen3_5" through,
+   and the same route the official Qwen-Scope release's own application
+   uses (hooking model.model.layers[layer] directly, layer 0 in its own
+   example). Verified both against the public transformers source for tag
+   v5.14.1 AND independently re-confirmed against this machine's actual
+   installed transformers==5.12.1, which already has the same dispatch --
+   see final_pairing_targets.py's module docstring for the full verification
+   trail. resolve_qwen_text_decoder now resolves hf_model.model directly
+   (a Qwen3_5TextModel with its own .layers ModuleList) instead of hunting
+   for a nested .language_model attribute, which only exists on the
+   multimodal class this harness no longer loads.
+4. QwenScopeSAE.from_state_dict now REQUIRES b_dec (the release's own
+   checkpoint contract lists it as present, per the work order) and fails
+   closed if it's missing, rather than silently defaulting to a zero bias
+   -- used_zero_b_dec_default is removed entirely, from the class, the
+   provenance dict, and the JSON schema.
+5. register_qwen_raw_hook now validates that the hooked decoder layer's
+   output is a plain tensor (as verified against modeling_qwen3_5.py) and
+   fails clearly, rather than silently misbehaving, if Tamia's live
+   implementation ever returns something else (e.g. a tuple).
 """
 
 from __future__ import annotations
@@ -112,22 +139,21 @@ def _topk_relu(x, k: int):
 
 
 class QwenScopeSAE:
-    """b_dec's presence in the real checkpoint is UNCONFIRMED: the
-    release's own app.py never reads it (its steering feature adds a raw
-    decoder column directly to the residual, bypassing decode() entirely).
-    If the loaded state_dict has no 'b_dec' key, this defaults to zeros and
-    sets used_zero_b_dec_default=True so a diagnostic run can tell "verified
-    zero bias" apart from "assumed zero bias because the key was absent" --
-    this is exactly the kind of thing a mechanical acceptance run should
-    surface, not silently paper over."""
+    """W_enc/b_enc/W_dec/b_dec are all REQUIRED, per the official
+    Qwen-Scope release's own checkpoint contract (orchestrator review,
+    2026-08-11: "the checkpoint contract lists b_dec as present"). A layer
+    file missing any of the four keys fails closed at construction rather
+    than silently substituting a zero bias -- the earlier "unconfirmed,
+    defaults to zero" behavior was based only on the release's own app.py
+    steering shortcut never reading b_dec, not on the checkpoint's actual
+    contents, and has been superseded now that the real contract is known."""
 
-    def __init__(self, W_enc, b_enc, W_dec, b_dec, *, k: int, used_zero_b_dec_default: bool):
+    def __init__(self, W_enc, b_enc, W_dec, b_dec, *, k: int):
         self.W_enc = W_enc  # [d_model, d_sae]
         self.b_enc = b_enc  # [d_sae]
         self.W_dec = W_dec  # [d_model, d_sae]
         self.b_dec = b_dec  # [d_model]
         self.k = k
-        self.used_zero_b_dec_default = used_zero_b_dec_default
         self.d_in = W_enc.shape[0]
         self.d_sae = W_enc.shape[1]
 
@@ -144,35 +170,27 @@ class QwenScopeSAE:
     ) -> QwenScopeSAE:
         import torch
 
-        required = ("W_enc", "b_enc", "W_dec")
+        required = ("W_enc", "b_enc", "W_dec", "b_dec")
         missing = [key for key in required if key not in state_dict]
         if missing:
             raise targets.TargetIdentityMismatch(
                 f"Qwen-Scope layer file is missing expected key(s) {missing} -- the loaded "
-                f"file does not match the schema verified against the release's own app.py "
-                f"(W_enc/b_enc/W_dec); refusing to guess a substitute."
+                f"file does not match the release's own checkpoint contract "
+                f"(W_enc/b_enc/W_dec/b_dec); refusing to guess a substitute."
             )
         targets.validate_qwen_k(k, target)
         targets.validate_qwen_sae_shapes(
             w_enc_shape=tuple(state_dict["W_enc"].shape),
             b_enc_shape=tuple(state_dict["b_enc"].shape),
             w_dec_shape=tuple(state_dict["W_dec"].shape),
-            b_dec_shape=tuple(state_dict["b_dec"].shape) if "b_dec" in state_dict else None,
+            b_dec_shape=tuple(state_dict["b_dec"].shape),
             target=target,
         )
         w_enc_raw = state_dict["W_enc"].to(dtype=torch.float32, device=device)  # [d_sae, d_model]
         b_enc = state_dict["b_enc"].to(dtype=torch.float32, device=device)
         w_dec = state_dict["W_dec"].to(dtype=torch.float32, device=device)  # [d_model, d_sae]
-        used_zero_b_dec_default = "b_dec" not in state_dict
-        b_dec = (
-            torch.zeros(w_dec.shape[0], dtype=torch.float32, device=device)
-            if used_zero_b_dec_default
-            else state_dict["b_dec"].to(dtype=torch.float32, device=device)
-        )
-        return cls(
-            W_enc=w_enc_raw.T.contiguous(), b_enc=b_enc, W_dec=w_dec, b_dec=b_dec,
-            k=k, used_zero_b_dec_default=used_zero_b_dec_default,
-        )
+        b_dec = state_dict["b_dec"].to(dtype=torch.float32, device=device)
+        return cls(W_enc=w_enc_raw.T.contiguous(), b_enc=b_enc, W_dec=w_dec, b_dec=b_dec, k=k)
 
     @classmethod
     def from_layer_file(
@@ -195,20 +213,21 @@ class QwenScopeSAE:
 
 
 def resolve_qwen_text_decoder(hf_model):
-    """Qwen3_5ForConditionalGeneration's text decoder: verified directly
-    against transformers==5.12.1's modeling_qwen3_5.py source (not inferred
-    by analogy) -- Qwen3_5ForConditionalGeneration.__init__ sets
-    self.model = Qwen3_5Model(config); Qwen3_5Model.__init__ sets
-    self.language_model = AutoModel.from_config(config.text_config).
-    Mirrors the already-solved Gemma3ForConditionalGeneration pattern
-    (reach .language_model explicitly; the vision tower is a sibling,
-    never touched)."""
-    if hasattr(hf_model, "model") and hasattr(hf_model.model, "language_model"):
-        return hf_model.model.language_model
-    if hasattr(hf_model, "language_model"):
-        return hf_model.language_model
+    """Qwen3_5ForCausalLM's decoder stack: verified directly against
+    modeling_qwen3_5.py source, both the public source for transformers
+    v5.14.1 (Tamia's actual installed version) and independently against
+    this machine's own installed transformers==5.12.1 (not inferred by
+    analogy from either alone) -- Qwen3_5ForCausalLM.__init__ sets
+    self.model = Qwen3_5TextModel(config); Qwen3_5TextModel.__init__ sets
+    self.layers = nn.ModuleList(...) directly, with no vision tower or
+    .language_model indirection (that nesting is specific to the
+    multimodal Qwen3_5ForConditionalGeneration class this harness no
+    longer loads). Mirrors the official Qwen-Scope release's own
+    application, which hooks model.model.layers[layer] the same way."""
+    if hasattr(hf_model, "model") and hasattr(hf_model.model, "layers"):
+        return hf_model.model
     raise targets.TargetIdentityMismatch(
-        f"could not locate a .language_model text decoder on the loaded model "
+        f"could not locate a .model.layers decoder stack on the loaded model "
         f"(type={type(hf_model).__name__}); the modeling_qwen3_5.py structure this was "
         f"verified against may not match what actually loaded on this machine -- stop "
         f"rather than guess a different attribute path."
@@ -222,12 +241,28 @@ def get_qwen_decoder_layer(text_decoder, layer: int):
 def register_qwen_raw_hook(decoder_layer_module, hook_fn):
     """Qwen3_5DecoderLayer.forward() returns hidden_states as a plain
     tensor, not a tuple (verified against modeling_qwen3_5.py's own
-    `return hidden_states`) -- register_forward_hook's `output` argument is
-    therefore directly the resid-post tensor, no unwrapping needed, and
-    returning a replacement tensor from the hook replaces the layer's
-    output exactly as _make_clamp_hook expects."""
+    `return hidden_states`, both the public v5.14.1 source and this
+    machine's installed transformers==5.12.1) -- register_forward_hook's
+    `output` argument is therefore directly the resid-post tensor, no
+    unwrapping needed, and returning a replacement tensor from the hook
+    replaces the layer's output exactly as _make_clamp_hook expects.
+
+    Orchestrator review, 2026-08-11: validates this assumption at runtime
+    rather than trusting it silently -- if Tamia's live implementation ever
+    returns something other than a plain tensor (e.g. a tuple, as some
+    other decoder-layer conventions do), this fails clearly instead of
+    passing a tuple into _make_clamp_hook and failing with a confusing
+    downstream tensor-op error."""
+    import torch
 
     def native_hook(module, args, output):
+        if not isinstance(output, torch.Tensor):
+            raise targets.TargetIdentityMismatch(
+                f"expected the hooked Qwen decoder layer to return a plain tensor (verified "
+                f"against modeling_qwen3_5.py source), but got {type(output).__name__} instead "
+                f"-- Tamia's live implementation differs from what this harness was verified "
+                f"against; stop rather than guess how to unwrap it."
+            )
         return hook_fn(output, hook=None)
 
     return decoder_layer_module.register_forward_hook(native_hook)
@@ -531,12 +566,18 @@ def load_qwen_target(
 ):
     """UNTESTED against real weights. Raw-HF path (no HookedTransformer --
     transformer_lens==3.2.1 does not know Qwen3.5, verified in
-    final_pairing_targets.py). k defaults to the ratified target's
-    expected_k (50); an explicit override that disagrees with it raises
-    (see final_pairing_targets.validate_qwen_k). Returns (hf_model,
-    text_decoder, sae, hook_identifier, provenance)."""
+    final_pairing_targets.py). Loads via AutoModelForCausalLM, matching
+    Tamia's actual transformers==5.14.1 dispatch and the official
+    Qwen-Scope release's own application (see final_pairing_targets.py's
+    module docstring for the full verification trail, including
+    independent re-confirmation against this machine's installed
+    transformers==5.12.1). k defaults to the ratified target's expected_k
+    (50); an explicit override that disagrees with it raises (see
+    final_pairing_targets.validate_qwen_k). Returns (hf_model, text_decoder,
+    sae, hook_identifier, provenance)."""
     import torch
-    from transformers import AutoModelForImageTextToText
+    import transformers
+    from transformers import AutoModelForCausalLM
 
     target = targets.QWEN_3_5_27B_TARGET
     k = target.expected_k if k is None else k
@@ -558,12 +599,18 @@ def load_qwen_target(
     )
 
     torch_dtype = getattr(torch, dtype)
-    # AutoModel (not ...ForImageTextToText) dispatches "qwen3_5" to Qwen3_5Model,
-    # which has no GenerationMixin/.generate() -- verified locally against
-    # transformers==5.12.1's own MODEL_MAPPING_NAMES / MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES.
-    # AutoModelForImageTextToText dispatches to Qwen3_5ForConditionalGeneration, which has both
-    # GenerationMixin and the .model.language_model structure resolve_qwen_text_decoder expects.
-    hf_model = AutoModelForImageTextToText.from_pretrained(str(model_path), dtype=torch_dtype)
+    # AutoModelForCausalLM dispatches "qwen3_5" to Qwen3_5ForCausalLM on
+    # Tamia's actual transformers==5.14.1 (MODEL_FOR_CAUSAL_LM_MAPPING_NAMES)
+    # -- the same Auto class and model.model.layers[layer] hook path the
+    # official Qwen-Scope release's own application uses. AutoModel dispatches
+    # to Qwen3_5Model (no .generate()) and AutoModelForImageTextToText
+    # dispatches to the multimodal Qwen3_5ForConditionalGeneration -- neither
+    # is used here; validate_runtime_class below fails closed if a
+    # differently-pinned transformers version ever dispatches this
+    # differently than verified.
+    hf_model = AutoModelForCausalLM.from_pretrained(str(model_path), dtype=torch_dtype)
+    targets.validate_runtime_class(type(hf_model).__name__, target)
+    targets.validate_has_callable_generate(hf_model, label="loaded Qwen model")
     hf_model.eval()
     hf_model.to(device)
 
@@ -589,6 +636,9 @@ def load_qwen_target(
             "revision": model_identity["revision"],
             "revision_verification": model_identity["verification"],
             "actual_class": type(hf_model).__name__,
+            "transformers_version": transformers.__version__,
+            "selected_auto_class": "AutoModelForCausalLM",
+            "decoder_attribute_path": "model.layers",
         },
         "sae": {
             "repository": target.sae_repo_id,
@@ -603,10 +653,10 @@ def load_qwen_target(
             "d_in": sae.d_in,
             "d_sae": sae.d_sae,
             "k": sae.k,
-            "used_zero_b_dec_default": sae.used_zero_b_dec_default,
         },
         "layer": {
             "engineering_layer": layer,
+            "engineering_only": True,
             "hook_name": hook_identifier,
             "hooked_module_class": type(decoder_layer_module).__name__,
         },

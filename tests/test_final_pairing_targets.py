@@ -37,6 +37,20 @@ def test_qwen_target_identities_are_exactly_ratified():
     assert t.model_supported_by_transformer_lens is False
 
 
+def test_qwen_target_expected_runtime_class_is_causal_lm():
+    """Orchestrator review, 2026-08-11: Tamia's actual transformers==5.14.1
+    dispatches model_type="qwen3_5" through AutoModelForCausalLM to
+    Qwen3_5ForCausalLM, not the multimodal Qwen3_5ForConditionalGeneration
+    this harness previously loaded via AutoModelForImageTextToText."""
+    assert targets.QWEN_3_5_27B_TARGET.expected_runtime_class == "Qwen3_5ForCausalLM"
+
+
+def test_gemma_target_has_no_expected_runtime_class():
+    """The Gemma provenance path is untouched by the 2026-08-11 Qwen
+    review -- it never gained this field."""
+    assert targets.GEMMA_3_12B_IT_TARGET.expected_runtime_class is None
+
+
 def test_qwen_layer_is_not_pre_registered_engineering_only():
     """The ratified spec explicitly leaves the Qwen layer to be selected
     from the official release or available Tamia snapshots -- this module
@@ -273,18 +287,25 @@ def test_validate_qwen_sae_shapes_accepts_ratified_shapes():
         w_enc_shape=(81920, 5120), b_enc_shape=(81920,), w_dec_shape=(5120, 81920), b_dec_shape=(5120,),
         target=targets.QWEN_3_5_27B_TARGET,
     )  # must not raise
-    targets.validate_qwen_sae_shapes(
-        w_enc_shape=(81920, 5120), b_enc_shape=(81920,), w_dec_shape=(5120, 81920), b_dec_shape=None,
-        target=targets.QWEN_3_5_27B_TARGET,
-    )  # b_dec is optional (unconfirmed in the real checkpoint)
+
+
+def test_validate_qwen_sae_shapes_rejects_missing_b_dec():
+    """Orchestrator review, 2026-08-11: b_dec is no longer an optional,
+    unconfirmed key -- the release's own checkpoint contract lists it as
+    present, so b_dec_shape=None is now itself a contract violation."""
+    with pytest.raises(targets.TargetIdentityMismatch, match="b_dec"):
+        targets.validate_qwen_sae_shapes(
+            w_enc_shape=(81920, 5120), b_enc_shape=(81920,), w_dec_shape=(5120, 81920), b_dec_shape=None,
+            target=targets.QWEN_3_5_27B_TARGET,
+        )
 
 
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"w_enc_shape": (100, 5120), "b_enc_shape": (81920,), "w_dec_shape": (5120, 81920), "b_dec_shape": None},
-        {"w_enc_shape": (81920, 5120), "b_enc_shape": (100,), "w_dec_shape": (5120, 81920), "b_dec_shape": None},
-        {"w_enc_shape": (81920, 5120), "b_enc_shape": (81920,), "w_dec_shape": (100, 81920), "b_dec_shape": None},
+        {"w_enc_shape": (100, 5120), "b_enc_shape": (81920,), "w_dec_shape": (5120, 81920), "b_dec_shape": (5120,)},
+        {"w_enc_shape": (81920, 5120), "b_enc_shape": (100,), "w_dec_shape": (5120, 81920), "b_dec_shape": (5120,)},
+        {"w_enc_shape": (81920, 5120), "b_enc_shape": (81920,), "w_dec_shape": (100, 81920), "b_dec_shape": (5120,)},
         {"w_enc_shape": (81920, 5120), "b_enc_shape": (81920,), "w_dec_shape": (5120, 81920), "b_dec_shape": (100,)},
     ],
 )
@@ -332,3 +353,51 @@ def test_validate_sae_files_match_snapshot_rejects_empty_resolution(tmp_path):
     snapshot.mkdir(parents=True)
     with pytest.raises(targets.TargetIdentityMismatch, match="zero local files"):
         targets.validate_sae_files_match_snapshot([], snapshot, targets.GEMMA_3_12B_IT_TARGET)
+
+
+# ---------------------------------------------------------------------------
+# validate_runtime_class / validate_has_callable_generate -- orchestrator
+# review, 2026-08-11: require the loaded class to be the expected Qwen3.5
+# causal-generation class with a callable .generate().
+# ---------------------------------------------------------------------------
+
+
+def test_validate_runtime_class_accepts_matching_class():
+    targets.validate_runtime_class("Qwen3_5ForCausalLM", targets.QWEN_3_5_27B_TARGET)  # must not raise
+
+
+def test_validate_runtime_class_rejects_mismatched_class():
+    with pytest.raises(targets.TargetIdentityMismatch, match="Qwen3_5ForCausalLM"):
+        targets.validate_runtime_class("Qwen3_5ForConditionalGeneration", targets.QWEN_3_5_27B_TARGET)
+
+
+def test_validate_runtime_class_is_a_noop_when_target_has_no_expected_class():
+    # GEMMA_3_12B_IT_TARGET.expected_runtime_class is None -- nothing to check.
+    targets.validate_runtime_class("anything at all", targets.GEMMA_3_12B_IT_TARGET)  # must not raise
+
+
+class _NoGenerate:
+    pass
+
+
+class _HasGenerate:
+    def generate(self, **kwargs):
+        return "ok"
+
+
+class _GenerateNotCallable:
+    generate = "not a method"
+
+
+def test_validate_has_callable_generate_accepts_callable_generate():
+    targets.validate_has_callable_generate(_HasGenerate(), label="x")  # must not raise
+
+
+def test_validate_has_callable_generate_rejects_missing_generate():
+    with pytest.raises(targets.TargetIdentityMismatch, match="generate"):
+        targets.validate_has_callable_generate(_NoGenerate(), label="x")
+
+
+def test_validate_has_callable_generate_rejects_non_callable_generate_attribute():
+    with pytest.raises(targets.TargetIdentityMismatch, match="generate"):
+        targets.validate_has_callable_generate(_GenerateNotCallable(), label="x")

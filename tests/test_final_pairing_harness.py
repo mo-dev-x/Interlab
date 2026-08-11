@@ -187,7 +187,11 @@ def test_mechanical_verdict_rejects_when_a_real_call_shows_zero_delta():
 # ---------------------------------------------------------------------------
 
 
-def _fake_qwen_state_dict(d_model=6, d_sae=10, include_b_dec=False):
+def _fake_qwen_state_dict(d_model=6, d_sae=10, include_b_dec=True):
+    """include_b_dec defaults to True: orchestrator review, 2026-08-11 --
+    the release's own checkpoint contract lists b_dec as present, so a
+    valid state dict includes it by default now; tests that need to prove
+    the missing-key rejection pass include_b_dec=False explicitly."""
     state_dict = {
         "W_enc": torch.randn(d_sae, d_model),
         "b_enc": torch.randn(d_sae),
@@ -228,24 +232,29 @@ def test_qwen_scope_sae_shapes_and_topk_sparsity():
     assert recon.shape == x.shape
 
 
-def test_qwen_scope_sae_missing_b_dec_defaults_to_zero_and_flags_it():
+def test_qwen_scope_sae_rejects_missing_b_dec():
+    """Orchestrator review, 2026-08-11: the release's own checkpoint
+    contract lists b_dec as present -- a missing b_dec now fails closed
+    rather than silently defaulting to a zero bias (used_zero_b_dec_default
+    is removed entirely). This test fails against the pre-fix code, which
+    would have accepted this state dict and set a zero default instead."""
     sd = _fake_qwen_state_dict(include_b_dec=False)
-    sae = harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu", target=_TINY_TARGET)
-    assert sae.used_zero_b_dec_default is True
-    assert torch.equal(sae.b_dec, torch.zeros_like(sae.b_dec))
+    with pytest.raises(targets.TargetIdentityMismatch, match="b_dec"):
+        harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu", target=_TINY_TARGET)
 
 
 def test_qwen_scope_sae_uses_real_b_dec_when_present():
     sd = _fake_qwen_state_dict(include_b_dec=True)
     sae = harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu", target=_TINY_TARGET)
-    assert sae.used_zero_b_dec_default is False
     assert torch.equal(sae.b_dec, sd["b_dec"])
+    assert not hasattr(sae, "used_zero_b_dec_default")
 
 
-def test_qwen_scope_sae_raises_on_missing_required_key():
+@pytest.mark.parametrize("missing_key", ["W_enc", "b_enc", "W_dec", "b_dec"])
+def test_qwen_scope_sae_raises_on_missing_required_key(missing_key):
     sd = _fake_qwen_state_dict()
-    del sd["W_dec"]
-    with pytest.raises(targets.TargetIdentityMismatch, match="W_dec"):
+    del sd[missing_key]
+    with pytest.raises(targets.TargetIdentityMismatch, match=missing_key):
         harness.QwenScopeSAE.from_state_dict(sd, k=3, device="cpu", target=_TINY_TARGET)
 
 
@@ -326,25 +335,40 @@ def test_capture_sae_download_paths_records_multiple_calls(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# load_qwen_target -- the exact auto-class defect orchestrator review found.
+# load_qwen_target -- the auto-class route orchestrator review (2026-08-11)
+# realigned with Tamia's actual transformers==5.14.1 and the official
+# Qwen-Scope release's own application: AutoModelForCausalLM ->
+# Qwen3_5ForCausalLM, hooking model.model.layers[layer] directly, not the
+# multimodal AutoModelForImageTextToText -> Qwen3_5ForConditionalGeneration
+# route this harness used previously.
+#
+# The three fake classes below are DELIBERATELY named exactly like the real
+# classes they stand in for (not _Fake-prefixed) so that
+# type(obj).__name__ genuinely equals what targets.validate_runtime_class
+# checks against -- exercising that check for real rather than bypassing it
+# with a differently-named double.
 # ---------------------------------------------------------------------------
 
 
-class _FakeQwenTextDecoder:
+class _FakeQwenTextModel:
+    """Stands in for Qwen3_5TextModel -- .layers is its own list directly,
+    no .language_model indirection (that nesting is specific to the
+    multimodal Qwen3_5ForConditionalGeneration class this harness no
+    longer loads)."""
+
     def __init__(self):
         self.config = SimpleNamespace(hidden_size=5120)
         self.layers = [SimpleNamespace() for _ in range(64)]
 
 
-class _FakeQwen3_5Model:
+class Qwen3_5Model:
     """Stands in for what transformers.AutoModel actually dispatches
-    "qwen3_5" to -- Qwen3_5Model, which has NO GenerationMixin/.generate()
-    (verified locally against transformers==5.12.1's own
-    MODEL_MAPPING_NAMES). If load_qwen_target used AutoModel, this is what
-    it would get back."""
+    "qwen3_5" to -- has NO GenerationMixin/.generate() (verified locally
+    against the installed transformers' own MODEL_MAPPING_NAMES). If
+    load_qwen_target used AutoModel, this is what it would get back."""
 
     def __init__(self):
-        self.language_model = _FakeQwenTextDecoder()
+        self.language_model = _FakeQwenTextModel()
 
     def eval(self):
         return self
@@ -353,13 +377,36 @@ class _FakeQwen3_5Model:
         return self
 
 
-class _FakeQwen3_5ForConditionalGeneration:
+class Qwen3_5ForConditionalGeneration:
     """Stands in for what transformers.AutoModelForImageTextToText
-    dispatches "qwen3_5" to -- HAS .generate() (GenerationMixin) and the
-    .model.language_model structure verified against modeling_qwen3_5.py."""
+    dispatches "qwen3_5" to -- the multimodal class this harness no longer
+    loads. Has .generate() but the WRONG decoder-attribute shape
+    (.model.language_model.layers, not .model.layers) for the
+    now-expected causal-LM route."""
 
     def __init__(self):
-        self.model = SimpleNamespace(language_model=_FakeQwenTextDecoder())
+        self.model = SimpleNamespace(language_model=_FakeQwenTextModel())
+
+    def eval(self):
+        return self
+
+    def to(self, device):
+        return self
+
+    def generate(self, **kwargs):
+        return "generated"
+
+
+class Qwen3_5ForCausalLM:
+    """Stands in for what transformers.AutoModelForCausalLM dispatches
+    "qwen3_5" to on Tamia's actual transformers==5.14.1 (MODEL_FOR_CAUSAL_LM_
+    MAPPING_NAMES) -- independently re-confirmed against this machine's own
+    installed transformers==5.12.1, which already has the same dispatch.
+    Has .generate() (GenerationMixin) and .model.layers reachable directly,
+    matching the official Qwen-Scope release's own application."""
+
+    def __init__(self):
+        self.model = _FakeQwenTextModel()
 
     def eval(self):
         return self
@@ -375,30 +422,36 @@ class _FakeSaeForQwenLoadTest:
     d_in = 5120
     d_sae = 81920
     k = 50
-    used_zero_b_dec_default = False
 
 
-def test_load_qwen_target_uses_auto_model_for_image_text_to_text_not_auto_model(monkeypatch, tmp_path):
-    """The exact defect: a prior version called transformers.AutoModel,
-    which dispatches to Qwen3_5Model (no .generate()). This test fails
-    against that code (AutoModel's fake has no .model attribute, so
-    resolve_qwen_text_decoder's fallback path would return
-    _FakeQwen3_5Model.language_model directly -- still missing .generate()
-    on the returned hf_model) and passes against AutoModelForImageTextToText."""
+def test_load_qwen_target_uses_auto_model_for_causal_lm_not_image_text_to_text(monkeypatch, tmp_path):
+    """The exact defect this review fixes: a prior version called
+    transformers.AutoModelForImageTextToText (dispatch: the multimodal
+    Qwen3_5ForConditionalGeneration). Tamia's actual transformers==5.14.1
+    (and this machine's installed 5.12.1, independently confirmed)
+    dispatches model_type="qwen3_5" through AutoModelForCausalLM to
+    Qwen3_5ForCausalLM instead -- the same route the official Qwen-Scope
+    release's own application uses. This test fails against the pre-fix
+    code (AutoModelForCausalLM would never be called at all) and passes
+    against the corrected loader."""
     import transformers
 
     monkeypatch.setattr(
-        transformers.AutoModelForImageTextToText, "from_pretrained",
-        staticmethod(lambda path, **kwargs: _FakeQwen3_5ForConditionalGeneration()),
+        transformers.AutoModelForCausalLM, "from_pretrained",
+        staticmethod(lambda path, **kwargs: Qwen3_5ForCausalLM()),
     )
 
-    def _auto_model_must_not_be_used(*args, **kwargs):
-        raise AssertionError(
-            "transformers.AutoModel must not be used for Qwen3.5 -- it dispatches to "
-            "Qwen3_5Model, which has no .generate()."
-        )
+    def _must_not_be_used(name):
+        def _raise(*args, **kwargs):
+            raise AssertionError(f"transformers.{name} must not be used for Qwen3.5 anymore.")
 
-    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", staticmethod(_auto_model_must_not_be_used))
+        return _raise
+
+    monkeypatch.setattr(
+        transformers.AutoModelForImageTextToText, "from_pretrained",
+        staticmethod(_must_not_be_used("AutoModelForImageTextToText")),
+    )
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", staticmethod(_must_not_be_used("AutoModel")))
     monkeypatch.setattr(
         harness.QwenScopeSAE, "from_layer_file",
         staticmethod(lambda path, *, k, device, target: _FakeSaeForQwenLoadTest()),
@@ -416,18 +469,78 @@ def test_load_qwen_target_uses_auto_model_for_image_text_to_text_not_auto_model(
 
     assert hasattr(hf_model, "generate"), "load_qwen_target must return a model with a callable .generate()"
     assert callable(hf_model.generate)
-    assert provenance["model"]["actual_class"] == "_FakeQwen3_5ForConditionalGeneration"
+    assert provenance["model"]["actual_class"] == "Qwen3_5ForCausalLM"
+    assert provenance["model"]["selected_auto_class"] == "AutoModelForCausalLM"
+    assert provenance["model"]["decoder_attribute_path"] == "model.layers"
+    assert isinstance(provenance["model"]["transformers_version"], str)
     assert provenance["layer"]["engineering_layer"] == 31
+    assert provenance["layer"]["engineering_only"] is True
     assert provenance["sae"]["k"] == 50
-    assert provenance["sae"]["used_zero_b_dec_default"] is False
+    assert "used_zero_b_dec_default" not in provenance["sae"]
+
+
+def test_load_qwen_target_rejects_when_auto_model_for_causal_lm_returns_wrong_class(monkeypatch, tmp_path):
+    """Proves targets.validate_runtime_class is actually wired into
+    load_qwen_target -- not merely defined and separately unit-tested."""
+    import transformers
+
+    monkeypatch.setattr(
+        transformers.AutoModelForCausalLM, "from_pretrained",
+        staticmethod(lambda path, **kwargs: Qwen3_5Model()),
+    )
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+
+    model_dir = tmp_path / "qwen_model"
+    model_dir.mkdir()
+    sae_file = tmp_path / "layer31.sae.pt"
+    sae_file.write_bytes(b"fake")
+
+    with pytest.raises(targets.TargetIdentityMismatch, match="Qwen3_5ForCausalLM"):
+        harness.load_qwen_target(
+            model_dir, sae_file, layer=31, expected_model_revision="rev1", expected_sae_revision="rev1",
+        )
+
+
+def test_load_qwen_target_rejects_missing_generate(monkeypatch, tmp_path):
+    """Proves targets.validate_has_callable_generate is actually wired into
+    load_qwen_target, independent of validate_runtime_class -- a class that
+    happens to be named correctly but has no .generate() must still fail
+    closed rather than crash deep inside the generation call later."""
+    import transformers
+
+    class Qwen3_5ForCausalLM:  # local shadow: right name, deliberately no .generate()
+        def __init__(self):
+            self.model = _FakeQwenTextModel()
+
+        def eval(self):
+            return self
+
+        def to(self, device):
+            return self
+
+    monkeypatch.setattr(
+        transformers.AutoModelForCausalLM, "from_pretrained",
+        staticmethod(lambda path, **kwargs: Qwen3_5ForCausalLM()),
+    )
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+
+    model_dir = tmp_path / "qwen_model"
+    model_dir.mkdir()
+    sae_file = tmp_path / "layer31.sae.pt"
+    sae_file.write_bytes(b"fake")
+
+    with pytest.raises(targets.TargetIdentityMismatch, match="generate"):
+        harness.load_qwen_target(
+            model_dir, sae_file, layer=31, expected_model_revision="rev1", expected_sae_revision="rev1",
+        )
 
 
 def test_load_qwen_target_rejects_layer_filename_mismatch(monkeypatch, tmp_path):
     import transformers
 
     monkeypatch.setattr(
-        transformers.AutoModelForImageTextToText, "from_pretrained",
-        staticmethod(lambda path, **kwargs: _FakeQwen3_5ForConditionalGeneration()),
+        transformers.AutoModelForCausalLM, "from_pretrained",
+        staticmethod(lambda path, **kwargs: Qwen3_5ForCausalLM()),
     )
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
 
@@ -475,18 +588,54 @@ def test_register_qwen_raw_hook_bridges_to_make_clamp_hook_contract():
     assert torch.equal(result, x * 2.0 + 100.0)  # the hook's replacement is what the caller actually sees
 
 
-def test_resolve_qwen_text_decoder_prefers_model_dot_language_model():
-    fake = SimpleNamespace(model=SimpleNamespace(language_model="text-decoder-a"))
-    assert harness.resolve_qwen_text_decoder(fake) == "text-decoder-a"
+class _TupleReturningLayer(torch.nn.Module):
+    """Simulates a decoder layer whose forward() returns a tuple -- the
+    opposite of what modeling_qwen3_5.py's own Qwen3_5DecoderLayer.forward()
+    was verified to return (a plain tensor). Proves the orchestrator
+    review's new output-type check fails clearly rather than silently
+    mishandling a tuple."""
+
+    def forward(self, x):
+        return (x * 2.0, None)
 
 
-def test_resolve_qwen_text_decoder_falls_back_to_direct_attribute():
-    fake = SimpleNamespace(language_model="text-decoder-b")
-    assert harness.resolve_qwen_text_decoder(fake) == "text-decoder-b"
+def test_register_qwen_raw_hook_fails_closed_on_non_tensor_output():
+    layer = _TupleReturningLayer()
+
+    def fake_inner_hook(resid, hook):
+        return resid
+
+    handle = harness.register_qwen_raw_hook(layer, fake_inner_hook)
+    try:
+        with pytest.raises(targets.TargetIdentityMismatch, match="plain tensor"):
+            layer(torch.ones(1, 3))
+    finally:
+        handle.remove()
 
 
-def test_resolve_qwen_text_decoder_fails_closed_when_neither_present():
+def test_resolve_qwen_text_decoder_reads_model_dot_layers():
+    """Qwen3_5ForCausalLM.model is a Qwen3_5TextModel with its own .layers
+    directly -- no .language_model indirection (that nesting is specific to
+    the multimodal Qwen3_5ForConditionalGeneration class this harness no
+    longer loads)."""
+    fake = SimpleNamespace(model=SimpleNamespace(layers=["layer0", "layer1"]))
+    assert harness.resolve_qwen_text_decoder(fake) is fake.model
+
+
+def test_resolve_qwen_text_decoder_fails_closed_when_model_attribute_missing():
     fake = SimpleNamespace(some_other_attr=1)
+    with pytest.raises(targets.TargetIdentityMismatch):
+        harness.resolve_qwen_text_decoder(fake)
+
+
+def test_resolve_qwen_text_decoder_fails_closed_on_the_old_multimodal_shape():
+    """The multimodal Qwen3_5ForConditionalGeneration's .model is a
+    Qwen3_5Model, which has .language_model but no .layers of its own. A
+    prior version of this function would have accepted this shape (it
+    preferred .model.language_model); the corrected function no longer
+    reaches for .language_model at all, so this must now fail closed
+    rather than silently returning the wrong object."""
+    fake = SimpleNamespace(model=SimpleNamespace(language_model=SimpleNamespace(layers=["x"])))
     with pytest.raises(targets.TargetIdentityMismatch):
         harness.resolve_qwen_text_decoder(fake)
 

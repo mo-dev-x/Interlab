@@ -100,8 +100,8 @@ that is confirming the retained policy, not questioning it.
 HF_HUB_OFFLINE=1 python scripts/legacy/final_pairing_harness.py \
   --target qwen-3.5-27b \
   --model-path /path/from/lab-assistant-1/inventory/qwen3.5-27b \
-  --sae-path /path/from/lab-assistant-1/inventory/qwen-scope/layer31.sae.pt \
-  --qwen-layer 31 \
+  --sae-path /path/from/lab-assistant-1/inventory/qwen-scope/layer0.sae.pt \
+  --qwen-layer 0 \
   --expected-model-revision <from inventory> \
   --expected-sae-revision <from inventory> \
   --feature-idx 4096 \
@@ -112,19 +112,34 @@ HF_HUB_OFFLINE=1 python scripts/legacy/final_pairing_harness.py \
   --out results/final_pairing/qwen_3_5_27b_mechanical.json
 ```
 
-`--qwen-layer` is REQUIRED and engineering-only -- there is no ratified
-default (see final_pairing_targets.py's module docstring): pick whichever of
-layers 0-63 Lab Assistant 1's inventory actually has staged locally. The
-harness cross-checks this against the SAE file's own name (must literally be
-`layer<N>.sae.pt` for the same `N`) -- a mismatch fails closed before any
-weights load. `--sae-path` for this target is the single `layerN.sae.pt`
-file matching `--qwen-layer`, not a directory. `--raw-clamp-value 20` is a
-placeholder in this SAE's own dtype=float32 scale -- no maxActApprox-equivalent
-exists for this release yet (nothing has characterized it), which is exactly
-why `--raw-clamp-value` exists as an alternative to `--dose-multiple`/
-`--calibration-value`.
+`--qwen-layer 0` here is the command packet's own default selection, NOT a
+harness-level default -- `--qwen-layer` remains REQUIRED with no code
+default (see final_pairing_targets.py's module docstring: there is no
+ratified layer). Layer 0 is chosen because it's the official Qwen-Scope
+release's own documented example; the harness still fully supports any
+other layer 0-63 Lab Assistant 1's inventory has staged locally for later
+mechanical testing. The harness cross-checks the chosen layer against the
+SAE file's own name (must literally be `layer<N>.sae.pt` for the same `N`)
+-- a mismatch fails closed before any weights load. `--sae-path` for this
+target is the single `layerN.sae.pt` file matching `--qwen-layer`, not a
+directory. `--raw-clamp-value 20` is a placeholder in this SAE's own
+dtype=float32 scale -- no maxActApprox-equivalent exists for this release
+yet (nothing has characterized it), which is exactly why `--raw-clamp-value`
+exists as an alternative to `--dose-multiple`/`--calibration-value`.
 
-**This command is the least-verified part of this packet** -- see
+Orchestrator review, 2026-08-11 ("Align Qwen harness with official release
+and Tamia runtime"): this command now loads via `AutoModelForCausalLM` (not
+`AutoModelForImageTextToText`), matching both Tamia's actual installed
+transformers==5.14.1 and the official Qwen-Scope release's own application,
+which hooks `model.model.layers[layer]` the same way. The harness fails
+closed before generation if the loaded class isn't exactly
+`Qwen3_5ForCausalLM` or lacks a callable `.generate()`
+(`targets.validate_runtime_class` / `validate_has_callable_generate`), and
+`QwenScopeSAE` now REQUIRES `b_dec` in the layer file and fails closed if
+it's absent -- the release's own checkpoint contract lists it as present,
+so there is no more silent zero-bias fallback.
+
+**This command is still the least-verified part of this packet** -- see
 "Unresolved ambiguities" below before spending a GPU allocation on it.
 
 ## Expected artifacts
@@ -146,19 +161,21 @@ Both commands write one JSON file to `--out`:
     "model": {
       "repository": "...", "local_path": "...", "revision": "...",
       "revision_verification": "hf_cache_layout | explicit_revision_declared_not_path_derived",
-      "actual_class": "HookedTransformer | Qwen3_5ForConditionalGeneration"
+      "actual_class": "HookedTransformer | Qwen3_5ForCausalLM",
+      "transformers_version": "... (Qwen only, e.g. 5.14.1)",
+      "selected_auto_class": "... (Qwen only, always 'AutoModelForCausalLM')",
+      "decoder_attribute_path": "... (Qwen only, always 'model.layers')"
     },
     "sae": {
       "repository": "...", "release": "... or null", "sae_id": "... or null",
       "local_path": "...", "revision": "...", "revision_verification": "...",
       "resolved_files": ["... every local file the SAE loader actually read ..."],
       "actual_class": "...", "format": "sae_lens_registry | qwen_scope_raw_pt",
-      "d_in": <int>, "d_sae": <int>, "k": <int or null>,
-      "used_zero_b_dec_default": <bool or null>
+      "d_in": <int>, "d_sae": <int>, "k": <int or null>
     },
     "layer": {
-      "engineering_layer": <int or null>, "hook_name": "...",
-      "hooked_module_class": "..."
+      "engineering_layer": <int or null>, "engineering_only": "... (Qwen only, always true)",
+      "hook_name": "...", "hooked_module_class": "..."
     },
     "feature_idx": <int>
   },
@@ -177,11 +194,25 @@ Both commands write one JSON file to `--out`:
 path/revision were actually used for the model and the SAE, how that
 identity was verified, the actual runtime classes involved, the resolved
 engineering layer and hook identity, the SAE's own structural facts
-(dimensions, k, whether `b_dec` was a real loaded value or a zero default),
-and the feature index that was steered. `provenance.sae.resolved_files` for
-the Gemma target is the mechanical proof that the sae_lens registry loader
-actually read from the validated snapshot (see "Unresolved ambiguities" --
-this is a real check, not a restated assumption).
+(dimensions, k), and the feature index that was steered.
+`provenance.sae.resolved_files` for the Gemma target is the mechanical
+proof that the sae_lens registry loader actually read from the validated
+snapshot (see "Unresolved ambiguities" -- this is a real check, not a
+restated assumption).
+
+Schema note: the Gemma and Qwen branches are not perfectly symmetric.
+Gemma still emits `provenance.sae.used_zero_b_dec_default: null` (a
+vestigial placeholder -- the sae_lens-loaded Gemma SAE never had this
+concept at all, since that field's presence/absence was always specific to
+the Qwen-Scope raw-`.pt` format). Qwen no longer emits that key: the
+release's own checkpoint contract lists `b_dec` as present, so
+`QwenScopeSAE` now requires it and fails closed if it's missing, rather
+than defaulting to zero and flagging that it did so. Only the Qwen branch
+gets `transformers_version`/`selected_auto_class`/`decoder_attribute_path`/
+`layer.engineering_only` -- these describe facts specific to the raw-HF
+loading route this harness uses for Qwen; Gemma loads through
+`HookedTransformer`/`sae_lens` instead and its provenance path was not
+touched by this review.
 
 Each `trace` record carries every per-call field this task's acceptance
 criteria require: requested mode/dose-or-raw, calibration input, resolved
@@ -215,31 +246,45 @@ Ranked by how much they can invalidate a run if wrong:
 1. **The entire Qwen raw-HF path has never run against real Qwen3.5-27B
    weights.** transformer_lens==3.2.1 has no registry entry for this model
    (verified negative, same pin as the Tamia sprint venv), so this harness
-   uses `transformers.AutoModelForImageTextToText` + a raw PyTorch
-   `register_forward_hook` instead of `HookedTransformer`. The auto-class
-   choice itself is verified locally against the installed
-   `transformers==5.12.1`'s own `MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES`
-   (dispatches `"qwen3_5"` to `Qwen3_5ForConditionalGeneration`, which has
-   `.generate()` -- `AutoModel` dispatches to `Qwen3_5Model`, which does
-   not), and the text-decoder path (`hf_model.model.language_model`) and
-   decoder-layer forward-hook signature were verified by reading
-   `modeling_qwen3_5.py`'s actual source, not inferred by analogy. Still,
-   none of this has touched real weights. Treat the first live run as the
-   actual test of this design, not a formality.
-2. **`Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50`'s `b_dec` key is unconfirmed.**
-   The release's own `app.py` (public source, read-only) never reads a
-   decoder bias in its own steering shortcut, so its presence in the real
-   `layerN.sae.pt` checkpoint is unverified either way.
-   `QwenScopeSAE.from_state_dict` defaults to a zero bias and sets
-   `used_zero_b_dec_default=True` when the key is absent -- check
-   `provenance.sae.used_zero_b_dec_default` in a real run's output before
-   trusting `decode()`'s reconstruction quality.
+   uses `transformers.AutoModelForCausalLM` + a raw PyTorch
+   `register_forward_hook` instead of `HookedTransformer`. Orchestrator
+   review, 2026-08-11: this replaced the earlier
+   `AutoModelForImageTextToText` route after Tamia reported its actual
+   installed transformers (5.14.1) dispatches `model_type="qwen3_5"`
+   through `AutoModelForCausalLM` to `Qwen3_5ForCausalLM` instead, matching
+   the official Qwen-Scope release's own application. This was verified
+   two ways, not merely taken on the orchestrator's word: (a) read directly
+   from the public transformers GitHub source at tag v5.14.1 (the exact
+   version Tamia reports), and (b) independently re-confirmed against this
+   machine's own installed transformers==5.12.1 -- which already has the
+   identical `MODEL_FOR_CAUSAL_LM_MAPPING_NAMES["qwen3_5"] ==
+   "Qwen3_5ForCausalLM"` mapping, and whose `Qwen3_5ForCausalLM.model` is
+   already a `Qwen3_5TextModel` with `.layers` as its own `nn.ModuleList`
+   (no `.language_model` indirection -- that nesting is specific to the
+   multimodal `Qwen3_5ForConditionalGeneration` class this harness no
+   longer loads). `Qwen3_5DecoderLayer.forward()` still returns a plain
+   tensor in both versions (`register_qwen_raw_hook` now also verifies this
+   at runtime and fails clearly if it ever isn't). Still, none of this has
+   touched real weights. Treat the first live run as the actual test of
+   this design, not a formality.
+2. **`Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50`'s `b_dec` presence, the
+   ReLU-then-TopK(50) activation order, and layer 0 as the release's own
+   documented example are taken directly from the work order's stated
+   findings, not independently re-derived this round.** A guessed URL for
+   the official Qwen-Scope application's own source 404'd, and no further
+   URL was guessed (per this project's policy against fabricating URLs) --
+   these facts are trusted as Lab Assistant 1's inventory / orchestrator
+   findings, the same trust model already used for the ratified target
+   identities themselves. `QwenScopeSAE.from_state_dict` now REQUIRES
+   `b_dec` and fails closed (`TargetIdentityMismatch`) if a real layer file
+   turns out not to have it -- if that happens, it means this specific
+   claim was wrong, not that the harness is broken.
 3. **The Qwen generation call (`hf_model.generate(...)`, `transformers`'
    own `GenerationMixin`) has not been run against this specific
-   multimodal wrapper.** It is the standard, heavily-exercised HF decode
+   causal-LM wrapper.** It is the standard, heavily-exercised HF decode
    path in general, but "general" is not "verified for
-   `Qwen3_5ForConditionalGeneration` with a raw forward hook attached to
-   one internal decoder layer."
+   `Qwen3_5ForCausalLM` with a raw forward hook attached to one internal
+   decoder layer."
 4. **The Gemma SAE-provenance proof (`resolved_files` matching
    `--sae-path`) has only been exercised with a monkeypatched fake
    `hf_hub_download` in tests, never against sae_lens's real download
