@@ -793,6 +793,77 @@ def test_main_gemma_writes_the_documented_json_schema(monkeypatch, tmp_path):
     assert exit_code in (0, 1)
 
 
+def test_load_gemma_it_target_rejects_wrong_sae_subdirectory_before_further_use(monkeypatch, tmp_path):
+    """Integration-level proof that the new subdirectory guard
+    (orchestrator review, 2026-08-12) is actually wired into
+    load_gemma_it_target and fires before ANY further use of the loaded
+    SAE object -- and therefore strictly before main()'s later
+    model.generate() call, which only ever runs on load_gemma_it_target's
+    successful return value. Uses an attn_out sibling file resolved from
+    INSIDE the same correctly-validated snapshot, proving the wrong SAE
+    family cannot reach generation even from the right snapshot."""
+    import sae_lens.loading.pretrained_sae_loaders as psl
+    import transformer_lens
+    import transformers
+    from sae_lens import SAE
+
+    model_snapshot = tmp_path / "models--google--gemma-3-12b-it" / "snapshots" / "modelrev"
+    model_snapshot.mkdir(parents=True)
+    sae_snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "saerev"
+    sae_snapshot.mkdir(parents=True)
+
+    class _FakeHfModel:
+        def to(self, device):
+            return self
+
+    class _FakeTLModel:
+        cfg = SimpleNamespace(d_model=3840)
+
+        def eval(self):
+            return self
+
+    monkeypatch.setattr(
+        transformers.AutoTokenizer, "from_pretrained", staticmethod(lambda *a, **k: SimpleNamespace())
+    )
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", staticmethod(lambda *a, **k: _FakeHfModel()))
+    monkeypatch.setattr(
+        transformer_lens.HookedTransformer, "from_pretrained", staticmethod(lambda *a, **k: _FakeTLModel())
+    )
+
+    reached_dtype_conversion = {"value": False}
+
+    class _FakeSae:
+        cfg = SimpleNamespace(d_in=3840, d_sae=16384, metadata=SimpleNamespace(hook_name="blocks.31.hook_resid_post"))
+
+        def to(self, dtype):
+            reached_dtype_conversion["value"] = True
+            return self
+
+        def eval(self):
+            return self
+
+    def fake_hf_hub_download(repo_id, filename, **kwargs):
+        # an attn_out SIBLING file, resolved from inside the SAME correctly-validated snapshot
+        return str(sae_snapshot / "attn_out" / "layer_31_width_16k_l0_medium" / filename)
+
+    monkeypatch.setattr(psl, "hf_hub_download", fake_hf_hub_download)
+
+    def fake_sae_from_pretrained(*, release, sae_id, device):
+        psl.hf_hub_download(repo_id="google/gemma-scope-2-12b-it", filename="cfg.json")
+        return _FakeSae()
+
+    monkeypatch.setattr(SAE, "from_pretrained", staticmethod(fake_sae_from_pretrained))
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+
+    with pytest.raises(targets.TargetIdentityMismatch, match="attn_out"):
+        harness.load_gemma_it_target(model_snapshot, sae_snapshot)
+
+    assert reached_dtype_conversion["value"] is False, (
+        "the subdirectory guard must fire before any further use of the loaded SAE -- and "
+        "therefore strictly before main()'s later model.generate() call"
+    )
+
+
 def test_main_rejects_bad_raw_clamp_value_before_any_loader_is_called(monkeypatch, tmp_path):
     """Acceptance: nonpositive/nonfinite raw STEER values fail BEFORE
     loading weights -- assert the loader is never even reached."""

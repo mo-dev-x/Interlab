@@ -78,6 +78,39 @@ and Tamia runtime"), replaced the Qwen loading route entirely:
    output is a plain tensor (as verified against modeling_qwen3_5.py) and
    fails clearly, rather than silently misbehaving, if Tamia's live
    implementation ever returns something else (e.g. a tuple).
+
+Orchestrator review, 2026-08-12 ("Fail closed on the exact Gemma SAE
+subdirectory"): the final Gemma Scope IT snapshot ships FIVE different SAE
+families sharing the identical "layer_31_width_16k_l0_medium" suffix --
+attn_out, mlp_out, resid_post, transcoder, and transcoder affine.
+validate_sae_files_match_snapshot only proves the loaded files fall
+somewhere under the correctly-validated snapshot as a WHOLE; it cannot, by
+itself, distinguish which of the five sibling families was actually
+loaded. load_gemma_it_target now also calls two further, complementary
+checks (added same day, addendum "HF snapshot symlink containment"):
+
+  - targets.validate_sae_files_match_expected_subdirectory -- the LOGICAL
+    check: fails closed if any resolved file's own (never-dereferenced)
+    snapshot-relative path falls outside the ratified
+    resid_post/layer_31_width_16k_l0_medium subdirectory specifically,
+    even though it would still pass the broader snapshot-level check.
+    Uses Path.is_relative_to (not a manual string-prefix comparison) so a
+    sibling-prefix name like "resid_post_v2" cannot slip through.
+  - targets.validate_sae_symlink_targets_stay_in_repository_cache -- the
+    PHYSICAL check: a real huggingface_hub cache entry is normally a
+    SYMLINK whose dereferenced target legitimately lives in a sibling
+    blobs/ store outside the snapshot tree entirely -- Path.resolve()/
+    os.path.realpath must therefore never be used for the LOGICAL check
+    above (it would make every real symlinked file look like it escaped
+    the snapshot). This second check instead dereferences ONLY symlinks
+    that are actually present on disk, and confirms the dereferenced
+    target still belongs to the SAME repository's own cache root
+    (models--<org>--<repo>, the parent both snapshots/ and blobs/ share),
+    without requiring the flat, hash-named blob store to retain any
+    sae_id directory structure at all.
+
+Qwen is untouched: it has no comparable sibling-family directory structure
+(one flat layerN.sae.pt file per layer), so both new checks are Gemma-only.
 """
 
 from __future__ import annotations
@@ -518,6 +551,10 @@ def load_gemma_it_target(
     finally:
         _restore_sae_download_paths(original_hf_hub_download)
     targets.validate_sae_files_match_snapshot(resolved_sae_files, sae_path, target)
+    subdirectory_identity = targets.validate_sae_files_match_expected_subdirectory(
+        resolved_sae_files, sae_path, target
+    )
+    targets.validate_sae_symlink_targets_stay_in_repository_cache(resolved_sae_files, sae_path, target)
 
     sae = sae.to(dtype=torch.float32)
     sae.eval()
@@ -549,6 +586,8 @@ def load_gemma_it_target(
             "d_sae": sae.cfg.d_sae,
             "k": None,
             "used_zero_b_dec_default": None,
+            "expected_sae_subdirectory": subdirectory_identity["expected_sae_subdirectory"],
+            "sae_subdirectory_membership_verified": subdirectory_identity["sae_subdirectory_membership_verified"],
         },
         "layer": {
             "engineering_layer": target.expected_layer,

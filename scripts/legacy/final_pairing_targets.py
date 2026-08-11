@@ -112,6 +112,7 @@ defaulting to zero -- see that class's docstring in final_pairing_harness.py.
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -435,6 +436,145 @@ def validate_sae_files_match_snapshot(resolved_files: list[str], sae_path: str |
             f"the SAE registry loader resolved file(s) OUTSIDE the validated snapshot "
             f"{str(sae_path)!r}: {mismatched}. This is the exact silent-wrong-revision failure "
             f"this check exists to catch, even though the file(s) fetched successfully."
+        )
+
+
+def _hf_repository_cache_root(path: str | Path) -> Path | None:
+    """Returns the huggingface_hub repository cache root
+    (.../models--<org>--<repo>) that both snapshots/ and blobs/ live
+    under as siblings, for a path following the standard cache layout.
+    Returns None for a path that doesn't follow it (e.g. a hand-staged
+    directory) -- there is no repo-cache root to compute, and no blobs/
+    convention to bound a symlink target against."""
+    normalized = str(path).replace("\\", "/")
+    match = _HF_CACHE_SNAPSHOT_RE.search(normalized)
+    if match is None:
+        return None
+    repo_root_end = match.start() + len(f"models--{match.group('org')}--{match.group('repo')}")
+    return Path(normalized[:repo_root_end])
+
+
+def validate_sae_files_match_expected_subdirectory(
+    resolved_files: list[str], sae_path: str | Path, target: TargetPairing
+) -> dict[str, Any]:
+    """LOGICAL snapshot identity: proves every resolved SAE file's OWN
+    (snapshot-relative) path lives under the RATIFIED SAE family's own
+    subdirectory (target.sae_id, e.g. "resid_post/layer_31_width_16k_
+    l0_medium"), not merely somewhere under the correctly-validated
+    snapshot as a whole. See validate_sae_symlink_targets_stay_in_
+    repository_cache below for the complementary PHYSICAL check -- that
+    function checks where a symlink's dereferenced bytes actually live;
+    this function checks the symlink's OWN logical location, which is
+    where the SAE family identity actually lives (see that function's
+    docstring for why the physical blob target has no comparable
+    structure at all, and must not be required to).
+
+    Orchestrator review, 2026-08-12: the final Gemma Scope IT snapshot
+    ships FIVE different SAE families sharing the identical
+    "layer_31_width_16k_l0_medium" suffix -- attn_out, mlp_out,
+    resid_post, transcoder, and transcoder affine -- so
+    validate_sae_files_match_snapshot above (which only proves "somewhere
+    under this snapshot") cannot, by itself, prove which of the five was
+    actually loaded. Post-hoc inspection of the loaded weights is not
+    acceptance; this is the fail-closed pre-generation gate.
+
+    Deliberately does NOT call Path.resolve() / os.path.realpath on
+    either sae_path or the resolved files -- only os.path.abspath
+    (normalize + make absolute, WITHOUT following symlinks). The standard
+    huggingface_hub cache stores each snapshot entry as a SYMLINK from
+    snapshots/<revision>/<repo-relative-path> to a flat, subdirectory-free
+    blobs/<hash> file that is a SIBLING of (not nested under) the
+    snapshots directory -- dereferencing the symlink here would land on
+    that flat blob path and incorrectly reject every legitimate file,
+    regardless of which SAE family it actually belongs to. Uses
+    Path.is_relative_to rather than a manual string-prefix comparison, to
+    close the sibling-prefix false-match case (e.g. "resid_post_v2" or
+    "layer_31_width_16k_l0_medium_v2" matching a naive str.startswith())
+    without introducing any symlink dereferencing in the process.
+
+    Returns a provenance dict {"expected_sae_subdirectory",
+    "sae_subdirectory_membership_verified"} for the JSON trace -- returned
+    only on success; every failure path raises instead."""
+    if not resolved_files:
+        raise TargetIdentityMismatch(
+            "zero resolved SAE files -- cannot prove any of them belong to the ratified SAE "
+            f"subdirectory {target.sae_id!r}."
+        )
+    if not target.sae_id:
+        raise TargetIdentityMismatch(
+            f"target {target.name!r} has no ratified sae_id to derive an expected SAE "
+            f"subdirectory from -- cannot perform this check."
+        )
+    expected_dir = Path(os.path.abspath(str(sae_path))) / target.sae_id
+    mismatched = []
+    for f in resolved_files:
+        f_logical = Path(os.path.abspath(f))
+        if f_logical == expected_dir or not f_logical.is_relative_to(expected_dir):
+            mismatched.append(f)
+    if mismatched:
+        raise TargetIdentityMismatch(
+            f"resolved SAE file(s) are OUTSIDE the ratified SAE subdirectory {target.sae_id!r} "
+            f"within the validated snapshot -- sibling SAE families (attn_out, mlp_out, "
+            f"transcoder, transcoder affine) share the identical layer/width/l0 suffix and must "
+            f"not be silently accepted just because they live under the correct snapshot: "
+            f"{mismatched}"
+        )
+    return {"expected_sae_subdirectory": target.sae_id, "sae_subdirectory_membership_verified": True}
+
+
+def validate_sae_symlink_targets_stay_in_repository_cache(
+    resolved_files: list[str], sae_path: str | Path, target: TargetPairing
+) -> None:
+    """PHYSICAL cache safety: the complementary check to
+    validate_sae_files_match_expected_subdirectory above. Hugging Face
+    snapshot entries are normally SYMLINKS from
+    snapshots/<revision>/<repo-relative-path> into the repository's own
+    blobs/<hash> store -- a sibling of snapshots/, under the same
+    models--<org>--<repo> cache root. A real symlink's dereferenced target
+    therefore legitimately LEAVES the snapshot subdirectory tree entirely;
+    that alone is not a problem. What this DOES check: that the
+    dereferenced target still belongs to the SAME repository's cache
+    root, not some other repository's cache or an arbitrary filesystem
+    location. It deliberately does NOT require the physical blob path to
+    retain the sae_id directory structure -- blobs/ is a flat, hash-named
+    store with no such structure at all; that identity belongs to the
+    revision snapshot entry checked above, not to the blob store.
+
+    Only applies when a resolved file actually IS a symlink on disk
+    (Path.is_symlink() returns False, not an error, for a path that does
+    not exist or is a plain file/copy -- e.g. under
+    HF_HUB_DISABLE_SYMLINKS_DOWNLOAD, or in this project's own synthetic
+    unit tests that build path strings without creating real files) --
+    there is nothing to dereference otherwise, and no physical-safety
+    claim to make. Silently returns (no-op) for a sae_path that doesn't
+    follow the standard huggingface_hub cache layout at all (a hand-staged
+    directory): there is no blobs/ convention to bound a symlink target
+    against in that case either.
+
+    NOTE: this check exercises real Path.is_symlink()/os.path.realpath
+    filesystem calls, but has only been proven against a synthetic
+    on-disk symlink in this project's own tests where the local machine
+    has permission to create one (creating a symlink requires elevated
+    privileges on some Windows machines, including the one this was
+    written on) -- it remains UNVERIFIED against a real sae_lens/
+    huggingface_hub download's actual symlink layout until the first live
+    Tamia run."""
+    repo_cache_root = _hf_repository_cache_root(sae_path)
+    if repo_cache_root is None:
+        return
+    escaped = []
+    for f in resolved_files:
+        f_path = Path(f)
+        if not f_path.is_symlink():
+            continue
+        dereferenced = Path(os.path.realpath(f))
+        if not dereferenced.is_relative_to(repo_cache_root):
+            escaped.append((f, str(dereferenced)))
+    if escaped:
+        raise TargetIdentityMismatch(
+            f"resolved SAE symlink(s) dereference to a target OUTSIDE this repository's own "
+            f"cache root {str(repo_cache_root)!r} -- the physical blob does not belong to "
+            f"{target.sae_repo_id!r}'s cache at all: {escaped}"
         )
 
 

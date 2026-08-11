@@ -94,6 +94,37 @@ here cannot be explained away by that already-understood behavior. Add
 to confirm the documented first-call no-op reproduces on the real stack --
 that is confirming the retained policy, not questioning it.
 
+Orchestrator review, 2026-08-12 ("Fail closed on the exact Gemma SAE
+subdirectory", plus same-day addendum "HF snapshot symlink containment"):
+the command line above is UNCHANGED -- `--sae-path` still means the SAE
+snapshot ROOT directory, exactly as before. What changed is internal. The
+final Gemma Scope IT snapshot ships FIVE different SAE families that all
+share the identical `layer_31_width_16k_l0_medium` suffix (`attn_out`,
+`mlp_out`, `resid_post`, `transcoder`, `transcoder affine`). The
+pre-existing snapshot-level check only proves the loaded files fall
+somewhere under the correctly-validated snapshot as a whole -- it cannot,
+by itself, distinguish which of the five sibling families was actually
+loaded. This run now also runs two further, complementary checks before
+generation (before even the SAE dtype conversion):
+
+1. **Logical**: fails closed if any resolved file's own (never-
+   dereferenced) snapshot-relative path falls outside
+   `resid_post/layer_31_width_16k_l0_medium/` specifically, even one that
+   still lives inside the correct snapshot as a whole.
+2. **Physical**: a real huggingface_hub cache entry is normally a SYMLINK
+   whose dereferenced target legitimately lives in a sibling `blobs/`
+   store outside the snapshot tree entirely -- so the logical check above
+   never dereferences anything, by design, and therefore cannot catch a
+   symlink whose target has been swapped to point somewhere else
+   entirely. This second check dereferences ONLY symlinks that are
+   actually present on disk, and fails closed if the target has left the
+   repository's own cache root (`models--<org>--<repo>`, the parent both
+   `snapshots/` and `blobs/` share) -- without requiring the flat,
+   hash-named blob store to retain any `sae_id` directory structure.
+
+No new flag is needed for either: both are derived directly from the
+ratified `sae_id` and the `--sae-path` you already supply.
+
 ## Command 2 -- Qwen3.5-27B + Qwen-Scope (SAE-Res-Qwen3.5-27B-W80K-L0_50)
 
 ```bash
@@ -171,7 +202,9 @@ Both commands write one JSON file to `--out`:
       "local_path": "...", "revision": "...", "revision_verification": "...",
       "resolved_files": ["... every local file the SAE loader actually read ..."],
       "actual_class": "...", "format": "sae_lens_registry | qwen_scope_raw_pt",
-      "d_in": <int>, "d_sae": <int>, "k": <int or null>
+      "d_in": <int>, "d_sae": <int>, "k": <int or null>,
+      "expected_sae_subdirectory": "... (Gemma only, e.g. 'resid_post/layer_31_width_16k_l0_medium')",
+      "sae_subdirectory_membership_verified": "... (Gemma only, see note below)"
     },
     "layer": {
       "engineering_layer": <int or null>, "engineering_only": "... (Qwen only, always true)",
@@ -212,7 +245,20 @@ gets `transformers_version`/`selected_auto_class`/`decoder_attribute_path`/
 `layer.engineering_only` -- these describe facts specific to the raw-HF
 loading route this harness uses for Qwen; Gemma loads through
 `HookedTransformer`/`sae_lens` instead and its provenance path was not
-touched by this review.
+touched by that review.
+
+Orchestrator review, 2026-08-12 added the other direction: only the Gemma
+branch gets `provenance.sae.expected_sae_subdirectory` (the ratified
+`sae_id`, e.g. `resid_post/layer_31_width_16k_l0_medium`) and
+`sae_subdirectory_membership_verified`. Qwen has no comparable sibling-
+family directory structure to guard against (one flat `layerN.sae.pt` file
+per layer, no `attn_out`/`mlp_out`/`transcoder` siblings), so this check is
+Gemma-only. `sae_subdirectory_membership_verified` is always `true` when
+present -- there is no `false` state: a mismatch raises
+`TargetIdentityMismatch` before `main()` ever reaches the JSON write, so a
+failed run produces no JSON artifact at all rather than one with this key
+set to `false`. Treat "no output file" the same as "membership verified:
+false" when triaging a failed Gemma run.
 
 Each `trace` record carries every per-call field this task's acceptance
 criteria require: requested mode/dose-or-raw, calibration input, resolved
@@ -231,6 +277,8 @@ safe to gate a job script on directly.
 | `IdentityUnverified` before any weights load | **PROVENANCE_UNVERIFIED** | The path given doesn't follow the HF cache layout and no `--expected-*-revision` was supplied. Supply the revision from Lab Assistant 1's inventory, or re-stage under the standard cache layout. This is new, stricter behavior versus the first version of this harness -- it used to silently continue here, which was itself the defect. |
 | `TargetIdentityMismatch` naming a repo/revision/hook/dim/shape/k/layer-filename | **LOADER_IDENTITY_MISMATCH** | The path/file/checkpoint given does not match the ratified target. Not a bug in the harness; the guard did its job. |
 | `TargetIdentityMismatch` mentioning "resolved file(s) OUTSIDE the validated snapshot" | **SAE_PROVENANCE_MISMATCH** | The SAE registry loader (Gemma side) resolved a DIFFERENT cached revision than the one validated at `--sae-path` -- likely more than one revision of this SAE is cached locally. Check `provenance.sae.resolved_files` against `--sae-path`. |
+| `TargetIdentityMismatch` mentioning "OUTSIDE the ratified SAE subdirectory" | **SAE_SUBDIRECTORY_MISMATCH** (new, 2026-08-12) | Gemma side only, the LOGICAL check. The resolved SAE file(s) live inside the correct snapshot/revision but under the WRONG sibling family (`attn_out`, `mlp_out`, `transcoder`, or `transcoder affine` instead of the ratified `resid_post`) -- all five share the identical `layer_31_width_16k_l0_medium` suffix, so this is not something the snapshot/revision checks above can catch. Sanity-check that `gemma-scope-2-12b-it-res` (the `-res` = resid_post release suffix) is actually the release configured, not a sibling release for one of the other four families. |
+| `TargetIdentityMismatch` mentioning "dereference to a target OUTSIDE this repository's own cache root" | **SAE_SYMLINK_ESCAPED_CACHE** (new, 2026-08-12 addendum) | Gemma side only, the PHYSICAL check. A resolved SAE file is a real on-disk symlink whose dereferenced target does NOT belong to this repository's own `models--<org>--<repo>` cache root -- i.e. the symlink's logical (snapshot-relative) location looked correct, but its target physically points somewhere else (a different repo's cache, or an arbitrary path). This is a DIFFERENT failure than SAE_SUBDIRECTORY_MISMATCH above: that one catches a symlink correctly pointing to a legitimate blob but logically filed under the wrong family; this one catches a symlink logically filed correctly but pointing to the wrong (or no longer trustworthy) physical bytes. |
 | `FileNotFoundError` for model/SAE path | **PATH_NOT_STAGED** | The inventory path doesn't exist on this machine/allocation. |
 | `RuntimeError: HF_HUB_OFFLINE=1 is not set` | **ENV_NOT_OFFLINE** | Export it before invoking -- every Tamia compute-node job in this project requires it. |
 | `ValueError`/`TargetIdentityMismatch` from `resolve_target_value` before any load starts | **BAD_STEER_VALUE** | `--raw-clamp-value` (or the resolved `--dose-multiple` x `--calibration-value` product) was zero, negative, NaN, or infinite. Fails before any weights load by design. |
@@ -294,7 +342,35 @@ Ranked by how much they can invalidate a run if wrong:
    but "the right function is patched" and "it behaves as expected against
    real registry internals" are different claims -- the second needs a
    real run.
-5. **Gemma-3-12b-it side is comparatively low-risk but still unrun**:
+5. **The new exact-SAE-subdirectory guards (2026-08-12, plus the same-day
+   "HF snapshot symlink containment" addendum) are unrun against a real
+   huggingface_hub cache's actual symlink layout -- real sae_lens path
+   capture remains LIVE-UNVERIFIED until the Tamia run.** There are now
+   two complementary checks, and each has a corresponding real-filesystem
+   regression test, but ALL of them SKIP on this machine specifically
+   (creating a symlink here requires privileges this environment doesn't
+   have) -- only the non-symlink and mocked-symlink cases ran locally:
+     - the LOGICAL check (`validate_sae_files_match_expected_subdirectory`)
+       never dereferences anything by design, so its own correctness
+       doesn't depend on symlink support -- but the real-cache-shape test
+       proving it still correctly rejects a sibling family or a
+       sibling-prefix name EVEN WHEN the resolved path is a genuine
+       symlink (`test_realistic_hf_cache_sibling_family_symlink_fails_
+       logical_check_only`, `test_realistic_hf_cache_sibling_prefix_
+       symlink_fails_logical_check`) has not actually run here.
+     - the PHYSICAL check (`validate_sae_symlink_targets_stay_in_
+       repository_cache`) is proven against a MOCKED `Path.is_symlink`/
+       `os.path.realpath` locally (deterministic, ran and passed on this
+       machine), but its real-filesystem counterparts
+       (`test_realistic_hf_cache_intended_resid_post_symlink_passes_
+       both_checks`, `test_realistic_hf_cache_symlink_escaping_
+       repository_cache_fails_physical_check`) also skip here.
+   Confirm all of these actually EXECUTE (not skip) in whatever
+   environment runs the focused suite before Command 1, and treat the
+   very first real Command 1 run as the first genuine test of the
+   symlink-safety design against sae_lens's real download internals, not
+   a formality.
+6. **Gemma-3-12b-it side is comparatively low-risk but still unrun**:
    `google/gemma-3-12b-it` is confirmed in `transformer_lens`'s registry
    with the identical `d_model=3840`/`n_layers=48` as the already-proven
    `-pt` pairing, and `gemma-scope-2-12b-it-res` /
@@ -303,13 +379,13 @@ Ranked by how much they can invalidate a run if wrong:
    The remaining unknown is purely whether the actual HF snapshot bytes are
    staged on Tamia -- a Lab Assistant 1 inventory question, not an
    engineering-design one.
-6. **`_patch_gemma3_safetensors_shape_lookup`'s applicability to the `-it`
+7. **`_patch_gemma3_safetensors_shape_lookup`'s applicability to the `-it`
    SAE release is inferred, not independently re-tested**: it's a generic
    fix for any `conversion_func="gemma_3"` release in the installed
    `sae_lens`, and `gemma-scope-2-12b-it-res` uses that same
    `conversion_func` (verified via the registry) -- reasoned to apply, not
    re-run against the `-it` release specifically.
-7. **No local machine used in this investigation can load either target's
+8. **No local machine used in this investigation can load either target's
    real weights** (no GPU, and neither snapshot is staged locally) -- every
    claim above is either read from public metadata/source (config.json,
    `app.py`, `modeling_qwen3_5.py`, the installed `sae_lens`/

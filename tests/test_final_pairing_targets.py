@@ -5,6 +5,7 @@ GPU, no network, no real weights -- everything here is strings/ints/dicts.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -401,3 +402,281 @@ def test_validate_has_callable_generate_rejects_missing_generate():
 def test_validate_has_callable_generate_rejects_non_callable_generate_attribute():
     with pytest.raises(targets.TargetIdentityMismatch, match="generate"):
         targets.validate_has_callable_generate(_GenerateNotCallable(), label="x")
+
+
+# ---------------------------------------------------------------------------
+# validate_sae_files_match_expected_subdirectory -- orchestrator review,
+# 2026-08-12: the final Gemma Scope IT snapshot ships FIVE different SAE
+# families sharing the identical "layer_31_width_16k_l0_medium" suffix
+# (attn_out, mlp_out, resid_post, transcoder, transcoder affine). This
+# proves the loaded files belong to exactly the ratified resid_post family,
+# not merely somewhere under the correctly-validated snapshot.
+# ---------------------------------------------------------------------------
+
+
+def _gemma_snapshot(tmp_path):
+    snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    return snapshot
+
+
+def test_validate_sae_subdirectory_accepts_resid_post_files(tmp_path):
+    snapshot = _gemma_snapshot(tmp_path)
+    resolved = [
+        str(snapshot / "resid_post" / "layer_31_width_16k_l0_medium" / "cfg.json"),
+        str(snapshot / "resid_post" / "layer_31_width_16k_l0_medium" / "sae_weights.safetensors"),
+    ]
+    provenance = targets.validate_sae_files_match_expected_subdirectory(
+        resolved, snapshot, targets.GEMMA_3_12B_IT_TARGET
+    )
+    assert provenance == {
+        "expected_sae_subdirectory": "resid_post/layer_31_width_16k_l0_medium",
+        "sae_subdirectory_membership_verified": True,
+    }
+
+
+@pytest.mark.parametrize("sibling_family", ["attn_out", "mlp_out", "transcoder", "transcoder affine"])
+def test_validate_sae_subdirectory_rejects_sibling_families(tmp_path, sibling_family):
+    """The exact failure mode this check exists to catch: a sibling SAE
+    family sharing the identical layer/width/l0 suffix, living under the
+    SAME correctly-validated snapshot -- proving snapshot-level validation
+    alone (validate_sae_files_match_snapshot) is insufficient."""
+    snapshot = _gemma_snapshot(tmp_path)
+    resolved = [str(snapshot / sibling_family / "layer_31_width_16k_l0_medium" / "cfg.json")]
+    with pytest.raises(targets.TargetIdentityMismatch, match=sibling_family):
+        targets.validate_sae_files_match_expected_subdirectory(resolved, snapshot, targets.GEMMA_3_12B_IT_TARGET)
+
+
+@pytest.mark.parametrize(
+    "bad_relative_path",
+    [
+        "resid_post_v2/layer_31_width_16k_l0_medium/cfg.json",
+        "resid_post/layer_31_width_16k_l0_medium_v2/cfg.json",
+        "xresid_post/layer_31_width_16k_l0_medium/cfg.json",
+        "resid_post/layer_31_width_16k_l0_mediumX/cfg.json",
+    ],
+)
+def test_validate_sae_subdirectory_rejects_similarly_named_prefixes_and_suffixes(tmp_path, bad_relative_path):
+    """Full-path-segment comparison, not substring/startswith -- a name
+    that merely shares a prefix or suffix with the ratified subdirectory
+    must not be accepted."""
+    snapshot = _gemma_snapshot(tmp_path)
+    resolved = [str(snapshot / bad_relative_path)]
+    with pytest.raises(targets.TargetIdentityMismatch):
+        targets.validate_sae_files_match_expected_subdirectory(resolved, snapshot, targets.GEMMA_3_12B_IT_TARGET)
+
+
+def test_validate_sae_subdirectory_rejects_zero_files():
+    with pytest.raises(targets.TargetIdentityMismatch, match="zero resolved"):
+        targets.validate_sae_files_match_expected_subdirectory([], "/some/snapshot", targets.GEMMA_3_12B_IT_TARGET)
+
+
+def test_validate_sae_subdirectory_rejects_files_outside_the_snapshot_entirely(tmp_path):
+    snapshot = _gemma_snapshot(tmp_path)
+    other_dir = tmp_path / "somewhere_else" / "resid_post" / "layer_31_width_16k_l0_medium" / "cfg.json"
+    with pytest.raises(targets.TargetIdentityMismatch):
+        targets.validate_sae_files_match_expected_subdirectory(
+            [str(other_dir)], snapshot, targets.GEMMA_3_12B_IT_TARGET
+        )
+
+
+def test_validate_sae_subdirectory_does_not_follow_resolve_style_symlink_paths(tmp_path):
+    """Regression guard for the exact failure mode this check must avoid:
+    a real huggingface_hub cache entry is a SYMLINK whose target physically
+    lives outside the snapshot (in a sibling blobs/ directory) -- the check
+    must still pass, since it is keyed off the file's OWN snapshot-relative
+    path, never off Path.resolve()/os.path.realpath following the symlink
+    to its target."""
+    snapshot = _gemma_snapshot(tmp_path)
+    blob_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "blobs"
+    blob_dir.mkdir(parents=True)
+    blob_target = blob_dir / "deadbeefcafe"
+    blob_target.write_bytes(b"fake sae weights")
+    sae_dir = snapshot / "resid_post" / "layer_31_width_16k_l0_medium"
+    sae_dir.mkdir(parents=True)
+    symlink_path = sae_dir / "sae_weights.safetensors"
+    try:
+        symlink_path.symlink_to(blob_target)
+    except OSError:
+        pytest.skip("creating a symlink requires elevated privileges on this machine")
+
+    provenance = targets.validate_sae_files_match_expected_subdirectory(
+        [str(symlink_path)], snapshot, targets.GEMMA_3_12B_IT_TARGET
+    )
+    assert provenance["sae_subdirectory_membership_verified"] is True
+
+
+# ---------------------------------------------------------------------------
+# _hf_repository_cache_root / validate_sae_symlink_targets_stay_in_repository_
+# cache -- addendum, 2026-08-12 ("HF snapshot symlink containment"): the
+# LOGICAL check above never dereferences a symlink, by design -- so it
+# cannot, by itself, catch a symlink whose target has been swapped to point
+# somewhere outside this repository's own cache entirely. This PHYSICAL
+# check is the complementary half: it dereferences ONLY real on-disk
+# symlinks, and confirms the target stays within the same repository cache
+# root, without requiring the flat blobs/ store to retain any sae_id
+# directory structure.
+# ---------------------------------------------------------------------------
+
+
+def test_hf_repository_cache_root_extracts_repo_root_from_snapshot_path():
+    root = targets._hf_repository_cache_root(
+        "/scratch/hf_cache/hub/models--google--gemma-scope-2-12b-it/snapshots/abc123"
+    )
+    assert root == Path("/scratch/hf_cache/hub/models--google--gemma-scope-2-12b-it")
+
+
+def test_hf_repository_cache_root_returns_none_for_non_cache_layout():
+    assert targets._hf_repository_cache_root("/home/y/yazid/hand_staged_sae_dir") is None
+
+
+def test_validate_sae_symlink_targets_accepts_mocked_symlink_inside_cache_root(tmp_path, monkeypatch):
+    """Deterministic proof of the accept branch on ANY machine, regardless
+    of local symlink-creation privileges: mocks Path.is_symlink/
+    os.path.realpath rather than requiring a real filesystem symlink (see
+    the realistic-cache-shape tests below for the real-filesystem version,
+    which skips where privileges are unavailable)."""
+    snapshot_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    snapshot_dir.mkdir(parents=True)
+    link_path = snapshot_dir / "resid_post" / "layer_31_width_16k_l0_medium" / "config.json"
+    dereferenced = tmp_path / "models--google--gemma-scope-2-12b-it" / "blobs" / "deadbeef"
+
+    monkeypatch.setattr(Path, "is_symlink", lambda self: str(self) == str(link_path))
+    monkeypatch.setattr(os.path, "realpath", lambda p: str(dereferenced) if str(p) == str(link_path) else p)
+
+    targets.validate_sae_symlink_targets_stay_in_repository_cache(
+        [str(link_path)], snapshot_dir, targets.GEMMA_3_12B_IT_TARGET
+    )  # must not raise
+
+
+def test_validate_sae_symlink_targets_rejects_mocked_symlink_escaping_cache_root(tmp_path, monkeypatch):
+    """Deterministic proof of the reject branch on ANY machine."""
+    snapshot_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    snapshot_dir.mkdir(parents=True)
+    link_path = snapshot_dir / "resid_post" / "layer_31_width_16k_l0_medium" / "config.json"
+    dereferenced = tmp_path / "some_other_repo" / "blobs" / "deadbeef"
+
+    monkeypatch.setattr(Path, "is_symlink", lambda self: str(self) == str(link_path))
+    monkeypatch.setattr(os.path, "realpath", lambda p: str(dereferenced) if str(p) == str(link_path) else p)
+
+    with pytest.raises(targets.TargetIdentityMismatch, match="OUTSIDE"):
+        targets.validate_sae_symlink_targets_stay_in_repository_cache(
+            [str(link_path)], snapshot_dir, targets.GEMMA_3_12B_IT_TARGET
+        )
+
+
+def test_validate_sae_symlink_targets_is_noop_for_non_symlink_files(tmp_path):
+    """No real file (let alone a symlink) exists at this path at all --
+    Path.is_symlink() returns False, not an error -- so there is nothing to
+    dereference and no physical-safety claim to make."""
+    snapshot = _gemma_snapshot(tmp_path)
+    resolved = [str(snapshot / "resid_post" / "layer_31_width_16k_l0_medium" / "cfg.json")]
+    targets.validate_sae_symlink_targets_stay_in_repository_cache(
+        resolved, snapshot, targets.GEMMA_3_12B_IT_TARGET
+    )  # must not raise
+
+
+def test_validate_sae_symlink_targets_is_noop_for_hand_staged_sae_path(tmp_path):
+    """No HF cache layout at all -- no blobs/ convention exists to bound a
+    symlink target against, so this check has nothing to do."""
+    hand_staged = tmp_path / "hand_staged_sae_dir"
+    hand_staged.mkdir()
+    resolved = [str(hand_staged / "resid_post" / "layer_31_width_16k_l0_medium" / "cfg.json")]
+    targets.validate_sae_symlink_targets_stay_in_repository_cache(
+        resolved, hand_staged, targets.GEMMA_3_12B_IT_TARGET
+    )  # must not raise
+
+
+def _build_realistic_hf_cache(tmp_path):
+    """A realistic huggingface_hub cache skeleton:
+        models--google--gemma-scope-2-12b-it/
+          blobs/<blob-id>
+          snapshots/<revision>/
+    Returns (repo_root, snapshot_dir, blob_path)."""
+    repo_root = tmp_path / "models--google--gemma-scope-2-12b-it"
+    blob_path = repo_root / "blobs" / "deadbeefcafe0123"
+    blob_path.parent.mkdir(parents=True)
+    blob_path.write_bytes(b"fake sae weights")
+    snapshot_dir = repo_root / "snapshots" / "abc123"
+    snapshot_dir.mkdir(parents=True)
+    return repo_root, snapshot_dir, blob_path
+
+
+def _symlink_or_skip(link_path, target_path):
+    link_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link_path.symlink_to(target_path)
+    except OSError:
+        pytest.skip("creating a symlink requires elevated privileges on this machine")
+
+
+def test_realistic_hf_cache_intended_resid_post_symlink_passes_both_checks(tmp_path):
+    """The intended symlink must pass: snapshots/<revision>/resid_post/
+    layer_31_width_16k_l0_medium/config.json -> .../blobs/<blob-id>, the
+    exact realistic shape a real Gemma Scope IT download produces."""
+    _repo_root, snapshot_dir, blob_path = _build_realistic_hf_cache(tmp_path)
+    link_path = snapshot_dir / "resid_post" / "layer_31_width_16k_l0_medium" / "config.json"
+    _symlink_or_skip(link_path, blob_path)
+
+    provenance = targets.validate_sae_files_match_expected_subdirectory(
+        [str(link_path)], snapshot_dir, targets.GEMMA_3_12B_IT_TARGET
+    )
+    assert provenance["sae_subdirectory_membership_verified"] is True
+    targets.validate_sae_symlink_targets_stay_in_repository_cache(
+        [str(link_path)], snapshot_dir, targets.GEMMA_3_12B_IT_TARGET
+    )  # must not raise
+
+
+@pytest.mark.parametrize("sibling_family", ["attn_out", "mlp_out", "transcoder"])
+def test_realistic_hf_cache_sibling_family_symlink_fails_logical_check_only(tmp_path, sibling_family):
+    """A logical entry under attn_out/mlp_out/transcoder must fail -- even
+    though its symlink target is a perfectly legitimate blob in the SAME
+    repository cache, proving the two checks are genuinely independent:
+    the physical check alone would NOT catch a merely-mis-filed family."""
+    _repo_root, snapshot_dir, blob_path = _build_realistic_hf_cache(tmp_path)
+    link_path = snapshot_dir / sibling_family / "layer_31_width_16k_l0_medium" / "config.json"
+    _symlink_or_skip(link_path, blob_path)
+
+    with pytest.raises(targets.TargetIdentityMismatch, match=sibling_family):
+        targets.validate_sae_files_match_expected_subdirectory(
+            [str(link_path)], snapshot_dir, targets.GEMMA_3_12B_IT_TARGET
+        )
+    targets.validate_sae_symlink_targets_stay_in_repository_cache(
+        [str(link_path)], snapshot_dir, targets.GEMMA_3_12B_IT_TARGET
+    )  # must not raise -- the blob itself is legitimately in-cache
+
+
+def test_realistic_hf_cache_sibling_prefix_symlink_fails_logical_check(tmp_path):
+    """A l0_medium_v2 sibling-prefix path must fail, even as a real
+    symlink into a legitimate blob."""
+    _repo_root, snapshot_dir, blob_path = _build_realistic_hf_cache(tmp_path)
+    link_path = snapshot_dir / "resid_post" / "layer_31_width_16k_l0_medium_v2" / "config.json"
+    _symlink_or_skip(link_path, blob_path)
+
+    with pytest.raises(targets.TargetIdentityMismatch):
+        targets.validate_sae_files_match_expected_subdirectory(
+            [str(link_path)], snapshot_dir, targets.GEMMA_3_12B_IT_TARGET
+        )
+
+
+def test_realistic_hf_cache_symlink_escaping_repository_cache_fails_physical_check(tmp_path):
+    """A symlink escaping the repository cache must fail -- even though
+    its OWN logical (snapshot-relative) location is exactly the ratified
+    subdirectory, proving the logical check alone would NOT catch a
+    swapped/escaping physical target; only the physical check inspects
+    where the symlink actually points."""
+    _repo_root, snapshot_dir, _blob_path = _build_realistic_hf_cache(tmp_path)
+    outside_target = tmp_path / "some_other_repo" / "blobs" / "deadbeefcafe0123"
+    outside_target.parent.mkdir(parents=True)
+    outside_target.write_bytes(b"fake weights from a different repository")
+    link_path = snapshot_dir / "resid_post" / "layer_31_width_16k_l0_medium" / "config.json"
+    _symlink_or_skip(link_path, outside_target)
+
+    provenance = targets.validate_sae_files_match_expected_subdirectory(
+        [str(link_path)], snapshot_dir, targets.GEMMA_3_12B_IT_TARGET
+    )
+    assert provenance["sae_subdirectory_membership_verified"] is True
+    with pytest.raises(targets.TargetIdentityMismatch, match="OUTSIDE"):
+        targets.validate_sae_symlink_targets_stay_in_repository_cache(
+            [str(link_path)], snapshot_dir, targets.GEMMA_3_12B_IT_TARGET
+        )
