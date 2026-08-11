@@ -325,6 +325,51 @@ def test_validate_qwen_k_rejects_mismatched_k():
 
 
 # ---------------------------------------------------------------------------
+# validate_sae_loader_id_registered -- orchestrator review, 2026-08-13
+# ("Separate Gemma artifact identity from loader identity", live job
+# 406092): the flat sae_lens loader id (sae_loader_id) is a DISTINCT
+# identity from the scientific artifact subdirectory (sae_id) -- the
+# release's own saes_map is keyed by the flat id, with the artifact path
+# as each entry's VALUE, not its key. Passing the artifact path as the
+# loader id fails before any weights load.
+# ---------------------------------------------------------------------------
+
+
+def test_gemma_target_carries_the_flat_loader_id_distinct_from_the_artifact_identity():
+    t = targets.GEMMA_3_12B_IT_TARGET
+    assert t.sae_loader_id == "layer_31_width_16k_l0_medium"
+    assert t.sae_id == "resid_post/layer_31_width_16k_l0_medium"
+    assert t.sae_loader_id != t.sae_id
+
+
+def test_validate_sae_loader_id_registered_accepts_registered_id():
+    targets.validate_sae_loader_id_registered(
+        "layer_31_width_16k_l0_medium",
+        ["layer_31_width_16k_l0_medium", "layer_12_width_16k_l0_medium"],
+        targets.GEMMA_3_12B_IT_TARGET,
+    )  # must not raise
+
+
+def test_validate_sae_loader_id_registered_rejects_the_artifact_path_as_a_loader_id():
+    """The exact live failure: the artifact path is a VALUE in the
+    release's saes_map, never one of its keys -- passing it as the loader
+    id must be rejected, not silently accepted because it 'looks right'."""
+    with pytest.raises(targets.TargetIdentityMismatch, match="resid_post/layer_31_width_16k_l0_medium"):
+        targets.validate_sae_loader_id_registered(
+            "resid_post/layer_31_width_16k_l0_medium",
+            ["layer_31_width_16k_l0_medium", "layer_12_width_16k_l0_medium"],
+            targets.GEMMA_3_12B_IT_TARGET,
+        )
+
+
+def test_validate_sae_loader_id_registered_rejects_unregistered_id():
+    with pytest.raises(targets.TargetIdentityMismatch, match="not a registered SAE id"):
+        targets.validate_sae_loader_id_registered(
+            "layer_99_width_16k_l0_medium", ["layer_31_width_16k_l0_medium"], targets.GEMMA_3_12B_IT_TARGET
+        )
+
+
+# ---------------------------------------------------------------------------
 # validate_sae_files_match_snapshot -- proves the registry loader actually
 # read from the validated snapshot rather than an independently resolved one.
 # ---------------------------------------------------------------------------

@@ -864,6 +864,124 @@ def test_load_gemma_it_target_rejects_wrong_sae_subdirectory_before_further_use(
     )
 
 
+# ---------------------------------------------------------------------------
+# load_gemma_it_target -- separating the flat sae_lens loader id from the
+# scientific artifact identity (orchestrator review, 2026-08-13, live job
+# 406092). These tests deliberately do NOT mock
+# sae_lens.loading.pretrained_saes_directory.get_pretrained_saes_directory
+# -- it is a local package data structure, no network needed, and using
+# the REAL installed registry is a stronger proof than a hand-rolled fake
+# that could itself encode the same misunderstanding this review exists to
+# fix.
+# ---------------------------------------------------------------------------
+
+
+def test_load_gemma_it_target_passes_with_correct_flat_loader_id_and_records_three_distinct_identities(
+    monkeypatch, tmp_path
+):
+    """The happy path: correct release, the FLAT loader id actually
+    registered for it (verified against the real, installed sae_lens
+    registry), and resolved files genuinely under the ratified resid_post
+    artifact subdirectory. Also proves the acceptance criterion that
+    provenance records all three identities (release, loader id, artifact
+    identity) without conflating any pair of them."""
+    import sae_lens.loading.pretrained_sae_loaders as psl
+    import transformer_lens
+    import transformers
+    from sae_lens import SAE
+
+    model_snapshot = tmp_path / "models--google--gemma-3-12b-it" / "snapshots" / "modelrev"
+    model_snapshot.mkdir(parents=True)
+    sae_snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "saerev"
+    sae_snapshot.mkdir(parents=True)
+
+    class _FakeHfModel:
+        def to(self, device):
+            return self
+
+    class _FakeTLModel:
+        cfg = SimpleNamespace(d_model=3840)
+
+        def eval(self):
+            return self
+
+    monkeypatch.setattr(
+        transformers.AutoTokenizer, "from_pretrained", staticmethod(lambda *a, **k: SimpleNamespace())
+    )
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", staticmethod(lambda *a, **k: _FakeHfModel()))
+    monkeypatch.setattr(
+        transformer_lens.HookedTransformer, "from_pretrained", staticmethod(lambda *a, **k: _FakeTLModel())
+    )
+
+    class _FakeSae:
+        cfg = SimpleNamespace(d_in=3840, d_sae=16384, metadata=SimpleNamespace(hook_name="blocks.31.hook_resid_post"))
+
+        def to(self, dtype):
+            return self
+
+        def eval(self):
+            return self
+
+    def fake_hf_hub_download(repo_id, filename, **kwargs):
+        return str(sae_snapshot / "resid_post" / "layer_31_width_16k_l0_medium" / filename)
+
+    monkeypatch.setattr(psl, "hf_hub_download", fake_hf_hub_download)
+
+    captured_sae_id = {}
+
+    def fake_sae_from_pretrained(*, release, sae_id, device):
+        captured_sae_id["value"] = sae_id
+        psl.hf_hub_download(repo_id="google/gemma-scope-2-12b-it", filename="cfg.json")
+        return _FakeSae()
+
+    monkeypatch.setattr(SAE, "from_pretrained", staticmethod(fake_sae_from_pretrained))
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+
+    _model, _sae, _hook_name, provenance = harness.load_gemma_it_target(model_snapshot, sae_snapshot)
+
+    # the FLAT loader id was what SAE.from_pretrained actually received --
+    # never the artifact path.
+    assert captured_sae_id["value"] == "layer_31_width_16k_l0_medium"
+    assert provenance["sae"]["release"] == "gemma-scope-2-12b-it-res"
+    assert provenance["sae"]["sae_id"] == "resid_post/layer_31_width_16k_l0_medium"
+    assert provenance["sae"]["loader_sae_id"] == "layer_31_width_16k_l0_medium"
+    # no silent rewriting of one field into another -- all three are genuinely distinct.
+    three_identities = {provenance["sae"]["release"], provenance["sae"]["sae_id"], provenance["sae"]["loader_sae_id"]}
+    assert len(three_identities) == 3
+
+
+def test_load_gemma_it_target_rejects_artifact_path_used_as_loader_id_before_any_loading(monkeypatch, tmp_path):
+    """Simulates the exact live failure job 406092 hit: sae_loader_id set
+    to the artifact path (resid_post/layer_31_width_16k_l0_medium, a VALUE
+    in the release's real saes_map, never one of its keys) instead of the
+    flat registry key. Must be rejected before EITHER the model or the
+    SAE loads -- verified against the REAL installed sae_lens registry,
+    not a fake that could itself be wrong."""
+    import dataclasses
+
+    import transformers
+
+    def _must_not_be_called(*a, **k):
+        raise AssertionError("must not be called -- the loader-id registration check must fire first")
+
+    monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", staticmethod(_must_not_be_called))
+    monkeypatch.setattr(transformers.AutoModel, "from_pretrained", staticmethod(_must_not_be_called))
+
+    bad_target = dataclasses.replace(
+        targets.GEMMA_3_12B_IT_TARGET, sae_loader_id="resid_post/layer_31_width_16k_l0_medium"
+    )
+    monkeypatch.setattr(targets, "GEMMA_3_12B_IT_TARGET", bad_target)
+
+    model_snapshot = tmp_path / "models--google--gemma-3-12b-it" / "snapshots" / "modelrev"
+    model_snapshot.mkdir(parents=True)
+    sae_snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "saerev"
+    sae_snapshot.mkdir(parents=True)
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+
+    with pytest.raises(targets.TargetIdentityMismatch, match="not a registered SAE id"):
+        harness.load_gemma_it_target(model_snapshot, sae_snapshot)
+
+
 def test_main_rejects_bad_raw_clamp_value_before_any_loader_is_called(monkeypatch, tmp_path):
     """Acceptance: nonpositive/nonfinite raw STEER values fail BEFORE
     loading weights -- assert the loader is never even reached."""

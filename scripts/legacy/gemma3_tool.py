@@ -285,29 +285,47 @@ def load_bundle(sweep_module, model_path: str, sae_path: str, *, device: str, dt
 
 
 def _generate(
-    bundle: ModelBundle, prompt: str, seed: int, max_new_tokens: int, hook_fn=None, tokens=None
+    bundle: ModelBundle, prompt: str, seed: int, max_new_tokens: int, hook_fn=None, tokens=None,
+    do_sample: bool = True, token_ids_out: list[int] | None = None,
 ) -> str:
+    """do_sample/token_ids_out default to the tool's original behavior
+    (sampled, no token-id capture) so every existing caller -- the live
+    Gradio tool included -- is unaffected. Added for
+    scripts/legacy/gemma3_tool_diff_test.py's Step 0 differential check
+    (orchestrator review, 2026-08-13, "repair Step 0"): that check's whole
+    premise is that two call paths sharing the same underlying mechanism
+    should produce IDENTICAL output, which sampling can defeat even with a
+    fixed seed (the two paths need not consume the RNG stream identically);
+    do_sample=False (greedy) removes that source of nondeterminism
+    entirely. token_ids_out is an out-parameter (same convention as
+    _make_clamp_hook's own `stats` list) so callers that need the raw
+    generated token ids -- not just the decoded string -- can get them
+    without changing this function's return type for every other caller."""
     import torch
 
     torch.manual_seed(seed)
     if tokens is None:
         tokens = bundle.model.to_tokens(prompt)
     fwd_hooks = [(bundle.hook_name, hook_fn)] if hook_fn is not None else []
+    generate_kwargs: dict[str, Any] = {"max_new_tokens": max_new_tokens, "do_sample": do_sample, "verbose": False}
+    if do_sample:
+        generate_kwargs["temperature"] = 0.7
+        generate_kwargs["top_p"] = 0.9
     with bundle.model.hooks(fwd_hooks=fwd_hooks):
-        output = bundle.model.generate(
-            tokens,
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=0.7,
-            top_p=0.9,
-            verbose=False,
-        )
+        output = bundle.model.generate(tokens, **generate_kwargs)
     completion_tokens = output[:, tokens.shape[1] :]
+    if token_ids_out is not None:
+        token_ids_out.extend(completion_tokens[0].tolist())
     return bundle.model.to_string(completion_tokens[0])
 
 
-def generate_baseline(bundle: ModelBundle, prompt: str, seed: int, max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS) -> str:
-    return _generate(bundle, prompt, seed, max_new_tokens, hook_fn=None)
+def generate_baseline(
+    bundle: ModelBundle, prompt: str, seed: int, max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+    do_sample: bool = True, token_ids_out: list[int] | None = None,
+) -> str:
+    return _generate(
+        bundle, prompt, seed, max_new_tokens, hook_fn=None, do_sample=do_sample, token_ids_out=token_ids_out
+    )
 
 
 def generate_hooked(
@@ -320,6 +338,8 @@ def generate_hooked(
     max_act_approx: float,
     max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
     positions: str = DEFAULT_POSITIONS,
+    do_sample: bool = True,
+    token_ids_out: list[int] | None = None,
 ) -> tuple[str, float]:
     """positions="generated_only" (the default) clamps only the tokens the
     model itself generates, leaving the model's read of the prompt it was
@@ -331,7 +351,12 @@ def generate_hooked(
     call is duplicated here (not inside _generate) only so the prompt's own
     token count is known BEFORE the hook closure is built, since
     prompt_lengths must be supplied at hook-construction time, not
-    discovered from inside the hook."""
+    discovered from inside the hook.
+
+    do_sample/token_ids_out both default to preserve this function's
+    original behavior exactly (sampled, text-only return) -- see
+    _generate's docstring for why scripts/legacy/gemma3_tool_diff_test.py
+    needs both to opt out of."""
     if positions not in POSITION_MODES:
         raise ValueError(f"unknown positions mode: {positions!r}; expected one of {POSITION_MODES}")
     clamp_value = dose_to_absolute_clamp(mode, dose_multiple, max_act_approx)
@@ -339,7 +364,10 @@ def generate_hooked(
     tokens = bundle.model.to_tokens(prompt)
     prompt_lengths = tokens.shape[1] if positions == "generated_only" else None
     hook_fn = _make_clamp_hook(bundle.sae, feature_idx, clamp_value, positions, prompt_lengths, stats)
-    text = _generate(bundle, prompt, seed, max_new_tokens, hook_fn=hook_fn, tokens=tokens)
+    text = _generate(
+        bundle, prompt, seed, max_new_tokens, hook_fn=hook_fn, tokens=tokens,
+        do_sample=do_sample, token_ids_out=token_ids_out,
+    )
     _log_hook_diagnostics(
         stats,
         mode=mode,

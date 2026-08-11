@@ -28,7 +28,17 @@ pins as the Tamia sprint venv, see project_pi_directive_2026_08.md):
     get_pretrained_saes_directory()["gemma-scope-2-12b-it-res"]
         -> repo_id="google/gemma-scope-2-12b-it", model="google/gemma-3-12b-it"
         -> saes_map["layer_31_width_16k_l0_medium"] == "resid_post/layer_31_width_16k_l0_medium"
-           (the exact ratified sae_id -- present, not guessed)
+           the KEY ("layer_31_width_16k_l0_medium", flat -- this is
+           sae_loader_id below, the only thing SAE.from_pretrained(sae_id=)
+           may be given) maps to the VALUE ("resid_post/layer_31_width_16k_
+           l0_medium", the real artifact subdirectory -- this is sae_id
+           below, used ONLY for the logical/physical subdirectory guards).
+           Orchestrator review, 2026-08-13 (live job 406092): this exact
+           fact was already documented here, correctly, before that job --
+           and still got misapplied, passing the VALUE where the loader
+           wanted the KEY. Read this block literally before touching
+           either field again; do not re-derive the relationship from
+           memory.
 
     import transformer_lens.loading_from_pretrained as lfp
     "google/gemma-3-12b-it" in lfp.OFFICIAL_MODEL_NAMES  -> True
@@ -135,9 +145,24 @@ class TargetPairing:
     sae_repo_id: str
     sae_format: Literal["sae_lens_registry", "qwen_scope_raw_pt"]
     expected_hidden_dim: int
-    # sae_lens_registry fields (Gemma-it) -- None for qwen_scope_raw_pt
+    # sae_lens_registry fields (Gemma-it) -- None for qwen_scope_raw_pt.
+    # sae_id is the SCIENTIFIC/ARTIFACT identity (the real subdirectory
+    # this SAE's files actually live under, e.g. "resid_post/layer_31_
+    # width_16k_l0_medium") -- used by the logical/physical subdirectory
+    # guards below, and NEVER passed to SAE.from_pretrained directly.
+    # sae_loader_id is the DISTINCT, flat key the sae_lens registry's own
+    # saes_map actually uses for THIS release's SAE.from_pretrained(sae_id=)
+    # call (e.g. "layer_31_width_16k_l0_medium", no "resid_post/" prefix).
+    # Orchestrator review, 2026-08-13 (live job 406092): passing the
+    # artifact identity as the loader id fails before model loading --
+    # verified directly against the installed sae_lens's own registry,
+    # get_pretrained_saes_directory()["gemma-scope-2-12b-it-res"].saes_map
+    # is keyed by the FLAT id, with the artifact path as each entry's
+    # VALUE, not its key. The two are related but must never be conflated
+    # or silently rewritten into each other.
     sae_release: str | None = None
     sae_id: str | None = None
+    sae_loader_id: str | None = None
     expected_layer: int | None = None
     expected_hook_name: str | None = None
     # qwen_scope_raw_pt fields (Qwen 3.5) -- None for sae_lens_registry
@@ -157,6 +182,7 @@ GEMMA_3_12B_IT_TARGET = TargetPairing(
     sae_format="sae_lens_registry",
     sae_release="gemma-scope-2-12b-it-res",
     sae_id="resid_post/layer_31_width_16k_l0_medium",
+    sae_loader_id="layer_31_width_16k_l0_medium",
     expected_layer=31,
     expected_hook_name="blocks.31.hook_resid_post",
     expected_hidden_dim=3840,
@@ -398,6 +424,27 @@ def validate_has_callable_generate(obj: Any, *, label: str) -> None:
         raise TargetIdentityMismatch(
             f"{label} has no callable .generate() -- the loaded class does not support "
             f"generation; refusing to proceed with a model that cannot run the intervention."
+        )
+
+
+def validate_sae_loader_id_registered(loader_id: str, available_loader_ids: list[str], target: TargetPairing) -> None:
+    """Confirms the flat sae_lens loader id (target.sae_loader_id) is
+    actually a KEY the selected release's own registry recognizes, BEFORE
+    SAE.from_pretrained is called -- catches exactly the live failure job
+    406092 hit: the artifact identity (target.sae_id, e.g.
+    "resid_post/layer_31_width_16k_l0_medium") is NOT a key in
+    gemma-scope-2-12b-it-res's saes_map at all, only its VALUE for the
+    real flat key "layer_31_width_16k_l0_medium" -- passing the artifact
+    identity as sae_id fails before any model loading. Pure: the caller
+    fetches available_loader_ids from sae_lens's own registry (a local
+    package data structure, no network) and passes it in as a plain list,
+    so this function itself needs no sae_lens import."""
+    if loader_id not in available_loader_ids:
+        raise TargetIdentityMismatch(
+            f"loader id {loader_id!r} is not a registered SAE id for release "
+            f"{target.sae_release!r} -- SAE.from_pretrained would fail before any weights load. "
+            f"{len(available_loader_ids)} id(s) are registered for this release; a few: "
+            f"{sorted(available_loader_ids)[:20]}"
         )
 
 

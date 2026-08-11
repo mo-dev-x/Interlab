@@ -111,6 +111,22 @@ checks (added same day, addendum "HF snapshot symlink containment"):
 
 Qwen is untouched: it has no comparable sibling-family directory structure
 (one flat layerN.sae.pt file per layer), so both new checks are Gemma-only.
+
+Orchestrator review, 2026-08-13 ("Separate Gemma artifact identity from
+loader identity", live job 406092): load_gemma_it_target was passing
+target.sae_id ("resid_post/layer_31_width_16k_l0_medium", the real
+artifact subdirectory) as SAE.from_pretrained's sae_id argument --
+verified live and independently re-confirmed against the installed
+sae_lens's own registry that this is wrong: gemma-scope-2-12b-it-res's
+saes_map is keyed by a FLAT id ("layer_31_width_16k_l0_medium", no
+"resid_post/" prefix); the artifact path is that key's VALUE, not a key
+itself. Fixed by adding a distinct target.sae_loader_id field (the flat
+key) that SAE.from_pretrained now actually receives, verified registered
+against sae_lens's own saes_map via targets.validate_sae_loader_id_
+registered BEFORE the ~24GB model is even loaded. target.sae_id is
+UNCHANGED and still feeds the logical/physical subdirectory guards above
+-- this fix separates which string goes where, it does not touch what
+either string IS or what the ratified scientific target means.
 """
 
 from __future__ import annotations
@@ -528,6 +544,15 @@ def load_gemma_it_target(
         sae_path, target, which="sae", expected_revision=expected_sae_revision
     )
 
+    # Orchestrator review, 2026-08-13 (live job 406092): verify the flat
+    # sae_lens loader id is actually registered BEFORE loading the ~24GB
+    # model at all -- a pure registry lookup, no weights/network needed --
+    # rather than discovering it's wrong only after that load succeeds.
+    from sae_lens.loading.pretrained_saes_directory import get_pretrained_saes_directory
+
+    available_loader_ids = list(get_pretrained_saes_directory()[target.sae_release].saes_map.keys())
+    targets.validate_sae_loader_id_registered(target.sae_loader_id, available_loader_ids, target)
+
     torch_dtype = getattr(torch, dtype)
     tokenizer = AutoTokenizer.from_pretrained(str(model_path))
     hf_model = AutoModel.from_pretrained(str(model_path), dtype=torch_dtype)
@@ -547,7 +572,7 @@ def load_gemma_it_target(
     resolved_sae_files: list[str] = []
     original_hf_hub_download = _capture_sae_download_paths(resolved_sae_files)
     try:
-        sae = SAE.from_pretrained(release=target.sae_release, sae_id=target.sae_id, device=device)
+        sae = SAE.from_pretrained(release=target.sae_release, sae_id=target.sae_loader_id, device=device)
     finally:
         _restore_sae_download_paths(original_hf_hub_download)
     targets.validate_sae_files_match_snapshot(resolved_sae_files, sae_path, target)
@@ -576,6 +601,7 @@ def load_gemma_it_target(
             "repository": target.sae_repo_id,
             "release": target.sae_release,
             "sae_id": target.sae_id,
+            "loader_sae_id": target.sae_loader_id,
             "local_path": str(sae_path),
             "revision": sae_identity["revision"],
             "revision_verification": sae_identity["verification"],

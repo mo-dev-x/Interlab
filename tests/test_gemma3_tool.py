@@ -540,7 +540,9 @@ def test_generate_hooked_generated_only_prompt_lengths_actually_masks_prompt_pos
     fake_sae = _IdentitySAE()
     captured = {}
 
-    def fake_generate(bundle, prompt, seed, max_new_tokens, hook_fn=None, tokens=None):
+    def fake_generate(
+        bundle, prompt, seed, max_new_tokens, hook_fn=None, tokens=None, do_sample=True, token_ids_out=None
+    ):
         # 3 prompt positions + 2 generated positions, batch of 1.
         resid = torch.arange(5 * d_in, dtype=torch.float32).reshape(1, 5, d_in)
         with contextlib.nullcontext():
@@ -570,6 +572,109 @@ def test_generate_hooked_generated_only_prompt_lengths_actually_masks_prompt_pos
     # to the input; only generated positions (3, 4) may differ.
     assert torch.equal(resid_out[:, :3, :], resid_in[:, :3, :])
     assert not torch.equal(resid_out[:, 3:, :], resid_in[:, 3:, :])
+
+
+# ---------------------------------------------------------------------------
+# (2b) do_sample / token_ids_out -- orchestrator review, 2026-08-13
+# ("repair Step 0"): scripts/legacy/gemma3_tool_diff_test.py needs
+# deterministic (greedy) generation and the raw generated token ids from
+# BOTH call paths, without changing generate_hooked/generate_baseline's
+# return signature for every other (sampling) caller, e.g. the live
+# Gradio tool.
+# ---------------------------------------------------------------------------
+
+
+class _KwargCapturingStubModel(_RecordingStubModel):
+    """Same stand-in as _RecordingStubModel, plus records exactly what
+    generate_hooked/_generate handed to model.generate()."""
+
+    def __init__(self, prompt_len: int, n_new_tokens: int = 3):
+        super().__init__(prompt_len, n_new_tokens)
+        self.captured_generate_kwargs: dict | None = None
+
+    def generate(self, tokens, **kwargs):
+        self.captured_generate_kwargs = kwargs
+        return super().generate(tokens, **kwargs)
+
+
+def test_generate_hooked_do_sample_false_omits_temperature_and_top_p(monkeypatch):
+    monkeypatch.setattr(tool, "_make_clamp_hook", lambda *a: (lambda resid, hook: resid))
+    bundle = _StubBundleForGenerate(prompt_len=7)
+    bundle.model = _KwargCapturingStubModel(prompt_len=7)
+    tool.generate_hooked(
+        bundle, "some prompt", seed=0, feature_idx=5, mode="ablate",
+        dose_multiple=1.0, max_act_approx=10.0, do_sample=False,
+    )
+    assert bundle.model.captured_generate_kwargs == {
+        "max_new_tokens": tool.DEFAULT_MAX_NEW_TOKENS, "do_sample": False, "verbose": False,
+    }
+
+
+def test_generate_hooked_default_do_sample_preserves_existing_sampling_behavior(monkeypatch):
+    """Backward compat: existing callers (the live Gradio tool) that don't
+    pass do_sample must keep getting exactly the sampling config they
+    always got."""
+    monkeypatch.setattr(tool, "_make_clamp_hook", lambda *a: (lambda resid, hook: resid))
+    bundle = _StubBundleForGenerate(prompt_len=7)
+    bundle.model = _KwargCapturingStubModel(prompt_len=7)
+    tool.generate_hooked(
+        bundle, "some prompt", seed=0, feature_idx=5, mode="ablate",
+        dose_multiple=1.0, max_act_approx=10.0,
+    )
+    assert bundle.model.captured_generate_kwargs == {
+        "max_new_tokens": tool.DEFAULT_MAX_NEW_TOKENS, "do_sample": True, "temperature": 0.7, "top_p": 0.9,
+        "verbose": False,
+    }
+
+
+@pytest.mark.parametrize("seed", [0, 1, 12345, 999999])
+def test_generate_hooked_greedy_generate_kwargs_are_seed_independent(monkeypatch, seed):
+    """Acceptance: sampled RNG behavior cannot accidentally determine the
+    gate -- under do_sample=False, the kwargs handed to model.generate()
+    must not vary with the seed at all (and therefore, for a real
+    deterministic model, neither does its output)."""
+    monkeypatch.setattr(tool, "_make_clamp_hook", lambda *a: (lambda resid, hook: resid))
+    bundle = _StubBundleForGenerate(prompt_len=7)
+    bundle.model = _KwargCapturingStubModel(prompt_len=7)
+    tool.generate_hooked(
+        bundle, "some prompt", seed=seed, feature_idx=5, mode="ablate",
+        dose_multiple=1.0, max_act_approx=10.0, do_sample=False,
+    )
+    assert bundle.model.captured_generate_kwargs == {
+        "max_new_tokens": tool.DEFAULT_MAX_NEW_TOKENS, "do_sample": False, "verbose": False,
+    }
+
+
+def test_generate_hooked_token_ids_out_receives_completion_token_ids(monkeypatch):
+    monkeypatch.setattr(tool, "_make_clamp_hook", lambda *a: (lambda resid, hook: resid))
+    bundle = _StubBundleForGenerate(prompt_len=7, n_new_tokens=3)
+    token_ids_out: list = []
+    tool.generate_hooked(
+        bundle, "some prompt", seed=0, feature_idx=5, mode="ablate",
+        dose_multiple=1.0, max_act_approx=10.0, token_ids_out=token_ids_out,
+    )
+    assert len(token_ids_out) == 3
+
+
+def test_generate_hooked_token_ids_out_defaults_to_not_capturing(monkeypatch):
+    """token_ids_out=None (the default) must not raise -- existing callers
+    never pass it."""
+    monkeypatch.setattr(tool, "_make_clamp_hook", lambda *a: (lambda resid, hook: resid))
+    bundle = _StubBundleForGenerate(prompt_len=7)
+    text, _clamp = tool.generate_hooked(
+        bundle, "some prompt", seed=0, feature_idx=5, mode="ablate", dose_multiple=1.0, max_act_approx=10.0,
+    )
+    assert text == "stub-completion"
+
+
+def test_generate_baseline_do_sample_and_token_ids_out_forwarded():
+    bundle = _StubBundleForGenerate(prompt_len=7, n_new_tokens=2)
+    bundle.model = _KwargCapturingStubModel(prompt_len=7, n_new_tokens=2)
+    token_ids_out: list = []
+    tool.generate_baseline(bundle, "some prompt", seed=0, do_sample=False, token_ids_out=token_ids_out)
+    assert bundle.model.captured_generate_kwargs["do_sample"] is False
+    assert "temperature" not in bundle.model.captured_generate_kwargs
+    assert len(token_ids_out) == 2
 
 
 # ---------------------------------------------------------------------------

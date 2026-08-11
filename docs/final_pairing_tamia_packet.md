@@ -28,10 +28,34 @@ HF_HUB_OFFLINE=1 python scripts/legacy/gemma3_tool_diff_test.py \
   --prompt "Tell me about your day." --seed 0 --max-new-tokens 64
 ```
 
-Expect `identical_text: true` and `max_abs_activation_diff` near zero. If
-this fails, stop -- do not proceed to Command 1/2 until it's understood,
-since a failure here means the shared mechanism itself is broken on this
-environment, not something specific to the new pairings.
+Orchestrator review, 2026-08-13 ("repair Step 0"): live job 406092 ran
+exactly this command and got `identical_text: false` (`first_char_divergence:
+1`) with `max_abs_activation_diff: 0.0` / `mean_abs_activation_diff: 0.0` --
+yet the process exited `0`. Two independent defects, both fixed:
+
+1. Both call paths used to sample (`do_sample=True, temperature=0.7,
+   top_p=0.9`) under a fixed `torch.manual_seed(seed)` -- a fixed seed does
+   not guarantee two different code paths consume the RNG stream
+   identically, so sampling could diverge even when the underlying mechanism
+   is fully correct. Both paths now decode GREEDILY (`do_sample=False`) --
+   no RNG dependency at all, so a real divergence can no longer be
+   dismissed as, or hidden by, sampling noise. `--max-new-tokens 64` is
+   unchanged; no new flag was added -- the switch to greedy decoding is
+   internal to the script.
+2. `main()` used to compute a full diff report and then unconditionally
+   `return 0`, never consulting any field it had just computed. The JSON
+   now carries an explicit `gate_criteria` object and a top-level
+   `gate_passed` boolean, and the process exit code is `0` iff
+   `gate_passed` is `true`, `1` otherwise -- safe to gate a job script on
+   directly (see "Expected artifacts" below for the exact schema).
+
+Expect `identical_text: true`, `identical_token_ids: true`, and
+`max_abs_activation_diff: 0.0` EXACTLY (not merely small -- a real forward
+pass over already-generated tokens has no sampling inside it, so this is
+not a new tolerance, it is what a correct stack should always produce). If
+`gate_passed` is `false`, STOP -- do not proceed to Command 1/2, and do not
+weaken any of the three criteria to force a pass; a genuine divergence
+under greedy decoding is itself the finding to report.
 
 ## Prerequisites -- from Lab Assistant 1's inventory, not guessed here
 
@@ -125,6 +149,22 @@ generation (before even the SAE dtype conversion):
 No new flag is needed for either: both are derived directly from the
 ratified `sae_id` and the `--sae-path` you already supply.
 
+Orchestrator review, 2026-08-13 ("Separate Gemma artifact identity from
+loader identity", live job 406092): the command line above is STILL
+UNCHANGED. What was wrong internally: `load_gemma_it_target` was passing
+`sae_id` ("resid_post/layer_31_width_16k_l0_medium", the real artifact
+subdirectory) directly to `SAE.from_pretrained(sae_id=...)`, which fails --
+`gemma-scope-2-12b-it-res`'s own `saes_map` is keyed by a FLAT id
+(`layer_31_width_16k_l0_medium`, no `resid_post/` prefix); the artifact
+path is that key's VALUE, not a key itself. There are now three distinct,
+independently-recorded identities (see `provenance.sae` below): `release`
+(`gemma-scope-2-12b-it-res`), `loader_sae_id` (the flat key, what
+`SAE.from_pretrained` actually receives), and `sae_id` (the artifact
+subdirectory, unchanged, still feeding the logical/physical subdirectory
+guards above). The harness now verifies `loader_sae_id` is actually
+registered for `release` -- against the real, installed `sae_lens`
+registry, not a guess -- BEFORE the ~24GB model even loads.
+
 ## Command 2 -- Qwen3.5-27B + Qwen-Scope (SAE-Res-Qwen3.5-27B-W80K-L0_50)
 
 ```bash
@@ -172,6 +212,92 @@ so there is no more silent zero-bias fallback.
 
 **This command is still the least-verified part of this packet** -- see
 "Unresolved ambiguities" below before spending a GPU allocation on it.
+**Not part of the next scheduled GPU job** (2026-08-13 scope: Step 0 +
+the two Gemma scenarios only, no Qwen rerun -- see "Next GPU job" below).
+This section stays documented for whenever Qwen mechanical acceptance is
+separately authorized; nothing about Qwen changed in this review.
+
+## Next GPU job -- single wrapper command (replaces manual chaining)
+
+Orchestrator review, 2026-08-13 ("aggregate job failure"): Slurm job 406092
+ended `COMPLETED`/`0` even though BOTH required Gemma scenarios (Command 1
+under `--positions all` and under `--positions generated_only`) exited `1`
+-- whatever shell chaining ran them by hand did not aggregate exit codes at
+all; a later command's exit status silently overwrote or masked an earlier
+failure. `scripts/legacy/final_pairing_gpu_job.py` replaces manual chaining
+for this job with a single command that:
+
+1. Runs Step 0 first. **If Step 0 fails, it stops immediately** -- neither
+   Gemma scenario is even attempted (no point spending GPU time on
+   scenarios if the shared mechanism itself is unproven on this
+   environment).
+2. Once Step 0 passes, runs BOTH required scenarios and collects both exit
+   codes for diagnostics, even if the first one fails -- this is not
+   fail-fast past that gate, it is complete.
+3. Computes the overall result from ALL of Step 0 + both scenarios
+   together, never by sequentially overwriting a "last exit code" -- a
+   later scenario passing can never mask an earlier one's failure. The
+   process's own exit code is `0` iff every required step passed.
+4. Writes one structured `job_result.json` (and prints it) with a `status`
+   of exactly `"complete_pass"`, `"failure"`, or `"partial_execution"` --
+   see below for what each means.
+
+Next job's exact scope (2026-08-13): Step 0 only, then Gemma-3-12b-it
+`--positions all` and `--positions generated_only`, both at
+`--max-new-tokens 8` (the wrapper's own `--scenario-max-new-tokens`
+default). **No Qwen rerun.**
+
+```bash
+HF_HUB_OFFLINE=1 python scripts/legacy/final_pairing_gpu_job.py \
+  --model-path /path/from/lab-assistant-1/inventory/gemma-3-12b-it \
+  --sae-path /path/from/lab-assistant-1/inventory/gemma-scope-2-12b-it \
+  --expected-model-revision <from inventory> \
+  --expected-sae-revision <from inventory> \
+  --feature-idx 250 \
+  --mode steer \
+  --dose-multiple 4.0 \
+  --raw-clamp-value 5000 \
+  --prompt "Tell me about your day." \
+  --seed 0 \
+  --out-dir results/final_pairing/gpu_job_<slurm-job-id>/
+```
+
+`--dose-multiple 4.0` feeds Step 0 only (it looks up `maxActApprox` from
+the `-pt` pairing's own manifest, exactly as the standalone Step 0 command
+above does). `--raw-clamp-value 5000` feeds both required Gemma scenarios
+(same placeholder value as the standalone Command 1 above). `--step0-max-
+new-tokens` defaults to `64` (unchanged); `--scenario-max-new-tokens`
+defaults to `8` (this job's ratified scope) -- override either only if a
+future work order changes that scope explicitly.
+
+`job_result.json` schema:
+
+```json
+{
+  "status": "complete_pass | failure | partial_execution",
+  "overall_exit_code": 0,
+  "step0": {
+    "name": "step0_differential_check", "command": ["...", "..."],
+    "attempted": true, "exit_code": 0
+  },
+  "scenarios": [
+    {"name": "gemma_it_all", "command": ["...", "..."], "attempted": true, "exit_code": 0},
+    {"name": "gemma_it_generated_only", "command": ["...", "..."], "attempted": true, "exit_code": 0}
+  ]
+}
+```
+
+- `"complete_pass"`: Step 0 passed AND both scenarios were attempted AND
+  both passed. `overall_exit_code` is `0`.
+- `"partial_execution"`: Step 0 failed (so the scenarios were never
+  attempted at all -- `"scenarios": []`), OR a required scenario is
+  present with `"attempted": false` for any other reason.
+- `"failure"`: everything was attempted, but at least one required
+  step's `exit_code` was nonzero. Read each scenario's own `--out` JSON
+  (`gemma_3_12b_it_all.json` / `gemma_3_12b_it_generated_only.json` in
+  `--out-dir`) for the actual `verdict`/`gate_passed` detail behind the
+  failing exit code -- `job_result.json` only tells you WHICH step failed,
+  not WHY.
 
 ## Expected artifacts
 
@@ -199,6 +325,7 @@ Both commands write one JSON file to `--out`:
     },
     "sae": {
       "repository": "...", "release": "... or null", "sae_id": "... or null",
+      "loader_sae_id": "... (Gemma only, e.g. 'layer_31_width_16k_l0_medium' -- see note below)",
       "local_path": "...", "revision": "...", "revision_verification": "...",
       "resolved_files": ["... every local file the SAE loader actually read ..."],
       "actual_class": "...", "format": "sae_lens_registry | qwen_scope_raw_pt",
@@ -260,6 +387,22 @@ failed run produces no JSON artifact at all rather than one with this key
 set to `false`. Treat "no output file" the same as "membership verified:
 false" when triaging a failed Gemma run.
 
+Orchestrator review, 2026-08-13 ("Separate Gemma artifact identity from
+loader identity", live job 406092) added `provenance.sae.loader_sae_id`,
+Gemma-only. The Gemma `sae` block now carries THREE independently-recorded
+identities, and none of them is a rewritten copy of another:
+`release` (`gemma-scope-2-12b-it-res`) names the sae_lens release;
+`loader_sae_id` (e.g. `layer_31_width_16k_l0_medium`) is the FLAT key that
+release's own registry actually recognizes and what `SAE.from_pretrained`
+literally received; `sae_id` (e.g.
+`resid_post/layer_31_width_16k_l0_medium`, unchanged from before this
+review) is the real artifact subdirectory, feeding
+`expected_sae_subdirectory` and the logical/physical guards above. Before this review, the harness passed `sae_id`'s value where
+`loader_sae_id` was required, which fails before any weights load -- if a
+future run's provenance ever shows `sae_id == loader_sae_id`, that is the
+same defect recurring (the two identities collapsed back into one), not a
+cosmetic detail.
+
 Each `trace` record carries every per-call field this task's acceptance
 criteria require: requested mode/dose-or-raw, calibration input, resolved
 absolute target, backend-received value, hook name, hooked tensor shape, the
@@ -279,11 +422,13 @@ safe to gate a job script on directly.
 | `TargetIdentityMismatch` mentioning "resolved file(s) OUTSIDE the validated snapshot" | **SAE_PROVENANCE_MISMATCH** | The SAE registry loader (Gemma side) resolved a DIFFERENT cached revision than the one validated at `--sae-path` -- likely more than one revision of this SAE is cached locally. Check `provenance.sae.resolved_files` against `--sae-path`. |
 | `TargetIdentityMismatch` mentioning "OUTSIDE the ratified SAE subdirectory" | **SAE_SUBDIRECTORY_MISMATCH** (new, 2026-08-12) | Gemma side only, the LOGICAL check. The resolved SAE file(s) live inside the correct snapshot/revision but under the WRONG sibling family (`attn_out`, `mlp_out`, `transcoder`, or `transcoder affine` instead of the ratified `resid_post`) -- all five share the identical `layer_31_width_16k_l0_medium` suffix, so this is not something the snapshot/revision checks above can catch. Sanity-check that `gemma-scope-2-12b-it-res` (the `-res` = resid_post release suffix) is actually the release configured, not a sibling release for one of the other four families. |
 | `TargetIdentityMismatch` mentioning "dereference to a target OUTSIDE this repository's own cache root" | **SAE_SYMLINK_ESCAPED_CACHE** (new, 2026-08-12 addendum) | Gemma side only, the PHYSICAL check. A resolved SAE file is a real on-disk symlink whose dereferenced target does NOT belong to this repository's own `models--<org>--<repo>` cache root -- i.e. the symlink's logical (snapshot-relative) location looked correct, but its target physically points somewhere else (a different repo's cache, or an arbitrary path). This is a DIFFERENT failure than SAE_SUBDIRECTORY_MISMATCH above: that one catches a symlink correctly pointing to a legitimate blob but logically filed under the wrong family; this one catches a symlink logically filed correctly but pointing to the wrong (or no longer trustworthy) physical bytes. |
+| `TargetIdentityMismatch` mentioning "not a registered SAE id" | **LOADER_ID_UNREGISTERED** (new, 2026-08-13) | Gemma side only, fires BEFORE the model even loads. `sae_loader_id` (the flat key) isn't in the selected release's own `saes_map` -- most likely because it got set to the artifact path (`sae_id`) by mistake, the exact live job 406092 defect. Check `provenance` was never even reached (no output file) and re-verify `sae_loader_id` against `get_pretrained_saes_directory()[release].saes_map.keys()` directly. |
 | `FileNotFoundError` for model/SAE path | **PATH_NOT_STAGED** | The inventory path doesn't exist on this machine/allocation. |
 | `RuntimeError: HF_HUB_OFFLINE=1 is not set` | **ENV_NOT_OFFLINE** | Export it before invoking -- every Tamia compute-node job in this project requires it. |
 | `ValueError`/`TargetIdentityMismatch` from `resolve_target_value` before any load starts | **BAD_STEER_VALUE** | `--raw-clamp-value` (or the resolved `--dose-multiple` x `--calibration-value` product) was zero, negative, NaN, or infinite. Fails before any weights load by design. |
 | Gemma: `HookedTransformer.from_pretrained` raises on an unrecognized model name | **TL_REGISTRY_GAP** | Re-verify `"google/gemma-3-12b-it" in transformer_lens.loading_from_pretrained.OFFICIAL_MODEL_NAMES` on the exact installed version -- this was true for the version installed while writing this packet (3.2.1) but is a live fact, not a permanent guarantee. |
 | Qwen: any exception before generation starts | **QWEN_LOAD_UNVERIFIED** | The entire Qwen load path is unverified against real weights (see below) -- capture the full traceback verbatim and stop; do not patch around it blind. |
+| Step 0 (`gemma3_tool_diff_test.py`) exits `1`, `gate_passed: false` | **STEP0_GATE_FAILURE** (exit code now meaningful, 2026-08-13) | Read `gate_criteria` to see WHICH of `identical_text`/`identical_token_ids`/`activations_effectively_identical` failed. A real divergence here under greedy decoding means the shared mechanism itself is broken on this environment -- per this task's explicit instruction, do not weaken any criterion to force a pass; report the divergence. Do not proceed to the Gemma scenarios (the wrapper below already enforces this). |
 | Runs to completion, `verdict.nonzero_steer_confirmed` is `false` | **MECHANICAL_FAILURE** -- the actual bug this task exists to catch | Read `verdict.first_disappearance_boundary` for the exact call index and classification (prefill/decode) where `residual_delta_norm` first hit zero outside the accepted `generated_only` exemption. This is the "first boundary where intervention disappears" the acceptance criteria ask for. |
 | Runs to completion, `verdict.nonzero_steer_confirmed` is `true` | **MECHANICAL_PASS** | Proceed to the second `--positions` run, then to whatever behavioral work is separately authorized. Do not read a mechanical pass as a behavioral/concept claim. |
 
@@ -373,12 +518,18 @@ Ranked by how much they can invalidate a run if wrong:
 6. **Gemma-3-12b-it side is comparatively low-risk but still unrun**:
    `google/gemma-3-12b-it` is confirmed in `transformer_lens`'s registry
    with the identical `d_model=3840`/`n_layers=48` as the already-proven
-   `-pt` pairing, and `gemma-scope-2-12b-it-res` /
-   `resid_post/layer_31_width_16k_l0_medium` is confirmed present in the
-   installed `sae_lens==6.44.2` registry with the exact ratified `sae_id`.
-   The remaining unknown is purely whether the actual HF snapshot bytes are
-   staged on Tamia -- a Lab Assistant 1 inventory question, not an
-   engineering-design one.
+   `-pt` pairing, and `gemma-scope-2-12b-it-res`'s own `saes_map` is
+   confirmed, in the installed `sae_lens==6.44.2` registry, to have
+   `layer_31_width_16k_l0_medium` (the flat `loader_sae_id`, a KEY) mapped
+   to `resid_post/layer_31_width_16k_l0_medium` (the ratified `sae_id`
+   artifact identity, that key's VALUE) -- worded precisely here on
+   purpose, since a looser phrasing of exactly this fact ("...is confirmed
+   present in the registry with the exact ratified sae_id") is what led to
+   passing the VALUE where the loader wanted the KEY in the first place
+   (orchestrator review, 2026-08-13, live job 406092 -- now fixed, see
+   Command 1's own notes above). The remaining unknown is purely whether
+   the actual HF snapshot bytes are staged on Tamia -- a Lab Assistant 1
+   inventory question, not an engineering-design one.
 7. **`_patch_gemma3_safetensors_shape_lookup`'s applicability to the `-it`
    SAE release is inferred, not independently re-tested**: it's a generic
    fix for any `conversion_func="gemma_3"` release in the installed
@@ -392,3 +543,11 @@ Ranked by how much they can invalidate a run if wrong:
    `transformer_lens` registries) or derived by direct code reading, or
    proven with a synthetic/monkeypatched unit test. None of it substitutes
    for a real run.
+9. **`scripts/legacy/final_pairing_gpu_job.py` (the new wrapper, 2026-08-13)
+   has never actually launched Step 0 or either Gemma scenario as a real
+   subprocess.** Its own tests monkeypatch `_run` entirely -- they prove
+   the aggregation/stop/no-overwrite LOGIC is correct, not that
+   `subprocess.run([sys.executable, ...])` against the real scripts, with
+   real argument quoting/paths on Tamia's actual shell, behaves as
+   expected. Treat the first real invocation as the first test of the
+   wrapper itself, same as every other "not yet run for real" item above.
