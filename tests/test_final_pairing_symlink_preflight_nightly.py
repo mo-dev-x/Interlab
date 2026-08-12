@@ -1,9 +1,20 @@
-"""Real-filesystem Hugging Face cache symlink-containment preflight --
+"""Real-filesystem Hugging Face cache symlink-containment tests --
 orchestrator review, 2026-08-16 ("Correct and comprehensively audit Gemma
-path-containment guards", live job 406957). Invoked by
-scripts/legacy/final_pairing_gpu_job.py as a preflight step BEFORE Step 0,
-run inside the real Tamia GPU allocation (Linux, real symlink support) --
-see that module's build_preflight_command.
+path-containment guards", live job 406957).
+
+Orchestrator review, 2026-08-17 ("Make the Tamia symlink preflight
+self-contained and pytest-free"): this file is NO LONGER what
+scripts/legacy/final_pairing_gpu_job.py invokes as its scheduled Tamia
+preflight gate -- ~/sprint-venv (Tamia's real, shared scientific
+environment) has no pytest/pluggy/iniconfig, and installing them there is
+forbidden. The wrapper now runs scripts/legacy/final_pairing_symlink_
+preflight.py (standalone, standard-library-only) instead. This file
+REMAINS, unchanged in purpose, as independent developer regression
+coverage: the tests below exercise the production validators directly;
+the one at the bottom (test_standalone_preflight_script_passes_when_run_
+for_real) exercises the standalone SCRIPT itself, end-to-end, as a real
+subprocess -- proving the actual artifact Tamia runs, not just the
+validators it calls.
 
 Marked @pytest.mark.nightly so the default per-commit gate
 (pyproject.toml's `addopts = ... -m "not nightly"`) excludes it; run
@@ -26,6 +37,8 @@ are unchanged and still the right choice for that purpose.
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -194,3 +207,30 @@ def test_duplicate_captured_paths_remain_valid_and_each_occurrence_is_checked(tm
     # both occurrences reported, not deduplicated -- the message embeds
     # repr(path) inside a list repr, which escapes backslashes on Windows.
     assert str(exc_info.value).count(repr(str(bad_link))) == 2
+
+
+# ---------------------------------------------------------------------------
+# The standalone script itself, end-to-end, as a REAL subprocess --
+# orchestrator review, 2026-08-17. Proves the actual artifact
+# final_pairing_gpu_job.py invokes on Tamia, not just the validators the
+# tests above already exercise directly.
+# ---------------------------------------------------------------------------
+
+
+def test_standalone_preflight_script_passes_when_run_for_real(tmp_path):
+    script_path = REPO_ROOT / "scripts" / "legacy" / "final_pairing_symlink_preflight.py"
+    out_path = tmp_path / "symlink_preflight_result.json"
+    completed = subprocess.run(
+        [sys.executable, str(script_path), "--work-dir", str(tmp_path), "--out", str(out_path), "--source-commit", "test"],
+        capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
+    result = json.loads(out_path.read_text())
+    assert result["executed_count"] == 11
+    assert result["passed_count"] == 11
+    assert result["overall_passed"] is True
+    assert result["setup_failure"] is None
+    assert result["source_commit"] == "test"
+    assert all(case["passed"] for case in result["cases"])
+    # the scratch tree is cleaned up; only the JSON artifact remains under --work-dir.
+    assert not (tmp_path / "final_pairing_symlink_preflight_scratch").exists()

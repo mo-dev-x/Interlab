@@ -277,18 +277,78 @@ the only shared hook/loader code this harness imports):
 | `gemma3_sweep.py` / `gemma3_necessity.py`: `str(Path(args.model_path).resolve())`/`.../sae_path...` in provenance-display payloads | N/A -- display-only, no containment comparison paired with it | Frozen, Engineer-2-owned files (this harness's own docstring: "Nothing here edits gemma3_sweep.py, gemma3_necessity.py..."), out of write-scope regardless. Reviewed, not edited. |
 | `gemma3_sweep.py`/`gemma3_tool.py`/etc.: `device.startswith("cuda")`, commit-message/diff-line `startswith("#")`/`"@@"`, `montreal_qwen.py`'s slash-command parser | N/A -- not path containment at all | String-content checks unrelated to filesystem paths. Not audited further; out of scope by construction. |
 
-**GPU-job preflight** (`final_pairing_gpu_job.py`): a new
-`symlink_containment_preflight` step now runs BEFORE Step 0, executing
-`tests/test_final_pairing_symlink_preflight_nightly.py` (`-m nightly`,
-explicitly overriding this repo's own `addopts = ... -m "not nightly"`
-per-commit default) -- a REAL Hugging Face cache fixture (`models--<repo>/
-blobs/<blob-id>`, `snapshots/<revision>/resid_post/.../config.json ->
-../../../blobs/<blob-id>`) exercised against all three actual validators,
-inside the real allocation where real symlinks and this cache's true
-on-disk shape both exist (unlike the login node or this project's own
-Windows dev machine). A preflight failure stops the job immediately --
-neither Step 0 nor either Gemma scenario is attempted -- recorded as its
-own `preflight` entry in `job_result.json`, distinct from `step0`.
+**GPU-job preflight** (`final_pairing_gpu_job.py`): a `symlink_
+containment_preflight` step runs BEFORE Step 0 -- a REAL Hugging Face
+cache fixture (`models--<repo>/blobs/<blob-id>`, `snapshots/<revision>/
+resid_post/.../config.json -> ../../../blobs/<blob-id>`) exercised against
+all three actual validators, inside the real allocation where real
+symlinks and this cache's true on-disk shape both exist (unlike the login
+node or this project's own Windows dev machine). A preflight failure stops
+the job immediately -- neither Step 0 nor either Gemma scenario is
+attempted -- recorded as its own `preflight` entry in `job_result.json`,
+distinct from `step0`.
+
+Orchestrator review, 2026-08-17 ("Make the Tamia symlink preflight
+self-contained and pytest-free"): Lab Assistant B correctly stopped before
+submission because `~/sprint-venv` (Tamia's real, shared scientific
+environment) has no pytest/pluggy/iniconfig installed, and installing them
+there is forbidden. **The scheduled Tamia preflight has no pytest
+dependency of any kind.** `final_pairing_gpu_job.py` now invokes
+`scripts/legacy/final_pairing_symlink_preflight.py` directly via
+`sys.executable` -- a standalone, standard-library-only script that
+imports and calls the SAME production validators
+(`final_pairing_targets.py`) directly; no predicate is duplicated. It
+builds its own disposable HF-cache-shaped fixture inside `$SLURM_TMPDIR`
+(or an explicit `--work-dir`, never the shared HF cache), runs exactly 11
+real-symlink cases, writes one deterministic JSON artifact (schema below),
+and exits `0` only if all 11 executed and all 11 passed. The wrapper does
+not stop at trusting that exit code alone: it independently re-reads the
+JSON artifact and re-verifies `executed_count == 11`, `passed_count ==
+11`, and `overall_passed == true` before proceeding to Step 0 -- defense
+in depth against a hypothetical bug in the script's own exit-code logic.
+**Scheduled acceptance needs only `~/sprint-venv`'s Python and the
+archived repository -- nothing else.**
+
+The pytest-based file (`tests/test_final_pairing_symlink_preflight_
+nightly.py`) still exists, unchanged in purpose, as independent DEVELOPER
+regression coverage (marked `@pytest.mark.nightly`, run via `pytest ... -m
+nightly` on a developer or CI machine that already has pytest installed)
+-- it is simply **not required on Tamia** and is no longer what the
+scheduled job invokes. It now also includes one test that runs the
+standalone script itself as a real subprocess, proving the actual artifact
+Tamia runs, not just the validators it calls.
+
+`final_pairing_symlink_preflight.py`'s JSON schema:
+
+```json
+{
+  "preflight_name": "final_pairing_symlink_preflight",
+  "schema_version": 1,
+  "source_commit": "46a8643 or null",
+  "platform": "... (platform.platform())",
+  "case_count": 11,
+  "executed_count": 11,
+  "passed_count": 11,
+  "overall_passed": true,
+  "setup_failure": null,
+  "cases": [
+    {
+      "name": "intended_symlink_passes_snapshot_guard",
+      "expected_outcome": "validate_sae_files_match_snapshot must not raise",
+      "actual_outcome": "passed",
+      "passed": true
+    }
+  ]
+}
+```
+
+`setup_failure` is non-null (and `case_count`/`executed_count`/
+`passed_count`/`cases` reflect zero execution) exactly when real symlinks
+cannot be created at all in the resolved scratch directory -- a dedicated
+probe runs BEFORE any of the 11 named cases, so a capability gap is never
+folded into a case's own result or silently treated as success. There is
+no "skipped" state anywhere in this schema: every case either executed
+and was judged, or the whole run reports a setup failure.
 
 ## Command 2 -- Qwen3.5-27B + Qwen-Scope (SAE-Res-Qwen3.5-27B-W80K-L0_50)
 
@@ -408,7 +468,8 @@ future work order changes that scope explicitly.
   "overall_exit_code": 0,
   "preflight": {
     "name": "symlink_containment_preflight", "command": ["...", "..."],
-    "attempted": true, "exit_code": 0
+    "attempted": true, "exit_code": 0, "json_path": ".../symlink_preflight_result.json",
+    "executed_count": 11, "passed_count": 11, "overall_passed": true
   },
   "step0": {
     "name": "step0_differential_check", "command": ["...", "..."],
@@ -432,11 +493,12 @@ future work order changes that scope explicitly.
   step's `exit_code` was nonzero. Read each scenario's own `--out` JSON
   (`gemma_3_12b_it_all.json` / `gemma_3_12b_it_generated_only.json` in
   `--out-dir`) for the actual `verdict`/`gate_passed` detail behind the
-  failing exit code; read the preflight's own pytest output (printed to
-  stdout/stderr by the wrapper's `_run`, not captured into
-  `job_result.json` beyond its exit code) for which specific containment
-  guard failed -- `job_result.json` only tells you WHICH step failed, not
-  WHY.
+  failing exit code; read the preflight's own JSON artifact (`preflight.
+  json_path` in `job_result.json`, or the preflight's compact stdout
+  summary the wrapper's `_run_preflight` also prints) for the per-case
+  `expected_outcome`/`actual_outcome` behind which specific containment
+  guard failed -- `job_result.json`'s own `preflight` block only tells you
+  the aggregate counts, not the per-case detail.
 
 ## Expected artifacts
 
@@ -593,7 +655,7 @@ safe to gate a job script on directly.
 | `ValueError`/`TargetIdentityMismatch` from `resolve_target_value` before any load starts | **BAD_STEER_VALUE** | `--raw-clamp-value` (or the resolved `--dose-multiple` x `--calibration-value` product) was zero, negative, NaN, or infinite. Fails before any weights load by design. |
 | Gemma: `HookedTransformer.from_pretrained` raises on an unrecognized model name | **TL_REGISTRY_GAP** | Re-verify `"google/gemma-3-12b-it" in transformer_lens.loading_from_pretrained.OFFICIAL_MODEL_NAMES` on the exact installed version -- this was true for the version installed while writing this packet (3.2.1) but is a live fact, not a permanent guarantee. |
 | Qwen: any exception before generation starts | **QWEN_LOAD_UNVERIFIED** | The entire Qwen load path is unverified against real weights (see below) -- capture the full traceback verbatim and stop; do not patch around it blind. |
-| `final_pairing_gpu_job.py`'s `preflight` step exits nonzero | **PREFLIGHT_CONTAINMENT_FAILURE** (new, 2026-08-16) | The real HF cache's actual symlink layout failed one of the three SAE-file/path guards against real files on this allocation -- read the preflight subprocess's own pytest output (`job_result.json` only records its exit code) for which specific test/guard failed. Neither Step 0 nor either Gemma scenario was attempted (the wrapper enforces this). Do not weaken any containment check to force a pass; a genuine failure here means the real cache's symlink shape differs from what was audited, which is itself the finding to report. |
+| `final_pairing_gpu_job.py`'s `preflight` step fails (exit nonzero, or `executed_count`/`passed_count`/`overall_passed` disagree with 11/11/true even if exit code were 0) | **PREFLIGHT_CONTAINMENT_FAILURE** (new, 2026-08-16; JSON-based re-verification added 2026-08-17) | The real HF cache's actual symlink layout failed one of the three SAE-file/path guards against real files on this allocation -- read `preflight.json_path`'s own JSON artifact (`job_result.json` only records the aggregate counts) for which of the 11 named cases failed and why (`expected_outcome` vs `actual_outcome`, classified as `assertion_failure`/`unexpected_exception`/a `setup_failure` if real symlinks couldn't be created at all). Neither Step 0 nor either Gemma scenario was attempted (the wrapper enforces this). Do not weaken any containment check to force a pass; a genuine failure here means the real cache's symlink shape differs from what was audited, which is itself the finding to report. |
 | Step 0 (`gemma3_tool_diff_test.py`) exits `1`, `gate_passed: false` | **STEP0_GATE_FAILURE** (exit code now meaningful, 2026-08-13) | Read `gate_criteria` to see WHICH of `identical_text`/`identical_token_ids`/`activations_effectively_identical` failed. A real divergence here under greedy decoding means the shared mechanism itself is broken on this environment -- per this task's explicit instruction, do not weaken any criterion to force a pass; report the divergence. Do not proceed to the Gemma scenarios (the wrapper below already enforces this). |
 | Runs to completion, `verdict.nonzero_steer_confirmed` is `false` | **MECHANICAL_FAILURE** -- the actual bug this task exists to catch | Read `verdict.first_disappearance_boundary` for the exact call index and classification (prefill/decode) where `residual_delta_norm` first hit zero outside the accepted `generated_only` exemption. This is the "first boundary where intervention disappears" the acceptance criteria ask for. |
 | Runs to completion, `verdict.nonzero_steer_confirmed` is `true` | **MECHANICAL_PASS** | Proceed to the second `--positions` run, then to whatever behavioral work is separately authorized. Do not read a mechanical pass as a behavioral/concept claim. |
@@ -681,20 +743,22 @@ Ranked by how much they can invalidate a run if wrong:
    one SKIPS on this machine specifically (creating a symlink here
    requires privileges this environment doesn't have) in
    `test_final_pairing_targets.py` -- only the non-symlink and
-   mocked-symlink cases ran locally there. The NEW
-   `tests/test_final_pairing_symlink_preflight_nightly.py` (2026-08-16)
-   deliberately does NOT skip on this same limitation -- it HARD FAILS,
-   proven directly on this machine (`OSError: [WinError 1314]`, confirmed
-   during this review) -- and is wired as `final_pairing_gpu_job.py`'s own
-   preflight gate, so the very first time it runs for real will be inside
-   the Tamia allocation itself, as part of the next scheduled job, before
-   any GPU time is spent on Step 0 or the Gemma scenarios. That is by
-   design (this is exactly the point of a preflight run inside the
-   allocation rather than a formality check on the login node), but it
-   also means the preflight mechanism itself -- not just the containment
-   logic it exercises -- has never executed successfully anywhere yet.
-   Treat its first real run as the actual test of both the containment
-   fix AND the preflight wiring together, not a formality.
+   mocked-symlink cases ran locally there. The standalone preflight script
+   (`scripts/legacy/final_pairing_symlink_preflight.py`, 2026-08-17) and
+   its pytest-based developer counterpart deliberately do NOT skip on this
+   same limitation -- both HARD FAIL, proven directly on this machine
+   (`OSError: [WinError 1314]`, confirmed during this review, including a
+   real-subprocess invocation of the standalone script itself) -- and the
+   standalone script is wired as `final_pairing_gpu_job.py`'s own preflight
+   gate, so the very first time it runs successfully will be inside the
+   Tamia allocation itself, as part of the next scheduled job, before any
+   GPU time is spent on Step 0 or the Gemma scenarios. That is by design
+   (this is exactly the point of a preflight run inside the allocation
+   rather than a formality check on the login node), but it also means the
+   preflight mechanism itself -- not just the containment logic it
+   exercises -- has never executed successfully anywhere yet. Treat its
+   first real run as the actual test of the containment fix, the
+   standalone script, AND the preflight wiring together, not a formality.
 6. **Gemma-3-12b-it side is comparatively low-risk but still unrun**:
    `google/gemma-3-12b-it` is confirmed in `transformer_lens`'s registry
    with the identical `d_model=3840`/`n_layers=48` as the already-proven

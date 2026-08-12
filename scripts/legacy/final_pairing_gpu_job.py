@@ -47,13 +47,28 @@ exists so a REAL Hugging Face cache's actual symlink layout is proven
 against all three SAE-file/path guards -- inside the real GPU allocation,
 not the login node, since that is the only place real symlink creation
 and this cache's true on-disk shape are both available -- before either
-Step 0 or a Gemma scenario spends any GPU time. Runs tests/test_final_
-pairing_symlink_preflight_nightly.py (marked @pytest.mark.nightly, so the
-default per-commit `-m "not nightly"` gate excludes it; this wrapper
-explicitly overrides that with `-m nightly`). A preflight failure stops
+Step 0 or a Gemma scenario spends any GPU time. A preflight failure stops
 the job immediately, exactly like a Step 0 failure does -- neither Step 0
 nor either Gemma scenario is attempted -- and is recorded as its own
 `preflight` entry in job_result.json, independent of `step0`.
+
+Orchestrator review, 2026-08-17 ("Make the Tamia symlink preflight
+self-contained and pytest-free"): the 2026-08-16 preflight invoked pytest
+(`tests/test_final_pairing_symlink_preflight_nightly.py`, `-m nightly`) --
+Lab Assistant B correctly stopped before submission because
+~/sprint-venv (Tamia's real, shared scientific environment) has no
+pytest/pluggy/iniconfig installed, and installing them there is forbidden.
+This wrapper now invokes scripts/legacy/final_pairing_symlink_preflight.py
+instead -- a standalone, standard-library-only script (see that module's
+own docstring for its 11-case design) -- via sys.executable directly, no
+pytest anywhere in the scheduled path. That pytest-based nightly test file
+still exists, unchanged, as independent developer regression coverage; it
+is simply no longer what this wrapper runs. Beyond trusting the
+subprocess's own exit code, this wrapper INDEPENDENTLY re-reads the
+preflight's own JSON artifact and re-verifies executed_count == 11,
+passed_count == 11, and overall_passed == true before treating it as
+passed -- defense in depth against a hypothetical bug in the preflight
+script's own exit-code logic, not merely trusting a single signal.
 """
 
 from __future__ import annotations
@@ -68,6 +83,9 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
+sys.path.insert(0, str(SCRIPT_DIR))
+
+import final_pairing_symlink_preflight as symlink_preflight  # noqa: E402
 
 
 @dataclass
@@ -82,26 +100,82 @@ class ScenarioResult:
         return self.attempted and self.exit_code == 0
 
 
+@dataclass
+class PreflightResult:
+    """Distinct from ScenarioResult: the preflight's own JSON artifact
+    (executed_count/passed_count/overall_passed) is independently
+    re-checked here rather than trusting the subprocess's exit code
+    alone -- defense in depth against a hypothetical bug in the preflight
+    script's own exit-code logic."""
+
+    name: str
+    command: list[str]
+    attempted: bool
+    exit_code: int | None
+    json_path: str
+    executed_count: int | None
+    passed_count: int | None
+    overall_passed: bool | None
+
+    @property
+    def passed(self) -> bool:
+        return (
+            self.attempted
+            and self.exit_code == 0
+            and self.executed_count == symlink_preflight.EXPECTED_CASE_COUNT
+            and self.passed_count == symlink_preflight.EXPECTED_CASE_COUNT
+            and self.overall_passed is True
+        )
+
+
 def _run(name: str, command: list[str]) -> ScenarioResult:
     completed = subprocess.run(command, check=False)
     return ScenarioResult(name=name, command=command, attempted=True, exit_code=completed.returncode)
 
 
-def build_preflight_command() -> list[str]:
-    """Runs tests/test_final_pairing_symlink_preflight_nightly.py -- a
-    real-filesystem (no mocks) proof that the local snapshot's actual HF
-    cache symlink layout passes every applicable containment guard,
-    inside this allocation. -m nightly explicitly overrides pyproject.
-    toml's own `addopts = ... -m "not nightly"` default, which otherwise
-    excludes this file from a plain `pytest` invocation. Takes no CLI
-    arguments -- the preflight targets a fixed test file, not anything
-    derived from --model-path/--sae-path (those are validated for real by
-    Step 0 and the Gemma scenarios that follow)."""
-    return [
-        sys.executable, "-m", "pytest",
-        str(REPO_ROOT / "tests" / "test_final_pairing_symlink_preflight_nightly.py"),
-        "-m", "nightly", "-q",
+def _run_preflight(command: list[str], json_path: Path) -> PreflightResult:
+    """Runs the standalone preflight, then INDEPENDENTLY re-reads its own
+    JSON artifact (not merely the subprocess exit code) for executed_
+    count/passed_count/overall_passed -- a missing or unparseable JSON
+    file (e.g. the process crashed before writing one) leaves all three
+    as None, which PreflightResult.passed treats as failure, never as an
+    ambiguous pass."""
+    completed = subprocess.run(command, check=False)
+    executed_count = passed_count = overall_passed = None
+    if json_path.is_file():
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            executed_count = data.get("executed_count")
+            passed_count = data.get("passed_count")
+            overall_passed = data.get("overall_passed")
+        except (json.JSONDecodeError, OSError):
+            pass
+    return PreflightResult(
+        name="symlink_containment_preflight",
+        command=command,
+        attempted=True,
+        exit_code=completed.returncode,
+        json_path=str(json_path),
+        executed_count=executed_count,
+        passed_count=passed_count,
+        overall_passed=overall_passed,
+    )
+
+
+def build_preflight_command(args: argparse.Namespace, *, out_path: Path) -> list[str]:
+    """Invokes scripts/legacy/final_pairing_symlink_preflight.py directly
+    via sys.executable -- standard-library-only, no pytest anywhere in
+    this command. --out is the wrapper-controlled, known path
+    _run_preflight reads back afterward; --work-dir is deliberately left
+    unset so the preflight resolves its own scratch root from
+    $SLURM_TMPDIR (the normal case inside a real Tamia allocation)."""
+    cmd = [
+        sys.executable, str(SCRIPT_DIR / "final_pairing_symlink_preflight.py"),
+        "--out", str(out_path),
     ]
+    if args.source_commit is not None:
+        cmd += ["--source-commit", args.source_commit]
+    return cmd
 
 
 def build_step0_command(args: argparse.Namespace) -> list[str]:
@@ -138,7 +212,7 @@ def build_gemma_scenario_command(args: argparse.Namespace, *, positions: str, ou
 
 
 def aggregate_job_result(
-    preflight: ScenarioResult, step0: ScenarioResult, scenarios: list[ScenarioResult]
+    preflight: PreflightResult, step0: ScenarioResult, scenarios: list[ScenarioResult]
 ) -> dict[str, Any]:
     """Structured result distinguishing complete_pass / failure /
     partial_execution -- see module docstring for the exact rules.
@@ -194,6 +268,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--device", default="cuda")
     p.add_argument("--dtype", default="bfloat16")
     p.add_argument("--sweep-module", default=str(SCRIPT_DIR / "gemma3_sweep.py"))
+    p.add_argument("--source-commit", default=None, help="Recorded in the preflight's JSON artifact if supplied.")
     p.add_argument("--out-dir", required=True)
     return p.parse_args(argv)
 
@@ -203,7 +278,8 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    preflight = _run("symlink_containment_preflight", build_preflight_command())
+    preflight_json_path = out_dir / "symlink_preflight_result.json"
+    preflight = _run_preflight(build_preflight_command(args, out_path=preflight_json_path), preflight_json_path)
     if not preflight.passed:
         step0_not_attempted = ScenarioResult(
             name="step0_differential_check", command=build_step0_command(args), attempted=False, exit_code=None
