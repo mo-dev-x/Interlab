@@ -109,6 +109,35 @@ on the orchestrator's word, two ways:
        AutoModelForImageTextToText choice was not required by any version
        constraint, it was simply the wrong Auto class for this task.
 
+Orchestrator review, 2026-08-14 ("Make Gemma SAE loading use the exact
+pinned local snapshot", live job 406259): the Gemma model loaded, and the
+flat sae_loader_id validated as registered, but SAE.from_pretrained then
+failed before any weights loaded. VERIFIED directly against the installed
+huggingface_hub==1.24.0 source (src/huggingface_hub/file_download.py):
+
+    hf_hub_download(repo_id, filename, subfolder=None, revision=None, ...)
+    -> if subfolder: filename = f"{subfolder}/{filename}"          (join)
+    -> if revision is None: revision = constants.DEFAULT_REVISION  ("main")
+    -> resolution then needs refs/main -> commit hash, from the LOCAL
+       cache when offline
+
+None of sae_lens's own gemma_3-loader hf_hub_download call sites (config.json
+fetch, params.safetensors fetch, the raw-HTTP-bypassing shape-lookup patch
+this module's harness already installs) pass revision= at all, so every one
+of them defaults to "main" -- and this project's cache was populated by
+pinning snapshot_download directly to the immutable commit sha
+(4c419f1ba0be8b7754d4151d4f26c23b92a9029e for the validated Gemma Scope IT
+snapshot), never to the branch name "main", so no local refs/main file
+exists to resolve that default against. Offline resolution therefore fails
+before ANY of the subdirectory/symlink guards above even run, even though
+the exact files those guards would check are sitting on disk the whole
+time. resolve_local_gemma_sae_path below (installed by
+final_pairing_harness._capture_sae_download_paths as a full replacement for
+sae_lens.loading.pretrained_sae_loaders's own hf_hub_download reference, not
+a pass-through wrapper around it) resolves every request directly against
+the validated snapshot instead -- no Hub ref lookup, no network, no cache
+mutation, by construction.
+
 Taken from the work order's stated findings, NOT independently re-verified
 this round (a guessed URL for the official Qwen-Scope application's own
 source 404'd, and no further URL was guessed per this project's policy
@@ -125,7 +154,7 @@ import math
 import os
 import re
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 
@@ -623,6 +652,109 @@ def validate_sae_symlink_targets_stay_in_repository_cache(
             f"cache root {str(repo_cache_root)!r} -- the physical blob does not belong to "
             f"{target.sae_repo_id!r}'s cache at all: {escaped}"
         )
+
+
+_HF_DEFAULT_REVISION_ALIASES = (None, "main")
+
+
+def resolve_local_gemma_sae_path(
+    *,
+    repo_id: str,
+    filename: str,
+    subfolder: str | None,
+    revision: str | None,
+    sae_snapshot_root: str | Path,
+    target: TargetPairing,
+) -> tuple[str, str]:
+    """Maps ONE sae_lens-internal hf_hub_download(repo_id=, filename=,
+    subfolder=, revision=) request directly onto a file inside the
+    already-validated local SAE snapshot at sae_snapshot_root -- no Hub
+    resolution, no network, no cache mutation of any kind. The caller
+    (final_pairing_harness._capture_sae_download_paths) installs this as a
+    full REPLACEMENT for sae_lens.loading.pretrained_sae_loaders's own
+    hf_hub_download reference, not a pass-through wrapper around it -- see
+    this module's docstring (orchestrator review, 2026-08-14, live job
+    406259) for exactly why a pass-through wrapper is not sufficient: the
+    real hf_hub_download's OWN revision-defaulting and refs/main lookup
+    happen before any wrapper's return value is even inspected, and that
+    lookup fails offline against this project's commit-pinned cache
+    regardless of what the wrapper would have done with a successful
+    result.
+
+    Mirrors huggingface_hub.file_download.hf_hub_download's OWN
+    subfolder+filename join convention exactly (verified against the
+    installed huggingface_hub==1.24.0 source: `if subfolder: filename =
+    f"{subfolder}/{filename}"`) so this stays correct even if sae_lens's
+    internal call shape changes slightly between its config.json/
+    params.safetensors/shape-lookup call sites.
+
+    Returns (resolved_local_path, requested_relative_filename) -- the
+    caller records both for the provenance trace. Fails closed
+    (TargetIdentityMismatch) on:
+      - repo_id other than the ratified target.sae_repo_id -- this
+        resolver is installed exclusively for the one repository it was
+        built for;
+      - an explicit revision other than the default (None, or
+        huggingface_hub's own default branch name "main") -- real
+        sae_lens call sites never pass one at all, so this only guards
+        against a future/different explicit request silently being served
+        THIS pinned snapshot's files instead of failing;
+      - an absolute filename, or a ".." path-traversal segment;
+      - a filename resolving outside the ratified target.sae_id artifact
+        subdirectory -- the same sibling-family case
+        validate_sae_files_match_expected_subdirectory above guards
+        post-hoc, closed here one request earlier, before any file is even
+        read.
+    Raises huggingface_hub.utils.EntryNotFoundError (deliberately NOT
+    TargetIdentityMismatch) for a file that is genuinely absent from the
+    validated snapshot -- the exact exception type sae_lens's own
+    get_gemma_3_config_from_hf already catches for its one documented
+    optional case (a missing config.json falls back to
+    _infer_gemma_3_raw_cfg_dict, a pure computation from repo_id/
+    folder_name strings needing no network) -- raising a different type
+    here would silently break that already-shipped fallback."""
+    from huggingface_hub.utils import EntryNotFoundError
+
+    if repo_id.lower() != target.sae_repo_id.lower():
+        raise TargetIdentityMismatch(
+            f"local-snapshot-only SAE resolution received a request for repository {repo_id!r}, "
+            f"but was installed exclusively for the ratified target {target.sae_repo_id!r} -- "
+            f"refusing to resolve it from any local path, let alone fall back to the network."
+        )
+    if revision not in _HF_DEFAULT_REVISION_ALIASES:
+        raise TargetIdentityMismatch(
+            f"local-snapshot-only SAE resolution received an explicit revision {revision!r} for "
+            f"{filename!r} -- only the default (no revision requested, or huggingface_hub's own "
+            f"default branch name 'main') resolves to the validated pinned snapshot; a request "
+            f"for a specific different revision must not be silently served that snapshot's "
+            f"files instead."
+        )
+    relative = f"{subfolder}/{filename}" if subfolder else filename
+    normalized = relative.replace("\\", "/")
+    if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
+        raise TargetIdentityMismatch(
+            f"local-snapshot-only SAE resolution received an absolute filename {relative!r} -- refusing."
+        )
+    if ".." in normalized.split("/"):
+        raise TargetIdentityMismatch(
+            f"local-snapshot-only SAE resolution received a path-traversal filename {relative!r} -- refusing."
+        )
+    if not target.sae_id or not PurePosixPath(normalized).is_relative_to(target.sae_id):
+        raise TargetIdentityMismatch(
+            f"local-snapshot-only SAE resolution received a request for {relative!r}, which is "
+            f"OUTSIDE the ratified SAE subdirectory {target.sae_id!r} -- sibling SAE families "
+            f"(attn_out, mlp_out, transcoder, transcoder affine) share this release's identical "
+            f"layer/width/l0 suffix and must not be silently served even though they live in the "
+            f"same snapshot."
+        )
+    local_path = Path(sae_snapshot_root) / normalized
+    if not local_path.is_file():
+        raise EntryNotFoundError(
+            f"{relative!r} does not exist in the validated local SAE snapshot at "
+            f"{str(sae_snapshot_root)!r} -- local-snapshot-only resolution never falls back to "
+            f"the network to look for it elsewhere."
+        )
+    return str(local_path), normalized
 
 
 def validate_hidden_dims(model_d_model: int, sae_d_in: int, target: TargetPairing) -> None:

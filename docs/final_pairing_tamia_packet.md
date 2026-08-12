@@ -165,6 +165,45 @@ guards above). The harness now verifies `loader_sae_id` is actually
 registered for `release` -- against the real, installed `sae_lens`
 registry, not a guess -- BEFORE the ~24GB model even loads.
 
+Orchestrator review, 2026-08-14 ("Make Gemma SAE loading use the exact
+pinned local snapshot", live job 406259): the command line above is STILL
+UNCHANGED -- `--sae-path` remains the pinned SAE snapshot ROOT directory.
+With the loader id fixed, the model loaded and the flat id validated as
+registered, but `SAE.from_pretrained` still failed before any weights
+loaded: none of `sae_lens`'s own `hf_hub_download` call sites for a
+`gemma_3`-conversion release pass `revision=`, so `huggingface_hub`
+defaults it to `"main"` and tries to resolve `refs/main -> commit hash`
+from the LOCAL cache before touching any file content. Lab Assistant 1's
+snapshot was staged by pinning `snapshot_download` directly to the
+immutable commit sha, never to the branch name `"main"`, so no local
+`refs/main` file exists to resolve that default against -- offline
+resolution failed before the subdirectory/symlink guards above ever got a
+chance to run, even though the exact files those guards check were
+sitting on disk the whole time.
+
+**`refs/main` and `HF_HUB_CACHE` are NOT required for Gemma SAE loading
+when `--sae-path` is supplied.** `_capture_sae_download_paths` now
+installs a full REPLACEMENT for `sae_lens.loading.pretrained_sae_loaders`'s
+own `hf_hub_download` reference (not a pass-through wrapper around it):
+every request `sae_lens` makes during SAE loading is mapped directly onto
+a file inside the validated `--sae-path` snapshot
+(`targets.resolve_local_gemma_sae_path`) -- no Hub ref lookup, no network,
+no cache mutation, by construction, regardless of whether `refs/main`
+exists or `HF_HUB_CACHE` is set to anything at all. The two
+`_patch_gemma3_safetensors_shape_lookup` call sites go through the SAME
+resolver now (module-qualified `psl.hf_hub_download`, not a second,
+independently-imported reference), so the shape-lookup call this harness
+already routes away from raw HTTP does not reopen the same offline
+`refs/main` failure through a side door. Fails closed, before any file is
+even read, on: a repository id other than the ratified target (defensive
+-- should never actually happen from real `sae_lens` call sites); an
+explicit `revision` other than the default or `"main"` (branch-dependent
+resolution requests are rejected rather than silently served the pinned
+snapshot's files instead); an absolute filename or a `..` path-traversal
+segment; and a filename resolving outside `resid_post/layer_31_width_16k_
+l0_medium/` specifically (the same sibling-family case the logical/
+physical guards above catch post-hoc, now closed one request earlier).
+
 ## Command 2 -- Qwen3.5-27B + Qwen-Scope (SAE-Res-Qwen3.5-27B-W80K-L0_50)
 
 ```bash
@@ -328,6 +367,12 @@ Both commands write one JSON file to `--out`:
       "loader_sae_id": "... (Gemma only, e.g. 'layer_31_width_16k_l0_medium' -- see note below)",
       "local_path": "...", "revision": "...", "revision_verification": "...",
       "resolved_files": ["... every local file the SAE loader actually read ..."],
+      "requested_sae_files": [
+        {"requested_filename": "... (Gemma only, e.g. 'resid_post/layer_31_width_16k_l0_medium/config.json')",
+         "resolved_local_path": "..."}
+      ],
+      "local_snapshot_only": "... (Gemma only, always true -- see note below)",
+      "network_resolution_attempted": "... (Gemma only, always false -- see note below)",
       "actual_class": "...", "format": "sae_lens_registry | qwen_scope_raw_pt",
       "d_in": <int>, "d_sae": <int>, "k": <int or null>,
       "expected_sae_subdirectory": "... (Gemma only, e.g. 'resid_post/layer_31_width_16k_l0_medium')",
@@ -403,6 +448,23 @@ future run's provenance ever shows `sae_id == loader_sae_id`, that is the
 same defect recurring (the two identities collapsed back into one), not a
 cosmetic detail.
 
+Orchestrator review, 2026-08-14 ("Make Gemma SAE loading use the exact
+pinned local snapshot", live job 406259) added
+`provenance.sae.requested_sae_files`, `local_snapshot_only`, and
+`network_resolution_attempted`, all Gemma-only. `requested_sae_files` is
+the full request/response record -- one entry per `hf_hub_download`-shaped
+call `sae_lens` made during SAE loading, pairing exactly what repo-relative
+filename was requested with exactly which local file on disk was served
+for it; `resolved_files` (existing, unchanged) is the plain list of served
+paths those same entries' `resolved_local_path` values populate, kept
+because the pre-existing snapshot/subdirectory/symlink validators consume
+it as a plain `list[str]`. `local_snapshot_only`/`network_resolution_
+attempted` are always `true`/`false` respectively whenever this block is
+present at all -- there is no live/dynamic state to report, since the
+resolver that produces `requested_sae_files` never calls the real
+`hf_hub_download`, by construction; treat any future value other than
+exactly `true`/`false` as itself a sign this guarantee has regressed.
+
 Each `trace` record carries every per-call field this task's acceptance
 criteria require: requested mode/dose-or-raw, calibration input, resolved
 absolute target, backend-received value, hook name, hooked tensor shape, the
@@ -423,6 +485,8 @@ safe to gate a job script on directly.
 | `TargetIdentityMismatch` mentioning "OUTSIDE the ratified SAE subdirectory" | **SAE_SUBDIRECTORY_MISMATCH** (new, 2026-08-12) | Gemma side only, the LOGICAL check. The resolved SAE file(s) live inside the correct snapshot/revision but under the WRONG sibling family (`attn_out`, `mlp_out`, `transcoder`, or `transcoder affine` instead of the ratified `resid_post`) -- all five share the identical `layer_31_width_16k_l0_medium` suffix, so this is not something the snapshot/revision checks above can catch. Sanity-check that `gemma-scope-2-12b-it-res` (the `-res` = resid_post release suffix) is actually the release configured, not a sibling release for one of the other four families. |
 | `TargetIdentityMismatch` mentioning "dereference to a target OUTSIDE this repository's own cache root" | **SAE_SYMLINK_ESCAPED_CACHE** (new, 2026-08-12 addendum) | Gemma side only, the PHYSICAL check. A resolved SAE file is a real on-disk symlink whose dereferenced target does NOT belong to this repository's own `models--<org>--<repo>` cache root -- i.e. the symlink's logical (snapshot-relative) location looked correct, but its target physically points somewhere else (a different repo's cache, or an arbitrary path). This is a DIFFERENT failure than SAE_SUBDIRECTORY_MISMATCH above: that one catches a symlink correctly pointing to a legitimate blob but logically filed under the wrong family; this one catches a symlink logically filed correctly but pointing to the wrong (or no longer trustworthy) physical bytes. |
 | `TargetIdentityMismatch` mentioning "not a registered SAE id" | **LOADER_ID_UNREGISTERED** (new, 2026-08-13) | Gemma side only, fires BEFORE the model even loads. `sae_loader_id` (the flat key) isn't in the selected release's own `saes_map` -- most likely because it got set to the artifact path (`sae_id`) by mistake, the exact live job 406092 defect. Check `provenance` was never even reached (no output file) and re-verify `sae_loader_id` against `get_pretrained_saes_directory()[release].saes_map.keys()` directly. |
+| `huggingface_hub.utils.EntryNotFoundError` for a `resid_post/...` filename | **SAE_SNAPSHOT_FILE_MISSING** (new, 2026-08-14) | Gemma side only. The validated `--sae-path` snapshot is missing a file `sae_lens` actually needs -- most likely `params.safetensors` (`config.json` itself is optional: `sae_lens` infers it from `repo_id`/`folder_name` when absent, no network needed). The download to `--sae-path` was probably incomplete; re-verify the file listing against Lab Assistant 1's inventory. |
+| `TargetIdentityMismatch` mentioning "local-snapshot-only SAE resolution" but NOT "OUTSIDE the ratified SAE subdirectory" | **LOCAL_RESOLUTION_REJECTED** (new, 2026-08-14) | Gemma side only, defensive -- should never actually fire against `sae_lens`'s real, unmodified internal call sites. Means either an unexpected repository id or an explicit, non-default `revision` was requested during SAE loading (a branch-dependent resolution request); read the exact message for which. |
 | `FileNotFoundError` for model/SAE path | **PATH_NOT_STAGED** | The inventory path doesn't exist on this machine/allocation. |
 | `RuntimeError: HF_HUB_OFFLINE=1 is not set` | **ENV_NOT_OFFLINE** | Export it before invoking -- every Tamia compute-node job in this project requires it. |
 | `ValueError`/`TargetIdentityMismatch` from `resolve_target_value` before any load starts | **BAD_STEER_VALUE** | `--raw-clamp-value` (or the resolved `--dose-multiple` x `--calibration-value` product) was zero, negative, NaN, or infinite. Fails before any weights load by design. |
@@ -478,15 +542,28 @@ Ranked by how much they can invalidate a run if wrong:
    path in general, but "general" is not "verified for
    `Qwen3_5ForCausalLM` with a raw forward hook attached to one internal
    decoder layer."
-4. **The Gemma SAE-provenance proof (`resolved_files` matching
-   `--sae-path`) has only been exercised with a monkeypatched fake
-   `hf_hub_download` in tests, never against sae_lens's real download
-   path for a `gemma_3`-conversion release.** The mechanism (patching
-   `sae_lens.loading.pretrained_sae_loaders`'s own `hf_hub_download`
-   reference) is verified correct by direct source reading of that module,
-   but "the right function is patched" and "it behaves as expected against
-   real registry internals" are different claims -- the second needs a
-   real run.
+4. **The Gemma SAE local-snapshot-only resolver (2026-08-14) has been
+   proven with REAL local files on disk and REAL `hf_hub_download`-shaped
+   request arguments (repo id, filename, subfolder, revision) matching
+   `sae_lens`'s own internal call sites -- verified by direct source
+   reading of `pretrained_sae_loaders.py` and `huggingface_hub`'s own
+   `file_download.py` (subfolder+filename join, `revision=None ->
+   "main"` defaulting) -- but the full, unmodified, real `SAE.from_
+   pretrained` -> `gemma_3_sae_huggingface_loader` call chain (config
+   parsing, the safetensors shape lookup, actual `SAE` construction) has
+   never run end-to-end against this resolver.** Every test that exercises
+   `load_gemma_it_target`'s integration with it still mocks `SAE.from_
+   pretrained` itself, simulating what its internals would request rather
+   than letting them run for real. "The mapping algorithm is correct
+   against realistic requests" and "sae_lens's real, unmodified internals
+   actually make exactly those requests, in that order, with a real
+   Gemma-Scope-IT snapshot's real files" are different claims -- the
+   second needs the real Tamia run this fix was written for. Treat the
+   first live Command 1 run under this fix as the actual test, not a
+   formality -- if it still fails, capture the full traceback and the
+   exact `filename`/`subfolder`/`revision` the failing request carried
+   rather than assuming the algorithm above is wrong; it may be a call
+   shape this review didn't anticipate.
 5. **The new exact-SAE-subdirectory guards (2026-08-12, plus the same-day
    "HF snapshot symlink containment" addendum) are unrun against a real
    huggingface_hub cache's actual symlink layout -- real sae_lens path

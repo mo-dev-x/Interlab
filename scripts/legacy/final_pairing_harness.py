@@ -127,6 +127,31 @@ registered BEFORE the ~24GB model is even loaded. target.sae_id is
 UNCHANGED and still feeds the logical/physical subdirectory guards above
 -- this fix separates which string goes where, it does not touch what
 either string IS or what the ratified scientific target means.
+
+Orchestrator review, 2026-08-14 ("Make Gemma SAE loading use the exact
+pinned local snapshot", live job 406259): with the loader id fixed, the
+Gemma model loaded and the flat id validated as registered, but
+SAE.from_pretrained still failed before any weights loaded --
+sae_lens's own hf_hub_download call sites never pass revision=, so
+huggingface_hub defaults it to "main" and tries to resolve refs/main ->
+commit hash from the LOCAL cache; refs/main does not exist because this
+project's cache was populated by pinning snapshot_download directly to the
+immutable commit sha, never to the branch name "main". _capture_sae_
+download_paths previously called THROUGH to the real hf_hub_download and
+merely recorded its return value -- proving what the subdirectory/symlink
+guards check, but never preventing that real Hub-ref lookup from being
+attempted (and failing) in the first place. It is now a full REPLACEMENT
+for sae_lens.loading.pretrained_sae_loaders's own hf_hub_download
+reference: every request is resolved directly against the validated
+sae_path snapshot via targets.resolve_local_gemma_sae_path (see that
+function's docstring for the exact algorithm and fail-closed conditions),
+with no Hub ref lookup, no network, and no cache mutation, by
+construction. _patch_gemma3_safetensors_shape_lookup's own local shape
+lookup is now also routed through psl.hf_hub_download (module-qualified,
+so it picks up whatever that reference currently is) rather than a
+separately, freshly-imported hf_hub_download -- otherwise that second call
+site would hit the exact same offline-refs/main failure this review exists
+to close, one function away from where it looks like it was fixed.
 """
 
 from __future__ import annotations
@@ -461,27 +486,60 @@ def _require_offline() -> None:
         )
 
 
-def _capture_sae_download_paths(capture: list[str]):
-    """Proves what final_pairing_targets.validate_sae_files_match_snapshot
-    checks: patches sae_lens.loading.pretrained_sae_loaders's OWN
+def _capture_sae_download_paths(
+    capture: list[str],
+    *,
+    sae_path: str | Path,
+    target: targets.TargetPairing,
+    requested_files_out: list[dict[str, str]] | None = None,
+):
+    """Replaces sae_lens.loading.pretrained_sae_loaders's OWN
     hf_hub_download reference (that module does `from huggingface_hub
     import hf_hub_download` at ITS OWN import time -- patching
     huggingface_hub.hf_hub_download itself would not reach calls made from
     inside pretrained_sae_loaders.py, since Python's `from X import Y`
-    binds a local name, not a live reference to the module attribute) so
-    every local file the SAE registry loader actually reads is recorded.
+    binds a local name, not a live reference to the module attribute) with
+    targets.resolve_local_gemma_sae_path -- see that function's docstring
+    for the full local-snapshot-only resolution algorithm.
+
+    Orchestrator review, 2026-08-14 (live job 406259): a prior version of
+    this function called THROUGH to the real hf_hub_download and only
+    recorded whatever local path it returned -- proving what the
+    subdirectory/symlink guards below check, but never preventing the
+    real Hub-ref lookup that call performs from being attempted (and
+    failing offline against this project's commit-pinned cache) in the
+    first place. This version never calls the real hf_hub_download at
+    all: every request is resolved directly against sae_path.
+
+    requested_files_out, if given, is appended with one
+    {"requested_filename", "resolved_local_path"} dict per request -- the
+    provenance record of exactly what was asked for and what was served,
+    independent of resolved_files/capture (which existing snapshot/
+    subdirectory/symlink validators consume as a plain list[str]).
+
     Caller MUST restore the returned original via _restore_sae_download_paths
     in a finally block, whether or not the load succeeded."""
     import sae_lens.loading.pretrained_sae_loaders as psl
 
     original = psl.hf_hub_download
 
-    def wrapped(*args, **kwargs):
-        local_path = original(*args, **kwargs)
+    def local_only(*args, **kwargs):
+        call = dict(zip(("repo_id", "filename"), args, strict=False))
+        call.update(kwargs)
+        local_path, relative = targets.resolve_local_gemma_sae_path(
+            repo_id=call["repo_id"],
+            filename=call["filename"],
+            subfolder=call.get("subfolder"),
+            revision=call.get("revision"),
+            sae_snapshot_root=sae_path,
+            target=target,
+        )
         capture.append(local_path)
+        if requested_files_out is not None:
+            requested_files_out.append({"requested_filename": relative, "resolved_local_path": local_path})
         return local_path
 
-    psl.hf_hub_download = wrapped
+    psl.hf_hub_download = local_only
     return original
 
 
@@ -492,22 +550,33 @@ def _restore_sae_download_paths(original) -> None:
 
 
 def _patch_gemma3_safetensors_shape_lookup() -> None:
-    """Verbatim duplicate of gemma3_sweep.py's own patch (same
-    duplicate-rather-than-cross-import convention this project already uses
-    for out-of-chain adapters, e.g. qwen_tool_adapter.pick_control_feature_idx)
-    -- NOT an edit to gemma3_sweep.py. Installed sae_lens's Gemma-3 loader
-    issues a raw requests.get() HTTP range read for tensor shapes that
-    bypasses huggingface_hub AND HF_HUB_OFFLINE entirely; this routes the
-    same shape lookup through hf_hub_download instead. Applies to ANY
+    """Based on gemma3_sweep.py's own patch (same duplicate-rather-than-
+    cross-import convention this project already uses for out-of-chain
+    adapters, e.g. qwen_tool_adapter.pick_control_feature_idx) -- NOT an
+    edit to gemma3_sweep.py. Installed sae_lens's Gemma-3 loader issues a
+    raw requests.get() HTTP range read for tensor shapes that bypasses
+    huggingface_hub AND HF_HUB_OFFLINE entirely; this routes the same
+    shape lookup through hf_hub_download instead. Applies to ANY
     conversion_func="gemma_3" release, verified via the locally-installed
     sae_lens==6.44.2 registry to include gemma-scope-2-12b-it-res, not just
-    the -pt release this patch was first written against."""
+    the -pt release this patch was first written against.
+
+    Orchestrator review, 2026-08-14 (live job 406259): unlike gemma3_sweep.
+    py's version, this one calls psl.hf_hub_download -- module-qualified,
+    so it is routed through WHATEVER psl.hf_hub_download currently is --
+    rather than a separately, freshly-imported hf_hub_download. During
+    load_gemma_it_target's _capture_sae_download_paths try/finally window,
+    that reference is this module's own local-snapshot-only resolver, so
+    the shape lookup resolves from the pinned snapshot exactly like every
+    other SAE file request; a fresh, independent import would instead hit
+    the real hf_hub_download and the exact same offline-refs/main failure
+    this review exists to close, one function away from where it looks
+    like it was already fixed."""
     import sae_lens.loading.pretrained_sae_loaders as psl
-    from huggingface_hub import hf_hub_download
     from safetensors import safe_open
 
     def _local_get_safetensors_tensor_shapes(repo_id: str, filename: str) -> dict:
-        local_path = hf_hub_download(repo_id=repo_id, filename=filename)
+        local_path = psl.hf_hub_download(repo_id=repo_id, filename=filename)
         with safe_open(local_path, framework="pt") as f:
             return {k: list(f.get_slice(k).get_shape()) for k in f}
 
@@ -570,7 +639,10 @@ def load_gemma_it_target(
 
     _patch_gemma3_safetensors_shape_lookup()
     resolved_sae_files: list[str] = []
-    original_hf_hub_download = _capture_sae_download_paths(resolved_sae_files)
+    requested_sae_files: list[dict[str, str]] = []
+    original_hf_hub_download = _capture_sae_download_paths(
+        resolved_sae_files, sae_path=sae_path, target=target, requested_files_out=requested_sae_files
+    )
     try:
         sae = SAE.from_pretrained(release=target.sae_release, sae_id=target.sae_loader_id, device=device)
     finally:
@@ -606,6 +678,9 @@ def load_gemma_it_target(
             "revision": sae_identity["revision"],
             "revision_verification": sae_identity["verification"],
             "resolved_files": resolved_sae_files,
+            "requested_sae_files": requested_sae_files,
+            "local_snapshot_only": True,
+            "network_resolution_attempted": False,
             "actual_class": type(sae).__name__,
             "format": target.sae_format,
             "d_in": sae.cfg.d_in,

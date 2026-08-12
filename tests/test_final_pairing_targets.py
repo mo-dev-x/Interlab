@@ -725,3 +725,256 @@ def test_realistic_hf_cache_symlink_escaping_repository_cache_fails_physical_che
         targets.validate_sae_symlink_targets_stay_in_repository_cache(
             [str(link_path)], snapshot_dir, targets.GEMMA_3_12B_IT_TARGET
         )
+
+
+# ---------------------------------------------------------------------------
+# resolve_local_gemma_sae_path -- orchestrator review, 2026-08-14 ("Make
+# Gemma SAE loading use the exact pinned local snapshot", live job 406259):
+# maps ONE sae_lens-internal hf_hub_download(repo_id=, filename=, subfolder=,
+# revision=) request directly onto a file inside the already-validated
+# local snapshot -- no Hub resolution, no network, no cache mutation. None
+# of the fixtures below ever create a refs/ directory anywhere, proving its
+# absence (the exact live failure cause) genuinely does not matter here.
+# ---------------------------------------------------------------------------
+
+
+def _gemma_sae_snapshot_with_file(tmp_path, *, relative_path):
+    snapshot_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    file_path = snapshot_dir / relative_path
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_bytes(b"fake sae file contents")
+    return snapshot_dir, file_path
+
+
+def test_resolve_local_gemma_sae_path_accepts_direct_filename_under_sae_id(tmp_path):
+    snapshot_dir, file_path = _gemma_sae_snapshot_with_file(
+        tmp_path, relative_path="resid_post/layer_31_width_16k_l0_medium/config.json"
+    )
+    local_path, relative = targets.resolve_local_gemma_sae_path(
+        repo_id="google/gemma-scope-2-12b-it",
+        filename="resid_post/layer_31_width_16k_l0_medium/config.json",
+        subfolder=None,
+        revision=None,
+        sae_snapshot_root=snapshot_dir,
+        target=targets.GEMMA_3_12B_IT_TARGET,
+    )
+    assert local_path == str(file_path)
+    assert relative == "resid_post/layer_31_width_16k_l0_medium/config.json"
+
+
+def test_resolve_local_gemma_sae_path_accepts_subfolder_plus_filename(tmp_path):
+    """The gemma_3_sae_huggingface_loader shape: filename="params.safetensors",
+    subfolder=folder_name -- must join exactly like huggingface_hub's own
+    hf_hub_download does (`if subfolder: filename = f"{subfolder}/{filename}"`,
+    verified against the installed huggingface_hub==1.24.0 source)."""
+    snapshot_dir, file_path = _gemma_sae_snapshot_with_file(
+        tmp_path, relative_path="resid_post/layer_31_width_16k_l0_medium/params.safetensors"
+    )
+    local_path, relative = targets.resolve_local_gemma_sae_path(
+        repo_id="google/gemma-scope-2-12b-it",
+        filename="params.safetensors",
+        subfolder="resid_post/layer_31_width_16k_l0_medium",
+        revision=None,
+        sae_snapshot_root=snapshot_dir,
+        target=targets.GEMMA_3_12B_IT_TARGET,
+    )
+    assert local_path == str(file_path)
+    assert relative == "resid_post/layer_31_width_16k_l0_medium/params.safetensors"
+
+
+def test_resolve_local_gemma_sae_path_accepts_revision_main_explicitly(tmp_path):
+    """revision="main" is huggingface_hub's own hardcoded default branch
+    name -- it must still resolve to the pinned local snapshot, not be
+    treated as a request to look up whatever "main" points to on the Hub."""
+    snapshot_dir, _file_path = _gemma_sae_snapshot_with_file(
+        tmp_path, relative_path="resid_post/layer_31_width_16k_l0_medium/config.json"
+    )
+    targets.resolve_local_gemma_sae_path(
+        repo_id="google/gemma-scope-2-12b-it",
+        filename="resid_post/layer_31_width_16k_l0_medium/config.json",
+        subfolder=None,
+        revision="main",
+        sae_snapshot_root=snapshot_dir,
+        target=targets.GEMMA_3_12B_IT_TARGET,
+    )  # must not raise
+
+
+def test_resolve_local_gemma_sae_path_ignores_absent_refs_main_directory(tmp_path):
+    """No refs/ directory exists anywhere in this fixture -- proving its
+    absence genuinely does not matter, the exact live failure (job 406259)
+    this function exists to close."""
+    snapshot_dir, _file_path = _gemma_sae_snapshot_with_file(
+        tmp_path, relative_path="resid_post/layer_31_width_16k_l0_medium/config.json"
+    )
+    repo_root = snapshot_dir.parents[1]
+    assert not (repo_root / "refs").exists()
+    targets.resolve_local_gemma_sae_path(
+        repo_id="google/gemma-scope-2-12b-it",
+        filename="resid_post/layer_31_width_16k_l0_medium/config.json",
+        subfolder=None,
+        revision=None,
+        sae_snapshot_root=snapshot_dir,
+        target=targets.GEMMA_3_12B_IT_TARGET,
+    )  # must not raise
+
+
+def test_resolve_local_gemma_sae_path_rejects_unexpected_repo_id(tmp_path):
+    snapshot_dir, _file_path = _gemma_sae_snapshot_with_file(
+        tmp_path, relative_path="resid_post/layer_31_width_16k_l0_medium/config.json"
+    )
+    with pytest.raises(targets.TargetIdentityMismatch, match="repository"):
+        targets.resolve_local_gemma_sae_path(
+            repo_id="google/some-other-repo",
+            filename="resid_post/layer_31_width_16k_l0_medium/config.json",
+            subfolder=None,
+            revision=None,
+            sae_snapshot_root=snapshot_dir,
+            target=targets.GEMMA_3_12B_IT_TARGET,
+        )
+
+
+@pytest.mark.parametrize("bad_revision", ["some-other-branch", "deadbeef1234"])
+def test_resolve_local_gemma_sae_path_rejects_branch_dependent_revision(tmp_path, bad_revision):
+    """revision=main is the one accepted alias (see the acceptance test
+    above); any OTHER explicit revision -- a real branch name or a
+    different commit sha -- must not be silently served the pinned
+    snapshot's files instead of failing."""
+    snapshot_dir, _file_path = _gemma_sae_snapshot_with_file(
+        tmp_path, relative_path="resid_post/layer_31_width_16k_l0_medium/config.json"
+    )
+    with pytest.raises(targets.TargetIdentityMismatch, match="revision"):
+        targets.resolve_local_gemma_sae_path(
+            repo_id="google/gemma-scope-2-12b-it",
+            filename="resid_post/layer_31_width_16k_l0_medium/config.json",
+            subfolder=None,
+            revision=bad_revision,
+            sae_snapshot_root=snapshot_dir,
+            target=targets.GEMMA_3_12B_IT_TARGET,
+        )
+
+
+@pytest.mark.parametrize(
+    "bad_filename", ["/etc/passwd", "C:/Windows/System32/config", "C:\\Windows\\System32\\config"]
+)
+def test_resolve_local_gemma_sae_path_rejects_absolute_filename(tmp_path, bad_filename):
+    snapshot_dir, _file_path = _gemma_sae_snapshot_with_file(
+        tmp_path, relative_path="resid_post/layer_31_width_16k_l0_medium/config.json"
+    )
+    with pytest.raises(targets.TargetIdentityMismatch, match="absolute"):
+        targets.resolve_local_gemma_sae_path(
+            repo_id="google/gemma-scope-2-12b-it",
+            filename=bad_filename,
+            subfolder=None,
+            revision=None,
+            sae_snapshot_root=snapshot_dir,
+            target=targets.GEMMA_3_12B_IT_TARGET,
+        )
+
+
+def test_resolve_local_gemma_sae_path_rejects_path_traversal(tmp_path):
+    snapshot_dir, _file_path = _gemma_sae_snapshot_with_file(
+        tmp_path, relative_path="resid_post/layer_31_width_16k_l0_medium/config.json"
+    )
+    with pytest.raises(targets.TargetIdentityMismatch, match="traversal"):
+        targets.resolve_local_gemma_sae_path(
+            repo_id="google/gemma-scope-2-12b-it",
+            filename="resid_post/layer_31_width_16k_l0_medium/../../../secrets.json",
+            subfolder=None,
+            revision=None,
+            sae_snapshot_root=snapshot_dir,
+            target=targets.GEMMA_3_12B_IT_TARGET,
+        )
+
+
+def test_resolve_local_gemma_sae_path_rejects_traversal_via_subfolder(tmp_path):
+    """The containment/traversal checks run on the JOINED subfolder+
+    filename path, not on either half considered separately."""
+    snapshot_dir, _file_path = _gemma_sae_snapshot_with_file(
+        tmp_path, relative_path="resid_post/layer_31_width_16k_l0_medium/config.json"
+    )
+    with pytest.raises(targets.TargetIdentityMismatch, match="traversal"):
+        targets.resolve_local_gemma_sae_path(
+            repo_id="google/gemma-scope-2-12b-it",
+            filename="config.json",
+            subfolder="resid_post/../../outside",
+            revision=None,
+            sae_snapshot_root=snapshot_dir,
+            target=targets.GEMMA_3_12B_IT_TARGET,
+        )
+
+
+@pytest.mark.parametrize("sibling_family", ["attn_out", "mlp_out", "transcoder"])
+def test_resolve_local_gemma_sae_path_rejects_sibling_sae_family(tmp_path, sibling_family):
+    """Even resolved from INSIDE the same correctly-validated snapshot --
+    the exact five-SAE-families-share-one-suffix case this whole guard
+    cluster exists to catch, closed here one request earlier than the
+    post-hoc validate_sae_files_match_expected_subdirectory check."""
+    snapshot_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    file_path = snapshot_dir / sibling_family / "layer_31_width_16k_l0_medium" / "config.json"
+    file_path.parent.mkdir(parents=True)
+    file_path.write_bytes(b"fake")
+    with pytest.raises(targets.TargetIdentityMismatch, match=sibling_family):
+        targets.resolve_local_gemma_sae_path(
+            repo_id="google/gemma-scope-2-12b-it",
+            filename=f"{sibling_family}/layer_31_width_16k_l0_medium/config.json",
+            subfolder=None,
+            revision=None,
+            sae_snapshot_root=snapshot_dir,
+            target=targets.GEMMA_3_12B_IT_TARGET,
+        )
+
+
+def test_resolve_local_gemma_sae_path_rejects_sibling_prefix_name(tmp_path):
+    snapshot_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    file_path = snapshot_dir / "resid_post" / "layer_31_width_16k_l0_medium_v2" / "config.json"
+    file_path.parent.mkdir(parents=True)
+    file_path.write_bytes(b"fake")
+    with pytest.raises(targets.TargetIdentityMismatch):
+        targets.resolve_local_gemma_sae_path(
+            repo_id="google/gemma-scope-2-12b-it",
+            filename="resid_post/layer_31_width_16k_l0_medium_v2/config.json",
+            subfolder=None,
+            revision=None,
+            sae_snapshot_root=snapshot_dir,
+            target=targets.GEMMA_3_12B_IT_TARGET,
+        )
+
+
+def test_resolve_local_gemma_sae_path_rejects_missing_file_as_entry_not_found(tmp_path):
+    """Missing files raise huggingface_hub.utils.EntryNotFoundError --
+    deliberately NOT TargetIdentityMismatch -- so sae_lens's own
+    get_gemma_3_config_from_hf fallback (a missing config.json infers the
+    config from repo_id/folder_name strings instead, no network needed)
+    keeps working rather than being silently broken by this guard."""
+    from huggingface_hub.utils import EntryNotFoundError
+
+    snapshot_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    snapshot_dir.mkdir(parents=True)
+    with pytest.raises(EntryNotFoundError):
+        targets.resolve_local_gemma_sae_path(
+            repo_id="google/gemma-scope-2-12b-it",
+            filename="resid_post/layer_31_width_16k_l0_medium/config.json",
+            subfolder=None,
+            revision=None,
+            sae_snapshot_root=snapshot_dir,
+            target=targets.GEMMA_3_12B_IT_TARGET,
+        )
+
+
+def test_resolve_local_gemma_sae_path_rejects_wrong_family_via_subfolder_join(tmp_path):
+    """A subfolder value naming a sibling family must still be rejected --
+    proving the containment check runs on the JOINED path, not on
+    subfolder and filename considered separately."""
+    snapshot_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    file_path = snapshot_dir / "attn_out" / "layer_31_width_16k_l0_medium" / "params.safetensors"
+    file_path.parent.mkdir(parents=True)
+    file_path.write_bytes(b"fake")
+    with pytest.raises(targets.TargetIdentityMismatch, match="attn_out"):
+        targets.resolve_local_gemma_sae_path(
+            repo_id="google/gemma-scope-2-12b-it",
+            filename="params.safetensors",
+            subfolder="attn_out/layer_31_width_16k_l0_medium",
+            revision=None,
+            sae_snapshot_root=snapshot_dir,
+            target=targets.GEMMA_3_12B_IT_TARGET,
+        )

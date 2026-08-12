@@ -290,48 +290,134 @@ def test_qwen_scope_sae_from_state_dict_rejects_mismatched_shapes():
 
 
 # ---------------------------------------------------------------------------
-# _capture_sae_download_paths / _restore_sae_download_paths -- the SAE
-# provenance proof (orchestrator review defect: validated sae_path and then
-# let SAE.from_pretrained resolve an independent cached revision with no
-# check the two agreed).
+# _capture_sae_download_paths / _restore_sae_download_paths -- orchestrator
+# review, 2026-08-14 ("Make Gemma SAE loading use the exact pinned local
+# snapshot", live job 406259): this is no longer a pass-through-and-record
+# wrapper around the real hf_hub_download -- it is a full REPLACEMENT that
+# resolves every request directly against the validated local snapshot via
+# targets.resolve_local_gemma_sae_path, and never calls the real
+# hf_hub_download at all. Every test below installs a poison-pill in place
+# of the "original" hf_hub_download and proves it is NEVER invoked.
 # ---------------------------------------------------------------------------
 
 
-def test_capture_sae_download_paths_records_calls_and_restores_cleanly(monkeypatch):
+def _poison_pill_hf_hub_download(*args, **kwargs):
+    raise AssertionError("the real hf_hub_download must never be called -- local resolution only")
+
+
+def test_capture_sae_download_paths_resolves_real_local_file_without_calling_original(monkeypatch, tmp_path):
     import sae_lens.loading.pretrained_sae_loaders as psl
 
-    def fake_hf_hub_download(repo_id, filename, **kwargs):
-        return f"/fake/cache/{repo_id}/{filename}"
+    snapshot_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    file_path = snapshot_dir / "resid_post" / "layer_31_width_16k_l0_medium" / "config.json"
+    file_path.parent.mkdir(parents=True)
+    file_path.write_bytes(b"fake config")
 
-    monkeypatch.setattr(psl, "hf_hub_download", fake_hf_hub_download)
+    monkeypatch.setattr(psl, "hf_hub_download", _poison_pill_hf_hub_download)
     captured: list = []
-    saved_original = harness._capture_sae_download_paths(captured)
+    saved_original = harness._capture_sae_download_paths(
+        captured, sae_path=snapshot_dir, target=targets.GEMMA_3_12B_IT_TARGET
+    )
     try:
-        result = psl.hf_hub_download(repo_id="google/gemma-scope-2-12b-it", filename="cfg.json")
+        result = psl.hf_hub_download(
+            repo_id="google/gemma-scope-2-12b-it",
+            filename="resid_post/layer_31_width_16k_l0_medium/config.json",
+        )
     finally:
         harness._restore_sae_download_paths(saved_original)
 
-    assert result == "/fake/cache/google/gemma-scope-2-12b-it/cfg.json"
+    assert result == str(file_path)
     assert captured == [result]
-    # restored to whatever was patched in immediately before capture, not
-    # some hardcoded "real" function -- proves restore is a true pop, not a
-    # guess at what "original" means.
-    assert psl.hf_hub_download is fake_hf_hub_download
+    # restored to whatever was patched in immediately before capture (the
+    # poison pill), not some hardcoded "real" function -- proves restore is
+    # a true pop, not a guess at what "original" means.
+    assert psl.hf_hub_download is _poison_pill_hf_hub_download
 
 
-def test_capture_sae_download_paths_records_multiple_calls(monkeypatch):
+def test_capture_sae_download_paths_resolves_multiple_subfolder_style_calls(monkeypatch, tmp_path):
     import sae_lens.loading.pretrained_sae_loaders as psl
 
-    monkeypatch.setattr(psl, "hf_hub_download", lambda repo_id, filename, **k: f"{repo_id}/{filename}")
+    snapshot_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    folder = snapshot_dir / "resid_post" / "layer_31_width_16k_l0_medium"
+    folder.mkdir(parents=True)
+    (folder / "config.json").write_bytes(b"a")
+    (folder / "params.safetensors").write_bytes(b"b")
+
+    monkeypatch.setattr(psl, "hf_hub_download", _poison_pill_hf_hub_download)
     captured: list = []
-    saved_original = harness._capture_sae_download_paths(captured)
+    saved_original = harness._capture_sae_download_paths(
+        captured, sae_path=snapshot_dir, target=targets.GEMMA_3_12B_IT_TARGET
+    )
     try:
-        psl.hf_hub_download(repo_id="r", filename="a.json")
-        psl.hf_hub_download(repo_id="r", filename="b.safetensors")
+        psl.hf_hub_download(repo_id="google/gemma-scope-2-12b-it", filename="config.json", subfolder=str(
+            Path("resid_post") / "layer_31_width_16k_l0_medium"
+        ).replace("\\", "/"))
+        psl.hf_hub_download(
+            repo_id="google/gemma-scope-2-12b-it", filename="params.safetensors",
+            subfolder="resid_post/layer_31_width_16k_l0_medium", force_download=False,
+        )
     finally:
         harness._restore_sae_download_paths(saved_original)
 
-    assert captured == ["r/a.json", "r/b.safetensors"]
+    assert captured == [str(folder / "config.json"), str(folder / "params.safetensors")]
+
+
+def test_capture_sae_download_paths_restores_after_a_rejected_request(monkeypatch, tmp_path):
+    """The patch is restored after failure, not only after success -- the
+    caller's try/finally (load_gemma_it_target) is what guarantees this in
+    practice; this test proves _restore_sae_download_paths itself works
+    correctly when the wrapped call raised."""
+    import sae_lens.loading.pretrained_sae_loaders as psl
+
+    snapshot_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    snapshot_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(psl, "hf_hub_download", _poison_pill_hf_hub_download)
+    captured: list = []
+    saved_original = harness._capture_sae_download_paths(
+        captured, sae_path=snapshot_dir, target=targets.GEMMA_3_12B_IT_TARGET
+    )
+    try:
+        with pytest.raises(targets.TargetIdentityMismatch, match="repository"):
+            psl.hf_hub_download(repo_id="some/other-repo", filename="x.json")
+    finally:
+        harness._restore_sae_download_paths(saved_original)
+
+    assert psl.hf_hub_download is _poison_pill_hf_hub_download
+    assert captured == []
+
+
+def test_capture_sae_download_paths_records_requested_files_out(monkeypatch, tmp_path):
+    """requested_files_out is the provenance record of exactly what was
+    asked for and what was served -- independent of the plain list[str]
+    the existing snapshot/subdirectory/symlink validators consume."""
+    import sae_lens.loading.pretrained_sae_loaders as psl
+
+    snapshot_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    file_path = snapshot_dir / "resid_post" / "layer_31_width_16k_l0_medium" / "config.json"
+    file_path.parent.mkdir(parents=True)
+    file_path.write_bytes(b"fake")
+
+    monkeypatch.setattr(psl, "hf_hub_download", _poison_pill_hf_hub_download)
+    captured: list = []
+    requested: list = []
+    saved_original = harness._capture_sae_download_paths(
+        captured, sae_path=snapshot_dir, target=targets.GEMMA_3_12B_IT_TARGET, requested_files_out=requested
+    )
+    try:
+        psl.hf_hub_download(
+            repo_id="google/gemma-scope-2-12b-it",
+            filename="resid_post/layer_31_width_16k_l0_medium/config.json",
+        )
+    finally:
+        harness._restore_sae_download_paths(saved_original)
+
+    assert requested == [
+        {
+            "requested_filename": "resid_post/layer_31_width_16k_l0_medium/config.json",
+            "resolved_local_path": str(file_path),
+        }
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -794,15 +880,22 @@ def test_main_gemma_writes_the_documented_json_schema(monkeypatch, tmp_path):
 
 
 def test_load_gemma_it_target_rejects_wrong_sae_subdirectory_before_further_use(monkeypatch, tmp_path):
-    """Integration-level proof that the new subdirectory guard
-    (orchestrator review, 2026-08-12) is actually wired into
-    load_gemma_it_target and fires before ANY further use of the loaded
-    SAE object -- and therefore strictly before main()'s later
+    """Integration-level proof that the subdirectory guard is actually
+    wired into load_gemma_it_target and fires before ANY further use of
+    the loaded SAE object -- and therefore strictly before main()'s later
     model.generate() call, which only ever runs on load_gemma_it_target's
     successful return value. Uses an attn_out sibling file resolved from
     INSIDE the same correctly-validated snapshot, proving the wrong SAE
-    family cannot reach generation even from the right snapshot."""
-    import sae_lens.loading.pretrained_sae_loaders as psl
+    family cannot reach generation even from the right snapshot.
+
+    Orchestrator review, 2026-08-14 (live job 406259): rewritten to use a
+    REALISTIC hf_hub_download request shape (repo-relative filename, no
+    fabricated return value) resolved by the real local-snapshot-only
+    resolver -- the rejection now fires one step earlier, inside
+    resolve_local_gemma_sae_path itself, rather than the post-hoc
+    validate_sae_files_match_expected_subdirectory check; both are still
+    exercised (this one first, closing the request before any file is
+    even read)."""
     import transformer_lens
     import transformers
     from sae_lens import SAE
@@ -810,7 +903,10 @@ def test_load_gemma_it_target_rejects_wrong_sae_subdirectory_before_further_use(
     model_snapshot = tmp_path / "models--google--gemma-3-12b-it" / "snapshots" / "modelrev"
     model_snapshot.mkdir(parents=True)
     sae_snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "saerev"
-    sae_snapshot.mkdir(parents=True)
+    # an attn_out SIBLING file, resolved from inside the SAME correctly-validated snapshot
+    attn_out_file = sae_snapshot / "attn_out" / "layer_31_width_16k_l0_medium" / "config.json"
+    attn_out_file.parent.mkdir(parents=True)
+    attn_out_file.write_bytes(b"fake")
 
     class _FakeHfModel:
         def to(self, device):
@@ -842,14 +938,14 @@ def test_load_gemma_it_target_rejects_wrong_sae_subdirectory_before_further_use(
         def eval(self):
             return self
 
-    def fake_hf_hub_download(repo_id, filename, **kwargs):
-        # an attn_out SIBLING file, resolved from inside the SAME correctly-validated snapshot
-        return str(sae_snapshot / "attn_out" / "layer_31_width_16k_l0_medium" / filename)
-
-    monkeypatch.setattr(psl, "hf_hub_download", fake_hf_hub_download)
-
     def fake_sae_from_pretrained(*, release, sae_id, device):
-        psl.hf_hub_download(repo_id="google/gemma-scope-2-12b-it", filename="cfg.json")
+        import sae_lens.loading.pretrained_sae_loaders as psl
+
+        # the real gemma_3_sae_huggingface_loader's own request shape:
+        # filename=f"{folder_name}/config.json", no subfolder kwarg.
+        psl.hf_hub_download(
+            repo_id="google/gemma-scope-2-12b-it", filename="attn_out/layer_31_width_16k_l0_medium/config.json"
+        )
         return _FakeSae()
 
     monkeypatch.setattr(SAE, "from_pretrained", staticmethod(fake_sae_from_pretrained))
@@ -882,9 +978,13 @@ def test_load_gemma_it_target_passes_with_correct_flat_loader_id_and_records_thr
     """The happy path: correct release, the FLAT loader id actually
     registered for it (verified against the real, installed sae_lens
     registry), and resolved files genuinely under the ratified resid_post
-    artifact subdirectory. Also proves the acceptance criterion that
-    provenance records all three identities (release, loader id, artifact
-    identity) without conflating any pair of them."""
+    artifact subdirectory -- resolved from a REAL local file on disk, with
+    no refs/main anywhere and the real hf_hub_download poisoned to fail if
+    ever called (orchestrator review, 2026-08-14, live job 406259). Also
+    proves the acceptance criterion that provenance records all three
+    identities (release, loader id, artifact identity) without conflating
+    any pair of them, plus the new local_snapshot_only/network_resolution_
+    attempted/requested_sae_files provenance fields."""
     import sae_lens.loading.pretrained_sae_loaders as psl
     import transformer_lens
     import transformers
@@ -893,7 +993,10 @@ def test_load_gemma_it_target_passes_with_correct_flat_loader_id_and_records_thr
     model_snapshot = tmp_path / "models--google--gemma-3-12b-it" / "snapshots" / "modelrev"
     model_snapshot.mkdir(parents=True)
     sae_snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "saerev"
-    sae_snapshot.mkdir(parents=True)
+    sae_file = sae_snapshot / "resid_post" / "layer_31_width_16k_l0_medium" / "config.json"
+    sae_file.parent.mkdir(parents=True)
+    sae_file.write_bytes(b"fake config")
+    assert not (sae_snapshot.parents[1] / "refs").exists()  # no refs/main anywhere in this fixture
 
     class _FakeHfModel:
         def to(self, device):
@@ -922,16 +1025,17 @@ def test_load_gemma_it_target_passes_with_correct_flat_loader_id_and_records_thr
         def eval(self):
             return self
 
-    def fake_hf_hub_download(repo_id, filename, **kwargs):
-        return str(sae_snapshot / "resid_post" / "layer_31_width_16k_l0_medium" / filename)
-
-    monkeypatch.setattr(psl, "hf_hub_download", fake_hf_hub_download)
+    monkeypatch.setattr(psl, "hf_hub_download", _poison_pill_hf_hub_download)
 
     captured_sae_id = {}
 
     def fake_sae_from_pretrained(*, release, sae_id, device):
         captured_sae_id["value"] = sae_id
-        psl.hf_hub_download(repo_id="google/gemma-scope-2-12b-it", filename="cfg.json")
+        # the real gemma_3_sae_huggingface_loader's own request shape:
+        # filename=f"{folder_name}/config.json", no subfolder kwarg.
+        psl.hf_hub_download(
+            repo_id="google/gemma-scope-2-12b-it", filename="resid_post/layer_31_width_16k_l0_medium/config.json"
+        )
         return _FakeSae()
 
     monkeypatch.setattr(SAE, "from_pretrained", staticmethod(fake_sae_from_pretrained))
@@ -948,6 +1052,18 @@ def test_load_gemma_it_target_passes_with_correct_flat_loader_id_and_records_thr
     # no silent rewriting of one field into another -- all three are genuinely distinct.
     three_identities = {provenance["sae"]["release"], provenance["sae"]["sae_id"], provenance["sae"]["loader_sae_id"]}
     assert len(three_identities) == 3
+    # the real hf_hub_download was never called -- resolved from the local
+    # snapshot exclusively, by construction.
+    assert psl.hf_hub_download is _poison_pill_hf_hub_download
+    assert provenance["sae"]["local_snapshot_only"] is True
+    assert provenance["sae"]["network_resolution_attempted"] is False
+    assert provenance["sae"]["requested_sae_files"] == [
+        {
+            "requested_filename": "resid_post/layer_31_width_16k_l0_medium/config.json",
+            "resolved_local_path": str(sae_file),
+        }
+    ]
+    assert provenance["sae"]["resolved_files"] == [str(sae_file)]
 
 
 def test_load_gemma_it_target_rejects_artifact_path_used_as_loader_id_before_any_loading(monkeypatch, tmp_path):
