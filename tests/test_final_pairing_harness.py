@@ -421,6 +421,139 @@ def test_capture_sae_download_paths_records_requested_files_out(monkeypatch, tmp
 
 
 # ---------------------------------------------------------------------------
+# _patch_gemma3_safetensors_shape_lookup / _local_get_safetensors_tensor_
+# shapes -- orchestrator review, 2026-08-15 ("Correct and fully exercise the
+# local safetensors shape shim", live job 406826): the 2026-08-14 version of
+# this shim used `for k in f` to enumerate tensor keys. Real safe_open
+# objects are not iterable (verified below against the ACTUAL installed
+# safetensors, not a mock) -- every test of this shim before this review
+# mocked safe_open itself, so none of them could have caught this. All
+# tests in this section use the real safetensors.torch.save_file /
+# safe_open API end-to-end; none mock safe_open.
+# ---------------------------------------------------------------------------
+
+
+def test_real_safe_open_objects_are_not_iterable(tmp_path):
+    """Documents, against the REAL installed safetensors (not source
+    inspection, not a mock), the exact API contract that made `for k in f`
+    fail deterministically on live job 406826 -- proves the failure mode
+    itself, independent of this project's own shim. Any regression back to
+    bare iteration in _local_get_safetensors_tensor_shapes would raise
+    exactly this TypeError on its very first real call."""
+    from safetensors import safe_open
+    from safetensors.torch import save_file
+
+    path = tmp_path / "probe.safetensors"
+    save_file({"w": torch.zeros(2, 2)}, str(path))
+    with safe_open(str(path), framework="pt") as f, pytest.raises(TypeError, match="not iterable"):
+        list(f)
+
+
+def _install_shape_shim_with_stub_download(monkeypatch, *, local_path):
+    import sae_lens.loading.pretrained_sae_loaders as psl
+
+    harness._patch_gemma3_safetensors_shape_lookup()
+    monkeypatch.setattr(psl, "hf_hub_download", lambda repo_id, filename, **k: str(local_path))
+    return psl
+
+
+def test_shape_shim_reads_multiple_real_tensor_keys_and_exact_shapes(monkeypatch, tmp_path):
+    """The corrected implementation, exercised end-to-end against a REAL
+    temporary safetensors file with multiple distinctly-shaped tensors --
+    not mocked. This test fails against the pre-fix `for k in f` body
+    (TypeError, not a returned shape mapping), which is exactly what makes
+    it a real regression test for live job 406826, not merely a test of
+    the new code in isolation."""
+    from safetensors.torch import save_file
+
+    path = tmp_path / "sae_weights.safetensors"
+    save_file(
+        {"w_enc": torch.zeros(4, 8), "w_dec": torch.zeros(8, 4), "b_enc": torch.zeros(8), "threshold": torch.zeros(8)},
+        str(path),
+    )
+    psl = _install_shape_shim_with_stub_download(monkeypatch, local_path=path)
+
+    shapes = psl.get_safetensors_tensor_shapes("google/gemma-scope-2-12b-it", "ignored")
+
+    assert shapes == {"w_enc": [4, 8], "w_dec": [8, 4], "b_enc": [8], "threshold": [8]}
+    assert len(shapes) > 1  # multiple keys, per the acceptance criteria
+
+
+def test_shape_shim_accepts_a_real_empty_safetensors_file_then_rejects_it(monkeypatch, tmp_path):
+    """safetensors.torch.save_file({}, path) genuinely produces a valid,
+    openable, zero-tensor safetensors file (verified directly -- the
+    library does not refuse to create one) -- exercised for real here
+    rather than assumed, so this covers the true empty-file case, not the
+    narrowest-boundary fallback."""
+    from safetensors.torch import save_file
+
+    path = tmp_path / "empty.safetensors"
+    save_file({}, str(path))
+    psl = _install_shape_shim_with_stub_download(monkeypatch, local_path=path)
+
+    with pytest.raises(targets.TargetIdentityMismatch, match="zero tensor keys") as exc_info:
+        psl.get_safetensors_tensor_shapes("google/gemma-scope-2-12b-it", "ignored")
+    # the message embeds repr(local_path), which on Windows escapes each
+    # backslash -- compare against repr(), not the plain path string.
+    assert repr(str(path)) in str(exc_info.value)
+
+
+def test_shape_shim_fails_clearly_on_malformed_non_safetensors_file(monkeypatch, tmp_path):
+    path = tmp_path / "not_really_safetensors.safetensors"
+    path.write_bytes(b"this is not a safetensors file, just plain garbage bytes")
+    psl = _install_shape_shim_with_stub_download(monkeypatch, local_path=path)
+
+    with pytest.raises(targets.TargetIdentityMismatch) as exc_info:
+        psl.get_safetensors_tensor_shapes("google/gemma-scope-2-12b-it", "ignored")
+    # the raw safetensors_rust.SafetensorError does NOT include the path on
+    # its own -- proving the wrapper actually adds it, not merely repeats it.
+    assert repr(str(path)) in str(exc_info.value)
+
+
+def test_shape_shim_fails_clearly_on_missing_local_file(monkeypatch, tmp_path):
+    missing_path = tmp_path / "does_not_exist.safetensors"
+    psl = _install_shape_shim_with_stub_download(monkeypatch, local_path=missing_path)
+
+    with pytest.raises(targets.TargetIdentityMismatch, match="does not exist") as exc_info:
+        psl.get_safetensors_tensor_shapes("google/gemma-scope-2-12b-it", "ignored")
+    assert repr(str(missing_path)) in str(exc_info.value)
+
+
+def test_shape_shim_resolves_through_the_local_snapshot_only_resolver(monkeypatch, tmp_path):
+    """Verifies the local resolver supplies the EXPECTED params file to the
+    shape shim -- both patches installed together, in the same order
+    load_gemma_it_target installs them, with the real hf_hub_download
+    poisoned to fail if ever called. Proves the full chain: shim ->
+    psl.hf_hub_download (patched to the local-only resolver) ->
+    targets.resolve_local_gemma_sae_path -> a real file on disk -> real
+    safe_open -- not a mock at any link."""
+    import sae_lens.loading.pretrained_sae_loaders as psl
+    from safetensors.torch import save_file
+
+    sae_snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    params_file = sae_snapshot / "resid_post" / "layer_31_width_16k_l0_medium" / "params.safetensors"
+    params_file.parent.mkdir(parents=True)
+    save_file({"w_enc": torch.zeros(4, 8)}, str(params_file))
+
+    monkeypatch.setattr(psl, "hf_hub_download", _poison_pill_hf_hub_download)
+    harness._patch_gemma3_safetensors_shape_lookup()
+    captured: list = []
+    saved_original = harness._capture_sae_download_paths(
+        captured, sae_path=sae_snapshot, target=targets.GEMMA_3_12B_IT_TARGET
+    )
+    try:
+        shapes = psl.get_safetensors_tensor_shapes(
+            "google/gemma-scope-2-12b-it", "resid_post/layer_31_width_16k_l0_medium/params.safetensors"
+        )
+    finally:
+        harness._restore_sae_download_paths(saved_original)
+
+    assert shapes == {"w_enc": [4, 8]}
+    assert captured == [str(params_file)]
+    assert psl.hf_hub_download is _poison_pill_hf_hub_download
+
+
+# ---------------------------------------------------------------------------
 # load_qwen_target -- the auto-class route orchestrator review (2026-08-11)
 # realigned with Tamia's actual transformers==5.14.1 and the official
 # Qwen-Scope release's own application: AutoModelForCausalLM ->

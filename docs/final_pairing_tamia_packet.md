@@ -204,6 +204,39 @@ segment; and a filename resolving outside `resid_post/layer_31_width_16k_
 l0_medium/` specifically (the same sibling-family case the logical/
 physical guards above catch post-hoc, now closed one request earlier).
 
+Orchestrator review, 2026-08-15 ("Correct and fully exercise the local
+safetensors shape shim", live job 406826): the local-only resolver above
+reached the correct, locally-resolved `params.safetensors` file with no
+Hub/network/`refs/main` involved -- proving the 2026-08-14 fix worked --
+then failed deterministically one function further in, inside
+`_local_get_safetensors_tensor_shapes` itself: `for k in f` (the
+2026-08-14 wording of this shim) treats the real `safe_open` object as
+directly iterable. It is not. `safe_open` is a Rust extension type with no
+`__iter__` at all (verified directly against the installed
+`safetensors==0.4.5`, not merely by reading source), so that line raised
+`TypeError: 'builtins.safe_open' object is not iterable` on every real
+call, every time -- a defect no test before this review could have caught,
+because every existing test of this shim mocked `safe_open` itself rather
+than exercising the real installed API. This project's own two
+pre-existing, already-accepted copies of this same patch
+(`gemma3_sweep.py`, `gemma3_necessity.py` -- Engineer 2 owned, neither
+touched by this review) already used the correct `for k in f.keys()`; only
+this harness's own copy had drifted from that pattern.
+
+Fixed by using `f.keys()` (not bare iteration), and the shape API is now
+exercised, in the test suite, against a REAL temporary safetensors file
+via `safetensors.torch.save_file` and the real `safe_open` -- not a mock
+-- covering: multiple real tensor keys with exact shapes; a genuinely
+empty (zero-tensor) safetensors file, which the library can and does
+create; a malformed/non-safetensors file; a missing local file; and the
+full chain from the local-only resolver through to a real shape read.
+Every failure mode now names the resolved local path in its message (some
+real underlying exceptions, e.g. `safetensors_rust.SafetensorError` for a
+malformed file, do not include the path on their own). **The complete real
+`SAE.from_pretrained` load -- config parsing, weight loading, and `SAE`
+construction end-to-end through this shim, not just the shim in
+isolation -- still awaits the next Tamia run.**
+
 ## Command 2 -- Qwen3.5-27B + Qwen-Scope (SAE-Res-Qwen3.5-27B-W80K-L0_50)
 
 ```bash
@@ -486,6 +519,7 @@ safe to gate a job script on directly.
 | `TargetIdentityMismatch` mentioning "dereference to a target OUTSIDE this repository's own cache root" | **SAE_SYMLINK_ESCAPED_CACHE** (new, 2026-08-12 addendum) | Gemma side only, the PHYSICAL check. A resolved SAE file is a real on-disk symlink whose dereferenced target does NOT belong to this repository's own `models--<org>--<repo>` cache root -- i.e. the symlink's logical (snapshot-relative) location looked correct, but its target physically points somewhere else (a different repo's cache, or an arbitrary path). This is a DIFFERENT failure than SAE_SUBDIRECTORY_MISMATCH above: that one catches a symlink correctly pointing to a legitimate blob but logically filed under the wrong family; this one catches a symlink logically filed correctly but pointing to the wrong (or no longer trustworthy) physical bytes. |
 | `TargetIdentityMismatch` mentioning "not a registered SAE id" | **LOADER_ID_UNREGISTERED** (new, 2026-08-13) | Gemma side only, fires BEFORE the model even loads. `sae_loader_id` (the flat key) isn't in the selected release's own `saes_map` -- most likely because it got set to the artifact path (`sae_id`) by mistake, the exact live job 406092 defect. Check `provenance` was never even reached (no output file) and re-verify `sae_loader_id` against `get_pretrained_saes_directory()[release].saes_map.keys()` directly. |
 | `huggingface_hub.utils.EntryNotFoundError` for a `resid_post/...` filename | **SAE_SNAPSHOT_FILE_MISSING** (new, 2026-08-14) | Gemma side only. The validated `--sae-path` snapshot is missing a file `sae_lens` actually needs -- most likely `params.safetensors` (`config.json` itself is optional: `sae_lens` infers it from `repo_id`/`folder_name` when absent, no network needed). The download to `--sae-path` was probably incomplete; re-verify the file listing against Lab Assistant 1's inventory. |
+| `TargetIdentityMismatch` mentioning "safetensors file at" | **SAE_SHAPE_SHIM_FAILURE** (new, 2026-08-15) | Gemma side only, inside the corrected shape-lookup shim specifically (distinct from SAE_SNAPSHOT_FILE_MISSING above, which fires before this shim is even reached). Read the message for which of: file does not exist, cannot be opened (e.g. a truncated/corrupted download -- "could not open or read tensor shapes"), zero tensor keys, or an empty shape mapping. The message always names the resolved local path. |
 | `TargetIdentityMismatch` mentioning "local-snapshot-only SAE resolution" but NOT "OUTSIDE the ratified SAE subdirectory" | **LOCAL_RESOLUTION_REJECTED** (new, 2026-08-14) | Gemma side only, defensive -- should never actually fire against `sae_lens`'s real, unmodified internal call sites. Means either an unexpected repository id or an explicit, non-default `revision` was requested during SAE loading (a branch-dependent resolution request); read the exact message for which. |
 | `FileNotFoundError` for model/SAE path | **PATH_NOT_STAGED** | The inventory path doesn't exist on this machine/allocation. |
 | `RuntimeError: HF_HUB_OFFLINE=1 is not set` | **ENV_NOT_OFFLINE** | Export it before invoking -- every Tamia compute-node job in this project requires it. |
@@ -542,28 +576,32 @@ Ranked by how much they can invalidate a run if wrong:
    path in general, but "general" is not "verified for
    `Qwen3_5ForCausalLM` with a raw forward hook attached to one internal
    decoder layer."
-4. **The Gemma SAE local-snapshot-only resolver (2026-08-14) has been
-   proven with REAL local files on disk and REAL `hf_hub_download`-shaped
-   request arguments (repo id, filename, subfolder, revision) matching
-   `sae_lens`'s own internal call sites -- verified by direct source
-   reading of `pretrained_sae_loaders.py` and `huggingface_hub`'s own
-   `file_download.py` (subfolder+filename join, `revision=None ->
-   "main"` defaulting) -- but the full, unmodified, real `SAE.from_
-   pretrained` -> `gemma_3_sae_huggingface_loader` call chain (config
-   parsing, the safetensors shape lookup, actual `SAE` construction) has
-   never run end-to-end against this resolver.** Every test that exercises
-   `load_gemma_it_target`'s integration with it still mocks `SAE.from_
-   pretrained` itself, simulating what its internals would request rather
-   than letting them run for real. "The mapping algorithm is correct
-   against realistic requests" and "sae_lens's real, unmodified internals
-   actually make exactly those requests, in that order, with a real
-   Gemma-Scope-IT snapshot's real files" are different claims -- the
-   second needs the real Tamia run this fix was written for. Treat the
-   first live Command 1 run under this fix as the actual test, not a
-   formality -- if it still fails, capture the full traceback and the
-   exact `filename`/`subfolder`/`revision` the failing request carried
-   rather than assuming the algorithm above is wrong; it may be a call
-   shape this review didn't anticipate.
+4. **The Gemma SAE local-snapshot-only resolver (2026-08-14) and shape
+   shim (2026-08-15, live job 406826) have each been proven with REAL
+   local files on disk and the REAL, unmocked `safe_open`/`hf_hub_
+   download`-shaped call sites -- but the full, unmodified, real
+   `SAE.from_pretrained` -> `gemma_3_sae_huggingface_loader` call chain
+   (config parsing, weight loading, actual `SAE` construction) has never
+   run end-to-end through both of them together.** Every test that
+   exercises `load_gemma_it_target`'s integration with the resolver still
+   mocks `SAE.from_pretrained` itself, simulating what its internals would
+   request rather than letting them run for real; the shape shim's own
+   tests exercise it directly (real `safe_open`, real temporary
+   safetensors files) plus one test proving it correctly threads through
+   the resolver, but not via a real `SAE.from_pretrained` call. Job 406826
+   already found one real defect the mocked tests could not (`for k in f`
+   is a TypeError against the real API) -- treat that as evidence this gap
+   is real, not theoretical. "The mapping algorithm and the shape shim are
+   each individually correct against realistic requests" and "sae_lens's
+   real, unmodified internals actually make exactly those requests, in
+   that order, against a real Gemma-Scope-IT snapshot's real files, start
+   to finish" are different claims -- the second needs the real Tamia run
+   both fixes were written for. Treat the first live Command 1 run under
+   both fixes as the actual test, not a formality -- if it still fails,
+   capture the full traceback and the exact `filename`/`subfolder`/
+   `revision` (or safetensors error) the failing call carried rather than
+   assuming either fix above is wrong; it may be a call shape or file
+   condition neither review anticipated.
 5. **The new exact-SAE-subdirectory guards (2026-08-12, plus the same-day
    "HF snapshot symlink containment" addendum) are unrun against a real
    huggingface_hub cache's actual symlink layout -- real sae_lens path

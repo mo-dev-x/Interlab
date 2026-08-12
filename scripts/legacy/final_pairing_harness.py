@@ -571,14 +571,58 @@ def _patch_gemma3_safetensors_shape_lookup() -> None:
     other SAE file request; a fresh, independent import would instead hit
     the real hf_hub_download and the exact same offline-refs/main failure
     this review exists to close, one function away from where it looks
-    like it was already fixed."""
+    like it was already fixed.
+
+    Orchestrator review, 2026-08-15 (live job 406826): the resolver above
+    reached the locally resolved params file correctly, then failed
+    deterministically inside THIS function -- `for k in f` (the version
+    written 2026-08-14) treats the real safe_open object as directly
+    iterable. It is not: `safe_open` is a Rust extension type
+    (`builtins.safe_open`, verified against the installed safetensors==
+    0.4.5) with no `__iter__` at all, so `for k in f` raises `TypeError:
+    'builtins.safe_open' object is not iterable` on every real call, every
+    time -- a defect no mocked test caught, because every existing test of
+    this shim mocked safe_open itself rather than exercising the real
+    installed API. Both of this project's OWN pre-existing, already-
+    accepted copies of this exact patch (gemma3_sweep.py, gemma3_
+    necessity.py -- Engineer 2 owned, neither touched here) already use
+    `for k in f.keys()`, the correct call; this copy alone had drifted
+    from that pattern when it was written. Fixed by using f.keys() (not
+    bare iteration) exactly like those two existing copies, and wrapping
+    every failure mode with the resolved local_path so a failure message
+    always names which file was involved -- some real exceptions here
+    (safetensors_rust.SafetensorError for a malformed file) do not include
+    the path on their own."""
     import sae_lens.loading.pretrained_sae_loaders as psl
     from safetensors import safe_open
 
     def _local_get_safetensors_tensor_shapes(repo_id: str, filename: str) -> dict:
         local_path = psl.hf_hub_download(repo_id=repo_id, filename=filename)
-        with safe_open(local_path, framework="pt") as f:
-            return {k: list(f.get_slice(k).get_shape()) for k in f}
+        try:
+            with safe_open(local_path, framework="pt", device="cpu") as f:
+                keys = list(f.keys())
+                if not keys:
+                    raise targets.TargetIdentityMismatch(
+                        f"safetensors file at {local_path!r} has zero tensor keys -- cannot "
+                        f"derive any SAE dimensions from an empty file."
+                    )
+                shapes = {key: list(f.get_slice(key).get_shape()) for key in keys}
+        except FileNotFoundError as e:
+            raise targets.TargetIdentityMismatch(
+                f"resolved safetensors file does not exist at {local_path!r}: {e}"
+            ) from e
+        except targets.TargetIdentityMismatch:
+            raise
+        except Exception as e:
+            raise targets.TargetIdentityMismatch(
+                f"could not open or read tensor shapes from the safetensors file at "
+                f"{local_path!r}: {e}"
+            ) from e
+        if not shapes:
+            raise targets.TargetIdentityMismatch(
+                f"safetensors file at {local_path!r} produced an empty tensor-shape mapping."
+            )
+        return shapes
 
     psl.get_safetensors_tensor_shapes = _local_get_safetensors_tensor_shapes
 
