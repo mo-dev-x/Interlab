@@ -401,6 +401,71 @@ def test_validate_sae_files_match_snapshot_rejects_empty_resolution(tmp_path):
         targets.validate_sae_files_match_snapshot([], snapshot, targets.GEMMA_3_12B_IT_TARGET)
 
 
+def test_validate_sae_files_match_snapshot_never_calls_path_resolve(monkeypatch, tmp_path):
+    """Regression guard, orchestrator review 2026-08-16 (live job 406957):
+    Path.resolve() follows symlinks, which is wrong for this LOGICAL
+    check (a real HF snapshot entry is normally a symlink into a sibling
+    blobs/ store) -- poison Path.resolve so ANY call to it fails this test
+    outright, then prove the check still succeeds using only
+    os.path.abspath-based (symlink-oblivious) comparison. Fails against
+    the pre-fix implementation, which called Path.resolve() directly."""
+    snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    resolved = [str(snapshot / "resid_post" / "layer_31_width_16k_l0_medium" / "config.json")]
+
+    def _poison_resolve(self, *a, **k):
+        raise AssertionError("validate_sae_files_match_snapshot must never call Path.resolve()")
+
+    monkeypatch.setattr(Path, "resolve", _poison_resolve)
+    targets.validate_sae_files_match_snapshot(resolved, snapshot, targets.GEMMA_3_12B_IT_TARGET)  # must not raise
+
+
+def test_validate_sae_files_match_snapshot_rejects_sibling_prefix_revision(tmp_path):
+    """snapshots/<revision>-evil must fail -- the pre-fix str.startswith()
+    comparison would have incorrectly ACCEPTED this, since the string
+    "<revision>-evil" starts with the string "<revision>" even though it
+    names a completely different sibling directory."""
+    validated_snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    validated_snapshot.mkdir(parents=True)
+    evil_snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123-evil"
+    evil_snapshot.mkdir(parents=True)
+    resolved = [str(evil_snapshot / "resid_post" / "layer_31_width_16k_l0_medium" / "config.json")]
+    with pytest.raises(targets.TargetIdentityMismatch, match="OUTSIDE"):
+        targets.validate_sae_files_match_snapshot(resolved, validated_snapshot, targets.GEMMA_3_12B_IT_TARGET)
+
+
+def test_validate_sae_files_match_snapshot_rejects_path_equal_to_snapshot_root(tmp_path):
+    snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    with pytest.raises(targets.TargetIdentityMismatch, match="OUTSIDE"):
+        targets.validate_sae_files_match_snapshot([str(snapshot)], snapshot, targets.GEMMA_3_12B_IT_TARGET)
+
+
+def test_validate_sae_files_match_snapshot_keeps_duplicate_paths_and_reports_both(tmp_path):
+    """params.safetensors appearing twice in resolved_files must remain
+    valid when correct, and a BAD duplicate path must be reported for
+    EACH occurrence -- proving this check never deduplicates
+    resolved_files before comparing it."""
+    validated_snapshot = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "abc123"
+    validated_snapshot.mkdir(parents=True)
+    good_file = str(validated_snapshot / "resid_post" / "layer_31_width_16k_l0_medium" / "params.safetensors")
+    targets.validate_sae_files_match_snapshot(
+        [good_file, good_file], validated_snapshot, targets.GEMMA_3_12B_IT_TARGET
+    )  # must not raise
+
+    different_revision = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "deadbeef"
+    different_revision.mkdir(parents=True)
+    bad_file = str(different_revision / "cfg.json")
+    with pytest.raises(targets.TargetIdentityMismatch, match="OUTSIDE") as exc_info:
+        targets.validate_sae_files_match_snapshot(
+            [bad_file, bad_file], validated_snapshot, targets.GEMMA_3_12B_IT_TARGET
+        )
+    # the message embeds repr(bad_file) inside a list repr, which on
+    # Windows escapes each backslash -- compare against repr(), not the
+    # plain path string.
+    assert str(exc_info.value).count(repr(bad_file)) == 2
+
+
 # ---------------------------------------------------------------------------
 # validate_runtime_class / validate_has_callable_generate -- orchestrator
 # review, 2026-08-11: require the loaded class to be the expected Qwen3.5

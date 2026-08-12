@@ -34,6 +34,26 @@ scripts above; it is never invoked with real weights outside Tamia),
 rerun Qwen (out of scope for this job), add behavioral thresholds (the
 gates it aggregates are exactly the ones those two scripts already
 define, nothing new is invented here).
+
+Orchestrator review, 2026-08-16 ("Correct and comprehensively audit Gemma
+path-containment guards", live job 406957): added a symlink-containment
+PREFLIGHT step, run BEFORE Step 0 -- job 406957 proved the local-only
+resolver, loader-id validation, and shape shim all work, but a separate
+audit found validate_sae_files_match_snapshot (final_pairing_targets.py)
+was still calling Path.resolve() (follows symlinks -- wrong for a logical
+identity check) with a str.startswith() containment comparison (unsafe
+sibling-prefix false-match). That defect is fixed; this preflight step
+exists so a REAL Hugging Face cache's actual symlink layout is proven
+against all three SAE-file/path guards -- inside the real GPU allocation,
+not the login node, since that is the only place real symlink creation
+and this cache's true on-disk shape are both available -- before either
+Step 0 or a Gemma scenario spends any GPU time. Runs tests/test_final_
+pairing_symlink_preflight_nightly.py (marked @pytest.mark.nightly, so the
+default per-commit `-m "not nightly"` gate excludes it; this wrapper
+explicitly overrides that with `-m nightly`). A preflight failure stops
+the job immediately, exactly like a Step 0 failure does -- neither Step 0
+nor either Gemma scenario is attempted -- and is recorded as its own
+`preflight` entry in job_result.json, independent of `step0`.
 """
 
 from __future__ import annotations
@@ -47,6 +67,7 @@ from pathlib import Path
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parents[1]
 
 
 @dataclass
@@ -64,6 +85,23 @@ class ScenarioResult:
 def _run(name: str, command: list[str]) -> ScenarioResult:
     completed = subprocess.run(command, check=False)
     return ScenarioResult(name=name, command=command, attempted=True, exit_code=completed.returncode)
+
+
+def build_preflight_command() -> list[str]:
+    """Runs tests/test_final_pairing_symlink_preflight_nightly.py -- a
+    real-filesystem (no mocks) proof that the local snapshot's actual HF
+    cache symlink layout passes every applicable containment guard,
+    inside this allocation. -m nightly explicitly overrides pyproject.
+    toml's own `addopts = ... -m "not nightly"` default, which otherwise
+    excludes this file from a plain `pytest` invocation. Takes no CLI
+    arguments -- the preflight targets a fixed test file, not anything
+    derived from --model-path/--sae-path (those are validated for real by
+    Step 0 and the Gemma scenarios that follow)."""
+    return [
+        sys.executable, "-m", "pytest",
+        str(REPO_ROOT / "tests" / "test_final_pairing_symlink_preflight_nightly.py"),
+        "-m", "nightly", "-q",
+    ]
 
 
 def build_step0_command(args: argparse.Namespace) -> list[str]:
@@ -99,14 +137,24 @@ def build_gemma_scenario_command(args: argparse.Namespace, *, positions: str, ou
     return cmd
 
 
-def aggregate_job_result(step0: ScenarioResult, scenarios: list[ScenarioResult]) -> dict[str, Any]:
+def aggregate_job_result(
+    preflight: ScenarioResult, step0: ScenarioResult, scenarios: list[ScenarioResult]
+) -> dict[str, Any]:
     """Structured result distinguishing complete_pass / failure /
     partial_execution -- see module docstring for the exact rules.
     overall_exit_code is 0 iff status == "complete_pass"; status is
-    computed from ALL scenario results together (never by sequentially
+    computed from ALL results together (never by sequentially
     overwriting a running "last exit code"), so a later scenario passing
-    can never mask an earlier one's failure."""
-    if not step0.passed:
+    can never mask an earlier one's failure.
+
+    Orchestrator review, 2026-08-16: preflight is checked FIRST, ahead of
+    step0 -- a failed preflight means step0 itself was never attempted
+    either (attempted=False in the ScenarioResult main() passes in), and
+    both cases map to the SAME "partial_execution" status as an existing
+    Step 0 failure already did; the two are recorded as distinct entries
+    in the returned dict (preflight vs step0) so a reader can always tell
+    which gate actually stopped the job, never collapsed into one field."""
+    if not preflight.passed or not step0.passed:
         status = "partial_execution"
     elif all(s.attempted for s in scenarios) and all(s.passed for s in scenarios):
         status = "complete_pass"
@@ -117,6 +165,7 @@ def aggregate_job_result(step0: ScenarioResult, scenarios: list[ScenarioResult])
     return {
         "status": status,
         "overall_exit_code": 0 if status == "complete_pass" else 1,
+        "preflight": asdict(preflight),
         "step0": asdict(step0),
         "scenarios": [asdict(s) for s in scenarios],
     }
@@ -154,9 +203,18 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    preflight = _run("symlink_containment_preflight", build_preflight_command())
+    if not preflight.passed:
+        step0_not_attempted = ScenarioResult(
+            name="step0_differential_check", command=build_step0_command(args), attempted=False, exit_code=None
+        )
+        result = aggregate_job_result(preflight, step0_not_attempted, [])
+        _write_result(out_dir, result)
+        return result["overall_exit_code"]
+
     step0 = _run("step0_differential_check", build_step0_command(args))
     if not step0.passed:
-        result = aggregate_job_result(step0, [])
+        result = aggregate_job_result(preflight, step0, [])
         _write_result(out_dir, result)
         return result["overall_exit_code"]
 
@@ -168,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         _run(name, build_gemma_scenario_command(args, positions=positions, out_path=out_path))
         for name, positions, out_path in scenario_specs
     ]
-    result = aggregate_job_result(step0, scenarios)
+    result = aggregate_job_result(preflight, step0, scenarios)
     _write_result(out_dir, result)
     return result["overall_exit_code"]
 

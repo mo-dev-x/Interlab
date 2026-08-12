@@ -146,6 +146,45 @@ checkpoint contract lists b_dec as present"), the ReLU-then-TopK(50)
 activation order, and layer 0 as the release's own documented example.
 QwenScopeSAE now requires and fails closed on a missing b_dec rather than
 defaulting to zero -- see that class's docstring in final_pairing_harness.py.
+
+Orchestrator review, 2026-08-16 ("Correct and comprehensively audit Gemma
+path-containment guards", live job 406957): a full audit of every
+Path.resolve()/os.path.realpath/startswith/is_relative_to occurrence in
+final_pairing_targets.py, final_pairing_harness.py, final_pairing_gpu_job.py,
+and interplab/interventions/hooks.py found exactly ONE defect:
+validate_sae_files_match_snapshot (the OLDEST of the three SAE-file
+validators, 2026-08-10) still called Path.resolve() (follows symlinks --
+wrong for a LOGICAL identity check, see validate_sae_files_match_expected_
+subdirectory's docstring for why) and used str.startswith() (an unsafe
+sibling-prefix-permissive containment comparison, e.g. "snapshots/<rev>-
+evil".startswith("snapshots/<rev>") is True) instead of Path.is_relative_to.
+Fixed to match its two newer siblings exactly. The resulting, now-uniform
+invariant across all three SAE-file/path checks in this module:
+
+    LOGICAL identity/containment (validate_sae_files_match_snapshot,
+    validate_sae_files_match_expected_subdirectory, and resolve_local_
+    gemma_sae_path's own subdirectory check): os.path.abspath (or, for
+    resolve_local_gemma_sae_path, no filesystem access at all) plus
+    Path.is_relative_to / PurePosixPath.is_relative_to. NEVER Path.resolve()
+    or os.path.realpath -- a real HF snapshot entry is normally a symlink
+    into a SIBLING blobs/ store, and resolving it defeats the entire
+    purpose of a logical check.
+
+    PHYSICAL symlink-target containment (validate_sae_symlink_targets_
+    stay_in_repository_cache, the ONLY place in this module that
+    dereferences anything): os.path.realpath plus Path.is_relative_to.
+    This is the one and only function permitted to call os.path.realpath
+    on a resolved SAE file.
+
+Every other Path.resolve() occurrence found in the audited files
+(final_pairing_harness.py, final_pairing_gpu_job.py, and this module's own
+docstrings/comments) resolves a SCRIPT'S OWN __file__ location to build
+REPO_ROOT/SCRIPT_DIR or a sibling-module path, or is display-only prose in
+a frozen, Engineer-2-owned file (gemma3_sweep.py/gemma3_necessity.py) with
+no containment comparison paired with it -- none of these compare a
+resolved path against a validated boundary, so none of them are in scope
+for this audit; see docs/final_pairing_tamia_packet.md for the full,
+per-occurrence audit table.
 """
 
 from __future__ import annotations
@@ -499,14 +538,48 @@ def validate_sae_files_match_snapshot(resolved_files: list[str], sae_path: str |
     falls under sae_path. Orchestrator review, 2026-08-10: a prior version
     validated sae_path's identity and then let SAE.from_pretrained resolve
     a completely independent path through the registry with no check that
-    the two ever agreed."""
+    the two ever agreed.
+
+    This is the LOGICAL snapshot-identity check -- the broader, family-
+    agnostic sibling of validate_sae_files_match_expected_subdirectory
+    below (which additionally requires the ratified SAE family
+    specifically). Physical symlink-target dereferencing is EXCLUSIVELY
+    the job of validate_sae_symlink_targets_stay_in_repository_cache
+    further below; this function must never call Path.resolve() or
+    os.path.realpath.
+
+    Orchestrator review, 2026-08-16 ("Correct and comprehensively audit
+    Gemma path-containment guards", live job 406957): this check used to
+    call Path.resolve() on both sides, which FOLLOWS symlinks -- a real
+    huggingface_hub snapshot entry is normally a SYMLINK from
+    snapshots/<revision>/<repo-relative-path> into a SIBLING blobs/<hash>
+    store under the same models--<org>--<repo> cache root (a sibling of
+    snapshots/, not nested under it), so resolving a legitimate resolved
+    file lands it OUTSIDE sae_path entirely and this check incorrectly
+    rejected every real symlinked file as "outside the snapshot" -- the
+    exact same class of bug validate_sae_files_match_expected_subdirectory
+    was written to avoid (see that function's docstring), just not yet
+    applied here. It also used a manual str.startswith() comparison, a
+    SEPARATE, opposite-direction defect: a sibling directory sharing the
+    same string prefix (e.g. snapshots/<revision>-evil) would incorrectly
+    PASS, since the string "<revision>-evil" starts with the string
+    "<revision>" even though it names a different directory entirely.
+    Fixed identically to that sibling function: os.path.abspath (normalize
+    + make absolute, never follows symlinks) on both sides, and
+    Path.is_relative_to (full-path-segment containment) instead of a
+    string-prefix comparison."""
     if not resolved_files:
         raise TargetIdentityMismatch(
             "the SAE registry loader resolved zero local files while loading -- cannot prove it "
             f"read from the validated snapshot at {str(sae_path)!r}."
         )
-    sae_path_resolved = str(Path(sae_path).resolve())
-    mismatched = [f for f in resolved_files if not str(Path(f).resolve()).startswith(sae_path_resolved)]
+    sae_path_logical = Path(os.path.abspath(str(sae_path)))
+    mismatched = [
+        f
+        for f in resolved_files
+        if Path(os.path.abspath(f)) == sae_path_logical
+        or not Path(os.path.abspath(f)).is_relative_to(sae_path_logical)
+    ]
     if mismatched:
         raise TargetIdentityMismatch(
             f"the SAE registry loader resolved file(s) OUTSIDE the validated snapshot "

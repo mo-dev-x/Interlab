@@ -4,6 +4,13 @@ wrapper's exit-code aggregation. Orchestrator review, 2026-08-13
 both required Gemma scenarios exited 1 -- these tests exist so that
 specific failure mode can never silently reappear.
 
+Orchestrator review, 2026-08-16 ("Correct and comprehensively audit Gemma
+path-containment guards", live job 406957): added the symlink-containment
+PREFLIGHT gate (runs before Step 0); aggregate_job_result and main()'s
+tests below are updated for the new 3-argument signature and the new
+earliest-gate behavior, but every pre-existing Step-0/scenario-aggregation
+test still proves exactly what it always did.
+
 No GPU, no real model/SAE weights, no real subprocess ever actually
 launched -- _run is monkeypatched everywhere main() is exercised.
 """
@@ -24,22 +31,41 @@ def _result(name: str, *, attempted: bool, exit_code: int | None) -> job.Scenari
     return job.ScenarioResult(name=name, command=["fake", name], attempted=attempted, exit_code=exit_code)
 
 
+def _passing_preflight() -> job.ScenarioResult:
+    return _result("symlink_containment_preflight", attempted=True, exit_code=0)
+
+
 # ---------------------------------------------------------------------------
 # aggregate_job_result -- the pure classification logic.
 # ---------------------------------------------------------------------------
 
 
-def test_aggregate_complete_pass_when_step0_and_both_scenarios_pass():
+def test_aggregate_complete_pass_when_preflight_step0_and_both_scenarios_pass():
+    preflight = _passing_preflight()
     step0 = _result("step0", attempted=True, exit_code=0)
     scenarios = [_result("all", attempted=True, exit_code=0), _result("generated_only", attempted=True, exit_code=0)]
-    result = job.aggregate_job_result(step0, scenarios)
+    result = job.aggregate_job_result(preflight, step0, scenarios)
     assert result["status"] == "complete_pass"
     assert result["overall_exit_code"] == 0
 
 
+def test_aggregate_partial_execution_when_preflight_fails_before_step0_or_scenarios():
+    """The earliest gate: a failed preflight must stop the job before
+    Step 0 is even attempted, exactly like an existing Step 0 failure
+    already stops it before the scenarios."""
+    preflight = _result("symlink_containment_preflight", attempted=True, exit_code=1)
+    step0_not_attempted = _result("step0", attempted=False, exit_code=None)
+    result = job.aggregate_job_result(preflight, step0_not_attempted, [])
+    assert result["status"] == "partial_execution"
+    assert result["overall_exit_code"] != 0
+    assert result["preflight"]["exit_code"] == 1
+    assert result["step0"]["attempted"] is False
+
+
 def test_aggregate_partial_execution_when_step0_fails():
+    preflight = _passing_preflight()
     step0 = _result("step0", attempted=True, exit_code=1)
-    result = job.aggregate_job_result(step0, [])
+    result = job.aggregate_job_result(preflight, step0, [])
     assert result["status"] == "partial_execution"
     assert result["overall_exit_code"] != 0
 
@@ -47,9 +73,10 @@ def test_aggregate_partial_execution_when_step0_fails():
 def test_aggregate_failure_when_one_scenario_fails_even_if_the_other_passes():
     """The exact live defect: a later successful scenario must not
     overwrite an earlier scenario's failure."""
+    preflight = _passing_preflight()
     step0 = _result("step0", attempted=True, exit_code=0)
     scenarios = [_result("all", attempted=True, exit_code=1), _result("generated_only", attempted=True, exit_code=0)]
-    result = job.aggregate_job_result(step0, scenarios)
+    result = job.aggregate_job_result(preflight, step0, scenarios)
     assert result["status"] == "failure"
     assert result["overall_exit_code"] != 0
 
@@ -57,17 +84,19 @@ def test_aggregate_failure_when_one_scenario_fails_even_if_the_other_passes():
 def test_aggregate_failure_when_the_scenario_order_is_reversed():
     """Same as above with the fail/pass order swapped -- proves this
     isn't accidentally keying off which scenario is LAST."""
+    preflight = _passing_preflight()
     step0 = _result("step0", attempted=True, exit_code=0)
     scenarios = [_result("all", attempted=True, exit_code=0), _result("generated_only", attempted=True, exit_code=1)]
-    result = job.aggregate_job_result(step0, scenarios)
+    result = job.aggregate_job_result(preflight, step0, scenarios)
     assert result["status"] == "failure"
     assert result["overall_exit_code"] != 0
 
 
 def test_aggregate_partial_execution_when_a_required_scenario_never_attempted():
+    preflight = _passing_preflight()
     step0 = _result("step0", attempted=True, exit_code=0)
     scenarios = [_result("all", attempted=True, exit_code=0), _result("generated_only", attempted=False, exit_code=None)]
-    result = job.aggregate_job_result(step0, scenarios)
+    result = job.aggregate_job_result(preflight, step0, scenarios)
     assert result["status"] == "partial_execution"
     assert result["overall_exit_code"] != 0
 
@@ -79,10 +108,10 @@ def test_scenario_result_passed_requires_both_attempted_and_zero_exit():
 
 
 # ---------------------------------------------------------------------------
-# main() -- proves Step 0 gates the scenarios, both required scenarios are
-# attempted once Step 0 passes (even if the first fails), and the overall
-# exit code is wired to aggregate_job_result -- not to any single
-# subprocess's own exit code in isolation.
+# main() -- proves the preflight gates Step 0, Step 0 gates the scenarios,
+# both required scenarios are attempted once Step 0 passes (even if the
+# first fails), and the overall exit code is wired to aggregate_job_result
+# -- not to any single subprocess's own exit code in isolation.
 # ---------------------------------------------------------------------------
 
 
@@ -93,7 +122,7 @@ def _base_argv(tmp_path):
     ]
 
 
-def test_main_stops_immediately_and_never_attempts_scenarios_when_step0_fails(monkeypatch, tmp_path):
+def test_main_stops_immediately_and_never_attempts_step0_or_scenarios_when_preflight_fails(monkeypatch, tmp_path):
     calls = []
 
     def fake_run(name, command):
@@ -103,7 +132,26 @@ def test_main_stops_immediately_and_never_attempts_scenarios_when_step0_fails(mo
     monkeypatch.setattr(job, "_run", fake_run)
     exit_code = job.main(_base_argv(tmp_path))
 
-    assert calls == ["step0_differential_check"]  # neither scenario was even attempted
+    assert calls == ["symlink_containment_preflight"]  # neither step0 nor either scenario was even attempted
+    assert exit_code != 0
+    result = json.loads((tmp_path / "out" / "job_result.json").read_text())
+    assert result["status"] == "partial_execution"
+    assert result["step0"]["attempted"] is False
+    assert result["scenarios"] == []
+
+
+def test_main_stops_immediately_and_never_attempts_scenarios_when_step0_fails(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(name, command):
+        calls.append(name)
+        exit_code = 0 if name == "symlink_containment_preflight" else 1
+        return job.ScenarioResult(name=name, command=command, attempted=True, exit_code=exit_code)
+
+    monkeypatch.setattr(job, "_run", fake_run)
+    exit_code = job.main(_base_argv(tmp_path))
+
+    assert calls == ["symlink_containment_preflight", "step0_differential_check"]  # neither scenario was attempted
     assert exit_code != 0
 
 
@@ -134,9 +182,11 @@ def test_main_exit_code_zero_only_when_everything_passes(monkeypatch, tmp_path):
 
 
 def test_main_writes_structured_result_file_even_on_step0_failure(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        job, "_run", lambda name, command: job.ScenarioResult(name=name, command=command, attempted=True, exit_code=1)
-    )
+    def fake_run(name, command):
+        exit_code = 0 if name == "symlink_containment_preflight" else 1
+        return job.ScenarioResult(name=name, command=command, attempted=True, exit_code=exit_code)
+
+    monkeypatch.setattr(job, "_run", fake_run)
     job.main(_base_argv(tmp_path))
     result_path = tmp_path / "out" / "job_result.json"
     assert result_path.exists()
@@ -145,9 +195,32 @@ def test_main_writes_structured_result_file_even_on_step0_failure(monkeypatch, t
     assert result["scenarios"] == []
 
 
+def test_main_writes_structured_result_file_even_on_preflight_failure(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        job, "_run", lambda name, command: job.ScenarioResult(name=name, command=command, attempted=True, exit_code=1)
+    )
+    job.main(_base_argv(tmp_path))
+    result_path = tmp_path / "out" / "job_result.json"
+    assert result_path.exists()
+    result = json.loads(result_path.read_text())
+    assert result["status"] == "partial_execution"
+    assert result["preflight"]["exit_code"] == 1
+    assert result["step0"]["attempted"] is False
+    assert result["scenarios"] == []
+
+
 # ---------------------------------------------------------------------------
 # command builders -- pure, no subprocess involved.
 # ---------------------------------------------------------------------------
+
+
+def test_build_preflight_command_targets_the_nightly_symlink_test_with_marker_override():
+    cmd = job.build_preflight_command()
+    assert str(REPO_ROOT / "tests" / "test_final_pairing_symlink_preflight_nightly.py") in cmd
+    # cmd.index("-m") finds `sys.executable -m pytest` first -- the marker
+    # override is the LAST "-m" in the command.
+    last_m_index = max(i for i, arg in enumerate(cmd) if arg == "-m")
+    assert cmd[last_m_index + 1] == "nightly"
 
 
 def test_build_step0_command_uses_dose_multiple_and_positions_all(tmp_path):

@@ -237,6 +237,59 @@ malformed file, do not include the path on their own). **The complete real
 construction end-to-end through this shim, not just the shim in
 isolation -- still awaits the next Tamia run.**
 
+Orchestrator review, 2026-08-16 ("Correct and comprehensively audit Gemma
+path-containment guards", live job 406957): job 406957 proved deterministic
+Step 0, local-only SAE resolution, loader-id validation, and the corrected
+shape shim all work. It then found `validate_sae_files_match_snapshot`
+(the OLDEST of the three SAE-file/path validators, written 2026-08-10 --
+before the 2026-08-12 subdirectory guard and the 2026-08-16 physical-cache
+guard existed to model against) still called `Path.resolve()`, which
+FOLLOWS symlinks -- a real Hugging Face snapshot entry is normally a
+SYMLINK into a SIBLING `blobs/` store, so resolving a legitimate resolved
+file lands it OUTSIDE the snapshot directory entirely, and this check
+incorrectly labeled every real symlinked file "outside the snapshot." It
+also used `str.startswith()`, a SEPARATE, opposite-direction defect: a
+sibling snapshot directory sharing the same string prefix (`snapshots/
+<revision>-evil`) would incorrectly PASS. **Fixed identically to how
+`validate_sae_files_match_expected_subdirectory` (2026-08-12) already
+handled this**: `os.path.abspath` (never follows symlinks) on both sides,
+`Path.is_relative_to` (full-path-segment containment) instead of a string
+prefix. Physical symlink dereferencing remains EXCLUSIVELY the job of
+`validate_sae_symlink_targets_stay_in_repository_cache` -- this function
+now never calls `Path.resolve()`/`os.path.realpath` at all.
+
+**Path-containment audit** (every `Path.resolve()`/`os.path.realpath()`/
+`str.startswith()`/`is_relative_to`/`commonpath` occurrence in
+`final_pairing_targets.py`, `final_pairing_harness.py`,
+`final_pairing_gpu_job.py`, and `interplab/interventions/hooks.py` --
+the only shared hook/loader code this harness imports):
+
+| Location | Category | Verdict |
+|---|---|---|
+| `final_pairing_targets.validate_sae_files_match_snapshot` | LOGICAL snapshot identity | **Was defective (`.resolve()` + `startswith`) -- FIXED this review** to `os.path.abspath` + `Path.is_relative_to`, matching its two newer siblings below. |
+| `final_pairing_targets.validate_sae_files_match_expected_subdirectory` | LOGICAL SAE-family-subdirectory identity | Already correct (2026-08-12): `os.path.abspath` + `Path.is_relative_to`, never dereferences. Unchanged. |
+| `final_pairing_targets.resolve_local_gemma_sae_path`'s subdirectory check | LOGICAL SAE-family-subdirectory identity (request-time, pre-2026-08-14 fix) | Already correct: `PurePosixPath.is_relative_to` on the requested filename string, never touches the filesystem at all for this check. Unchanged. |
+| `final_pairing_targets.validate_sae_symlink_targets_stay_in_repository_cache` | PHYSICAL symlink-target containment | Already correct (2026-08-12 addendum): `os.path.realpath` (intentional -- this IS the one check meant to dereference) + `Path.is_relative_to`. This remains the ONLY function in this module permitted to call `os.path.realpath`. Unchanged. |
+| `resolve_local_gemma_sae_path`'s absolute-filename rejection (`normalized.startswith("/")`) | Input syntax validation, NOT path containment | Not a containment/identity comparison against a boundary -- a literal-string check for an absolute-path-shaped request, applied before any `Path` object is even constructed. Correct as `startswith`; `is_relative_to` doesn't apply to this check at all. Unchanged. |
+| `final_pairing_harness.py`: `REPO_ROOT`/`sys.path`/`_load_gemma3_tool`'s `Path(__file__).resolve()` (3 occurrences) | N/A -- resolves this SCRIPT's own on-disk location | Not SAE/model identity or containment logic; no untrusted symlink ambiguity involved. Unchanged. |
+| `final_pairing_gpu_job.py`: `SCRIPT_DIR = Path(__file__).resolve().parent` | N/A -- same as above | Unchanged. |
+| `interplab/interventions/hooks.py` | N/A | Zero `Path.resolve`/`realpath`/`startswith`/`is_relative_to` occurrences -- this module operates on tensors/activations only, no filesystem paths at all. |
+| `gemma3_sweep.py` / `gemma3_necessity.py`: `str(Path(args.model_path).resolve())`/`.../sae_path...` in provenance-display payloads | N/A -- display-only, no containment comparison paired with it | Frozen, Engineer-2-owned files (this harness's own docstring: "Nothing here edits gemma3_sweep.py, gemma3_necessity.py..."), out of write-scope regardless. Reviewed, not edited. |
+| `gemma3_sweep.py`/`gemma3_tool.py`/etc.: `device.startswith("cuda")`, commit-message/diff-line `startswith("#")`/`"@@"`, `montreal_qwen.py`'s slash-command parser | N/A -- not path containment at all | String-content checks unrelated to filesystem paths. Not audited further; out of scope by construction. |
+
+**GPU-job preflight** (`final_pairing_gpu_job.py`): a new
+`symlink_containment_preflight` step now runs BEFORE Step 0, executing
+`tests/test_final_pairing_symlink_preflight_nightly.py` (`-m nightly`,
+explicitly overriding this repo's own `addopts = ... -m "not nightly"`
+per-commit default) -- a REAL Hugging Face cache fixture (`models--<repo>/
+blobs/<blob-id>`, `snapshots/<revision>/resid_post/.../config.json ->
+../../../blobs/<blob-id>`) exercised against all three actual validators,
+inside the real allocation where real symlinks and this cache's true
+on-disk shape both exist (unlike the login node or this project's own
+Windows dev machine). A preflight failure stops the job immediately --
+neither Step 0 nor either Gemma scenario is attempted -- recorded as its
+own `preflight` entry in `job_result.json`, distinct from `step0`.
+
 ## Command 2 -- Qwen3.5-27B + Qwen-Scope (SAE-Res-Qwen3.5-27B-W80K-L0_50)
 
 ```bash
@@ -299,18 +352,23 @@ all; a later command's exit status silently overwrote or masked an earlier
 failure. `scripts/legacy/final_pairing_gpu_job.py` replaces manual chaining
 for this job with a single command that:
 
-1. Runs Step 0 first. **If Step 0 fails, it stops immediately** -- neither
-   Gemma scenario is even attempted (no point spending GPU time on
+1. Runs the symlink-containment PREFLIGHT first (2026-08-16, live job
+   406957) -- see "Command 1" above for what it proves. **If the preflight
+   fails, it stops immediately** -- neither Step 0 nor either Gemma
+   scenario is even attempted.
+2. Runs Step 0 next. **If Step 0 fails, it also stops immediately** --
+   neither Gemma scenario is even attempted (no point spending GPU time on
    scenarios if the shared mechanism itself is unproven on this
    environment).
-2. Once Step 0 passes, runs BOTH required scenarios and collects both exit
-   codes for diagnostics, even if the first one fails -- this is not
-   fail-fast past that gate, it is complete.
-3. Computes the overall result from ALL of Step 0 + both scenarios
-   together, never by sequentially overwriting a "last exit code" -- a
-   later scenario passing can never mask an earlier one's failure. The
-   process's own exit code is `0` iff every required step passed.
-4. Writes one structured `job_result.json` (and prints it) with a `status`
+3. Once both the preflight and Step 0 pass, runs BOTH required scenarios
+   and collects both exit codes for diagnostics, even if the first one
+   fails -- this is not fail-fast past that gate, it is complete.
+4. Computes the overall result from ALL of the preflight + Step 0 + both
+   scenarios together, never by sequentially overwriting a "last exit
+   code" -- a later scenario passing can never mask an earlier one's
+   failure. The process's own exit code is `0` iff every required step
+   passed.
+5. Writes one structured `job_result.json` (and prints it) with a `status`
    of exactly `"complete_pass"`, `"failure"`, or `"partial_execution"` --
    see below for what each means.
 
@@ -348,6 +406,10 @@ future work order changes that scope explicitly.
 {
   "status": "complete_pass | failure | partial_execution",
   "overall_exit_code": 0,
+  "preflight": {
+    "name": "symlink_containment_preflight", "command": ["...", "..."],
+    "attempted": true, "exit_code": 0
+  },
   "step0": {
     "name": "step0_differential_check", "command": ["...", "..."],
     "attempted": true, "exit_code": 0
@@ -359,17 +421,22 @@ future work order changes that scope explicitly.
 }
 ```
 
-- `"complete_pass"`: Step 0 passed AND both scenarios were attempted AND
-  both passed. `overall_exit_code` is `0`.
-- `"partial_execution"`: Step 0 failed (so the scenarios were never
-  attempted at all -- `"scenarios": []`), OR a required scenario is
-  present with `"attempted": false` for any other reason.
+- `"complete_pass"`: the preflight passed AND Step 0 passed AND both
+  scenarios were attempted AND both passed. `overall_exit_code` is `0`.
+- `"partial_execution"`: the preflight failed (so Step 0 was never
+  attempted at all -- `"step0": {"attempted": false, ...}`, `"scenarios":
+  []`), OR Step 0 failed (so the scenarios were never attempted at all --
+  `"scenarios": []`), OR a required scenario is present with `"attempted":
+  false"` for any other reason.
 - `"failure"`: everything was attempted, but at least one required
   step's `exit_code` was nonzero. Read each scenario's own `--out` JSON
   (`gemma_3_12b_it_all.json` / `gemma_3_12b_it_generated_only.json` in
   `--out-dir`) for the actual `verdict`/`gate_passed` detail behind the
-  failing exit code -- `job_result.json` only tells you WHICH step failed,
-  not WHY.
+  failing exit code; read the preflight's own pytest output (printed to
+  stdout/stderr by the wrapper's `_run`, not captured into
+  `job_result.json` beyond its exit code) for which specific containment
+  guard failed -- `job_result.json` only tells you WHICH step failed, not
+  WHY.
 
 ## Expected artifacts
 
@@ -526,6 +593,7 @@ safe to gate a job script on directly.
 | `ValueError`/`TargetIdentityMismatch` from `resolve_target_value` before any load starts | **BAD_STEER_VALUE** | `--raw-clamp-value` (or the resolved `--dose-multiple` x `--calibration-value` product) was zero, negative, NaN, or infinite. Fails before any weights load by design. |
 | Gemma: `HookedTransformer.from_pretrained` raises on an unrecognized model name | **TL_REGISTRY_GAP** | Re-verify `"google/gemma-3-12b-it" in transformer_lens.loading_from_pretrained.OFFICIAL_MODEL_NAMES` on the exact installed version -- this was true for the version installed while writing this packet (3.2.1) but is a live fact, not a permanent guarantee. |
 | Qwen: any exception before generation starts | **QWEN_LOAD_UNVERIFIED** | The entire Qwen load path is unverified against real weights (see below) -- capture the full traceback verbatim and stop; do not patch around it blind. |
+| `final_pairing_gpu_job.py`'s `preflight` step exits nonzero | **PREFLIGHT_CONTAINMENT_FAILURE** (new, 2026-08-16) | The real HF cache's actual symlink layout failed one of the three SAE-file/path guards against real files on this allocation -- read the preflight subprocess's own pytest output (`job_result.json` only records its exit code) for which specific test/guard failed. Neither Step 0 nor either Gemma scenario was attempted (the wrapper enforces this). Do not weaken any containment check to force a pass; a genuine failure here means the real cache's symlink shape differs from what was audited, which is itself the finding to report. |
 | Step 0 (`gemma3_tool_diff_test.py`) exits `1`, `gate_passed: false` | **STEP0_GATE_FAILURE** (exit code now meaningful, 2026-08-13) | Read `gate_criteria` to see WHICH of `identical_text`/`identical_token_ids`/`activations_effectively_identical` failed. A real divergence here under greedy decoding means the shared mechanism itself is broken on this environment -- per this task's explicit instruction, do not weaken any criterion to force a pass; report the divergence. Do not proceed to the Gemma scenarios (the wrapper below already enforces this). |
 | Runs to completion, `verdict.nonzero_steer_confirmed` is `false` | **MECHANICAL_FAILURE** -- the actual bug this task exists to catch | Read `verdict.first_disappearance_boundary` for the exact call index and classification (prefill/decode) where `residual_delta_norm` first hit zero outside the accepted `generated_only` exemption. This is the "first boundary where intervention disappears" the acceptance criteria ask for. |
 | Runs to completion, `verdict.nonzero_steer_confirmed` is `true` | **MECHANICAL_PASS** | Proceed to the second `--positions` run, then to whatever behavioral work is separately authorized. Do not read a mechanical pass as a behavioral/concept claim. |
@@ -602,34 +670,31 @@ Ranked by how much they can invalidate a run if wrong:
    `revision` (or safetensors error) the failing call carried rather than
    assuming either fix above is wrong; it may be a call shape or file
    condition neither review anticipated.
-5. **The new exact-SAE-subdirectory guards (2026-08-12, plus the same-day
-   "HF snapshot symlink containment" addendum) are unrun against a real
-   huggingface_hub cache's actual symlink layout -- real sae_lens path
-   capture remains LIVE-UNVERIFIED until the Tamia run.** There are now
-   two complementary checks, and each has a corresponding real-filesystem
-   regression test, but ALL of them SKIP on this machine specifically
-   (creating a symlink here requires privileges this environment doesn't
-   have) -- only the non-symlink and mocked-symlink cases ran locally:
-     - the LOGICAL check (`validate_sae_files_match_expected_subdirectory`)
-       never dereferences anything by design, so its own correctness
-       doesn't depend on symlink support -- but the real-cache-shape test
-       proving it still correctly rejects a sibling family or a
-       sibling-prefix name EVEN WHEN the resolved path is a genuine
-       symlink (`test_realistic_hf_cache_sibling_family_symlink_fails_
-       logical_check_only`, `test_realistic_hf_cache_sibling_prefix_
-       symlink_fails_logical_check`) has not actually run here.
-     - the PHYSICAL check (`validate_sae_symlink_targets_stay_in_
-       repository_cache`) is proven against a MOCKED `Path.is_symlink`/
-       `os.path.realpath` locally (deterministic, ran and passed on this
-       machine), but its real-filesystem counterparts
-       (`test_realistic_hf_cache_intended_resid_post_symlink_passes_
-       both_checks`, `test_realistic_hf_cache_symlink_escaping_
-       repository_cache_fails_physical_check`) also skip here.
-   Confirm all of these actually EXECUTE (not skip) in whatever
-   environment runs the focused suite before Command 1, and treat the
-   very first real Command 1 run as the first genuine test of the
-   symlink-safety design against sae_lens's real download internals, not
-   a formality.
+5. **The exact-SAE-subdirectory guards (2026-08-12, the same-day "HF
+   snapshot symlink containment" addendum, and the 2026-08-16 snapshot-
+   guard fix) are unrun against a real huggingface_hub cache's actual
+   symlink layout on THIS machine -- real sae_lens path capture remains
+   LIVE-UNVERIFIED until the Tamia run, even though a dedicated GPU-job
+   preflight step now exists specifically to close this gap.** All three
+   SAE-file/path checks (logical snapshot, logical SAE-family, physical
+   cache) have corresponding real-filesystem regression tests, but every
+   one SKIPS on this machine specifically (creating a symlink here
+   requires privileges this environment doesn't have) in
+   `test_final_pairing_targets.py` -- only the non-symlink and
+   mocked-symlink cases ran locally there. The NEW
+   `tests/test_final_pairing_symlink_preflight_nightly.py` (2026-08-16)
+   deliberately does NOT skip on this same limitation -- it HARD FAILS,
+   proven directly on this machine (`OSError: [WinError 1314]`, confirmed
+   during this review) -- and is wired as `final_pairing_gpu_job.py`'s own
+   preflight gate, so the very first time it runs for real will be inside
+   the Tamia allocation itself, as part of the next scheduled job, before
+   any GPU time is spent on Step 0 or the Gemma scenarios. That is by
+   design (this is exactly the point of a preflight run inside the
+   allocation rather than a formality check on the login node), but it
+   also means the preflight mechanism itself -- not just the containment
+   logic it exercises -- has never executed successfully anywhere yet.
+   Treat its first real run as the actual test of both the containment
+   fix AND the preflight wiring together, not a formality.
 6. **Gemma-3-12b-it side is comparatively low-risk but still unrun**:
    `google/gemma-3-12b-it` is confirmed in `transformer_lens`'s registry
    with the identical `d_model=3840`/`n_layers=48` as the already-proven
