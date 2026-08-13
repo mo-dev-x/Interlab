@@ -9,9 +9,15 @@ independent implementation and carries no logic of its own.
 from __future__ import annotations
 
 import runpy
+import sys
 from pathlib import Path
 
 _TARGET = Path(__file__).resolve().parent.parent / "final_pairing" / "final_pairing_concept_discovery.py"
 
 if __name__ == "__main__":
+    print(
+        f"DEPRECATED entry point: scripts/legacy/final_pairing_concept_discovery.py -- use "
+        f"{_TARGET} directly. Forwarding for backward compatibility.",
+        file=sys.stderr,
+    )
     runpy.run_path(str(_TARGET), run_name="__main__")
