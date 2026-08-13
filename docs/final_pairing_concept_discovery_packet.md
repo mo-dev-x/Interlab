@@ -353,14 +353,42 @@ python scripts/legacy/final_concept_discovery_matched_configuration_job.py \
   --job-result-path results/final_pairing/concept_discovery/matched_job_result.json
 ```
 
-**`--run-backup` is NOT computed by this tool.** Per this dispatch's own
-instruction ("do not hard-code the backup trigger until the Architect
-returns its exact Boolean rule"), this is a required, externally-decided
-argument -- whatever process applies the Architect's rule (not yet
-returned; see "Unresolved protocol fields") decides `true`/`false` and
-passes it in. `--trigger-inputs-json` is loaded and persisted verbatim into
-the output (under whatever field names that external evaluation used) --
-never interpreted or used to compute the boolean here.
+**CORRECTION: the backup trigger's Boolean rule is not unknown.** An
+earlier version of this packet said it had "not yet [been] returned" --
+it is frozen at `protocols/final_pairing/v1/backup_trigger.json` (commit
+`125b1d3`): `RUN_BACKUP = primary_complete AND (primary_shared_gabc_count
+< 3)`, `FAIL_RUN = NOT primary_complete`, threshold 3 fixed and not
+changeable after any activation is computed. `final_pairing_concept_
+discovery.evaluate_backup_trigger(primary_complete=..., primary_shared_
+gabc_count=...)` implements exactly this formula and is unit-tested
+against it.
+
+**`--run-backup` is still not COMPUTED by this tool**, for a narrower
+reason than before: the formula's own INPUT, `primary_shared_gabc_count`,
+is defined as "the number of concepts where the SAME feature passes G-A,
+G-B, AND G-C on BOTH pairings within the primary configuration" -- a full
+14-concept x 2-pairing x 3-gate x 3-family x 2-locale grid with a
+per-feature conjunction across gates. No script in this repository
+assembles that grid yet: `final_pairing_concept_discovery.py` discovers
+one concept per invocation, and G-C (AUROC vs. `near_miss`) has no
+implementation at all (only G-A/G-B, via `compute_gate_a_and_b_per_family`).
+Until that aggregation exists, whoever assembles it should call
+`evaluate_backup_trigger` and pass its `.run_backup` result to
+`--run-backup` here, rather than re-deriving the formula by hand.
+`--trigger-inputs-json` is still loaded and persisted verbatim into the
+output -- never interpreted or used to compute the boolean here, since
+this file still isn't where that grid gets assembled.
+
+Separately, the frozen file also requires a **depth-matching assertion**
+before either configuration's activations are computed: Gemma's
+`depth_fraction` (`layer / n_layers`, computed from the ACTUALLY LOADED
+model, never assumed) must be within 0.02 of the matched Qwen
+`depth_fraction` (`PRIMARY_CONFIGURATION.qwen_depth_fraction == 0.59375`,
+`BACKUP_CONFIGURATION.qwen_depth_fraction == 0.5`) --
+`assert_gemma_qwen_depth_matches(gemma_layer=..., gemma_n_layers=...,
+qwen_depth_fraction=...)` implements and raises closed on this; it is not
+yet called from `load_backend`/`load_gemma_scientific_target` (another
+real, disclosed gap -- see "Not yet implemented").
 
 Primary and backup run SEQUENTIALLY through the same dual-GPU orchestrator
 (never concurrently) -- primary's subprocesses have already exited, so
@@ -513,16 +541,24 @@ a stated reason -- not oversight:
 
 Ranked by how much they block a real run:
 
-1. **The backup trigger's exact Boolean rule and its exact inputs ("G-A/B/C")
-   are not yet returned.** This packet's matched-configuration job accepts
-   `--run-backup` and `--trigger-inputs-json` as required, externally-decided
-   arguments precisely because this rule does not exist in this repository
-   under any name I could find (exhaustively searched: "materiality",
-   "canonical contract", "Low/Medium/High", "ATTESTED", "greedy bundle
-   composition", "G-A/B/C" -- none appear anywhere in `project_management/`,
-   `docs/`, `reports/`, or `interplab/` before this dispatch). Until it
-   arrives, `--run-backup` must be supplied by a human or a separately
-   authored evaluator, never inferred here.
+1. **RESOLVED, corrected from an earlier version of this packet: the
+   backup trigger's Boolean rule is frozen** at `protocols/final_pairing/
+   v1/backup_trigger.json` (commit `125b1d3`), found and wired in
+   (`evaluate_backup_trigger`, `assert_gemma_qwen_depth_matches`) after
+   this packet had already stated the opposite. What is still genuinely
+   missing is not the rule but its INPUT: no script in this repository
+   assembles the full 14-concept grid (`primary_complete`,
+   `primary_shared_gabc_count`) the formula reads, and G-C has no
+   implementation at all yet (see "Not yet implemented" above). This is
+   the actual remaining blocker for computing `--run-backup` automatically
+   -- not an unknown rule.
+   (My own exhaustive-repo-search claim in an earlier draft of this packet
+   -- that no such rule existed anywhere under any name -- was itself
+   wrong: `protocols/` was committed to this exact branch before that
+   search ran, in a directory I never checked. Recorded here rather than
+   silently amended, since the same failure mode -- assuming absence from
+   a search that didn't cover every directory -- is worth remembering,
+   not just fixing.)
 2. **UPDATE: `metadata.json["thresholds"]` now DEFINES `G_A_separation_
    auroc_min` (0.9), `G_B_activation_floor_fraction_of_observed_max` (0.2),
    and `G_B_fire_rate_min` (0.7)** -- these are no longer missing for G-A/

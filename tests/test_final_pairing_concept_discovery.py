@@ -587,6 +587,75 @@ def test_load_backend_requires_layer_for_gemma_too():
         )
 
 
+def test_matched_configurations_record_the_frozen_qwen_depth_fractions():
+    assert d.PRIMARY_CONFIGURATION.qwen_depth_fraction == 0.59375
+    assert d.BACKUP_CONFIGURATION.qwen_depth_fraction == 0.5
+
+
+# ---------------------------------------------------------------------------
+# The frozen backup-trigger formula (protocols/final_pairing/v1/
+# backup_trigger.json, commit 125b1d3) -- evaluate_backup_trigger
+# implements exactly its boolean_expression/failure_expression.
+# ---------------------------------------------------------------------------
+
+
+def test_backup_trigger_fires_when_primary_complete_and_shared_count_below_three():
+    result = d.evaluate_backup_trigger(primary_complete=True, primary_shared_gabc_count=2)
+    assert result.run_backup is True
+    assert result.fail_run is False
+
+
+def test_backup_trigger_does_not_fire_when_shared_count_meets_the_threshold():
+    result = d.evaluate_backup_trigger(primary_complete=True, primary_shared_gabc_count=3)
+    assert result.run_backup is False
+    assert result.fail_run is False
+
+
+@pytest.mark.parametrize("count", [0, 1, 2])
+def test_backup_trigger_fires_for_every_count_strictly_below_three(count):
+    assert d.evaluate_backup_trigger(primary_complete=True, primary_shared_gabc_count=count).run_backup is True
+
+
+@pytest.mark.parametrize("count", [3, 4, 14])
+def test_backup_trigger_does_not_fire_for_counts_at_or_above_three(count):
+    assert d.evaluate_backup_trigger(primary_complete=True, primary_shared_gabc_count=count).run_backup is False
+
+
+def test_an_incomplete_primary_never_triggers_backup_regardless_of_count():
+    """'AN EXECUTION ERROR NEVER TRIGGERS BACKUP' -- even a shared count of
+    0 must not fire backup when primary_complete is False."""
+    result = d.evaluate_backup_trigger(primary_complete=False, primary_shared_gabc_count=0)
+    assert result.run_backup is False
+    assert result.fail_run is True
+
+
+def test_incomplete_primary_does_not_require_a_shared_count_at_all():
+    result = d.evaluate_backup_trigger(primary_complete=False, primary_shared_gabc_count=None)
+    assert result.fail_run is True
+    assert result.run_backup is False
+
+
+def test_complete_primary_requires_a_shared_count():
+    with pytest.raises(ValueError):
+        d.evaluate_backup_trigger(primary_complete=True, primary_shared_gabc_count=None)
+
+
+def test_backup_trigger_threshold_is_frozen_at_three():
+    assert d.BACKUP_TRIGGER_SHARED_COUNT_THRESHOLD == 3
+
+
+def test_assert_gemma_qwen_depth_matches_passes_within_tolerance():
+    # PRIMARY: qwen depth_fraction 0.59375, gemma layer 29. Choose gemma
+    # n_layers so 29/n_layers lands within 0.02 of 0.59375 (e.g. n=48 -> 0.6042).
+    fraction = d.assert_gemma_qwen_depth_matches(gemma_layer=29, gemma_n_layers=48, qwen_depth_fraction=d.PRIMARY_CONFIGURATION.qwen_depth_fraction)
+    assert abs(fraction - 29 / 48) < 1e-9
+
+
+def test_assert_gemma_qwen_depth_matches_fails_closed_outside_tolerance():
+    with pytest.raises(targets.TargetIdentityMismatch):
+        d.assert_gemma_qwen_depth_matches(gemma_layer=5, gemma_n_layers=48, qwen_depth_fraction=d.PRIMARY_CONFIGURATION.qwen_depth_fraction)
+
+
 def test_parse_dose_grid_rejects_negative_values_and_parses_floats():
     assert d._parse_dose_grid("0.5,1,2") == [0.5, 1.0, 2.0]
     with pytest.raises(ValueError):

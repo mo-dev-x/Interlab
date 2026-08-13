@@ -134,22 +134,93 @@ class MatchedConfiguration:
     layer/family validator below reads from, so there is no second place a
     third configuration could be silently introduced.
 
-    Deliberately absent: any Boolean rule for WHEN to use `backup` instead
-    of `primary`. That rule ("the frozen backup trigger") is the
-    Architect's to supply -- this file only records whichever configuration
-    a caller explicitly selected (or, for the matched-configuration
-    sequencing job, whichever externally-supplied boolean said to use)."""
+    The Boolean rule for WHEN to use `backup` instead of `primary` is
+    frozen separately, at `protocols/final_pairing/v1/backup_trigger.json`
+    (commit 125b1d3) -- see `evaluate_backup_trigger`/
+    `BACKUP_TRIGGER_SHARED_COUNT_THRESHOLD` below. `qwen_depth_fraction`
+    here is that same frozen file's `configurations.<NAME>.qwen.
+    depth_fraction`, used by `assert_gemma_qwen_depth_matches`; Gemma's own
+    depth_fraction is deliberately NOT a stored constant (the frozen file
+    itself requires it be computed from the actually-loaded model's real
+    n_layers at run time, never assumed)."""
 
     name: Literal["primary", "backup"]
     qwen_layer: int
     qwen_sae_family: str
     qwen_sparsity: int
     gemma_layer: int
+    qwen_depth_fraction: float
 
 
-PRIMARY_CONFIGURATION = MatchedConfiguration(name="primary", qwen_layer=38, qwen_sae_family="L0_100", qwen_sparsity=100, gemma_layer=29)
-BACKUP_CONFIGURATION = MatchedConfiguration(name="backup", qwen_layer=32, qwen_sae_family="L0_50", qwen_sparsity=50, gemma_layer=24)
+PRIMARY_CONFIGURATION = MatchedConfiguration(name="primary", qwen_layer=38, qwen_sae_family="L0_100", qwen_sparsity=100, gemma_layer=29, qwen_depth_fraction=0.59375)
+BACKUP_CONFIGURATION = MatchedConfiguration(name="backup", qwen_layer=32, qwen_sae_family="L0_50", qwen_sparsity=50, gemma_layer=24, qwen_depth_fraction=0.5)
 MATCHED_CONFIGURATIONS: dict[str, MatchedConfiguration] = {"primary": PRIMARY_CONFIGURATION, "backup": BACKUP_CONFIGURATION}
+
+# The backup trigger's exact Boolean rule -- frozen at
+# protocols/final_pairing/v1/backup_trigger.json (commit 125b1d3), found
+# AFTER this module's docstring elsewhere was written to say no such rule
+# existed. It does exist. `evaluate_backup_trigger` below implements
+# EXACTLY its `trigger.boolean_expression`/`failure_expression`, no more.
+# What is NOT implemented here: computing `primary_shared_gabc_count`
+# itself requires a full 14-concept x 2-pairing x 3-gate x 3-family x
+# 2-locale grid (`primary_complete`'s own definition) with per-feature
+# G-A/B/C conjunction (`feature_survives_gabc`) -- this runner currently
+# discovers ONE concept per invocation and has no G-C (AUROC vs near_miss)
+# implementation at all yet. That aggregation is real, separate follow-up
+# work; `--run-backup`/`--trigger-inputs-json` in the matched-configuration
+# job remain the way that count reaches this formula until it exists.
+BACKUP_TRIGGER_PROTOCOL_PATH = "protocols/final_pairing/v1/backup_trigger.json"
+BACKUP_TRIGGER_SHARED_COUNT_THRESHOLD = 3  # frozen; "may not be changed after any activation is computed"
+
+
+@dataclass(frozen=True)
+class BackupTriggerResult:
+    run_backup: bool
+    fail_run: bool
+    primary_complete: bool
+    primary_shared_gabc_count: int | None
+    threshold: int
+
+
+def evaluate_backup_trigger(*, primary_complete: bool, primary_shared_gabc_count: int | None) -> BackupTriggerResult:
+    """`RUN_BACKUP = primary_complete AND (primary_shared_gabc_count < 3)`;
+    `FAIL_RUN = NOT primary_complete`. An execution error never triggers
+    backup -- when `primary_complete` is False, `primary_shared_gabc_count`
+    is never read (it may legitimately be `None`), and the result is
+    `fail_run=True`, `run_backup=False` unconditionally, matching the
+    protocol's own "an incomplete primary UNDERCOUNTS" reasoning: falling
+    through to backup on an infrastructure failure would let it masquerade
+    as a scientific finding."""
+    if not primary_complete:
+        return BackupTriggerResult(
+            run_backup=False, fail_run=True, primary_complete=False,
+            primary_shared_gabc_count=primary_shared_gabc_count, threshold=BACKUP_TRIGGER_SHARED_COUNT_THRESHOLD,
+        )
+    if primary_shared_gabc_count is None:
+        raise ValueError("primary_shared_gabc_count is required when primary_complete is True")
+    return BackupTriggerResult(
+        run_backup=primary_shared_gabc_count < BACKUP_TRIGGER_SHARED_COUNT_THRESHOLD,
+        fail_run=False, primary_complete=True, primary_shared_gabc_count=primary_shared_gabc_count,
+        threshold=BACKUP_TRIGGER_SHARED_COUNT_THRESHOLD,
+    )
+
+
+def assert_gemma_qwen_depth_matches(*, gemma_layer: int, gemma_n_layers: int, qwen_depth_fraction: float, tolerance: float = 0.02) -> float:
+    """`protocols/final_pairing/v1/backup_trigger.json`'s
+    `depth_matching_assertion`: `abs(gemma_depth_fraction -
+    qwen_depth_fraction) <= 0.02` for whichever configuration is running,
+    computed from the ACTUALLY LOADED Gemma model's own `n_layers` (never
+    assumed). Raises (never warns) on violation -- "the pairing claim
+    rests on matched depth; an unverified match is not a match." Returns
+    the computed `gemma_depth_fraction` for provenance recording."""
+    gemma_depth_fraction = gemma_layer / gemma_n_layers
+    if abs(gemma_depth_fraction - qwen_depth_fraction) > tolerance:
+        raise targets.TargetIdentityMismatch(
+            f"depth mismatch: gemma_depth_fraction={gemma_depth_fraction!r} (layer {gemma_layer} of "
+            f"{gemma_n_layers}) vs qwen_depth_fraction={qwen_depth_fraction!r}, tolerance={tolerance} -- "
+            f"STOP, do not compute activations, per the frozen depth_matching_assertion."
+        )
+    return gemma_depth_fraction
 
 _PROBE_MIN_EXAMPLES_PER_CLASS = 5  # matches interplab.validation.probe's own floor
 

@@ -9,17 +9,24 @@ around it: run primary to completion, persist whatever trigger inputs the
 caller supplies, and launch backup ONLY if the caller's own
 `--run-backup` boolean says so.
 
-THE BACKUP TRIGGER'S BOOLEAN RULE IS NOT COMPUTED HERE. Per this task's
-explicit instruction ("do not hard-code the backup trigger until the
-Architect returns its exact Boolean rule"), `--run-backup` is a required,
-externally-decided argument -- whatever process applied the Architect's
-actual rule (not yet returned) decides it and passes it in. This file
-records that decision, and whatever `--trigger-inputs-json` the caller
-supplies as the record of what was compared, but invents neither the rule
-nor its inputs. Once the Architect's rule is available, evaluating it is a
-separate, small piece of work layered on top of this sequencing --
-`--run-backup` stays exactly what a human or an automated evaluator of
-that rule would pass in either way.
+CORRECTION: an earlier version of this docstring said the backup trigger's
+Boolean rule had "not yet [been] returned." It has: it is frozen at
+`protocols/final_pairing/v1/backup_trigger.json` (commit 125b1d3) --
+`RUN_BACKUP = primary_complete AND (primary_shared_gabc_count < 3)`,
+`FAIL_RUN = NOT primary_complete` -- and `final_pairing_concept_discovery.
+evaluate_backup_trigger` implements exactly that formula. What this file
+still does NOT do is compute that formula's own INPUTS:
+`primary_shared_gabc_count` requires a full 14-concept x 2-pairing x
+3-gate x 3-family x 2-locale grid with a per-feature G-A/B/C conjunction
+(`feature_survives_gabc`) that no script in this repository assembles yet
+(`final_pairing_concept_discovery.py` discovers one concept per invocation
+and has no G-C implementation at all). Until that aggregation exists,
+`--run-backup` stays a required, externally-decided argument -- whoever
+(or whatever script) assembles the grid should call
+`evaluate_backup_trigger(primary_complete=..., primary_shared_gabc_count=...)`
+and pass ITS `.run_backup` result in here, rather than re-deriving the
+formula. This file still invents neither the rule (now known) nor its
+inputs (still not assembled).
 
 Because primary and backup lanes run as separate subprocesses launched
 sequentially (never concurrently -- backup is only ever launched after
