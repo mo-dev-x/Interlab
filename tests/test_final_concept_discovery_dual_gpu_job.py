@@ -343,6 +343,12 @@ def test_orchestrator_rejects_anything_other_than_exactly_gemma_and_qwen_lanes(t
 # ---------------------------------------------------------------------------
 
 
+_PASSING_PREFLIGHT_REPORT = {
+    "schema_version": 1, "expected_cases": 1, "executed_cases": 1, "passed_cases": 1,
+    "cases": [{"name": "fake", "status": "pass", "detail": "", "elapsed_seconds": 0.0}], "overall": "pass",
+}
+
+
 def test_a_failing_prompt_artifact_validator_stops_both_lanes_before_any_launch(tmp_path):
     launched = []
 
@@ -360,6 +366,7 @@ def test_a_failing_prompt_artifact_validator_stops_both_lanes_before_any_launch(
     ])
     result = job.run_dual_gpu_job(
         args, orchestrator_factory=fake_orchestrator_factory, validate_prompt_artifact=failing_validator,
+        run_preflight=lambda repo_root: dict(_PASSING_PREFLIGHT_REPORT),
     )
     assert result["status"] == "failure"
     assert result["overall_exit_code"] == 1
@@ -383,8 +390,100 @@ def test_a_passing_prompt_artifact_validator_allows_both_lanes_to_launch(tmp_pat
         "--qwen-config", str(_write_lane_json(tmp_path, "qwen")),
         "--job-result-path", str(tmp_path / "result.json"),
     ])
-    result = job.run_dual_gpu_job(args, orchestrator_factory=fake_orchestrator_factory, validate_prompt_artifact=lambda repo_root: None)
+    result = job.run_dual_gpu_job(
+        args, orchestrator_factory=fake_orchestrator_factory, validate_prompt_artifact=lambda repo_root: None,
+        run_preflight=lambda repo_root: dict(_PASSING_PREFLIGHT_REPORT),
+    )
     assert result["status"] == "complete_pass"
+    assert result["preflight_report"] == _PASSING_PREFLIGHT_REPORT
+
+
+# ---------------------------------------------------------------------------
+# The standalone preflight runs FIRST, before prompt-artifact validation and
+# before either lane launches; the driver re-validates the report itself
+# rather than trusting only the subprocess exit code.
+# ---------------------------------------------------------------------------
+
+
+def test_a_failing_preflight_stops_both_lanes_before_prompt_artifact_validation_even_runs(tmp_path):
+    validator_called = {"n": 0}
+
+    def spy_validator(repo_root):
+        validator_called["n"] += 1
+
+    def fake_orchestrator_factory(lane_list):
+        raise AssertionError("must never be constructed when the preflight fails")
+
+    def failing_preflight(repo_root):
+        raise job.PreflightFailed("2 case(s) did not report 'pass'")
+
+    args = job.parse_args([
+        "--gemma-config", str(_write_lane_json(tmp_path, "gemma")),
+        "--qwen-config", str(_write_lane_json(tmp_path, "qwen")),
+        "--job-result-path", str(tmp_path / "result.json"),
+    ])
+    result = job.run_dual_gpu_job(
+        args, orchestrator_factory=fake_orchestrator_factory, validate_prompt_artifact=spy_validator,
+        run_preflight=failing_preflight,
+    )
+    assert result["status"] == "failure"
+    assert result["lanes"] == []
+    assert "did not report 'pass'" in result["preflight_error"]
+    assert validator_called["n"] == 0
+
+
+def test_default_preflight_runner_rejects_a_zero_exit_with_a_non_passing_case():
+    """The independent re-validation this task requires: a subprocess that
+    exits 0 but whose OWN JSON report contains a non-passing case (or a
+    executed/expected mismatch) must still be treated as a failure -- the
+    exit code alone is not trusted."""
+    import json as _json
+    import types
+
+    lying_report = {
+        "schema_version": 1, "expected_cases": 2, "executed_cases": 2, "passed_cases": 1,
+        "cases": [
+            {"name": "a", "status": "pass", "detail": "", "elapsed_seconds": 0.0},
+            {"name": "b", "status": "fail", "detail": "boom", "elapsed_seconds": 0.0},
+        ],
+        "overall": "pass",  # deliberately lying about its own per-case results
+    }
+
+    def fake_run(*args, **kwargs):
+        return types.SimpleNamespace(returncode=0, stdout=_json.dumps(lying_report), stderr="")
+
+    import subprocess as _subprocess
+    original = _subprocess.run
+    _subprocess.run = fake_run
+    try:
+        try:
+            job.default_preflight_runner(job.REPO_ROOT)
+        except job.PreflightFailed as exc:
+            assert "did not report 'pass'" in str(exc) or "case(s) did not report" in str(exc)
+        else:
+            raise AssertionError("expected PreflightFailed for a report with a non-passing case")
+    finally:
+        _subprocess.run = original
+
+
+def test_default_preflight_runner_rejects_unparsable_output():
+    import types
+
+    def fake_run(*args, **kwargs):
+        return types.SimpleNamespace(returncode=1, stdout="not json", stderr="traceback")
+
+    import subprocess as _subprocess
+    original = _subprocess.run
+    _subprocess.run = fake_run
+    try:
+        try:
+            job.default_preflight_runner(job.REPO_ROOT)
+        except job.PreflightFailed as exc:
+            assert "non-JSON output" in str(exc)
+        else:
+            raise AssertionError("expected PreflightFailed for unparsable output")
+    finally:
+        _subprocess.run = original
 
 
 # ---------------------------------------------------------------------------

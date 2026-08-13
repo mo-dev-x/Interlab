@@ -330,23 +330,89 @@ def default_prompt_artifact_validator(repo_root: Path) -> None:
     discovery.load_frozen_prompt_artifact(repo_root)
 
 
+PREFLIGHT_SCRIPT = SCRIPT_DIR / "discovery_preflight.py"
+
+
+class PreflightFailed(RuntimeError):
+    """Raised when the standalone preflight did not report a clean pass --
+    whether it exited nonzero, printed unparsable output, or printed a
+    JSON report whose OWN fields (not just the process exit code) don't
+    actually add up to a full pass."""
+
+
+def default_preflight_runner(repo_root: Path) -> dict:
+    """Runs `discovery_preflight.py` as a REAL SUBPROCESS (never imported
+    and called in-process for this purpose) and independently
+    re-validates its JSON report -- this driver does not trust the
+    subprocess's exit code alone, in case the preflight script itself has
+    a bug that exits 0 without every case actually having run and passed.
+    Raises `PreflightFailed` with the full report on any discrepancy."""
+    import subprocess
+    import sys as _sys
+
+    proc = subprocess.run(
+        [_sys.executable, str(PREFLIGHT_SCRIPT)], cwd=str(repo_root), capture_output=True, text=True,
+    )
+    try:
+        report = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise PreflightFailed(
+            f"discovery_preflight.py printed non-JSON output (exit={proc.returncode}): "
+            f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
+        ) from exc
+
+    non_passing = [c for c in report.get("cases", []) if c.get("status") != "pass"]
+    problems = []
+    if proc.returncode != 0:
+        problems.append(f"subprocess exit code {proc.returncode} != 0")
+    if report.get("overall") != "pass":
+        problems.append(f"report['overall'] = {report.get('overall')!r}, not 'pass'")
+    if report.get("executed_cases") != report.get("expected_cases"):
+        problems.append(f"executed_cases={report.get('executed_cases')} != expected_cases={report.get('expected_cases')}")
+    if non_passing:
+        problems.append(f"{len(non_passing)} case(s) did not report 'pass': {[c['name'] for c in non_passing]}")
+    if problems:
+        raise PreflightFailed(
+            "discovery_preflight.py did not report a clean pass (checked independently of its exit "
+            f"code): {'; '.join(problems)}. Full report: {json.dumps(report)}"
+        )
+    return report
+
+
 def run_dual_gpu_job(
     args: argparse.Namespace, *,
     orchestrator_factory=DualGpuOrchestrator,
     validate_prompt_artifact=default_prompt_artifact_validator,
+    run_preflight=default_preflight_runner,
     repo_root: Path = REPO_ROOT,
 ) -> dict:
-    """A hash mismatch, validation failure, or row-count mismatch in the
+    """The standalone preflight (`discovery_preflight.py`) runs FIRST,
+    before either lane launches and before either child could load any
+    weights -- a preflight failure stops both lanes with `lanes: []`,
+    exactly like a prompt-artifact validation failure. Only after the
+    preflight reports a clean pass does the (cheaper, narrower) frozen-
+    prompt-artifact check run, then both lanes launch.
+
+    A hash mismatch, validation failure, or row-count mismatch in the
     frozen prompt artifact stops BOTH lanes -- this check runs once, here,
     before `launch_all()` is ever called for either lane, rather than
     being duplicated (and therefore potentially skipped) inside each
     lane's own process."""
+    try:
+        preflight_report = run_preflight(repo_root)
+    except Exception as exc:
+        return {
+            "schema_version": SCHEMA_VERSION, "status": "failure", "overall_exit_code": 1,
+            "cancelled": False, "lanes": [], "preflight_error": str(exc),
+        }
+
     try:
         validate_prompt_artifact(repo_root)
     except Exception as exc:
         return {
             "schema_version": SCHEMA_VERSION, "status": "failure", "overall_exit_code": 1,
             "cancelled": False, "lanes": [], "prompt_artifact_validation_error": str(exc),
+            "preflight_report": preflight_report,
         }
 
     lanes = [
@@ -355,7 +421,9 @@ def run_dual_gpu_job(
     ]
     orchestrator = orchestrator_factory(lanes)
     orchestrator.launch_all()
-    return orchestrator.wait_all(poll_interval=args.poll_interval_seconds)
+    result = orchestrator.wait_all(poll_interval=args.poll_interval_seconds)
+    result["preflight_report"] = preflight_report
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:

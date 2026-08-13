@@ -195,7 +195,27 @@ MATCHED_CONFIGURATIONS: dict[str, MatchedConfiguration] = {"primary": PRIMARY_CO
 # work; `--run-backup`/`--trigger-inputs-json` in the matched-configuration
 # job remain the way that count reaches this formula until it exists.
 BACKUP_TRIGGER_PROTOCOL_PATH = "protocols/final_pairing/v1/backup_trigger.json"
+BACKUP_TRIGGER_PROTOCOL_SHA256 = "4a234e59799089e634f00c59d5fed71c73d0f7466e30f0c20a7d72ef4c9d23d3"
 BACKUP_TRIGGER_SHARED_COUNT_THRESHOLD = 3  # frozen; "may not be changed after any activation is computed"
+
+
+def validate_backup_trigger_protocol_hash(repo_root: str | Path) -> str:
+    """Fails closed if `protocols/final_pairing/v1/backup_trigger.json`'s
+    actual bytes don't match the pinned hash -- the same discipline
+    applied to the frozen prompt artifact (`load_frozen_prompt_artifact`)
+    applied to this protocol file too, since the backup-trigger formula's
+    threshold is frozen precisely because it "may not be changed after
+    any activation is computed"."""
+    path = Path(repo_root) / BACKUP_TRIGGER_PROTOCOL_PATH
+    if not path.is_file():
+        raise PromptArtifactError(f"backup-trigger protocol not found at {path}")
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != BACKUP_TRIGGER_PROTOCOL_SHA256.lower():
+        raise PromptArtifactError(
+            f"{path} sha256={actual!r} != pinned {BACKUP_TRIGGER_PROTOCOL_SHA256!r} -- refusing to "
+            f"run discovery against an altered or unpinned backup-trigger protocol."
+        )
+    return actual
 
 
 @dataclass(frozen=True)

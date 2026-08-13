@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "expected_cases": 13,
+  "executed_cases": 13,
+  "passed_cases": 13,
+  "cases": [
+    {
+      "name": "frozen_prompt_and_protocol_hash_validation",
+      "status": "pass",
+      "detail": "prompt_set_commit=880b48a7f50b prompt_sha256=b0b23cf1502d rows=2800 backup_trigger_sha256_verified=True",
+      "elapsed_seconds": 2.1089999999385327
+    },
+    {
+      "name": "complete_14x2x3x3x2_grid_with_explicit_pass_fail_error_verdicts",
+      "status": "pass",
+      "detail": "gemma_grid=14 qwen_grid=14 statuses_seen=['fail'] engineered_error_status='error'",
+      "elapsed_seconds": 19.95299999997951
+    },
+    {
+      "name": "same_feature_gabc_conjunction_never_combines_different_features",
+      "status": "pass",
+      "detail": "mismatched-feature raises ValueError; same-feature all-passing conjunction returns True",
+      "elapsed_seconds": 0.0
+    },
+    {
+      "name": "incomplete_primary_reports_fail_run",
+      "status": "pass",
+      "detail": "fail_run=True run_backup=False",
+      "elapsed_seconds": 0.0
+    },
+    {
+      "name": "automatic_shared_gabc_count_and_backup_decision",
+      "status": "pass",
+      "detail": "primary_shared_gabc_count=1 run_backup=True",
+      "elapsed_seconds": 0.0
+    },
+    {
+      "name": "both_or_neither_matched_backup_execution",
+      "status": "pass",
+      "detail": "run_backup=True launches both backup lanes together; run_backup=False launches neither",
+      "elapsed_seconds": 0.0940000000409782
+    },
+    {
+      "name": "g_d_g_e_gate_logic_pass_and_null_on_automated_failure",
+      "status": "pass",
+      "detail": "gate_d.passed=True gate_e_automated_failure.passed=False",
+      "elapsed_seconds": 0.030999999959021807
+    },
+    {
+      "name": "suppress_spot_read_acceptance_and_refusal",
+      "status": "pass",
+      "detail": "approved.passed=True refused.passed=False",
+      "elapsed_seconds": 0.01600000006146729
+    },
+    {
+      "name": "document_amplify_only_all_positions_four_binding_records",
+      "status": "pass",
+      "detail": "amplify-only after null suppress; positions=all; all binding blocks + separate feature_certificate present",
+      "elapsed_seconds": 0.015999999945051968
+    },
+    {
+      "name": "dose_curve_low_medium_high_derivation",
+      "status": "pass",
+      "detail": "calibration={'low': 0.5, 'medium': 1.0, 'high': 2.0}",
+      "elapsed_seconds": 0.0
+    },
+    {
+      "name": "checkpoint_interruption_and_exact_cell_resume",
+      "status": "pass",
+      "detail": "3 cells recorded; resume triggered 0 recomputation(s) (expected 0)",
+      "elapsed_seconds": 0.4220000000204891
+    },
+    {
+      "name": "producer_consumer_schema_compatibility",
+      "status": "pass",
+      "detail": "{\"snapshot_commit\": \"2c8cf5b8a67873043ca026dfe99f6eb5ce145c06\", \"schema_version_agrees\": true, \"compatible\": true}",
+      "elapsed_seconds": 0.0
+    },
+    {
+      "name": "exact_slurm_job_id_root_and_noncanonical_sibling_ignored",
+      "status": "pass",
+      "detail": "job_root=D:\\devcache\\tmp\\discovery-preflight-n2ximkyj\\concept_discovery\\gemma\\preflight-synthetic-job-id sibling=run_20260813_la_c exact-path read verified; parent-path read refused",
+      "elapsed_seconds": 0.0
+    }
+  ],
+  "overall": "pass"
+}
