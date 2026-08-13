@@ -1335,6 +1335,31 @@ def run_concept_grid(
     return verdicts
 
 
+def write_grid_result(out_dir: str | Path, pairing: str, verdicts: list[ConceptPairingVerdict]) -> Path:
+    """Writes `<out_dir>/grid.json` -- an EXACT, named path, never a
+    location a caller has to glob for. `out_dir` is the SAME per-lane
+    output directory the discovery run itself was given (never a shared
+    parent directory that other, unrelated runs also write into)."""
+    path = Path(out_dir) / "grid.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"schema_version": SCHEMA_VERSION, "pairing": pairing, "verdicts": [asdict(v) for v in verdicts]}, indent=2),
+        encoding="utf-8",
+    )
+    return path
+
+
+def read_grid_result(path: str | Path) -> list[ConceptPairingVerdict]:
+    """Reads EXACTLY the named `grid.json` file -- never globs a parent
+    directory. A caller that does not know the exact path has been given
+    the wrong information, not license to search for it."""
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"grid result not found at the exact path {path} (this function never globs a parent directory)")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return [ConceptPairingVerdict(**v) for v in data["verdicts"]]
+
+
 def compute_primary_completeness_and_shared_count(
     grids_by_pairing: dict[str, list[ConceptPairingVerdict]], *, concept_ids: list[str],
 ) -> tuple[bool, int]:

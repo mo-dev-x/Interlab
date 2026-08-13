@@ -244,3 +244,135 @@ def test_result_never_carries_scientific_payload_fields(tmp_path):
     assert forbidden.isdisjoint(result.keys())
     for lane in result["primary_result"]["lanes"] + result["backup_result"]["lanes"]:
         assert forbidden.isdisjoint(lane.keys())
+
+
+# ---------------------------------------------------------------------------
+# Automatic backup-trigger computation from grid outputs (replaces
+# --run-backup as a production CLI input; scheduled entry point never
+# exposes it)
+# ---------------------------------------------------------------------------
+
+
+def _verdict(concept_id, pairing, status):
+    return discovery.ConceptPairingVerdict(
+        concept_id=concept_id, pairing=pairing, status=status,
+        surviving_feature_index=(7 if status == "pass" else None), candidates_evaluated=[], error=None,
+    )
+
+
+def _write_grid(tmp_path, name, pairing, verdicts):
+    out_dir = tmp_path / name
+    return discovery.write_grid_result(out_dir, pairing, verdicts)
+
+
+CONCEPT_IDS = [f"c{i}" for i in range(5)]
+GEMMA = discovery.targets.GEMMA_3_12B_IT_TARGET.name
+QWEN = discovery.targets.QWEN_3_5_27B_TARGET.name
+
+
+def test_compute_trigger_from_grid_outputs_fires_when_shared_count_is_low(tmp_path):
+    # Only 1 of 5 concepts shared -> below threshold 3 -> RUN_BACKUP.
+    gemma_verdicts = [_verdict(c, GEMMA, "pass" if c == "c0" else "fail") for c in CONCEPT_IDS]
+    qwen_verdicts = [_verdict(c, QWEN, "pass" if c == "c0" else "fail") for c in CONCEPT_IDS]
+    gemma_path = _write_grid(tmp_path, "gemma", GEMMA, gemma_verdicts)
+    qwen_path = _write_grid(tmp_path, "qwen", QWEN, qwen_verdicts)
+    result = matched.compute_trigger_from_grid_outputs(
+        gemma_grid_path=gemma_path, qwen_grid_path=qwen_path, concept_ids=CONCEPT_IDS,
+    )
+    assert result.primary_complete is True
+    assert result.primary_shared_gabc_count == 1
+    assert result.run_backup is True
+    assert result.fail_run is False
+
+
+def test_compute_trigger_from_grid_outputs_does_not_fire_when_shared_count_meets_threshold(tmp_path):
+    # 3 of 5 concepts shared -> meets threshold 3 -> no backup.
+    gemma_verdicts = [_verdict(c, GEMMA, "pass" if c in ("c0", "c1", "c2") else "fail") for c in CONCEPT_IDS]
+    qwen_verdicts = [_verdict(c, QWEN, "pass" if c in ("c0", "c1", "c2") else "fail") for c in CONCEPT_IDS]
+    gemma_path = _write_grid(tmp_path, "gemma", GEMMA, gemma_verdicts)
+    qwen_path = _write_grid(tmp_path, "qwen", QWEN, qwen_verdicts)
+    result = matched.compute_trigger_from_grid_outputs(
+        gemma_grid_path=gemma_path, qwen_grid_path=qwen_path, concept_ids=CONCEPT_IDS,
+    )
+    assert result.primary_shared_gabc_count == 3
+    assert result.run_backup is False
+
+
+def test_compute_trigger_from_grid_outputs_fails_run_when_a_cell_is_an_error(tmp_path):
+    gemma_verdicts = [_verdict(c, GEMMA, "error" if c == "c0" else "pass") for c in CONCEPT_IDS]
+    qwen_verdicts = [_verdict(c, QWEN, "pass") for c in CONCEPT_IDS]
+    gemma_path = _write_grid(tmp_path, "gemma", GEMMA, gemma_verdicts)
+    qwen_path = _write_grid(tmp_path, "qwen", QWEN, qwen_verdicts)
+    result = matched.compute_trigger_from_grid_outputs(
+        gemma_grid_path=gemma_path, qwen_grid_path=qwen_path, concept_ids=CONCEPT_IDS,
+    )
+    assert result.primary_complete is False
+    assert result.fail_run is True
+    assert result.run_backup is False
+
+
+def test_compute_trigger_from_grid_outputs_never_globs_a_parent_directory(tmp_path):
+    """The two grid paths are read EXACTLY -- a sibling file placed next to
+    one of them (mimicking a noncanonical preflight directory) must never
+    be picked up."""
+    gemma_verdicts = [_verdict(c, GEMMA, "pass") for c in CONCEPT_IDS]
+    qwen_verdicts = [_verdict(c, QWEN, "pass") for c in CONCEPT_IDS]
+    gemma_path = _write_grid(tmp_path, "gemma", GEMMA, gemma_verdicts)
+    qwen_path = _write_grid(tmp_path, "qwen", QWEN, qwen_verdicts)
+    # A noncanonical sibling that, if globbed, would corrupt the grid.
+    (tmp_path / "gemma" / "run_20260813_la_c_grid.json").write_text("{\"schema_version\": 1, \"pairing\": \"bogus\", \"verdicts\": []}", encoding="utf-8")
+    result = matched.compute_trigger_from_grid_outputs(
+        gemma_grid_path=gemma_path, qwen_grid_path=qwen_path, concept_ids=CONCEPT_IDS,
+    )
+    assert result.primary_shared_gabc_count == len(CONCEPT_IDS)
+
+
+def test_run_matched_configuration_job_uses_trigger_resolver_when_run_backup_is_none(tmp_path):
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+    calls = {"n": 0}
+
+    def resolver():
+        calls["n"] += 1
+        return discovery.evaluate_backup_trigger(primary_complete=True, primary_shared_gabc_count=1)
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+        trigger_resolver=resolver, job_result_path=tmp_path / "result.json",
+        orchestrator_factory=_make_orchestrator_factory({}),
+    )
+    assert calls["n"] == 1
+    assert result["run_backup"] is True
+    assert result["backup_result"] is not None
+    assert result["trigger_result"]["primary_shared_gabc_count"] == 1
+
+
+def test_run_matched_configuration_job_raises_before_backup_when_trigger_resolver_reports_fail_run(tmp_path):
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+    backup_launched = {"called": False}
+
+    def factory(lanes):
+        if lanes is backup_lanes:
+            backup_launched["called"] = True
+        return _make_orchestrator_factory({})(lanes)
+
+    def failing_resolver():
+        return discovery.evaluate_backup_trigger(primary_complete=False, primary_shared_gabc_count=None)
+
+    with pytest.raises(matched.TriggerResolutionFailed):
+        matched.run_matched_configuration_job(
+            primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+            trigger_resolver=failing_resolver, job_result_path=tmp_path / "result.json",
+            orchestrator_factory=factory,
+        )
+    assert backup_launched["called"] is False
+
+
+def test_main_cli_has_no_run_backup_flag():
+    """The scheduled entry point must not expose a way to externally
+    decide the backup trigger -- it is always computed from grid outputs."""
+    with pytest.raises(SystemExit):
+        matched.parse_args(["--run-backup", "true"])

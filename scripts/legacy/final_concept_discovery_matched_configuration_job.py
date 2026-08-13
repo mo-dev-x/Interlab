@@ -5,28 +5,24 @@ concept_discovery.PRIMARY_CONFIGURATION` / `BACKUP_CONFIGURATION`).
 Reuses `final_concept_discovery_dual_gpu_job.DualGpuOrchestrator` for BOTH
 the primary and (if triggered) the backup run -- this file does not
 duplicate the concurrent-launch/aggregation logic, only the SEQUENCING
-around it: run primary to completion, persist whatever trigger inputs the
-caller supplies, and launch backup ONLY if the caller's own
-`--run-backup` boolean says so.
+around it: run primary to completion, then decide whether to run backup.
 
-CORRECTION: an earlier version of this docstring said the backup trigger's
-Boolean rule had "not yet [been] returned." It has: it is frozen at
-`protocols/final_pairing/v1/backup_trigger.json` (commit 125b1d3) --
+THE BACKUP TRIGGER IS COMPUTED AUTOMATICALLY, NOT SUPPLIED EXTERNALLY.
+`protocols/final_pairing/v1/backup_trigger.json` (commit 125b1d3) freezes
 `RUN_BACKUP = primary_complete AND (primary_shared_gabc_count < 3)`,
-`FAIL_RUN = NOT primary_complete` -- and `final_pairing_concept_discovery.
-evaluate_backup_trigger` implements exactly that formula. What this file
-still does NOT do is compute that formula's own INPUTS:
-`primary_shared_gabc_count` requires a full 14-concept x 2-pairing x
-3-gate x 3-family x 2-locale grid with a per-feature G-A/B/C conjunction
-(`feature_survives_gabc`) that no script in this repository assembles yet
-(`final_pairing_concept_discovery.py` discovers one concept per invocation
-and has no G-C implementation at all). Until that aggregation exists,
-`--run-backup` stays a required, externally-decided argument -- whoever
-(or whatever script) assembles the grid should call
-`evaluate_backup_trigger(primary_complete=..., primary_shared_gabc_count=...)`
-and pass ITS `.run_backup` result in here, rather than re-deriving the
-formula. This file still invents neither the rule (now known) nor its
-inputs (still not assembled).
+`FAIL_RUN = NOT primary_complete`; `final_pairing_concept_discovery.
+evaluate_backup_trigger` implements exactly that formula, and
+`final_pairing_concept_discovery.run_concept_grid`/
+`compute_primary_completeness_and_shared_count` now assemble the formula's
+own inputs (the 14-concept x 2-pairing grid, one G-A/B/C-conjunction
+verdict per (concept, pairing) cell). `compute_trigger_from_grid_outputs`
+(below) reads the two primary lanes' own `grid.json` outputs -- EXACT,
+named paths, never a glob over a parent `concept_discovery/<model>/`
+directory -- and calls `evaluate_backup_trigger` for real. The scheduled
+entry point (`main`) always uses this automatic path; `run_backup` as an
+explicit boolean is a TEST-ONLY override on `run_matched_configuration_job`
+(the Python function), impossible to reach through `main`'s own CLI
+(`parse_args` below defines no `--run-backup` flag at all).
 
 Because primary and backup lanes run as separate subprocesses launched
 sequentially (never concurrently -- backup is only ever launched after
@@ -47,8 +43,10 @@ could mix content across configurations.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -101,20 +99,75 @@ def load_trigger_inputs(path: str | Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+class TriggerResolutionFailed(RuntimeError):
+    """Raised when the automatic backup-trigger computation itself cannot
+    be trusted -- e.g. `primary_complete=False` (`FAIL_RUN`). This is
+    ALWAYS raised before backup is considered; a failed primary must never
+    fall through to backup, which would let an infrastructure failure
+    masquerade as a scientific finding."""
+
+
+def compute_trigger_from_grid_outputs(
+    *, gemma_grid_path: str | Path, qwen_grid_path: str | Path, concept_ids: list[str],
+) -> discovery.BackupTriggerResult:
+    """Reads EXACTLY the two named `grid.json` files each primary lane
+    wrote to its OWN out_dir (never a glob over a parent
+    `concept_discovery/<model>/` directory -- see the 2026-08-13 staging
+    facts addendum's collection-safety requirement), computes the real
+    `primary_complete`/`primary_shared_gabc_count` from their contents,
+    and evaluates the frozen `evaluate_backup_trigger` formula. This is
+    the SCIENTIFIC decision input `--run-backup` used to be; this
+    function is how the scheduled entry point (`main`, below) now derives
+    it automatically instead of requiring an externally-supplied flag."""
+    gemma_verdicts = discovery.read_grid_result(gemma_grid_path)
+    qwen_verdicts = discovery.read_grid_result(qwen_grid_path)
+    complete, shared_count = discovery.compute_primary_completeness_and_shared_count(
+        {
+            discovery.targets.GEMMA_3_12B_IT_TARGET.name: gemma_verdicts,
+            discovery.targets.QWEN_3_5_27B_TARGET.name: qwen_verdicts,
+        },
+        concept_ids=concept_ids,
+    )
+    return discovery.evaluate_backup_trigger(
+        primary_complete=complete, primary_shared_gabc_count=(shared_count if complete else None),
+    )
+
+
 def run_matched_configuration_job(
     *,
     primary_lanes: list[dual_gpu.LaneSpec],
     backup_lanes: list[dual_gpu.LaneSpec],
     trigger_inputs: dict,
-    run_backup: bool,
     job_result_path: Path,
     orchestrator_factory=dual_gpu.DualGpuOrchestrator,
+    run_backup: bool | None = None,
+    trigger_resolver=None,
 ) -> dict:
+    """Runs primary, then EITHER uses the caller-supplied `run_backup`
+    (test-only override -- see module docstring; the scheduled entry
+    point `main` never passes this) OR, when `run_backup is None`, calls
+    `trigger_resolver()` (a zero-argument callable, typically
+    `compute_trigger_from_grid_outputs` bound via `functools.partial`)
+    AFTER primary completes and uses its `.run_backup` -- raising
+    `TriggerResolutionFailed` if `.fail_run` is True (an incomplete
+    primary), before backup is ever considered."""
+    if run_backup is None and trigger_resolver is None:
+        raise ValueError("run_matched_configuration_job requires either run_backup or trigger_resolver")
     validate_primary_backup_paths_disjoint(primary_lanes, backup_lanes)
 
     primary_orchestrator = orchestrator_factory(primary_lanes)
     primary_orchestrator.launch_all()
     primary_result = primary_orchestrator.wait_all()
+
+    trigger_result = None
+    if run_backup is None:
+        trigger_result = trigger_resolver()
+        if trigger_result.fail_run:
+            raise TriggerResolutionFailed(
+                f"primary_complete=False: the backup-trigger formula cannot be evaluated, and an "
+                f"incomplete primary must never fall through to backup. trigger={trigger_result}"
+            )
+        run_backup = trigger_result.run_backup
 
     backup_result = None
     if run_backup:
@@ -141,6 +194,7 @@ def run_matched_configuration_job(
         "overall_exit_code": 0 if overall_status == "complete_pass" else 1,
         "selected_configuration": discovery.BACKUP_CONFIGURATION.name if run_backup else discovery.PRIMARY_CONFIGURATION.name,
         "run_backup": run_backup,
+        "trigger_result": None if trigger_result is None else asdict(trigger_result),
         "trigger_inputs": trigger_inputs,
         "primary_configuration": {
             "name": discovery.PRIMARY_CONFIGURATION.name,
@@ -170,13 +224,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--primary-qwen-config", required=True)
     p.add_argument("--backup-gemma-config", required=True)
     p.add_argument("--backup-qwen-config", required=True)
-    p.add_argument("--trigger-inputs-json", required=True, help="Whatever record the Architect's rule was evaluated against -- persisted verbatim, never computed here.")
-    p.add_argument("--run-backup", required=True, choices=["true", "false"], help="The externally-decided result of applying the Architect's (not yet returned) backup-trigger rule. Never computed by this file.")
+    p.add_argument("--trigger-inputs-json", required=True, help="Recorded verbatim in the job result for audit; the boolean itself is always computed from --primary-*-grid-path, never from this file.")
+    p.add_argument("--primary-gemma-grid-path", required=True, help="The Gemma primary lane's own grid.json (exact path -- never globbed).")
+    p.add_argument("--primary-qwen-grid-path", required=True, help="The Qwen primary lane's own grid.json (exact path -- never globbed).")
+    p.add_argument("--concept-id", action="append", required=True, dest="concept_ids", help="Repeatable: one --concept-id per concept in the grid (all 14 for a production run).")
     p.add_argument("--job-result-path", required=True)
     return p.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
+    """The scheduled entry point. There is no `--run-backup` flag here --
+    the trigger is always computed from the primary lanes' own grid
+    outputs via `compute_trigger_from_grid_outputs`, never supplied
+    externally."""
     args = parse_args(argv)
     primary_lanes = [
         dual_gpu.load_lane_spec("gemma", args.primary_gemma_config),
@@ -187,9 +247,14 @@ def main(argv: list[str] | None = None) -> int:
         dual_gpu.load_lane_spec("qwen", args.backup_qwen_config),
     ]
     trigger_inputs = load_trigger_inputs(args.trigger_inputs_json)
+    trigger_resolver = functools.partial(
+        compute_trigger_from_grid_outputs,
+        gemma_grid_path=args.primary_gemma_grid_path, qwen_grid_path=args.primary_qwen_grid_path,
+        concept_ids=args.concept_ids,
+    )
     result = run_matched_configuration_job(
         primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs=trigger_inputs,
-        run_backup=(args.run_backup == "true"), job_result_path=Path(args.job_result_path),
+        trigger_resolver=trigger_resolver, job_result_path=Path(args.job_result_path),
     )
     print(json.dumps({"status": result["status"], "selected_configuration": result["selected_configuration"]}, indent=2))
     return result["overall_exit_code"]
