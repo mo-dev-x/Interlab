@@ -1,0 +1,1579 @@
+"""Final-pairing shared-concept discovery and calibration runner.
+
+SCOPE, explicitly: this is a DISCOVERY tool, not the mechanical-acceptance
+harness (final_pairing_harness.py, untouched by this file) and not
+Engineer 3's sealing/certification pipeline (interplab/, untouched by this
+file). It discovers CANDIDATE features for a researcher-supplied concept on
+the two ratified final pairings (google/gemma-3-12b-it +
+google/gemma-scope-2-12b-it, and Qwen/Qwen3.5-27B +
+Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50), runs held-out specificity validation,
+single-feature (and optionally multi-feature bundle) causal intervention,
+direction-specific dose-response, and emits Low/Medium/High calibration
+candidates -- all as MECHANICAL/statistical evidence for later scientific
+and behavioral judgment, never as a concept label, a scientific threshold,
+or a sealed/ATTESTED bundle. Every threshold this task's own work order
+calls "the Architect's rule" (specificity pass/fail, bundle-composition
+materiality, and the three calibration-tier boundaries) is a REQUIRED
+command-line argument with no code default -- this file invents none of
+them (see "Unresolved protocol fields" in
+docs/final_pairing_concept_discovery_packet.md).
+
+Reuse decisions (searched first, per this task's own instruction):
+
+- Model/SAE loading: `final_pairing_harness.load_gemma_it_target` /
+  `load_qwen_target` (imported, not copied) -- the same mechanically-
+  accepted loaders jobs 407008/406092 already exercised. Fails closed on
+  any non-ratified pairing/revision/subdirectory for free, since those
+  loaders already do that.
+- Intervention hooking: `interplab.interventions.hooks._make_clamp_hook`
+  (imported unmodified, exactly as final_pairing_harness.py already does)
+  is the canonical CLAMP/ABLATE contract -- ablate is `clamp_value=0.0`,
+  clamp is `value_in_max_units * corpus_max`, both share one
+  implementation. `final_pairing_harness.wrap_hook_with_diagnostics` /
+  `InterventionTrace` / `mechanical_verdict` (imported, not copied) supply
+  the exact same per-call diagnostic trace the mechanical-acceptance
+  harness already emits, so this tool's intervention records are
+  schema-compatible with that accepted work.
+- Held-out probe recipe: the frozen LogisticRegression/StratifiedKFold
+  recipe constants in `interplab.validation.probe.PROBE_RECIPE` are reused
+  verbatim for the solver/max_iter choice. The actual TRAIN-vs-HELD-OUT
+  split this task asks for ("held-out specificity validation" as a stage
+  distinct from ranking) is NOT what `interplab.validation.probe.train_probe`
+  does (it is cross-validated *within* one set, with no separate held-out
+  split) -- so this file duplicates the small (~10-line) sklearn
+  fit/score pattern with genuine train/held-out semantics, per this
+  project's own Ground Rule 2 ("duplicate rather than cross-import" --
+  scripts/legacy/gemma3_necessity.py's module docstring) rather than
+  bending a frozen, differently-scoped primitive to a new shape.
+- Activation ranking / corpus-max scale: `interplab.characterization.
+  feature_index.FeatureIndex.search_by_activation` and `interplab.
+  characterization.indexer.build_index` are HookedTransformer-only
+  (`model.to_tokens`/`model.run_with_cache`) -- directly reusable for the
+  Gemma pairing, structurally impossible to reuse unmodified for Qwen
+  (raw `AutoModelForCausalLM`, no HookedTransformer -- transformer_lens
+  has no Qwen3.5 entry, confirmed in final_pairing_targets.py). Per Ground
+  Rule 2, the SAME algorithm (per-text max activation, ranked descending)
+  is duplicated for the Qwen raw-forward-hook path rather than importing
+  something that would silently no-op or crash against a non-TL model.
+- `interplab.interventions.spec.InterventionSpec`'s field shape (kind,
+  feature_index, value_in_max_units, corpus_max, positions,
+  checkpoint_hash, direction_seed) is reused as the JSON shape of every
+  `spec` block this file writes, so a later pass through Engineer 3's
+  sealing pipeline (interplab/jobs/report.py's chain assembly, which reads
+  an intervention_result's `payload.spec`) sees a familiar shape --
+  without this file calling `envelope.dump`/`registry.put` itself. This
+  file never authors an A9 envelope or writes to the registry; "emit
+  enough structured evidence for Engineer 3's sealing pipeline" is
+  satisfied by shape-compatibility, not by this tool doing the sealing.
+
+Never-do list, enforced in code, not just prose:
+
+- `feature_idx == 250` (Gemma) / `4096` (Qwen) -- the mechanical-acceptance
+  harness's own engineering-only placeholder features -- are hard-excluded
+  from every shortlist/bundle/calibration output (`_MECHANICAL_ONLY_
+  FEATURE_IDS`), even if activation ranking organically surfaces them.
+- No suppression score is ever derived from an amplification-direction
+  number's sign, or vice versa: a `--direction ablate` run records only
+  quantities it directly measured for ablate; a `--direction clamp` run
+  never contributes to an ablate-direction field. There is no code path
+  that negates one direction's number to stand in for the other's.
+- Every numerical field this file writes is non-negative by construction:
+  norms, absolute activations, AUC-like scores in [0, 1], and bundle-
+  composition "gain" fields (reported only when a candidate is actually
+  added, i.e. exactly when the gain is >= the materiality threshold >= 0).
+  Rejected bundle candidates report their own absolute metric value, never
+  a signed delta.
+- `--pairing`/`--model-path`/`--sae-path` reject anything but the two
+  ratified final targets for free (inherited from `load_gemma_it_target`/
+  `load_qwen_target`, which already fail closed via `final_pairing_
+  targets.py`'s validators on any other repo/revision/subdirectory). This
+  file adds nothing on top for that -- it is not re-derived, it is
+  inherited.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import hashlib
+import json
+import os
+import sys
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Literal
+
+import numpy as np
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR))
+
+import final_pairing_harness as harness  # noqa: E402
+import final_pairing_targets as targets  # noqa: E402
+
+SCHEMA_VERSION = 1
+
+# The mechanical-acceptance harness's own engineering-only placeholder
+# features -- never a concept, regardless of what activation ranking finds.
+_MECHANICAL_ONLY_FEATURE_IDS: dict[str, int] = {
+    "gemma-3-12b-it": 250,
+    "qwen-3.5-27b": 4096,
+}
+
+_NOOP_JUDGE_IDENTITY = {"model": "none", "rubric_version": "none", "prompt_version": "none"}
+
+
+@dataclass(frozen=True)
+class MatchedConfiguration:
+    """One of the two predeclared, matched Qwen/Gemma layer+family
+    configurations. Values are given exactly as predeclared -- this file
+    never derives or adjusts them. `PRIMARY_CONFIGURATION` and
+    `BACKUP_CONFIGURATION` are the ONLY two authorized configurations;
+    `MATCHED_CONFIGURATIONS` is the single source of truth every
+    layer/family validator below reads from, so there is no second place a
+    third configuration could be silently introduced.
+
+    Deliberately absent: any Boolean rule for WHEN to use `backup` instead
+    of `primary`. That rule ("the frozen backup trigger") is the
+    Architect's to supply -- this file only records whichever configuration
+    a caller explicitly selected (or, for the matched-configuration
+    sequencing job, whichever externally-supplied boolean said to use)."""
+
+    name: Literal["primary", "backup"]
+    qwen_layer: int
+    qwen_sae_family: str
+    qwen_sparsity: int
+    gemma_layer: int
+
+
+PRIMARY_CONFIGURATION = MatchedConfiguration(name="primary", qwen_layer=38, qwen_sae_family="L0_100", qwen_sparsity=100, gemma_layer=29)
+BACKUP_CONFIGURATION = MatchedConfiguration(name="backup", qwen_layer=32, qwen_sae_family="L0_50", qwen_sparsity=50, gemma_layer=24)
+MATCHED_CONFIGURATIONS: dict[str, MatchedConfiguration] = {"primary": PRIMARY_CONFIGURATION, "backup": BACKUP_CONFIGURATION}
+
+_PROBE_MIN_EXAMPLES_PER_CLASS = 5  # matches interplab.validation.probe's own floor
+
+
+# ---------------------------------------------------------------------------
+# Prompt-set: one hash-pinned JSON artifact carrying every text role this
+# runner needs. Researcher-authored, never generated by this file (same
+# "load/validate only" discipline as interplab.corpus.battery's concept
+# battery, per the earlier research pass).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PromptSet:
+    concept_id: str
+    probes: list[str]
+    controls: list[str]
+    holdout_probes: list[str]
+    holdout_controls: list[str]
+    background_corpus: list[str]
+    source_path: str
+    sha256: str
+
+
+def load_prompt_set(path: str | Path, *, expected_sha256: str) -> PromptSet:
+    """Fails closed if the file's actual bytes don't match
+    `expected_sha256` -- the prompt-set is pinned exactly like every
+    model/SAE revision elsewhere in this project, since it deterministically
+    drives which features get discovered."""
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"prompt-set file not found: {path}")
+    raw = path.read_bytes()
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual != expected_sha256.lower():
+        raise targets.TargetIdentityMismatch(
+            f"prompt-set at {path!r} has sha256={actual!r}, expected {expected_sha256.lower()!r} "
+            f"-- refusing to run discovery against an unpinned or altered prompt set."
+        )
+    data = json.loads(raw.decode("utf-8"))
+    required_list_fields = ("probes", "controls", "holdout_probes", "holdout_controls", "background_corpus")
+    missing = [f for f in required_list_fields if f not in data]
+    if missing:
+        raise ValueError(f"prompt-set {path!r} is missing required field(s): {missing}")
+    if "concept_id" not in data or not isinstance(data["concept_id"], str) or not data["concept_id"]:
+        raise ValueError(f"prompt-set {path!r} must have a non-empty string 'concept_id'")
+    for f in required_list_fields:
+        if not isinstance(data[f], list) or not all(isinstance(x, str) for x in data[f]):
+            raise ValueError(f"prompt-set {path!r} field {f!r} must be a list of strings")
+    return PromptSet(
+        concept_id=data["concept_id"],
+        probes=list(data["probes"]),
+        controls=list(data["controls"]),
+        holdout_probes=list(data["holdout_probes"]),
+        holdout_controls=list(data["holdout_controls"]),
+        background_corpus=list(data["background_corpus"]),
+        source_path=str(path),
+        sha256=actual,
+    )
+
+
+FROZEN_PROMPT_SET_COMMIT = "880b48a7f50b8c716e64956b915857dd1fcde350"
+FROZEN_PROMPT_SET_DIR = "prompts/final_pairing/v1"
+FROZEN_PROMPT_SETS_SHA256 = "b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f"
+FROZEN_METADATA_SHA256 = "3f8e298a18c5ba03a2aaaa4a4b99302602f381ee42b024b131fd2cf63b4b59ce"
+FROZEN_PROMPT_SET_ROW_COUNT = 2800
+FROZEN_PROMPT_SET_CONCEPT_COUNT = 14
+FROZEN_PROMPT_SET_LOCALES = ("en", "fr")
+FROZEN_PROMPT_SET_SPLITS = ("positive", "near_miss", "unrelated", "heldout_neutral", "heldout_eliciting")
+FROZEN_PROMPT_SET_SHARED_SUBSTRATE_SPLITS = ("unrelated", "heldout_neutral")
+PI_GATED_CONCEPT_ID = "political_framing"
+
+
+class PromptArtifactError(ValueError):
+    """The frozen artifact's commit/hashes don't match, the working tree
+    has uncommitted changes under it, the row/concept/locale/split counts
+    don't match the pinned expectation, or the committed validator itself
+    failed. Always raised before either discovery lane runs."""
+
+
+@dataclass(frozen=True)
+class FrozenPromptArtifact:
+    commit: str
+    prompt_sets_sha256: str
+    metadata_sha256: str
+    metadata: dict
+    rows: list[dict]  # PI-gated concept's rows already excluded unless allow_pi_gated
+    pi_gated_excluded_row_count: int
+
+
+def _git(repo_root: Path, *args: str) -> tuple[int, str]:
+    import subprocess
+
+    proc = subprocess.run(["git", *args], cwd=str(repo_root), capture_output=True, text=True)
+    return proc.returncode, (proc.stdout + proc.stderr).strip()
+
+
+def load_frozen_prompt_artifact(repo_root: str | Path, *, allow_pi_gated: bool = False) -> FrozenPromptArtifact:
+    """Loads and validates `prompts/final_pairing/v1/` against the pinned
+    commit/hashes -- never copy-edits or regenerates anything (the two
+    files are only ever read). Refuses:
+
+    - a working tree with uncommitted changes under the artifact directory
+      ("dirty or uncommitted replacements");
+    - either file's actual sha256 disagreeing with the pinned value;
+    - a row/concept/locale/split count that disagrees with the pinned
+      metadata (2,800 rows; 14 concepts; en+fr; all five declared splits).
+
+    The PI-gated concept (`political_framing`) is excluded from `.rows`
+    unless `allow_pi_gated=True` is passed explicitly -- there is no
+    default-on path to a public configuration seeing it.
+    """
+    repo_root = Path(repo_root)
+    artifact_dir = repo_root / FROZEN_PROMPT_SET_DIR
+    jsonl_path = artifact_dir / "prompt_sets.jsonl"
+    metadata_path = artifact_dir / "metadata.json"
+    if not jsonl_path.is_file() or not metadata_path.is_file():
+        raise PromptArtifactError(f"frozen prompt artifact not found under {artifact_dir}")
+
+    rc, out = _git(repo_root, "status", "--porcelain", "--", str(FROZEN_PROMPT_SET_DIR))
+    if rc != 0:
+        raise PromptArtifactError(f"git status failed while checking the frozen prompt artifact: {out}")
+    if out.strip():
+        raise PromptArtifactError(
+            f"the frozen prompt artifact directory has uncommitted changes -- refusing to run "
+            f"discovery against a dirty or uncommitted replacement:\n{out}"
+        )
+
+    actual_metadata_hash = hashlib.sha256(metadata_path.read_bytes()).hexdigest()
+    actual_jsonl_hash = hashlib.sha256(jsonl_path.read_bytes()).hexdigest()
+    if actual_metadata_hash != FROZEN_METADATA_SHA256.lower():
+        raise PromptArtifactError(
+            f"metadata.json sha256={actual_metadata_hash!r} != pinned {FROZEN_METADATA_SHA256!r}"
+        )
+    if actual_jsonl_hash != FROZEN_PROMPT_SETS_SHA256.lower():
+        raise PromptArtifactError(
+            f"prompt_sets.jsonl sha256={actual_jsonl_hash!r} != pinned {FROZEN_PROMPT_SETS_SHA256!r}"
+        )
+
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if metadata.get("row_count") != FROZEN_PROMPT_SET_ROW_COUNT:
+        raise PromptArtifactError(f"metadata.json row_count={metadata.get('row_count')!r} != {FROZEN_PROMPT_SET_ROW_COUNT}")
+    if metadata.get("concept_count") != FROZEN_PROMPT_SET_CONCEPT_COUNT:
+        raise PromptArtifactError(f"metadata.json concept_count={metadata.get('concept_count')!r} != {FROZEN_PROMPT_SET_CONCEPT_COUNT}")
+    if sorted(metadata.get("locales", [])) != sorted(FROZEN_PROMPT_SET_LOCALES):
+        raise PromptArtifactError(f"metadata.json locales={metadata.get('locales')!r} != {FROZEN_PROMPT_SET_LOCALES}")
+    if sorted(metadata.get("splits", [])) != sorted(FROZEN_PROMPT_SET_SPLITS):
+        raise PromptArtifactError(f"metadata.json splits={metadata.get('splits')!r} != {FROZEN_PROMPT_SET_SPLITS}")
+
+    all_rows = [json.loads(line) for line in jsonl_path.read_text(encoding="utf-8").splitlines() if line]
+    if len(all_rows) != FROZEN_PROMPT_SET_ROW_COUNT:
+        raise PromptArtifactError(f"prompt_sets.jsonl has {len(all_rows)} rows, expected {FROZEN_PROMPT_SET_ROW_COUNT}")
+
+    concept_ids = {row["concept_id"] for row in all_rows}
+    if len(concept_ids) != FROZEN_PROMPT_SET_CONCEPT_COUNT:
+        raise PromptArtifactError(f"prompt_sets.jsonl has {len(concept_ids)} distinct concepts, expected {FROZEN_PROMPT_SET_CONCEPT_COUNT}")
+    locales_present = {row["locale"] for row in all_rows}
+    if not set(FROZEN_PROMPT_SET_LOCALES).issubset(locales_present):
+        raise PromptArtifactError(f"prompt_sets.jsonl is missing locale(s): {set(FROZEN_PROMPT_SET_LOCALES) - locales_present}")
+    splits_present = {row["split"] for row in all_rows}
+    if not set(FROZEN_PROMPT_SET_SPLITS).issubset(splits_present):
+        raise PromptArtifactError(f"prompt_sets.jsonl is missing split(s): {set(FROZEN_PROMPT_SET_SPLITS) - splits_present}")
+    families_present = {row["family"] for row in all_rows if row["split"] == "positive"}
+    if not families_present or any(f is None for f in families_present):
+        raise PromptArtifactError("prompt_sets.jsonl has positive-split row(s) with no family assigned")
+
+    pi_gated_excluded = 0
+    rows = all_rows
+    if not allow_pi_gated:
+        rows = [row for row in all_rows if row["concept_id"] != PI_GATED_CONCEPT_ID]
+        pi_gated_excluded = len(all_rows) - len(rows)
+
+    return FrozenPromptArtifact(
+        commit=FROZEN_PROMPT_SET_COMMIT, prompt_sets_sha256=actual_jsonl_hash, metadata_sha256=actual_metadata_hash,
+        metadata=metadata, rows=rows, pi_gated_excluded_row_count=pi_gated_excluded,
+    )
+
+
+def run_prompt_set_validator(repo_root: str | Path) -> None:
+    """Invokes the committed `validate_prompt_sets.py` as a real subprocess
+    (never re-implemented here) and raises `PromptArtifactError` on any
+    nonzero exit -- callers (the dual-GPU orchestrator, in particular) must
+    call this BEFORE launching either lane, so a validation failure stops
+    both, not just whichever lane happened to check first."""
+    import subprocess
+
+    repo_root = Path(repo_root)
+    validator_path = repo_root / FROZEN_PROMPT_SET_DIR / "validate_prompt_sets.py"
+    if not validator_path.is_file():
+        raise PromptArtifactError(f"committed validator not found at {validator_path}")
+    proc = subprocess.run([sys.executable, str(validator_path)], capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise PromptArtifactError(
+            f"validate_prompt_sets.py exited {proc.returncode} -- refusing to proceed:\n"
+            f"{proc.stdout}\n{proc.stderr}"
+        )
+
+
+def rows_for_concept(
+    rows: list[dict], *, concept_id: str, locale: str, split: str, family: str | None = None
+) -> list[dict]:
+    """Preserves shared_substrate semantics: `unrelated`/`heldout_neutral`
+    rows are IDENTICAL across all 14 concepts by design (the README's own
+    "must not fix" invariant) -- this function filters by concept_id
+    normally, which for those two splits legitimately returns the SAME
+    rows regardless of which concept_id was asked for, since every
+    concept's `unrelated`/`heldout_neutral` rows in the artifact already
+    carry `shared_substrate: true` and identical text. Nothing here
+    deduplicates across concepts."""
+    return [
+        row for row in rows
+        if row["concept_id"] == concept_id and row["locale"] == locale and row["split"] == split
+        and (family is None or row.get("family") == family)
+    ]
+
+
+@dataclass(frozen=True)
+class JudgeIdentity:
+    model: str
+    rubric_version: str
+    prompt_version: str
+
+
+@dataclass(frozen=True)
+class GateABResult:
+    concept_id: str
+    locale: str
+    family: str
+    feature_index: int
+    separation_auroc: float
+    gate_a_passed: bool
+    fire_rate: float
+    activation_floor_fraction: float
+    gate_b_passed: bool
+
+
+def _auroc_from_scores(positive_scores: list[float], negative_scores: list[float]) -> float:
+    from sklearn.metrics import roc_auc_score
+
+    y = [1] * len(positive_scores) + [0] * len(negative_scores)
+    scores = [*positive_scores, *negative_scores]
+    return float(roc_auc_score(y, scores))
+
+
+def compute_gate_a_and_b_per_family(
+    backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str, locale: str, feature_index: int,
+    auroc_min: float | None = None, activation_floor_fraction: float | None = None, fire_rate_min: float | None = None,
+) -> list[GateABResult]:
+    """G-A (separation AUROC, positive vs. unrelated) and G-B (activation
+    floor / fire rate) computed INDEPENDENTLY per paraphrase family, never
+    pooled -- per this artifact's own README ("pooling would hide a
+    feature that fires on only one phrasing"). Thresholds default to the
+    frozen artifact's own `metadata.json["thresholds"]` (never invented by
+    this file) but may be overridden explicitly by a caller who has a
+    reason to.
+
+    `unrelated` is the shared_substrate split (identical across all 14
+    concepts by design) -- `rows_for_concept` is called once per family
+    below but always returns the SAME `unrelated` rows regardless of
+    `concept_id`, which is correct, not a bug (see that function's
+    docstring)."""
+    thresholds = artifact.metadata["thresholds"]
+    auroc_min = thresholds["G_A_separation_auroc_min"] if auroc_min is None else auroc_min
+    floor_fraction = thresholds["G_B_activation_floor_fraction_of_observed_max"] if activation_floor_fraction is None else activation_floor_fraction
+    fire_rate_min = thresholds["G_B_fire_rate_min"] if fire_rate_min is None else fire_rate_min
+
+    unrelated_texts = [r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="unrelated")]
+    if not unrelated_texts:
+        raise ValueError(f"no 'unrelated' rows found for concept_id={concept_id!r} locale={locale!r}")
+    _, negative_scores_arr = _pooled_residual_and_feature(backend, unrelated_texts, feature_index)
+    negative_scores = negative_scores_arr.tolist()
+
+    families = sorted({
+        r["family"] for r in artifact.rows
+        if r["concept_id"] == concept_id and r["locale"] == locale and r["split"] == "positive"
+    })
+    if not families:
+        raise ValueError(f"no positive-split families found for concept_id={concept_id!r} locale={locale!r}")
+
+    results = []
+    for family in families:
+        positive_texts = [
+            r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="positive", family=family)
+        ]
+        _, positive_scores_arr = _pooled_residual_and_feature(backend, positive_texts, feature_index)
+        positive_scores = positive_scores_arr.tolist()
+
+        auroc = _auroc_from_scores(positive_scores, negative_scores)
+        gate_a_passed = auroc >= auroc_min
+
+        observed_max = max(positive_scores) if positive_scores else 0.0
+        floor = observed_max * floor_fraction
+        fire_rate = (sum(1 for s in positive_scores if s > floor) / len(positive_scores)) if positive_scores else 0.0
+        gate_b_passed = fire_rate >= fire_rate_min
+
+        results.append(
+            GateABResult(
+                concept_id=concept_id, locale=locale, family=family, feature_index=feature_index,
+                separation_auroc=auroc, gate_a_passed=gate_a_passed,
+                fire_rate=fire_rate, activation_floor_fraction=floor_fraction, gate_b_passed=gate_b_passed,
+            )
+        )
+    return results
+
+
+def load_judge_identity(path: str | Path | None) -> JudgeIdentity:
+    """No real judge is implemented or invoked by this file -- this only
+    records WHICH judge identity a later stage should use, honestly
+    defaulting to the same "none" identity `interplab.characterization.
+    indexer.NoOpJudge` records, per this task's own "do not invent concept
+    labels" instruction. A non-default config is metadata only here."""
+    if path is None:
+        return JudgeIdentity(**_NOOP_JUDGE_IDENTITY)
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    for key in ("model", "rubric_version", "prompt_version"):
+        if key not in data or not isinstance(data[key], str):
+            raise ValueError(f"judge config {path!r} must have a string field {key!r}")
+    return JudgeIdentity(model=data["model"], rubric_version=data["rubric_version"], prompt_version=data["prompt_version"])
+
+
+# ---------------------------------------------------------------------------
+# Backend: the one seam that differs between the two pairings. Everything
+# above/below this section is generic over `Backend`.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Backend:
+    pairing: str
+    model_obj: Any  # transformer_lens.HookedTransformer (Gemma) or a raw HF Qwen3_5ForCausalLM
+    sae: Any
+    hook_name: str  # provenance string; also the TL hook name for Gemma
+    d_sae: int
+    d_model: int
+    layer: int
+    provenance: dict
+    checkpoint_hash: str
+    sae_family: str | None = None  # Qwen only: "L0_100" | "L0_50" -- distinct from sparsity/layer
+    sparsity: int | None = None  # Qwen only: k, distinct from sae_family/layer
+    _qwen_decoder_layer: Any = None  # Qwen only: the actual nn.Module to register_forward_hook on
+    _qwen_device: str = "cuda"
+
+
+_QWEN_SCIENTIFIC_SAE_FAMILIES = tuple(c.qwen_sae_family for c in MATCHED_CONFIGURATIONS.values())
+
+
+def _qwen_scientific_target(*, k: int) -> targets.TargetPairing:
+    """A LOCAL variant of the ratified Qwen target for scientific discovery,
+    built via `dataclasses.replace` rather than editing
+    `final_pairing_targets.QWEN_3_5_27B_TARGET` in place. The mechanical
+    target's `expected_k=50` is fixed to the engineering-only layer-0/L0_50
+    pairing job 406092 already exercised; the ratified scientific SAE
+    decision's primary search (SAE family L0_100) needs k=100, a genuinely
+    different, independently-verified structural property of a different
+    TopK SAE -- not a free override of the mechanically-accepted identity.
+    Every OTHER field (repo ids, hidden dim, hook-name convention, format)
+    stays exactly the ratified value; `expected_layer` was already `None`
+    ("engineering-only, supplied by the caller") on the base target, so
+    layer flexibility needs no override here."""
+    import dataclasses as _dc
+
+    return _dc.replace(targets.QWEN_3_5_27B_TARGET, expected_k=k)
+
+
+def load_qwen_scientific_target(
+    model_path: str | Path, sae_layer_file_path: str | Path, *, layer: int, sae_family: str, k: int,
+    device: str = "cuda", dtype: str = "bfloat16",
+    expected_model_revision: str | None = None, expected_sae_revision: str | None = None,
+):
+    """Duplicates `final_pairing_harness.load_qwen_target`'s body (per this
+    project's own Ground Rule 2: duplicate rather than cross-import/modify
+    a frozen, already-accepted file) with one difference: `target` is a
+    locally-built scientific variant (see `_qwen_scientific_target`) rather
+    than the module-level mechanical `QWEN_3_5_27B_TARGET`, so a k other
+    than the mechanical target's fixed 50 can be validated against without
+    touching final_pairing_harness.py or final_pairing_targets.py at all.
+    `sae_family` is recorded in provenance as its own field, never folded
+    into `k` or `layer` -- SAE family, transformer layer, and sparsity (k)
+    stay three distinct fields throughout, per the ratified scientific SAE
+    decision's explicit requirement."""
+    import torch
+    from transformers import AutoModelForCausalLM
+
+    if sae_family not in _QWEN_SCIENTIFIC_SAE_FAMILIES:
+        raise targets.TargetIdentityMismatch(
+            f"--qwen-sae-family {sae_family!r} is not one of the two ratified scientific "
+            f"candidates {_QWEN_SCIENTIFIC_SAE_FAMILIES} -- refusing to stage or validate a "
+            f"third family."
+        )
+    if layer == 0:
+        raise targets.TargetIdentityMismatch(
+            "layer 0 is Qwen's engineering-only mechanical-acceptance layer (job 406092) and is "
+            "not a scientific candidate -- refusing to run concept discovery against it."
+        )
+
+    target = _qwen_scientific_target(k=k)
+    harness._require_offline()
+
+    model_path = Path(model_path)
+    sae_layer_file_path = Path(sae_layer_file_path)
+    if not model_path.exists():
+        raise FileNotFoundError(f"model snapshot directory not found: {model_path}")
+    if not sae_layer_file_path.exists():
+        raise FileNotFoundError(f"Qwen-Scope layer file not found: {sae_layer_file_path}")
+    targets.validate_qwen_layer_filename(sae_layer_file_path, layer)
+    targets.validate_qwen_layer_choice(layer, target)
+    model_identity = targets.validate_local_snapshot_identity(
+        model_path, target, which="model", expected_revision=expected_model_revision
+    )
+    sae_identity = targets.validate_local_snapshot_identity(
+        sae_layer_file_path.parent, target, which="sae", expected_revision=expected_sae_revision
+    )
+
+    torch_dtype = getattr(torch, dtype)
+    hf_model = AutoModelForCausalLM.from_pretrained(str(model_path), dtype=torch_dtype)
+    targets.validate_runtime_class(type(hf_model).__name__, target)
+    targets.validate_has_callable_generate(hf_model, label="loaded Qwen model")
+    hf_model.eval()
+    hf_model.to(device)
+
+    text_decoder = harness.resolve_qwen_text_decoder(hf_model)
+    hidden_size = text_decoder.config.hidden_size
+
+    sae = harness.QwenScopeSAE.from_layer_file(sae_layer_file_path, k=k, device=device, target=target)
+    targets.validate_hidden_dims(hidden_size, sae.d_in, target)
+    targets.validate_qwen_sae_shapes(
+        w_enc_shape=(sae.d_sae, sae.d_in), b_enc_shape=(sae.d_sae,),
+        w_dec_shape=(sae.d_in, sae.d_sae), b_dec_shape=(sae.d_in,), target=target,
+    )
+
+    hook_identifier = f"{target.expected_hook_name}:layer_{layer}"
+    targets.validate_hook_identity(hook_identifier, target)
+
+    provenance = {
+        "target": f"{target.name}-scientific",
+        "model": {
+            "repository": target.model_repo_id,
+            "local_path": str(model_path),
+            "revision": model_identity["revision"],
+            "revision_verification": model_identity["verification"],
+            "actual_class": type(hf_model).__name__,
+        },
+        "sae": {
+            "repository": target.sae_repo_id,
+            "sae_family": sae_family,
+            "local_path": str(sae_layer_file_path),
+            "revision": sae_identity["revision"],
+            "revision_verification": sae_identity["verification"],
+            "resolved_files": [str(sae_layer_file_path)],
+            "actual_class": type(sae).__name__,
+            "format": target.sae_format,
+            "d_in": sae.d_in,
+            "d_sae": sae.d_sae,
+            "sparsity_k": sae.k,
+        },
+        "layer": {"engineering_layer": layer, "engineering_only": False, "hook_name": hook_identifier},
+    }
+    return hf_model, text_decoder, sae, hook_identifier, provenance
+
+
+def _checkpoint_hash(*, model_path: str, sae_path: str) -> str:
+    """Cheap, deterministic identity hash for the `spec.checkpoint_hash`
+    field (interplab.interventions.spec.InterventionSpec's shape) -- a
+    content hash of the model/SAE paths and revisions is out of scope here
+    (no full-weight hashing performed by this discovery tool); this is a
+    path-identity fingerprint, not a substitute for the mechanical
+    harness's own revision verification, which already ran during
+    `load_gemma_it_target`/`load_qwen_target` above this call."""
+    return hashlib.sha256(f"{model_path}\x00{sae_path}".encode()).hexdigest()[:16]
+
+
+_QWEN_SCIENTIFIC_LAYERS = tuple(c.qwen_layer for c in MATCHED_CONFIGURATIONS.values())
+_GEMMA_SCIENTIFIC_LAYERS = tuple(c.gemma_layer for c in MATCHED_CONFIGURATIONS.values())
+
+
+def _gemma_scientific_target(*, layer: int) -> targets.TargetPairing:
+    """A LOCAL variant of the ratified Gemma target for scientific
+    discovery, built via `dataclasses.replace` (never editing
+    `final_pairing_targets.GEMMA_3_12B_IT_TARGET` in place, exactly as
+    `_qwen_scientific_target` does for Qwen). The mechanical target's
+    `expected_layer=31` is fixed to the engineering-only layer job 407008
+    already exercised; the two predeclared scientific configurations use
+    layer 29 (primary) or 24 (backup) instead. `sae_id`/`sae_loader_id`/
+    `expected_hook_name` are re-derived from the SAME
+    resid_post/layer_<L>_width_16k_l0_medium naming convention the ratified
+    layer-31 target already uses (verified present in the installed
+    sae_lens registry for layer 31 only -- whether the registry also has
+    entries for 29/24 under this exact pattern is unverified until Lab
+    Assistant B confirms it against the real Gemma-Scope-2-12b-it release
+    metadata, the same class of verification already required for Qwen's
+    SAE family)."""
+    import dataclasses as _dc
+
+    if layer not in _GEMMA_SCIENTIFIC_LAYERS:
+        raise targets.TargetIdentityMismatch(
+            f"--layer {layer} is not one of the two predeclared Gemma scientific layers "
+            f"{_GEMMA_SCIENTIFIC_LAYERS} -- refusing to run discovery against a third, "
+            f"unauthorized layer."
+        )
+    base = targets.GEMMA_3_12B_IT_TARGET
+    return _dc.replace(
+        base, expected_layer=layer,
+        sae_id=f"resid_post/layer_{layer}_width_16k_l0_medium",
+        sae_loader_id=f"layer_{layer}_width_16k_l0_medium",
+        expected_hook_name=f"blocks.{layer}.hook_resid_post",
+    )
+
+
+@dataclass(frozen=True)
+class GemmaHookPreflightResult:
+    configured_hook_string: str
+    runtime_class: str
+    hook_fired: bool
+    hook_invocation_count: int
+    captured_last_dim: int
+    passed: bool
+
+
+def run_gemma_hook_preflight(model, sae, hook_name: str, *, expected_hidden_dim: int) -> GemmaHookPreflightResult:
+    """A real, tiny forward pass with a temporary probe hook -- proves the
+    configured hook STRING (`sae.cfg.metadata.hook_name`) actually fires on
+    the intended text-decoder layer with the expected tensor shape, rather
+    than trusting the string alone. A vision-side or wrong-layer hook
+    would either never fire (HookedTransformer silently registers nothing
+    for a hook name that doesn't exist on this graph) or fire with a
+    different last dimension (a differently-sized module) -- either is
+    caught here, before any discovery stage runs. Parametric over whatever
+    `hook_name` was actually resolved for whichever layer was loaded (29,
+    24, or any future layer) -- nothing here is specific to a single
+    layer number, per this check's own requirement not to encode a
+    layer-31-only (or layer-29-only) fix."""
+    import torch
+
+    captured_shapes: list[tuple[int, ...]] = []
+
+    def _probe_hook(resid, hook):
+        captured_shapes.append(tuple(resid.shape))
+        return resid
+
+    tokens = model.to_tokens("preflight probe")
+    with model.hooks(fwd_hooks=[(hook_name, _probe_hook)]), torch.no_grad():
+        model(tokens)
+
+    hook_fired = len(captured_shapes) > 0
+    last_dim = captured_shapes[-1][-1] if captured_shapes else -1
+    passed = hook_fired and last_dim == expected_hidden_dim
+    result = GemmaHookPreflightResult(
+        configured_hook_string=hook_name, runtime_class=type(model).__name__,
+        hook_fired=hook_fired, hook_invocation_count=len(captured_shapes),
+        captured_last_dim=last_dim, passed=passed,
+    )
+    if not passed:
+        raise targets.TargetIdentityMismatch(
+            f"Gemma hook preflight FAILED for hook_name={hook_name!r} (runtime_class="
+            f"{result.runtime_class!r}): hook_fired={hook_fired}, hook_invocation_count="
+            f"{result.hook_invocation_count}, captured_last_dim={last_dim}, expected="
+            f"{expected_hidden_dim} -- refusing to proceed with discovery on a hook that is "
+            f"absent, wrong-layer, vision-side, or wrong-dimension."
+        )
+    return result
+
+
+def load_gemma_scientific_target(
+    model_path: str | Path, sae_path: str | Path, *, layer: int, device: str = "cuda", dtype: str = "bfloat16",
+    expected_model_revision: str | None = None, expected_sae_revision: str | None = None,
+):
+    """Duplicates `final_pairing_harness.load_gemma_it_target`'s body (Ground
+    Rule 2 -- see `load_qwen_scientific_target`'s docstring for the same
+    reasoning applied to Qwen) with one difference: `target` is
+    `_gemma_scientific_target(layer=...)` rather than the module-level
+    mechanical `GEMMA_3_12B_IT_TARGET`, so layer 29 or 24 can be validated
+    and loaded without touching final_pairing_harness.py or
+    final_pairing_targets.py at all."""
+    import torch
+    from sae_lens import SAE
+    from transformer_lens import HookedTransformer
+    from transformers import AutoModel, AutoTokenizer
+
+    target = _gemma_scientific_target(layer=layer)
+    harness._require_offline()
+    model_path = Path(model_path)
+    sae_path = Path(sae_path)
+    if not model_path.exists():
+        raise FileNotFoundError(f"model snapshot directory not found: {model_path}")
+    if not sae_path.exists():
+        raise FileNotFoundError(f"SAE snapshot directory not found: {sae_path}")
+    model_identity = targets.validate_local_snapshot_identity(
+        model_path, target, which="model", expected_revision=expected_model_revision
+    )
+    sae_identity = targets.validate_local_snapshot_identity(
+        sae_path, target, which="sae", expected_revision=expected_sae_revision
+    )
+
+    from sae_lens.loading.pretrained_saes_directory import get_pretrained_saes_directory
+
+    available_loader_ids = list(get_pretrained_saes_directory()[target.sae_release].saes_map.keys())
+    targets.validate_sae_loader_id_registered(target.sae_loader_id, available_loader_ids, target)
+
+    torch_dtype = getattr(torch, dtype)
+    tokenizer = AutoTokenizer.from_pretrained(str(model_path))
+    hf_model = AutoModel.from_pretrained(str(model_path), dtype=torch_dtype)
+    model = HookedTransformer.from_pretrained(
+        target.model_repo_id, hf_model=hf_model, tokenizer=tokenizer,
+        fold_ln=False, center_writing_weights=False, center_unembed=False, device=device, dtype=torch_dtype,
+    )
+    model.eval()
+
+    harness._patch_gemma3_safetensors_shape_lookup()
+    resolved_sae_files: list[str] = []
+    requested_sae_files: list[dict[str, str]] = []
+    original_hf_hub_download = harness._capture_sae_download_paths(
+        resolved_sae_files, sae_path=sae_path, target=target, requested_files_out=requested_sae_files
+    )
+    try:
+        sae = SAE.from_pretrained(release=target.sae_release, sae_id=target.sae_loader_id, device=device)
+    finally:
+        harness._restore_sae_download_paths(original_hf_hub_download)
+    targets.validate_sae_files_match_snapshot(resolved_sae_files, sae_path, target)
+    subdirectory_identity = targets.validate_sae_files_match_expected_subdirectory(resolved_sae_files, sae_path, target)
+    targets.validate_sae_symlink_targets_stay_in_repository_cache(resolved_sae_files, sae_path, target)
+
+    sae = sae.to(dtype=torch.float32)
+    sae.eval()
+
+    hook_name = sae.cfg.metadata.hook_name
+    targets.validate_hook_identity(hook_name, target)
+    targets.validate_hidden_dims(model.cfg.d_model, sae.cfg.d_in, target)
+    hook_preflight = run_gemma_hook_preflight(model, sae, hook_name, expected_hidden_dim=target.expected_hidden_dim)
+
+    provenance = {
+        "target": f"{target.name}-scientific",
+        "model": {
+            "repository": target.model_repo_id, "local_path": str(model_path),
+            "revision": model_identity["revision"], "revision_verification": model_identity["verification"],
+            "actual_class": type(model).__name__,
+        },
+        "sae": {
+            "repository": target.sae_repo_id, "release": target.sae_release, "sae_id": target.sae_id,
+            "loader_sae_id": target.sae_loader_id, "local_path": str(sae_path),
+            "revision": sae_identity["revision"], "revision_verification": sae_identity["verification"],
+            "resolved_files": resolved_sae_files, "requested_sae_files": requested_sae_files,
+            "local_snapshot_only": True, "network_resolution_attempted": False,
+            "actual_class": type(sae).__name__, "format": target.sae_format,
+            "d_in": sae.cfg.d_in, "d_sae": sae.cfg.d_sae,
+            "expected_sae_subdirectory": subdirectory_identity["expected_sae_subdirectory"],
+            "sae_subdirectory_membership_verified": subdirectory_identity["sae_subdirectory_membership_verified"],
+        },
+        "hook_preflight": asdict(hook_preflight),
+        "layer": {"engineering_layer": layer, "engineering_only": False, "hook_name": hook_name},
+    }
+    return model, sae, hook_name, provenance
+
+
+def load_backend(
+    *,
+    pairing: str,
+    model_path: str,
+    sae_path: str,
+    layer: int | None,
+    expected_model_revision: str | None,
+    expected_sae_revision: str | None,
+    device: str,
+    dtype: str,
+    sae_family: str | None = None,
+    sparsity: int | None = None,
+) -> Backend:
+    if pairing not in targets.ALL_TARGETS:
+        raise targets.TargetIdentityMismatch(
+            f"--pairing {pairing!r} is not one of the ratified final targets {sorted(targets.ALL_TARGETS)} "
+            f"-- refusing to run discovery against a legacy or unrecognized pairing."
+        )
+
+    if pairing == targets.GEMMA_3_12B_IT_TARGET.name:
+        if layer is None:
+            raise ValueError(
+                "--layer is required for --pairing gemma-3-12b-it scientific discovery "
+                f"(one of {_GEMMA_SCIENTIFIC_LAYERS} -- the mechanical layer 31 is not a "
+                "scientific candidate, matching Qwen's layer-0 exclusion)."
+            )
+        model, sae, hook_name, provenance = load_gemma_scientific_target(
+            model_path, sae_path, layer=layer, device=device, dtype=dtype,
+            expected_model_revision=expected_model_revision, expected_sae_revision=expected_sae_revision,
+        )
+        return Backend(
+            pairing=pairing, model_obj=model, sae=sae, hook_name=hook_name,
+            d_sae=sae.cfg.d_sae, d_model=sae.cfg.d_in, layer=layer,
+            provenance=provenance, checkpoint_hash=_checkpoint_hash(model_path=model_path, sae_path=sae_path),
+        )
+
+    if pairing == targets.QWEN_3_5_27B_TARGET.name:
+        if layer is None:
+            raise ValueError("--layer is required for --pairing qwen-3.5-27b (scientific search, no ratified default)")
+        if sae_family is None or sparsity is None:
+            raise ValueError(
+                "--qwen-sae-family and --qwen-sparsity are both required for --pairing qwen-3.5-27b -- SAE "
+                "family, transformer layer, and sparsity are three distinct, independently-recorded fields."
+            )
+        hf_model, text_decoder, sae, hook_identifier, provenance = load_qwen_scientific_target(
+            model_path, sae_path, layer=layer, sae_family=sae_family, k=sparsity, device=device, dtype=dtype,
+            expected_model_revision=expected_model_revision, expected_sae_revision=expected_sae_revision,
+        )
+        decoder_layer = harness.get_qwen_decoder_layer(text_decoder, layer)
+        return Backend(
+            pairing=pairing, model_obj=hf_model, sae=sae, hook_name=hook_identifier,
+            d_sae=sae.d_sae, d_model=sae.d_in, layer=layer,
+            provenance=provenance, checkpoint_hash=_checkpoint_hash(model_path=model_path, sae_path=sae_path),
+            sae_family=sae_family, sparsity=sparsity,
+            _qwen_decoder_layer=decoder_layer, _qwen_device=device,
+        )
+
+    raise AssertionError("unreachable: pairing already validated against targets.ALL_TARGETS")
+
+
+def reject_mechanical_only_feature(pairing: str, feature_index: int, *, context: str) -> None:
+    mechanical_id = _MECHANICAL_ONLY_FEATURE_IDS[pairing]
+    if feature_index == mechanical_id:
+        raise targets.TargetIdentityMismatch(
+            f"feature {feature_index} is {pairing}'s mechanical-acceptance-only placeholder feature "
+            f"(final_pairing_harness.py's engineering feature_idx) -- it carries no concept meaning "
+            f"and must never be promoted to a discovery candidate ({context})."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Stage 1: activation census/ranking. Gemma reuses the HookedTransformer
+# forward-pass idiom `FeatureIndex.search_by_activation` already uses;
+# Qwen duplicates the same ranking algorithm via a raw forward hook, since
+# there is no HookedTransformer to run it through.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RankedFeature:
+    feature_index: int
+    activation_score: float
+
+
+def _gemma_max_activation_per_feature(backend: Backend, texts: list[str]) -> np.ndarray:
+    import torch
+
+    model, sae = backend.model_obj, backend.sae
+    max_activation = np.zeros(backend.d_sae, dtype=np.float64)
+    with torch.no_grad():
+        for text in texts:
+            tokens = model.to_tokens(text)
+            _, cache = model.run_with_cache(tokens, names_filter=backend.hook_name)
+            feats = sae.encode(cache[backend.hook_name].to(torch.float32))[0]
+            per_text_max = feats.max(dim=0).values.cpu().numpy()
+            max_activation = np.maximum(max_activation, per_text_max)
+    return max_activation
+
+
+def _qwen_max_activation_per_feature(backend: Backend, texts: list[str]) -> np.ndarray:
+    import torch
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(backend.provenance["model"]["local_path"])
+    max_activation = np.zeros(backend.d_sae, dtype=np.float64)
+    captured: list[torch.Tensor] = []
+
+    def _capture(_module, _args, output):
+        captured.append(output.detach())
+
+    handle = backend._qwen_decoder_layer.register_forward_hook(_capture)
+    try:
+        with torch.no_grad():
+            for text in texts:
+                captured.clear()
+                inputs = tokenizer(text, return_tensors="pt").to(backend._qwen_device)
+                backend.model_obj(**inputs)
+                resid = captured[-1].to(torch.float32)[0]  # [seq, d_model]
+                feats = backend.sae.encode(resid)  # [seq, d_sae]
+                per_text_max = feats.max(dim=0).values.cpu().numpy()
+                max_activation = np.maximum(max_activation, per_text_max)
+    finally:
+        handle.remove()
+    return max_activation
+
+
+def exclude_mechanical_only(pairing: str, ranked: list[RankedFeature]) -> list[RankedFeature]:
+    """Drops the pairing's mechanical-acceptance-only placeholder feature
+    from a ranked shortlist, if activation ranking happened to surface it
+    organically. This is a filter, not an error -- unlike a manually
+    supplied candidate (`reject_mechanical_only_feature`, which raises),
+    naturally ranking highly is not itself a misuse."""
+    mechanical_id = _MECHANICAL_ONLY_FEATURE_IDS[pairing]
+    return [r for r in ranked if r.feature_index != mechanical_id]
+
+
+def rank_features_by_activation(backend: Backend, texts: list[str], *, top_n: int) -> list[RankedFeature]:
+    if not texts:
+        raise ValueError("rank_features_by_activation requires at least one text")
+    if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
+        scores = _gemma_max_activation_per_feature(backend, texts)
+    else:
+        scores = _qwen_max_activation_per_feature(backend, texts)
+    order = np.argsort(-scores)
+    ranked = [RankedFeature(feature_index=int(i), activation_score=float(scores[i])) for i in order[:top_n]]
+    return ranked
+
+
+def corpus_max_per_feature(backend: Backend, background_docs: list[str]) -> dict[int, float]:
+    """The general-corpus scale ('the ONLY legal source of steering units',
+    per interplab.interventions.hooks' own docstring convention this file
+    follows) -- deliberately a SEPARATE pass over `background_corpus`, never
+    the concept probes, so the unit a dose is expressed in is never
+    circularly derived from the very texts used to find the feature."""
+    if not background_docs:
+        raise ValueError("corpus_max_per_feature requires a non-empty background corpus")
+    if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
+        scores = _gemma_max_activation_per_feature(backend, background_docs)
+    else:
+        scores = _qwen_max_activation_per_feature(backend, background_docs)
+    return {i: float(scores[i]) for i in range(backend.d_sae)}
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: held-out specificity validation. A genuine train/held-out split
+# (fit once on train, score once on held-out) -- deliberately NOT
+# interplab.validation.probe.train_probe's cross-validated design, since
+# that primitive has no held-out-set concept at all (see module docstring).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SpecificityResult:
+    feature_index: int
+    train_auc: float
+    holdout_auc: float
+    holdout_feature_auc: float
+    holdout_gap: float
+    passed: bool
+
+
+def _pooled_residual_and_feature(backend: Backend, texts: list[str], feature_index: int) -> tuple[np.ndarray, np.ndarray]:
+    import torch
+
+    if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
+        model, sae = backend.model_obj, backend.sae
+        residuals, feats_out = [], []
+        with torch.no_grad():
+            for text in texts:
+                tokens = model.to_tokens(text)
+                _, cache = model.run_with_cache(tokens, names_filter=backend.hook_name)
+                x = cache[backend.hook_name].to(torch.float32)[0]
+                feats = sae.encode(x)
+                residuals.append(x.mean(dim=0).cpu().numpy())
+                feats_out.append(float(feats[:, feature_index].mean().item()))
+        return np.stack(residuals), np.array(feats_out)
+
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(backend.provenance["model"]["local_path"])
+    residuals, feats_out = [], []
+    captured: list = []
+
+    def _capture(_module, _args, output):
+        captured.append(output.detach())
+
+    handle = backend._qwen_decoder_layer.register_forward_hook(_capture)
+    try:
+        with torch.no_grad():
+            for text in texts:
+                captured.clear()
+                inputs = tokenizer(text, return_tensors="pt").to(backend._qwen_device)
+                backend.model_obj(**inputs)
+                x = captured[-1].to(torch.float32)[0]
+                feats = backend.sae.encode(x)
+                residuals.append(x.mean(dim=0).cpu().numpy())
+                feats_out.append(float(feats[:, feature_index].mean().item()))
+    finally:
+        handle.remove()
+    return np.stack(residuals), np.array(feats_out)
+
+
+def _fit_score_auc(x_train: np.ndarray, y_train: np.ndarray, x_holdout: np.ndarray, y_holdout: np.ndarray, *, seed: int) -> float:
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import roc_auc_score
+
+    clf = LogisticRegression(solver="lbfgs", max_iter=1000, random_state=seed)
+    clf.fit(x_train, y_train)
+    scores = clf.predict_proba(x_holdout)[:, 1]
+    return float(roc_auc_score(y_holdout, scores))
+
+
+def validate_specificity(
+    backend: Backend, feature_index: int, *,
+    train_probes: list[str], train_controls: list[str],
+    holdout_probes: list[str], holdout_controls: list[str],
+    seed: int, auc_threshold: float,
+) -> SpecificityResult:
+    for name, texts in (("train_probes", train_probes), ("train_controls", train_controls),
+                        ("holdout_probes", holdout_probes), ("holdout_controls", holdout_controls)):
+        if len(texts) < _PROBE_MIN_EXAMPLES_PER_CLASS:
+            raise ValueError(
+                f"{name} has {len(texts)} example(s); held-out specificity validation needs at least "
+                f"{_PROBE_MIN_EXAMPLES_PER_CLASS} per class per split"
+            )
+
+    train_pos_x, train_pos_f = _pooled_residual_and_feature(backend, train_probes, feature_index)
+    train_neg_x, train_neg_f = _pooled_residual_and_feature(backend, train_controls, feature_index)
+    hold_pos_x, hold_pos_f = _pooled_residual_and_feature(backend, holdout_probes, feature_index)
+    hold_neg_x, hold_neg_f = _pooled_residual_and_feature(backend, holdout_controls, feature_index)
+
+    x_train = np.concatenate([train_pos_x, train_neg_x], axis=0)
+    y_train = np.concatenate([np.ones(len(train_probes)), np.zeros(len(train_controls))])
+    x_hold = np.concatenate([hold_pos_x, hold_neg_x], axis=0)
+    y_hold = np.concatenate([np.ones(len(holdout_probes)), np.zeros(len(holdout_controls))])
+
+    train_auc = _fit_score_auc(x_train, y_train, x_train, y_train, seed=seed)
+    holdout_auc = _fit_score_auc(x_train, y_train, x_hold, y_hold, seed=seed)
+
+    f_train = np.concatenate([train_pos_f, train_neg_f]).reshape(-1, 1)
+    f_hold = np.concatenate([hold_pos_f, hold_neg_f]).reshape(-1, 1)
+    holdout_feature_auc = _fit_score_auc(f_train, y_train, f_hold, y_hold, seed=seed)
+
+    holdout_gap = max(0.0, holdout_auc - holdout_feature_auc)
+    return SpecificityResult(
+        feature_index=feature_index, train_auc=train_auc, holdout_auc=holdout_auc,
+        holdout_feature_auc=holdout_feature_auc, holdout_gap=holdout_gap,
+        # Gated on the FEATURE's own held-out AUC, not the full-residual
+        # ceiling (`holdout_auc`) -- the latter is the same for every
+        # feature_index by construction (it never reads the feature's
+        # activation at all) and would pass every candidate whenever the
+        # concept is merely present somewhere in the residual stream. Only
+        # holdout_feature_auc asks whether THIS feature specifically
+        # predicts the concept on held-out data.
+        passed=holdout_feature_auc >= auc_threshold,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 / 5: causal intervention + dose-response. Reuses
+# interplab.interventions.hooks._make_clamp_hook and final_pairing_harness's
+# diagnostic wrapper/verdict directly -- the exact mechanism jobs
+# 407008/406092 already exercised, generalized to a feature SET (bundle)
+# rather than always exactly one feature.
+# ---------------------------------------------------------------------------
+
+from interplab.interventions.hooks import _make_clamp_hook  # noqa: E402
+
+
+@contextlib.contextmanager
+def _attached(backend: Backend, hook_fn):
+    if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
+        with backend.model_obj.hooks(fwd_hooks=[(backend.hook_name, hook_fn)]):
+            yield
+    else:
+        handle = harness.register_qwen_raw_hook(backend._qwen_decoder_layer, hook_fn)
+        try:
+            yield
+        finally:
+            handle.remove()
+
+
+def _bundle_hook_fn(backend: Backend, feature_indices: list[int], clamp_value: float, positions: str, prompt_lengths, trace_out: list):
+    """Chains one `_make_clamp_hook` per feature in the bundle so each
+    feature's own clamp/ablate math is untouched (never re-derived for a
+    multi-feature case) -- the diagnostic trace records the FIRST feature
+    in the bundle (the seed) as `feature_index`, consistent with a
+    single-feature result being the trace-compatible special case of a
+    bundle of size 1."""
+    inner_hooks = [
+        _make_clamp_hook(backend.sae, i, clamp_value, positions, prompt_lengths, [])
+        for i in feature_indices
+    ]
+
+    def hook_fn(resid, hook):
+        out = resid
+        for inner in inner_hooks:
+            out = inner(out, hook)
+        return out
+
+    return hook_fn
+
+
+@dataclass
+class InterventionOutcome:
+    feature_indices: list[int]
+    direction: Literal["clamp", "ablate"]
+    value_in_max_units: float
+    corpus_max_used: float
+    absolute_clamp_value: float
+    positions: str
+    generated_text: str
+    verdict: dict
+    spec: dict  # interplab.interventions.spec.InterventionSpec-shaped, for sealing-pipeline compatibility
+
+
+def run_intervention(
+    backend: Backend, feature_indices: list[int], *,
+    direction: Literal["clamp", "ablate"], value_in_max_units: float, corpus_max: dict[int, float],
+    positions: str, prompt: str, seed: int, max_new_tokens: int,
+) -> InterventionOutcome:
+    import torch
+
+    for i in feature_indices:
+        reject_mechanical_only_feature(backend.pairing, i, context="run_intervention")
+        targets.validate_feature_index(i, backend.d_sae)
+
+    seed_feature = feature_indices[0]
+    absolute_clamp_value = 0.0 if direction == "ablate" else float(value_in_max_units) * float(corpus_max[seed_feature])
+
+    trace: list = []
+    if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
+        model = backend.model_obj
+        tokens = model.to_tokens(prompt)
+        prompt_lengths = tokens.shape[1] if positions == "generated_only" else None
+        inner = _bundle_hook_fn(backend, feature_indices, absolute_clamp_value, positions, prompt_lengths, trace)
+        hook_fn = harness.wrap_hook_with_diagnostics(
+            inner, sae=backend.sae, feature_index=seed_feature, mode=direction,
+            dose_or_raw_label=f"value_in_max_units={value_in_max_units}", calibration_input=value_in_max_units,
+            resolved_absolute_target=absolute_clamp_value, hook_name=backend.hook_name, trace_out=trace,
+        )
+        torch.manual_seed(seed)
+        with _attached(backend, hook_fn):
+            out_tokens = model.generate(tokens, max_new_tokens=max_new_tokens, do_sample=False, verbose=False)
+        generated_text = model.tokenizer.decode(out_tokens[0])
+    else:
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(backend.provenance["model"]["local_path"])
+        inputs = tokenizer(prompt, return_tensors="pt").to(backend._qwen_device)
+        prompt_lengths = inputs["input_ids"].shape[1] if positions == "generated_only" else None
+        inner = _bundle_hook_fn(backend, feature_indices, absolute_clamp_value, positions, prompt_lengths, trace)
+        hook_fn = harness.wrap_hook_with_diagnostics(
+            inner, sae=backend.sae, feature_index=seed_feature, mode=direction,
+            dose_or_raw_label=f"value_in_max_units={value_in_max_units}", calibration_input=value_in_max_units,
+            resolved_absolute_target=absolute_clamp_value, hook_name=backend.hook_name, trace_out=trace,
+        )
+        torch.manual_seed(seed)
+        with _attached(backend, hook_fn), torch.no_grad():
+            out_ids = backend.model_obj.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        generated_text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
+
+    verdict = harness.mechanical_verdict(trace, positions=positions)
+    spec = {
+        "kind": direction,
+        "feature_index": feature_indices if len(feature_indices) > 1 else seed_feature,
+        "value_in_max_units": float(value_in_max_units),
+        "corpus_max": float(corpus_max[seed_feature]),
+        "positions": positions,
+        "checkpoint_hash": backend.checkpoint_hash,
+        "direction_seed": None,
+    }
+    return InterventionOutcome(
+        feature_indices=list(feature_indices), direction=direction, value_in_max_units=float(value_in_max_units),
+        corpus_max_used=float(corpus_max[seed_feature]), absolute_clamp_value=float(absolute_clamp_value),
+        positions=positions, generated_text=generated_text, verdict=verdict, spec=spec,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stage 4: optional greedy bundle composition. Single-feature bundles are
+# the first-class default (bundle_max_size=1 disables composition
+# entirely); a feature is added only when the recorded metric (held-out
+# AUC) improves by at least `materiality_threshold` -- both values compared
+# are absolute, non-negative AUCs; only a passing "gain" is ever reported.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BundleStep:
+    feature_index: int
+    metric_before: float
+    metric_candidate: float
+    added: bool
+    metric_gain: float | None  # present only when added
+
+
+@dataclass(frozen=True)
+class BundleResult:
+    feature_indices: list[int]
+    final_metric: float
+    steps: list[BundleStep]
+
+
+def compose_bundle_greedily(
+    backend: Backend, seed_feature: int, candidate_pool: list[int], *,
+    train_probes: list[str], train_controls: list[str], holdout_probes: list[str], holdout_controls: list[str],
+    seed: int, materiality_threshold: float, bundle_max_size: int,
+) -> BundleResult:
+    """`bundle_max_size=1` is a valid, complete result: no composition is
+    attempted and `steps` is empty -- this is the single-feature-bundle
+    first-class case this task requires, not a degraded fallback."""
+    if materiality_threshold < 0:
+        raise ValueError("--bundle-materiality-threshold must be non-negative")
+    bundle = [seed_feature]
+    steps: list[BundleStep] = []
+
+    y_train = np.concatenate([np.ones(len(train_probes)), np.zeros(len(train_controls))])
+    y_hold = np.concatenate([np.ones(len(holdout_probes)), np.zeros(len(holdout_controls))])
+
+    # Each candidate's own SAE-feature activation scalar (never the raw
+    # residual, which is identical regardless of feature_index and would
+    # make every bundle "composition" a no-op measuring the same thing
+    # repeatedly) -- computed ONCE per feature per split, then reused across
+    # every greedy step, rather than re-running a forward pass per step.
+    all_features = sorted({seed_feature, *candidate_pool})
+    scalars: dict[int, dict[str, np.ndarray]] = {}
+    for f in all_features:
+        scalars[f] = {
+            "train_pos": _pooled_residual_and_feature(backend, train_probes, f)[1],
+            "train_neg": _pooled_residual_and_feature(backend, train_controls, f)[1],
+            "hold_pos": _pooled_residual_and_feature(backend, holdout_probes, f)[1],
+            "hold_neg": _pooled_residual_and_feature(backend, holdout_controls, f)[1],
+        }
+
+    def _bundle_auc(features: list[int]) -> float:
+        x_train = np.stack(
+            [np.concatenate([scalars[f]["train_pos"], scalars[f]["train_neg"]]) for f in features], axis=1
+        )
+        x_hold = np.stack(
+            [np.concatenate([scalars[f]["hold_pos"], scalars[f]["hold_neg"]]) for f in features], axis=1
+        )
+        return _fit_score_auc(x_train, y_train, x_hold, y_hold, seed=seed)
+
+    current_metric = _bundle_auc(bundle)
+    remaining = [f for f in candidate_pool if f != seed_feature]
+    while len(bundle) < bundle_max_size and remaining:
+        best_gain = -1.0
+        best_feature = None
+        best_metric = current_metric
+        for candidate in remaining:
+            candidate_metric = _bundle_auc([*bundle, candidate])
+            gain = candidate_metric - current_metric
+            if gain > best_gain:
+                best_gain, best_feature, best_metric = gain, candidate, candidate_metric
+        added = best_gain >= materiality_threshold
+        steps.append(
+            BundleStep(
+                feature_index=best_feature, metric_before=current_metric, metric_candidate=best_metric,
+                added=added, metric_gain=max(0.0, best_gain) if added else None,
+            )
+        )
+        if not added:
+            break
+        bundle.append(best_feature)
+        remaining.remove(best_feature)
+        current_metric = best_metric
+
+    return BundleResult(feature_indices=bundle, final_metric=current_metric, steps=steps)
+
+
+# ---------------------------------------------------------------------------
+# Stage 6: Low/Medium/High calibration candidates from a dose-response
+# curve. The three boundaries are required CLI thresholds (Architect's
+# rule) -- this file only applies them, in value_in_max_units, to whichever
+# dose in --dose-grid is the smallest one at or above each boundary.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CalibrationCandidate:
+    tier: Literal["low", "medium", "high"]
+    value_in_max_units: float
+    outcome: dict  # asdict(InterventionOutcome), minus generated_text noise kept for traceability
+
+
+def select_calibration_candidates(
+    dose_outcomes: list[InterventionOutcome], *,
+    low_threshold: float, medium_threshold: float, high_threshold: float,
+) -> dict[str, CalibrationCandidate | None]:
+    if not (0 <= low_threshold <= medium_threshold <= high_threshold):
+        raise ValueError(
+            "calibration thresholds must satisfy 0 <= low <= medium <= high in value_in_max_units"
+        )
+    by_dose = sorted(dose_outcomes, key=lambda o: o.value_in_max_units)
+    result: dict[str, CalibrationCandidate | None] = {}
+    for tier, threshold in (("low", low_threshold), ("medium", medium_threshold), ("high", high_threshold)):
+        chosen = next((o for o in by_dose if o.value_in_max_units >= threshold), None)
+        result[tier] = (
+            CalibrationCandidate(tier=tier, value_in_max_units=chosen.value_in_max_units, outcome=asdict(chosen))
+            if chosen is not None else None
+        )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Resumability: an append-only, fsync'd JSONL progress log keyed by
+# (stage, key) -- same pattern as gemma3_sweep.py's resumable cell writes,
+# duplicated (not imported: that file is frozen, Engineer-2-owned) per this
+# project's own Ground Rule 2.
+# ---------------------------------------------------------------------------
+
+
+class ProgressLog:
+    def __init__(self, path: Path):
+        self.path = path
+        self._completed: dict[str, dict] = {}
+        if path.is_file():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line:
+                    continue
+                record = json.loads(line)
+                self._completed[record["key"]] = record
+
+    def is_done(self, key: str) -> bool:
+        return key in self._completed
+
+    def result(self, key: str) -> dict | None:
+        return self._completed.get(key)
+
+    def record(self, key: str, payload: dict) -> None:
+        entry = {"key": key, **payload}
+        self._completed[key] = entry
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--pairing", required=True, choices=sorted(targets.ALL_TARGETS))
+    p.add_argument("--model-path", required=True)
+    p.add_argument("--sae-path", required=True)
+    p.add_argument("--layer", type=int, default=None, help=f"Required for both pairings. qwen-3.5-27b: any of {_QWEN_SCIENTIFIC_LAYERS} (not 0 -- engineering-only). gemma-3-12b-it: any of {_GEMMA_SCIENTIFIC_LAYERS} (not 31 -- engineering-only).")
+    p.add_argument("--qwen-sae-family", choices=list(_QWEN_SCIENTIFIC_SAE_FAMILIES), default=None, help="Required for qwen-3.5-27b. Distinct from --qwen-sparsity and --layer.")
+    p.add_argument("--qwen-sparsity", type=int, default=None, help="Required for qwen-3.5-27b: the SAE's TopK k, verified against the loaded file. Distinct from --qwen-sae-family and --layer.")
+    p.add_argument("--expected-model-revision", default=None)
+    p.add_argument("--expected-sae-revision", default=None)
+
+    p.add_argument("--prompt-set-path", required=True)
+    p.add_argument("--prompt-set-sha256", required=True)
+    p.add_argument("--judge-config", default=None, help="Optional path to a {model,rubric_version,prompt_version} JSON. Defaults to the NoOp identity -- no judge is ever actually invoked by this file.")
+    p.add_argument("--use-frozen-prompt-artifact", action="store_true", help=f"Additionally validate prompts/final_pairing/v1/ against the pinned commit {FROZEN_PROMPT_SET_COMMIT} and hashes, run the committed validator, and stamp prompt_set_commit/prompt_set_sha256 in the output. Refuses a dirty or hash-mismatched artifact.")
+    p.add_argument("--allow-pi-gated", action="store_true", help="Only meaningful with --use-frozen-prompt-artifact. Never set for a public configuration -- political_framing stays excluded otherwise.")
+
+    p.add_argument("--positions", choices=["all", "generated_only"], default="all")
+    p.add_argument("--record-generated-only-diagnostic", action="store_true", help="Additionally run every intervention under generated_only as a separate diagnostic. positions=all remains the public calibration path regardless.")
+
+    p.add_argument("--shortlist-size", type=int, required=True)
+    p.add_argument("--direction", choices=["clamp", "ablate"], required=True)
+    p.add_argument("--dose-grid", required=True, help="Comma-separated floats, in value_in_max_units (multiples of the background-corpus max activation).")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--prompt", default="Tell me about your day.")
+    p.add_argument("--max-new-tokens", type=int, default=8)
+    p.add_argument("--device", default="cuda")
+    p.add_argument("--dtype", default="bfloat16")
+
+    p.add_argument("--specificity-auc-threshold", type=float, required=True)
+    p.add_argument("--bundle-materiality-threshold", type=float, required=True)
+    p.add_argument("--bundle-max-size", type=int, default=1)
+    p.add_argument("--calibration-low-threshold", type=float, required=True)
+    p.add_argument("--calibration-medium-threshold", type=float, required=True)
+    p.add_argument("--calibration-high-threshold", type=float, required=True)
+
+    p.add_argument("--out-dir", required=True)
+    p.add_argument("--state-dir", required=True, help="Separate from --out-dir: holds the resumable progress log only.")
+    return p.parse_args(argv)
+
+
+def _parse_dose_grid(raw: str) -> list[float]:
+    doses = [float(x) for x in raw.split(",") if x.strip()]
+    if not doses:
+        raise ValueError("--dose-grid must contain at least one dose")
+    if any(d < 0 for d in doses):
+        raise ValueError("--dose-grid values must be non-negative (value_in_max_units)")
+    return doses
+
+
+def run(args: argparse.Namespace) -> dict:
+    """The full 7-stage pipeline, resumable via `--state-dir`'s progress
+    log. Returns the machine-readable result dict (also written to
+    `--out-dir/result.json`)."""
+    out_dir = Path(args.out_dir)
+    state_dir = Path(args.state_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    progress = ProgressLog(state_dir / "progress.jsonl")
+
+    dose_grid = _parse_dose_grid(args.dose_grid)
+    prompt_set = load_prompt_set(args.prompt_set_path, expected_sha256=args.prompt_set_sha256)
+    judge = load_judge_identity(args.judge_config)
+
+    prompt_set_commit = None
+    prompt_set_sha256 = None
+    if args.use_frozen_prompt_artifact:
+        run_prompt_set_validator(REPO_ROOT)
+        frozen_artifact = load_frozen_prompt_artifact(REPO_ROOT, allow_pi_gated=args.allow_pi_gated)
+        prompt_set_commit = frozen_artifact.commit
+        prompt_set_sha256 = frozen_artifact.prompt_sets_sha256
+
+    backend = load_backend(
+        pairing=args.pairing, model_path=args.model_path, sae_path=args.sae_path, layer=args.layer,
+        expected_model_revision=args.expected_model_revision, expected_sae_revision=args.expected_sae_revision,
+        device=args.device, dtype=args.dtype, sae_family=args.qwen_sae_family, sparsity=args.qwen_sparsity,
+    )
+
+    ranked_key = "stage1_rank"
+    if progress.is_done(ranked_key):
+        ranked = [RankedFeature(**r) for r in progress.result(ranked_key)["ranked"]]
+    else:
+        ranked = rank_features_by_activation(backend, prompt_set.probes, top_n=args.shortlist_size)
+        ranked = exclude_mechanical_only(args.pairing, ranked)
+        progress.record(ranked_key, {"ranked": [asdict(r) for r in ranked]})
+
+    corpus_max_key = "stage1_corpus_max"
+    if progress.is_done(corpus_max_key):
+        corpus_max = {int(k): v for k, v in progress.result(corpus_max_key)["corpus_max"].items()}
+    else:
+        corpus_max = corpus_max_per_feature(backend, prompt_set.background_corpus)
+        progress.record(corpus_max_key, {"corpus_max": {str(k): v for k, v in corpus_max.items()}})
+
+    specificity_results: list[SpecificityResult] = []
+    for r in ranked:
+        key = f"stage2_specificity_{r.feature_index}"
+        if progress.is_done(key):
+            specificity_results.append(SpecificityResult(**progress.result(key)["result"]))
+            continue
+        result = validate_specificity(
+            backend, r.feature_index, train_probes=prompt_set.probes, train_controls=prompt_set.controls,
+            holdout_probes=prompt_set.holdout_probes, holdout_controls=prompt_set.holdout_controls,
+            seed=args.seed, auc_threshold=args.specificity_auc_threshold,
+        )
+        specificity_results.append(result)
+        progress.record(key, {"result": asdict(result)})
+
+    passing = [r for r in specificity_results if r.passed]
+    if not passing:
+        final_result = {
+            "schema_version": SCHEMA_VERSION, "pairing": args.pairing, "concept_id": prompt_set.concept_id,
+            "prompt_set_commit": prompt_set_commit, "prompt_set_sha256": prompt_set_sha256,
+            "status": "no_candidate_passed_specificity", "ranked_candidates": [asdict(r) for r in ranked],
+            "specificity_results": [asdict(r) for r in specificity_results],
+        }
+        (out_dir / "result.json").write_text(json.dumps(final_result, indent=2), encoding="utf-8")
+        return final_result
+
+    best = max(passing, key=lambda r: r.holdout_auc)
+    seed_feature = best.feature_index
+
+    bundle_key = "stage4_bundle"
+    if progress.is_done(bundle_key):
+        bundle_data = progress.result(bundle_key)["bundle"]
+        bundle = BundleResult(
+            feature_indices=bundle_data["feature_indices"], final_metric=bundle_data["final_metric"],
+            steps=[BundleStep(**s) for s in bundle_data["steps"]],
+        )
+    else:
+        candidate_pool = [r.feature_index for r in passing]
+        bundle = compose_bundle_greedily(
+            backend, seed_feature, candidate_pool, train_probes=prompt_set.probes, train_controls=prompt_set.controls,
+            holdout_probes=prompt_set.holdout_probes, holdout_controls=prompt_set.holdout_controls,
+            seed=args.seed, materiality_threshold=args.bundle_materiality_threshold, bundle_max_size=args.bundle_max_size,
+        )
+        progress.record(bundle_key, {"bundle": {"feature_indices": bundle.feature_indices, "final_metric": bundle.final_metric, "steps": [asdict(s) for s in bundle.steps]}})
+
+    dose_outcomes: list[InterventionOutcome] = []
+    diagnostic_outcomes: list[InterventionOutcome] = []
+    for dose in dose_grid:
+        key = f"stage5_dose_{dose}_all"
+        if progress.is_done(key):
+            dose_outcomes.append(InterventionOutcome(**progress.result(key)["outcome"]))
+        else:
+            outcome = run_intervention(
+                backend, bundle.feature_indices, direction=args.direction, value_in_max_units=dose,
+                corpus_max=corpus_max, positions="all", prompt=args.prompt, seed=args.seed, max_new_tokens=args.max_new_tokens,
+            )
+            dose_outcomes.append(outcome)
+            progress.record(key, {"outcome": asdict(outcome)})
+
+        if args.record_generated_only_diagnostic:
+            diag_key = f"stage5_dose_{dose}_generated_only"
+            if progress.is_done(diag_key):
+                diagnostic_outcomes.append(InterventionOutcome(**progress.result(diag_key)["outcome"]))
+            else:
+                diag_outcome = run_intervention(
+                    backend, bundle.feature_indices, direction=args.direction, value_in_max_units=dose,
+                    corpus_max=corpus_max, positions="generated_only", prompt=args.prompt, seed=args.seed, max_new_tokens=args.max_new_tokens,
+                )
+                diagnostic_outcomes.append(diag_outcome)
+                progress.record(diag_key, {"outcome": asdict(diag_outcome)})
+
+    calibration = select_calibration_candidates(
+        dose_outcomes, low_threshold=args.calibration_low_threshold,
+        medium_threshold=args.calibration_medium_threshold, high_threshold=args.calibration_high_threshold,
+    )
+
+    final_result = {
+        "schema_version": SCHEMA_VERSION,
+        "pairing": args.pairing,
+        "concept_id": prompt_set.concept_id,
+        "prompt_set": {"source_path": prompt_set.source_path, "sha256": prompt_set.sha256},
+        "prompt_set_commit": prompt_set_commit,
+        "prompt_set_sha256": prompt_set_sha256,
+        "judge": asdict(judge),
+        "status": "complete",
+        "seed_feature": seed_feature,
+        "ranked_candidates": [asdict(r) for r in ranked],
+        "specificity_results": [asdict(r) for r in specificity_results],
+        "bundle": {"feature_indices": bundle.feature_indices, "final_metric": bundle.final_metric, "steps": [asdict(s) for s in bundle.steps]},
+        "direction": args.direction,
+        "positions": args.positions,
+        "dose_response": [asdict(o) for o in dose_outcomes],
+        "generated_only_diagnostic": [asdict(o) for o in diagnostic_outcomes] if args.record_generated_only_diagnostic else None,
+        "calibration_candidates": {tier: (asdict(c) if c is not None else None) for tier, c in calibration.items()},
+        "provenance": {
+            "model": backend.provenance["model"],
+            "sae": backend.provenance["sae"],
+            "layer": backend.layer,
+            "sae_family": backend.sae_family,
+            "sparsity": backend.sparsity,
+            "checkpoint_hash": backend.checkpoint_hash,
+            "corpus_max": {str(k): v for k, v in corpus_max.items()},
+        },
+    }
+    (out_dir / "result.json").write_text(json.dumps(final_result, indent=2), encoding="utf-8")
+    return final_result
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    result = run(args)
+    print(json.dumps({"status": result["status"], "concept_id": result.get("concept_id")}, indent=2))
+    return 0 if result["status"] in ("complete", "no_candidate_passed_specificity") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
