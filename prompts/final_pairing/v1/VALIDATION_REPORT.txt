@@ -1,0 +1,21 @@
+﻿========================================================================
+PROMPT-SET VALIDATION REPORT
+========================================================================
+  note  rows read: 2800
+  note  required-field check: 0 rows rejected
+  note  count check: 14 concepts x 2 locales x 5 splits
+  note  duplicate check scoped to (concept, locale, split): 0 exact, 0 normalised
+  note  discriminative markers derived: 77 across 14 concepts x 2 locales
+  note  held-out neutral leakage check: 0 violations
+  note  heldout_eliciting vs positive overlap: 0 flagged
+  note  family distinctness: max pairwise jaccard 0.120 (political_framing en f1-f3)
+  note  locale plausibility: 0 rows flagged
+  note  bilingual twin check: 0 missing
+  note  ordering: stable
+  note  PI_GATED concepts: political_framing
+------------------------------------------------------------------------
+WARN (0)
+------------------------------------------------------------------------
+FAIL (0)
+========================================================================
+RESULT: PASS

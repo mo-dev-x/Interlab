@@ -1,0 +1,254 @@
+{
+  "concept_count": 14,
+  "concepts": [
+    {
+      "concept_id": "cheese",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 1,
+      "near_miss_domains": [
+        "bread-making",
+        "yogurt and fermented dairy"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "volcanic_activity",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 2,
+      "near_miss_domains": [
+        "earthquakes and seismology"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "sailing",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 3,
+      "near_miss_domains": [
+        "aviation and flight"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "astronomy",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 4,
+      "near_miss_domains": [
+        "meteorology and weather science"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "chess",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 5,
+      "near_miss_domains": [
+        "draughts, backgammon and poker"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "courtroom",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 6,
+      "near_miss_domains": [
+        "legislative and parliamentary debate"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "clinical_examination",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 7,
+      "near_miss_domains": [
+        "veterinary practice"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "jazz",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 8,
+      "near_miss_domains": [
+        "classical orchestral music"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "mountaineering",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 9,
+      "near_miss_domains": [
+        "lowland hiking and rambling"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "desert",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 10,
+      "near_miss_domains": [
+        "arctic tundra and permafrost"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "winter_snow",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 11,
+      "near_miss_domains": [
+        "autumn rain and damp weather"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "beekeeping",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 12,
+      "near_miss_domains": [
+        "poultry keeping"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "formal_register",
+      "default_persona_candidate": true,
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 13,
+      "near_miss_domains": [
+        "academic and scholarly register"
+      ],
+      "pi_gated": false
+    },
+    {
+      "concept_id": "political_framing",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 14,
+      "near_miss_domains": [
+        "the opposite pole: market/individual-provision framing of the SAME policy domains"
+      ],
+      "pi_gated": true,
+      "pole_near_miss": "market_provision",
+      "pole_positive": "collective_provision",
+      "researcher_review_required": true
+    }
+  ],
+  "duplicate_scope": "(concept_id, locale, split)",
+  "expected_counts_per_concept_per_locale": {
+    "heldout_eliciting": 20,
+    "heldout_neutral": 20,
+    "near_miss": 15,
+    "positive": 30,
+    "unrelated": 15
+  },
+  "locales": [
+    "en",
+    "fr"
+  ],
+  "positions_policy": {
+    "diagnostic_only": "GENERATED_ONLY",
+    "note": "GENERATED_ONLY is reported separately and never merged into a published record.",
+    "public_calibration": "ALL"
+  },
+  "prohibitions": [
+    "No legacy feature index or calibration value may be reused; Qwen3.5-27B is not Qwen2.5-14B and gemma-3-12b-it is not gemma-3-12b-pt.",
+    "No prompt may be modified after activation is computed.",
+    "Candidate 14 (political_framing) is PI_GATED and must not enter a public configuration."
+  ],
+  "prompt_sets_sha256": "b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f",
+  "protocol_version": "final-pairing-discovery/1.0.0",
+  "row_count": 2800,
+  "rubrics": {
+    "coherence": "1.0",
+    "concept_relevance": "1.0",
+    "confirmation_repeats": 3,
+    "judge_instrument": "lodestar",
+    "judge_temperature": 0,
+    "scale": "1-10 ordinal",
+    "sweep_repeats": 1
+  },
+  "schema_version": "prompt_set/v1",
+  "shared_substrate_splits": [
+    "unrelated",
+    "heldout_neutral"
+  ],
+  "splits": [
+    "heldout_eliciting",
+    "heldout_neutral",
+    "near_miss",
+    "positive",
+    "unrelated"
+  ],
+  "thresholds": {
+    "G_A_scope": "every paraphrase family independently",
+    "G_A_separation_auroc_min": 0.9,
+    "G_B_activation_floor_fraction_of_observed_max": 0.2,
+    "G_B_fire_rate_min": 0.7,
+    "G_B_scope": "every paraphrase family independently",
+    "G_C_specificity_auroc_vs_near_miss_min": 0.75,
+    "G_D_amplify_relevance_delta_min": 3.0,
+    "G_D_coherence_median_min": 6.0,
+    "G_E_coherence_median_min": 6.0,
+    "G_E_researcher_spot_read_outputs": 10,
+    "G_E_suppress_relevance_delta_max": -3.0,
+    "ci_method": "SS9 prompt-group bootstrap; interval must exclude zero",
+    "max_targets_v1": 3,
+    "second_target_relevance_gain_min": 1.0
+  }
+}
