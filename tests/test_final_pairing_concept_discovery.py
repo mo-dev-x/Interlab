@@ -816,3 +816,143 @@ def test_no_real_model_path_is_ever_touched_by_this_test_module():
     pure function or monkeypatches `load_backend` before calling `run`."""
     assert not torch.cuda.is_available() or True  # environment fact, not asserted; documents intent only
     assert hasattr(d, "load_backend")  # the seam every heavy test monkeypatches
+
+
+# ---------------------------------------------------------------------------
+# Registry release/subdirectory mapping assertion (2026-08-13 staging-facts
+# addendum): confirmed for real against the locally-installed
+# sae_lens==6.44.2 registry above; these tests exercise the failure paths
+# with a fake registry object, never touching the real one.
+# ---------------------------------------------------------------------------
+
+
+class _FakeReleaseEntry:
+    def __init__(self, repo_id, saes_map):
+        self.repo_id = repo_id
+        self.saes_map = saes_map
+
+
+def test_assert_registry_release_and_subdirectory_match_passes_for_a_correct_mapping():
+    target = d._gemma_scientific_target(layer=29)
+    directory = {target.sae_release: _FakeReleaseEntry(target.sae_repo_id, {target.sae_loader_id: target.sae_id})}
+    d.assert_registry_release_and_subdirectory_match(directory, target=target)  # must not raise
+
+
+def test_assert_registry_release_and_subdirectory_match_rejects_unknown_release():
+    target = d._gemma_scientific_target(layer=29)
+    with pytest.raises(targets.TargetIdentityMismatch, match="no release"):
+        d.assert_registry_release_and_subdirectory_match({}, target=target)
+
+
+def test_assert_registry_release_and_subdirectory_match_rejects_wrong_repo_id():
+    target = d._gemma_scientific_target(layer=29)
+    directory = {target.sae_release: _FakeReleaseEntry("some/other-repo", {target.sae_loader_id: target.sae_id})}
+    with pytest.raises(targets.TargetIdentityMismatch, match="repo_id"):
+        d.assert_registry_release_and_subdirectory_match(directory, target=target)
+
+
+def test_assert_registry_release_and_subdirectory_match_rejects_a_loader_id_mapped_to_the_wrong_subdirectory():
+    """The exact failure mode this check exists for: a loader_sae_id that
+    IS registered under the release, but maps to a DIFFERENT subdirectory
+    than the one this file's target recorded -- never derived by parsing
+    the loader id string, so this can only be caught by reading the
+    registry's own mapping."""
+    target = d._gemma_scientific_target(layer=29)
+    directory = {target.sae_release: _FakeReleaseEntry(target.sae_repo_id, {target.sae_loader_id: "resid_post/layer_24_width_16k_l0_medium"})}
+    with pytest.raises(targets.TargetIdentityMismatch, match="maps loader_sae_id"):
+        d.assert_registry_release_and_subdirectory_match(directory, target=target)
+
+
+def test_registry_mapping_is_correct_for_both_real_configurations_against_the_installed_sae_lens_registry():
+    """Ground truth against the REAL, locally-installed sae_lens==6.44.2
+    registry -- not a fake. If sae_lens is upgraded and this registry
+    entry changes shape, this test fails loudly rather than silently
+    trusting a stale hardcoded MatchedConfiguration value."""
+    from sae_lens.loading.pretrained_saes_directory import get_pretrained_saes_directory
+
+    directory = get_pretrained_saes_directory()
+    d.assert_registry_release_and_subdirectory_match(directory, target=d._gemma_scientific_target(layer=29))
+    d.assert_registry_release_and_subdirectory_match(directory, target=d._gemma_scientific_target(layer=24))
+
+
+# ---------------------------------------------------------------------------
+# Dynamic raw-HF text-decoder-layer resolution (independent of any
+# TransformerLens hook-name string, per the addendum's explicit warning
+# that neither "model.layers.N.output" nor "blocks.N.hook_resid_post" is
+# a proven runtime path on its own)
+# ---------------------------------------------------------------------------
+
+
+class _TinyDecoderLayer(torch.nn.Module):
+    def __init__(self, dim: int):
+        super().__init__()
+        self.linear = torch.nn.Linear(dim, dim)
+
+    def forward(self, x):
+        return self.linear(x)
+
+
+class _TinyGemmaLikeModel(torch.nn.Module):
+    """Structurally mimics Gemma3's real shape: a text decoder stack under
+    `model.layers`, plus a `vision_tower` and `multi_modal_projector` that
+    ALSO happen to have a `.layers` submodule at the same index -- proving
+    exclusion actually matters, not merely that it's never exercised."""
+
+    def __init__(self, *, n_layers: int, hidden_dim: int, include_vision_collision: bool):
+        super().__init__()
+        self.embed = torch.nn.Linear(4, hidden_dim)
+        self.model = torch.nn.Module()
+        self.model.layers = torch.nn.ModuleList([_TinyDecoderLayer(hidden_dim) for _ in range(n_layers)])
+        if include_vision_collision:
+            self.vision_tower = torch.nn.Module()
+            self.vision_tower.layers = torch.nn.ModuleList([_TinyDecoderLayer(hidden_dim) for _ in range(n_layers)])
+            self.multi_modal_projector = torch.nn.Module()
+            self.multi_modal_projector.layers = torch.nn.ModuleList([_TinyDecoderLayer(hidden_dim) for _ in range(n_layers)])
+
+    def forward(self, input_ids):
+        x = self.embed(input_ids.to(torch.float32))
+        for layer in self.model.layers:
+            x = layer(x)
+        return x
+
+
+def test_resolve_gemma_text_decoder_layer_dynamically_finds_the_real_layer():
+    model = _TinyGemmaLikeModel(n_layers=3, hidden_dim=6, include_vision_collision=False)
+    name, module = d.resolve_gemma_text_decoder_layer_dynamically(model, layer=1)
+    assert name == "model.layers.1"
+    assert module is model.model.layers[1]
+
+
+def test_resolve_gemma_text_decoder_layer_dynamically_excludes_vision_tower_and_projector_collisions():
+    """The exact scenario this function exists for: vision_tower AND
+    multi_modal_projector both have their OWN `.layers.<N>` submodule at
+    the same index -- without exclusion, this would be ambiguous (3
+    matches instead of 1)."""
+    model = _TinyGemmaLikeModel(n_layers=3, hidden_dim=6, include_vision_collision=True)
+    name, _module = d.resolve_gemma_text_decoder_layer_dynamically(model, layer=1)
+    assert name == "model.layers.1"
+    assert "vision_tower" not in name
+    assert "multi_modal_projector" not in name
+
+
+def test_resolve_gemma_text_decoder_layer_dynamically_raises_on_out_of_range_layer():
+    model = _TinyGemmaLikeModel(n_layers=3, hidden_dim=6, include_vision_collision=True)
+    with pytest.raises(targets.TargetIdentityMismatch, match="found 0"):
+        d.resolve_gemma_text_decoder_layer_dynamically(model, layer=99)
+
+
+def test_run_gemma_raw_hf_hook_preflight_passes_with_the_right_dimension():
+    model = _TinyGemmaLikeModel(n_layers=3, hidden_dim=6, include_vision_collision=True)
+    tokens = torch.zeros((1, 4))
+    result = d.run_gemma_raw_hf_hook_preflight(model, tokens, layer=1, expected_hidden_dim=6)
+    assert result.passed is True
+    assert result.resolved_module_name == "model.layers.1"
+    assert result.captured_last_dim == 6
+    assert result.layer_index_asserted == 1
+
+
+def test_run_gemma_raw_hf_hook_preflight_fails_closed_on_a_dimension_mismatch():
+    model = _TinyGemmaLikeModel(n_layers=3, hidden_dim=6, include_vision_collision=True)
+    tokens = torch.zeros((1, 4))
+    with pytest.raises(targets.TargetIdentityMismatch):
+        d.run_gemma_raw_hf_hook_preflight(model, tokens, layer=1, expected_hidden_dim=999)

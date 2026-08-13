@@ -868,6 +868,94 @@ def resolve_gemma_num_hidden_layers(model_path: str | Path) -> int:
     return int(config["num_hidden_layers"])
 
 
+_VISION_MODULE_MARKERS = ("vision_tower", "multi_modal_projector")
+
+
+def resolve_gemma_text_decoder_layer_dynamically(hf_model, *, layer: int):
+    """Independent, raw-HF-side resolution of the text decoder layer at
+    index `layer` -- deliberately NOT via `sae.cfg.metadata.hook_name`
+    (whatever string sae_lens's registry declares, e.g. something
+    "model.layers.29.output"-shaped) and NOT via a single hardcoded
+    attribute-path guess (`model.layers.29` or any other), per the
+    Gemma local-only-loader addendum's explicit instruction that neither
+    a scientific-metadata hook string nor `blocks.N.hook_resid_post` is
+    accepted as a PROVEN runtime path on its own. Walks
+    `hf_model.named_modules()`, excludes any qualified name containing
+    `vision_tower` or `multi_modal_projector`, and requires EXACTLY ONE
+    remaining module whose qualified name ends in `.layers.<layer>` --
+    ambiguity (more than one match) or absence (zero matches) both raise
+    rather than falling back to a guess.
+
+    This is a SEPARATE, independent proof from
+    `run_gemma_hook_preflight` (which proves the TransformerLens hook
+    STRING fires with the right shape on the TL-side graph): this
+    function proves the raw HF module structure itself has exactly one
+    non-vision decoder layer at the claimed index, which is the fact a
+    hook-name string alone cannot establish (a conversion bug could wire
+    a TL hook name to the wrong HF submodule while still firing and
+    still reporting the right dimension, if the wrong submodule
+    coincidentally shares that dimension)."""
+    import re
+
+    pattern = re.compile(rf"(^|\.)layers\.{layer}$")
+    candidates = [
+        (name, module) for name, module in hf_model.named_modules()
+        if pattern.search(name) and not any(marker in name for marker in _VISION_MODULE_MARKERS)
+    ]
+    if len(candidates) != 1:
+        raise targets.TargetIdentityMismatch(
+            f"expected exactly one non-vision decoder-layer module matching layer {layer} on the "
+            f"loaded HF model, found {len(candidates)}: {[n for n, _ in candidates]} -- refusing "
+            f"to guess which one (if any) is the real text decoder layer."
+        )
+    return candidates[0]
+
+
+@dataclass(frozen=True)
+class GemmaRawHfHookPreflightResult:
+    resolved_module_name: str
+    layer_index_asserted: int
+    captured_last_dim: int
+    passed: bool
+
+
+def run_gemma_raw_hf_hook_preflight(hf_model, tokens, *, layer: int, expected_hidden_dim: int) -> GemmaRawHfHookPreflightResult:
+    """A real, tiny forward pass on the RAW HF model (never through
+    TransformerLens), with a real `register_forward_hook` on the module
+    `resolve_gemma_text_decoder_layer_dynamically` independently resolved
+    -- proves that module's own output last dimension is
+    `expected_hidden_dim` (3840 for Gemma-3-12B's text decoder),
+    independent of anything TransformerLens's own hook system reports."""
+    name, module = resolve_gemma_text_decoder_layer_dynamically(hf_model, layer=layer)
+    captured_shapes: list[tuple[int, ...]] = []
+
+    def _hook(_module, _inputs, output):
+        hidden = output[0] if isinstance(output, tuple) else output
+        captured_shapes.append(tuple(hidden.shape))
+        return output
+
+    handle = module.register_forward_hook(_hook)
+    try:
+        import torch
+
+        with torch.no_grad():
+            hf_model(tokens)
+    finally:
+        handle.remove()
+
+    last_dim = captured_shapes[-1][-1] if captured_shapes else -1
+    passed = bool(captured_shapes) and last_dim == expected_hidden_dim
+    result = GemmaRawHfHookPreflightResult(
+        resolved_module_name=name, layer_index_asserted=layer, captured_last_dim=last_dim, passed=passed,
+    )
+    if not passed:
+        raise targets.TargetIdentityMismatch(
+            f"Gemma raw-HF hook preflight FAILED for module {name!r} at layer {layer}: "
+            f"captured_last_dim={last_dim}, expected={expected_hidden_dim} -- refusing to proceed."
+        )
+    return result
+
+
 @dataclass(frozen=True)
 class GemmaHookPreflightResult:
     configured_hook_string: str
@@ -946,6 +1034,43 @@ def run_gemma_hook_preflight(
     return result
 
 
+def assert_registry_release_and_subdirectory_match(directory: dict, *, target: targets.TargetPairing) -> None:
+    """Reads the installed `sae_lens` registry through its own supported
+    accessor (`get_pretrained_saes_directory()`, already called by the
+    caller and passed in as `directory` -- this function performs no I/O
+    of its own) and asserts, as two SEPARATE, INDEPENDENT facts:
+
+      registry[release].repo_id == target.sae_repo_id
+      registry[release].saes_map[loader_sae_id] == target.sae_id (the
+        scientific subdirectory)
+
+    Never derives the scientific subdirectory by parsing
+    `loader_sae_id` (e.g. prefixing it with a guessed family name) --
+    the registry's own mapping is the only source of truth for which
+    subdirectory a flat loader id names, per the 2026-08-13 staging-facts
+    addendum's explicit instruction."""
+    release_entry = directory.get(target.sae_release)
+    if release_entry is None:
+        raise targets.TargetIdentityMismatch(
+            f"sae_lens registry has no release {target.sae_release!r} at all -- "
+            f"{target.sae_release!r} is not a real, installed release."
+        )
+    if release_entry.repo_id != target.sae_repo_id:
+        raise targets.TargetIdentityMismatch(
+            f"sae_lens registry release {target.sae_release!r} has repo_id "
+            f"{release_entry.repo_id!r}, expected {target.sae_repo_id!r} -- refusing to load a "
+            f"release that does not belong to the ratified SAE repository."
+        )
+    mapped_subdirectory = release_entry.saes_map.get(target.sae_loader_id)
+    if mapped_subdirectory != target.sae_id:
+        raise targets.TargetIdentityMismatch(
+            f"sae_lens registry release {target.sae_release!r} maps loader_sae_id "
+            f"{target.sae_loader_id!r} to subdirectory {mapped_subdirectory!r}, not the expected "
+            f"scientific subdirectory {target.sae_id!r} -- the registry's own mapping disagrees "
+            f"with this file's recorded identity, and the registry is the source of truth."
+        )
+
+
 def load_gemma_scientific_target(
     model_path: str | Path, sae_path: str | Path, *, layer: int, device: str = "cuda", dtype: str = "bfloat16",
     expected_model_revision: str | None = None, expected_sae_revision: str | None = None,
@@ -979,8 +1104,10 @@ def load_gemma_scientific_target(
 
     from sae_lens.loading.pretrained_saes_directory import get_pretrained_saes_directory
 
-    available_loader_ids = list(get_pretrained_saes_directory()[target.sae_release].saes_map.keys())
+    directory = get_pretrained_saes_directory()
+    available_loader_ids = list(directory[target.sae_release].saes_map.keys())
     targets.validate_sae_loader_id_registered(target.sae_loader_id, available_loader_ids, target)
+    assert_registry_release_and_subdirectory_match(directory, target=target)
 
     torch_dtype = getattr(torch, dtype)
     tokenizer = AutoTokenizer.from_pretrained(str(model_path))
@@ -1014,6 +1141,10 @@ def load_gemma_scientific_target(
     hook_preflight = run_gemma_hook_preflight(
         model, sae, hook_name, expected_hidden_dim=target.expected_hidden_dim, expected_layer=layer,
     )
+    raw_hf_tokens = tokenizer("preflight probe", return_tensors="pt")["input_ids"].to(device)
+    raw_hf_preflight = run_gemma_raw_hf_hook_preflight(
+        hf_model, raw_hf_tokens, layer=layer, expected_hidden_dim=target.expected_hidden_dim,
+    )
 
     gemma_n_layers = resolve_gemma_num_hidden_layers(model_path)
     if gemma_n_layers != model.cfg.n_layers:
@@ -1038,16 +1169,24 @@ def load_gemma_scientific_target(
         },
         "sae": {
             "repository": target.sae_repo_id, "release": target.sae_release, "sae_id": target.sae_id,
-            "loader_sae_id": target.sae_loader_id, "local_path": str(sae_path),
+            "scientific_sae_id": target.sae_id, "loader_sae_id": target.sae_loader_id, "local_path": str(sae_path),
             "revision": sae_identity["revision"], "revision_verification": sae_identity["verification"],
-            "resolved_files": resolved_sae_files, "requested_sae_files": requested_sae_files,
+            "resolved_files": resolved_sae_files, "resolved_local_paths": resolved_sae_files,
+            "requested_sae_files": requested_sae_files,
             "local_snapshot_only": True, "network_resolution_attempted": False,
             "actual_class": type(sae).__name__, "format": target.sae_format,
             "d_in": sae.cfg.d_in, "d_sae": sae.cfg.d_sae,
             "expected_sae_subdirectory": subdirectory_identity["expected_sae_subdirectory"],
             "sae_subdirectory_membership_verified": subdirectory_identity["sae_subdirectory_membership_verified"],
+            "subdirectory_membership_verified": subdirectory_identity["sae_subdirectory_membership_verified"],
+            "physical_cache_containment_verified": True,
+            "registry_release_and_subdirectory_verified": True,
+            # sae.cfg carries loader defaults (e.g. context_size, dataset_path) that describe
+            # HOW the SAE was trained upstream, not a measurement this pipeline made -- never
+            # copied into provenance as if they were this run's own scientific claims.
         },
         "hook_preflight": asdict(hook_preflight),
+        "raw_hf_hook_preflight": asdict(raw_hf_preflight),
         "layer": {"engineering_layer": layer, "engineering_only": False, "hook_name": hook_name},
         "depth_matching": {
             "gemma_n_layers": gemma_n_layers, "gemma_depth_fraction": gemma_depth_fraction,
