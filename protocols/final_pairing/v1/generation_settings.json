@@ -1,0 +1,193 @@
+{
+  "$comment": "GATING. Freezes the remaining generation variables before any activation is computed. Changes no threshold and no identity artifact.",
+  "protocol_version": "final-pairing-generation-settings/1.0.0",
+  "gating": true,
+
+  "references": {
+    "one_allocation_protocol": {
+      "path": "protocols/final_pairing/v1/one_allocation_dose_generation.json",
+      "sha256": "sha256:bd1974b4c44802fa7a49fb7a4ed65df78a9ba66cdca78bb6fc0da69cf42252cf",
+      "status": "UNCHANGED"
+    },
+    "binding_protocol": {
+      "path": "protocols/final_pairing/v1/discovery_document_generation_binding.json",
+      "protocol_version": "final-pairing-discovery-generation-binding/1.1.0",
+      "sha256": "sha256:c33d069cbe3c29ba8cbd4a4965dbece3db42c2840be181dee897e8dfdf223844",
+      "status": "UNCHANGED. This artifact EXTENDS its manifest files[] item; see manifest_schema_extension."
+    },
+    "identity_protocol": {
+      "path": "protocols/final_pairing/v1/scientific_config_identity.json",
+      "protocol_version": "final-pairing-config-identity/1.3.0",
+      "sha256": "sha256:ac41a858b9e8a82159d2bd85c114dfcc8cec1b4d2b6f8a250c6482c18c915023",
+      "status": "UNCHANGED"
+    },
+    "trigger_protocol": {
+      "path": "protocols/final_pairing/v1/backup_trigger.json",
+      "sha256": "sha256:4a234e59799089e634f00c59d5fed71c73d0f7466e30f0c20a7d72ef4c9d23d3",
+      "status": "UNCHANGED"
+    },
+    "frozen_prompt_artifact": {
+      "path": "prompts/final_pairing/v1/prompt_sets.jsonl",
+      "commit": "880b48a7f50b8c716e64956b915857dd1fcde350",
+      "sha256": "sha256:b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f"
+    }
+  },
+
+  "1_generation_settings": {
+    "defect_being_corrected": {
+      "observed": "The runner used greedy decoding while recording three distinct seeds per confirmation cell.",
+      "why_it_is_fatal_not_cosmetic": "Under do_sample=false the seed has no effect, so the three 'fresh' repeats are byte-identical. The Lodestar judge runs at temperature 0, so identical text yields identical scores. The three repeats therefore cost 3x judging and buy zero information, and Addition 1 of the one-allocation protocol -- disjoint sweep and confirmation seeds, whose entire purpose is independent generations that protect the confirmation estimate from winner's curse -- is silently void. Disjoint seeds over greedy decoding produce the same output, which is exactly the contamination the addition exists to prevent.",
+      "resolution": "do_sample=true, with every sampling parameter pinned explicitly."
+    },
+    "settings": {
+      "do_sample": true,
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "top_k": 0,
+      "repetition_penalty": 1.0,
+      "no_repeat_ngram_size": 0,
+      "min_new_tokens": 0,
+      "max_new_tokens": 48,
+      "num_beams": 1,
+      "num_return_sequences": 1
+    },
+    "every_parameter_explicit": {
+      "rule": "EVERY parameter above is passed explicitly on every call. No parameter may be left to a model's generation_config.json.",
+      "why": "gemma-3-12b-it and Qwen3.5-27B ship different generation_config.json defaults. Inheriting any of them -- top_k=50 is the usual one -- would make the two pairings non-identical in a way nothing records. Same hazard class as context_size and dataset_path being loader defaults masquerading as provenance.",
+      "top_k_zero": "top_k=0 DISABLES top-k so that only top_p governs truncation. It is set explicitly precisely because leaving it unset inherits a default.",
+      "verification": "The runner logs the resolved generation kwargs actually passed, and the manifest records them. A parameter present in the model config but absent from the logged kwargs is a hard stop."
+    },
+    "stop_behaviour": {
+      "stop_on": ["the tokenizer EOS token", "the model's end-of-turn token"],
+      "do_not_stop_on": ["newline", "punctuation", "any custom string"],
+      "reason": "Stopping on newline would truncate a paragraph mid-answer and make length an artifact of formatting rather than of content.",
+      "decoding": "skip_special_tokens=true when decoding to text.",
+      "truncation_flag": {
+        "requirement": "Every generated file records truncated: true|false -- whether generation stopped at max_new_tokens rather than at a stop token.",
+        "why": "48 tokens is comfortable for Amplify, where a steered concept surfaces in the first sentence, and thin for Suppress, where judging whether a concept diminished may need more text than a two-sentence window allows. This flag makes the adequacy of 48 an empirical question with an answer in the data instead of an argument after the fact. If Suppress generations mostly hit the cap, that is a finding to REPORT, not a setting to change mid-run."
+      }
+    },
+    "chat_template": {
+      "requirement": "Each model's OWN chat template is applied via apply_chat_template. Single user turn. No system prompt.",
+      "why_this_is_here": "Whether a prompt passes through the instruct template materially changes the output of an instruction-tuned model. It was unpinned. If one pairing templated and the other did not, the cross-model comparison is void and nothing in the record would show it.",
+      "recorded": "The manifest records the resolved template identity per pairing."
+    },
+    "identical_across_pairings_and_directions": {
+      "rule": "The settings above are IDENTICAL for gemma and qwen, for PRIMARY and BACKUP, for AMPLIFY and SUPPRESS, for both locales, and for control and steered arms.",
+      "why": "Any difference becomes a confound in a comparison that is already carrying matched-depth-only justification."
+    },
+    "reproducibility_honesty": {
+      "statement": "Recording seed and settings does NOT make generation bitwise reproducible. Batched GPU generation is not bitwise stable across different batch compositions.",
+      "consequence": "The file hash binds WHAT WAS GENERATED. It is not a claim that regeneration would reproduce those bytes. Same distinction as a pinned revision attesting what was fetched rather than what is on disk.",
+      "prohibition": "Do not report these outputs as bitwise reproducible."
+    }
+  },
+
+  "2_bilingual_counts": {
+    "verdict": "PER LOCALE. 15 sweep and 20 confirmation prompts EACH in EN and in FR.",
+    "totals_per_concept_pairing_direction": {
+      "sweep": "15 EN + 15 FR = 30 prompts x 1 seed",
+      "confirmation": "20 EN + 20 FR = 40 prompts x 3 seeds"
+    },
+    "reasoning": "A mixed-locale sample of 20 drawn from the 40 available would leave roughly ten per locale -- underpowered for either language separately and confounded when pooled, with locale becoming an unrecorded moderator of the published effect. The frozen prompt artifact deliberately carries 20 held-out prompts PER LOCALE; halving that discards the bilingual asset at exactly the stage where the cross-lingual claim would be made.",
+    "no_locale_selection_rule_is_needed": "Because the counts are per locale, nothing is selected and no runner discretion exists. The question 'which locale' does not arise.",
+    "sweep_subset_rule": {
+      "rule": "The 15 sweep prompts are ordinals 01 through 15 of that concept's held-out split, ascending by prompt_id. Confirmation uses ordinals 01 through 20.",
+      "determinism": "prompt_id is stable and the artifact is sorted, so this is fully determined with zero discretion. Example: sweep uses C01.EN.HON.X0.01 through .15; confirmation uses .01 through .20.",
+      "overlap_is_intentional": "Confirmation's 20 includes the sweep's 15. That overlap is exactly why Addition 1 requires disjoint seeds, and it is why item 1's greedy-decoding defect was fatal rather than wasteful."
+    },
+    "locale_ordering_under_wall_time": {
+      "rule": "Within a concept, complete EN entirely before starting FR.",
+      "why": "Applies the concept-complete principle one level down. A wall-clock cut then leaves EN complete for that concept rather than both locales half-done, and a half-locale is unusable.",
+      "recorded": "The manifest records which locales are COMPLETE for that concept."
+    }
+  },
+
+  "3_control_arm": {
+    "requirement": "Every prompt and seed used for steered output has a paired no-intervention output.",
+    "pairing_granularity": {
+      "key": "(concept_id, pairing_id, direction, locale, prompt_id, seed)",
+      "not_keyed_on_dose": "One control per (prompt, seed) serves all five doses at that (prompt, seed). Computed once, referenced from every dose file.",
+      "SAME_SEED_IS_MANDATORY": "The control must use the SAME seed as the steered generation it pairs with. With do_sample=true a different seed would mix intervention effect with sampling noise, and the G-D/G-E delta would no longer isolate the intervention. This is the single most important rule in this section."
+    },
+    "why_not_shared_across_directions": "AMPLIFY runs on the neutral held-out substrate and SUPPRESS on the eliciting substrate. Different prompts, so controls cannot be shared between directions.",
+    "volume_per_concept_pairing_direction_locale": "15 sweep controls + 60 confirmation controls (20 prompts x 3 seeds) = 75.",
+    "generated_in_the_same_allocation": "Controls are GPU work and belong to stage 2 of the one-allocation protocol.",
+    "judging_clarification": {
+      "gap_being_closed": "Stage 4 of the one-allocation protocol says Lodestar judges the SWEEP ONLY. Read literally that excludes controls -- and without judged controls there is no delta, so LOW/HIGH/MEDIUM could not be selected at all.",
+      "ruling": "Stage 4 judges the sweep AND its paired controls. Stage 5 judges the selected doses' confirmation outputs AND their paired controls.",
+      "no_sealing_breach": "Judging a control leaks no dose information: a control is dose-free by construction. Nothing about the sealed unselected doses becomes visible."
+    },
+    "hash_binding": {
+      "requirement": "Every control output is a first-class manifest entry with its own full SHA-256.",
+      "explicit_pairing": "Every steered file entry carries control_ref naming the control entry it pairs with. The pairing is declared and checked, never inferred from filename or position.",
+      "promotion_check": "Every steered entry's control_ref resolves to a CONTROL entry with the same concept_id, pairing_id, direction, locale, prompt_id and seed. A missing, unresolvable or mismatched control_ref blocks promotion."
+    }
+  },
+
+  "4_causal_generation_order": {
+    "pre_registered_now": "Frozen before the G-A/B/C grid completes, precisely because wall time may leave only the leading concepts done.",
+    "order": [
+      {"position": 1, "concept_id": "formal_register", "reason": "The PI persona surface. It is the non-gated persona candidate, so the demo's persona capability depends on it and nothing else."},
+      {"position": 2, "concept_id": "cheese"},
+      {"position": 3, "concept_id": "chess"},
+      {"position": 4, "concept_id": "jazz"},
+      {"position": 5, "concept_id": "courtroom"},
+      {"position": 6, "concept_id": "astronomy"},
+      {"position": "7-13", "concept_ids": ["volcanic_activity", "sailing", "clinical_examination", "mountaineering", "desert", "winter_snow", "beekeeping"], "rule": "Remaining non-PI-gated concepts, in ascending concept_index."},
+      {"position": 14, "concept_id": "political_framing", "reason": "LAST. PI_GATED. Generated only if everything else is complete; excluded from public use regardless of outcome."}
+    ],
+    "NO_REORDERING_AFTER_G_ABC": {
+      "rule": "This order is FIXED and is INDEPENDENT of G-A/B/C outcomes. It may not be reordered after those results are visible.",
+      "why": "Reordering to put the strongest G-A/B/C survivors first would select which concepts receive causal validation on the basis of their correlational scores, biasing the published set toward whatever looked good on gates that are explicitly not causal. Under a wall-time cut that bias lands directly in the published result.",
+      "only_permitted_deviation": "A concept that FAILED G-A/B/C is SKIPPED -- it has no surviving feature to steer. Relative order among survivors is preserved exactly.",
+      "recorded": "The manifest records the position and whether the concept was skipped for G-A/B/C failure."
+    },
+    "political_framing_handling": {
+      "science": "Permitted. A scientific result on this concept is legitimate.",
+      "public_use": "PROHIBITED without PI sign-off, per the frozen prompt artifact's pi_gated flag.",
+      "practical_consequence": "Being last means it will most likely not run under a wall-time cut, which is the intended outcome and not a loss."
+    }
+  },
+
+  "manifest_schema_extension": {
+    "$comment": "This artifact owns GENERATION content; the binding protocol owns VERIFICATION structure. Control arms and generation settings are generation content, so they are defined here. Both artifacts must be read together, and the extension should be inlined at the next binding-protocol bump.",
+    "extends": "final-pairing-discovery-generation-binding/1.1.0 manifest_required_bindings",
+    "files_item_additions": {
+      "purpose": "SWEEP | CONFIRMATION | CONTROL -- CONTROL added by this artifact",
+      "locale": "en | fr, required on every entry",
+      "prompt_id": "the frozen artifact's prompt_id, required on every entry",
+      "control_ref": "required on SWEEP and CONFIRMATION entries; prohibited on CONTROL entries",
+      "truncated": "boolean, required on every entry",
+      "dose": "prohibited on CONTROL entries -- a control has no dose"
+    },
+    "manifest_level_additions": {
+      "generation_kwargs": "the resolved kwargs actually passed, verbatim",
+      "chat_template_identity": "per pairing",
+      "locales_complete": "array of locales COMPLETE for this concept"
+    }
+  },
+
+  "unchanged": [
+    "Every threshold: G-A 0.90, G-B 0.70 at 0.20 of observed max, G-C 0.75, G-D +3.0 with coherence >= 6.0, G-E -3.0 with coherence >= 6.0.",
+    "Every identity artifact and every params hash.",
+    "backup_trigger.json, including that an execution error never triggers backup.",
+    "The frozen prompt artifact.",
+    "Seed disjointness between sweep and confirmation -- now actually effective, since sampling is enabled.",
+    "positions=ALL for public calibration; GENERATED_ONLY as a separate diagnostic.",
+    "The four binding evidence records plus separate feature_certificate."
+  ],
+
+  "hard_stops": [
+    "do_sample=false, or any sampling parameter absent from the logged resolved kwargs.",
+    "a generation parameter taking effect from a model's generation_config.json.",
+    "settings differing between pairings, configurations, directions, locales, or control and steered arms.",
+    "stopping on newline or any string other than EOS and end-of-turn.",
+    "a steered entry whose control_ref is missing, unresolvable, or whose control differs in seed.",
+    "a control generated with a seed different from its paired steered generation.",
+    "a sweep prompt set other than ordinals 01-15, or a confirmation set other than 01-20.",
+    "a locale treated as PARTIAL but reported as complete.",
+    "reordering the causal-generation sequence after G-A/B/C results are visible.",
+    "political_framing entering any public configuration."
+  ]
+}
