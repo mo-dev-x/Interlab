@@ -142,7 +142,21 @@ class MatchedConfiguration:
     depth_fraction`, used by `assert_gemma_qwen_depth_matches`; Gemma's own
     depth_fraction is deliberately NOT a stored constant (the frozen file
     itself requires it be computed from the actually-loaded model's real
-    n_layers at run time, never assumed)."""
+    n_layers at run time, never assumed).
+
+    `gemma_sae_release`/`gemma_sae_loader_id`/`gemma_sae_id` are recorded
+    PER CONFIGURATION, never derived from one shared naming formula:
+    confirmed directly against the locally-installed `sae_lens==6.44.2`
+    registry (`get_pretrained_saes_directory()`) that primary's
+    `resid_post_all` family and backup's `resid_post` family are TWO
+    DIFFERENT releases (`gemma-scope-2-12b-it-res-all` has 192 loader ids
+    including `layer_29_width_16k_l0_big` but NO `layer_24_..._l0_medium`
+    variant at all; `gemma-scope-2-12b-it-res` has 52 loader ids including
+    `layer_24_width_16k_l0_medium` but NO `layer_29_...` entry at all) --
+    assuming one release for both, as an earlier version of this file did
+    via a single f-string formula, would have failed
+    `validate_sae_loader_id_registered` for the primary configuration at
+    runtime, not merely been imprecise."""
 
     name: Literal["primary", "backup"]
     qwen_layer: int
@@ -150,10 +164,21 @@ class MatchedConfiguration:
     qwen_sparsity: int
     gemma_layer: int
     qwen_depth_fraction: float
+    gemma_sae_release: str
+    gemma_sae_id: str
+    gemma_sae_loader_id: str
 
 
-PRIMARY_CONFIGURATION = MatchedConfiguration(name="primary", qwen_layer=38, qwen_sae_family="L0_100", qwen_sparsity=100, gemma_layer=29, qwen_depth_fraction=0.59375)
-BACKUP_CONFIGURATION = MatchedConfiguration(name="backup", qwen_layer=32, qwen_sae_family="L0_50", qwen_sparsity=50, gemma_layer=24, qwen_depth_fraction=0.5)
+PRIMARY_CONFIGURATION = MatchedConfiguration(
+    name="primary", qwen_layer=38, qwen_sae_family="L0_100", qwen_sparsity=100, gemma_layer=29, qwen_depth_fraction=0.59375,
+    gemma_sae_release="gemma-scope-2-12b-it-res-all", gemma_sae_id="resid_post_all/layer_29_width_16k_l0_big",
+    gemma_sae_loader_id="layer_29_width_16k_l0_big",
+)
+BACKUP_CONFIGURATION = MatchedConfiguration(
+    name="backup", qwen_layer=32, qwen_sae_family="L0_50", qwen_sparsity=50, gemma_layer=24, qwen_depth_fraction=0.5,
+    gemma_sae_release="gemma-scope-2-12b-it-res", gemma_sae_id="resid_post/layer_24_width_16k_l0_medium",
+    gemma_sae_loader_id="layer_24_width_16k_l0_medium",
+)
 MATCHED_CONFIGURATIONS: dict[str, MatchedConfiguration] = {"primary": PRIMARY_CONFIGURATION, "backup": BACKUP_CONFIGURATION}
 
 # The backup trigger's exact Boolean rule -- frozen at
@@ -526,6 +551,89 @@ def compute_gate_a_and_b_per_family(
     return results
 
 
+@dataclass(frozen=True)
+class GateCResult:
+    concept_id: str
+    locale: str
+    family: str
+    feature_index: int
+    near_miss_auroc: float
+    gate_c_passed: bool
+
+
+def compute_gate_c_per_family(
+    backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str, locale: str, feature_index: int,
+    auroc_min: float | None = None,
+) -> list[GateCResult]:
+    """G-C (specificity AUROC, positive vs. near_miss), computed
+    INDEPENDENTLY per paraphrase family -- same per-family discipline as
+    G-A/G-B, for the same reason: pooling would let a feature that only
+    separates from its near-miss foils on one phrasing pass on the
+    strength of the others. Threshold defaults to the frozen artifact's own
+    `metadata.json["thresholds"]["G_C_specificity_auroc_vs_near_miss_min"]`
+    (never invented here). Unlike `unrelated`/`heldout_neutral`,
+    `near_miss` is concept-specific, not shared_substrate -- each concept
+    has its own near-miss foils, so `rows_for_concept` returns different
+    rows per concept_id here."""
+    thresholds = artifact.metadata["thresholds"]
+    auroc_min = thresholds["G_C_specificity_auroc_vs_near_miss_min"] if auroc_min is None else auroc_min
+
+    near_miss_texts = [r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="near_miss")]
+    if not near_miss_texts:
+        raise ValueError(f"no 'near_miss' rows found for concept_id={concept_id!r} locale={locale!r}")
+    _, near_miss_scores_arr = _pooled_residual_and_feature(backend, near_miss_texts, feature_index)
+    near_miss_scores = near_miss_scores_arr.tolist()
+
+    families = sorted({
+        r["family"] for r in artifact.rows
+        if r["concept_id"] == concept_id and r["locale"] == locale and r["split"] == "positive"
+    })
+    if not families:
+        raise ValueError(f"no positive-split families found for concept_id={concept_id!r} locale={locale!r}")
+
+    results = []
+    for family in families:
+        positive_texts = [
+            r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="positive", family=family)
+        ]
+        _, positive_scores_arr = _pooled_residual_and_feature(backend, positive_texts, feature_index)
+        positive_scores = positive_scores_arr.tolist()
+
+        auroc = _auroc_from_scores(positive_scores, near_miss_scores)
+        results.append(
+            GateCResult(
+                concept_id=concept_id, locale=locale, family=family, feature_index=feature_index,
+                near_miss_auroc=auroc, gate_c_passed=auroc >= auroc_min,
+            )
+        )
+    return results
+
+
+def feature_survives_gabc(gate_ab_results: list[GateABResult], gate_c_results: list[GateCResult]) -> bool:
+    """True iff exactly one `feature_index` is present across BOTH lists and
+    that feature passed G-A and G-B in every family/locale cell it was
+    evaluated on, and G-C in every family/locale cell it was evaluated on.
+    Raises rather than silently comparing across features if the caller
+    passed results for more than one feature_index -- 'the same feature
+    must pass G-A, G-B and G-C' is a precondition of this function, not
+    something it resolves on the caller's behalf: gates passed by
+    different features must never be combined into one survival verdict."""
+    if not gate_ab_results or not gate_c_results:
+        return False
+    ab_features = {r.feature_index for r in gate_ab_results}
+    c_features = {r.feature_index for r in gate_c_results}
+    if len(ab_features) != 1 or len(c_features) != 1 or ab_features != c_features:
+        raise ValueError(
+            f"feature_survives_gabc requires G-A/G-B and G-C results for exactly one shared "
+            f"feature_index; got G-A/B feature(s) {sorted(ab_features)} and G-C feature(s) "
+            f"{sorted(c_features)}"
+        )
+    return (
+        all(r.gate_a_passed and r.gate_b_passed for r in gate_ab_results)
+        and all(r.gate_c_passed for r in gate_c_results)
+    )
+
+
 def load_judge_identity(path: str | Path | None) -> JudgeIdentity:
     """No real judge is implemented or invoked by this file -- this only
     records WHICH judge identity a later stage should use, honestly
@@ -703,18 +811,20 @@ def _gemma_scientific_target(*, layer: int) -> targets.TargetPairing:
     `_qwen_scientific_target` does for Qwen). The mechanical target's
     `expected_layer=31` is fixed to the engineering-only layer job 407008
     already exercised; the two predeclared scientific configurations use
-    layer 29 (primary) or 24 (backup) instead. `sae_id`/`sae_loader_id`/
-    `expected_hook_name` are re-derived from the SAME
-    resid_post/layer_<L>_width_16k_l0_medium naming convention the ratified
-    layer-31 target already uses (verified present in the installed
-    sae_lens registry for layer 31 only -- whether the registry also has
-    entries for 29/24 under this exact pattern is unverified until Lab
-    Assistant B confirms it against the real Gemma-Scope-2-12b-it release
-    metadata, the same class of verification already required for Qwen's
-    SAE family)."""
+    layer 29 (primary) or 24 (backup) instead.
+
+    `sae_release`/`sae_id`/`sae_loader_id` are looked up from
+    `MATCHED_CONFIGURATIONS` (the single source of truth for these three
+    identity strings, one triple per configuration -- see
+    `MatchedConfiguration`'s docstring for why they are NOT derived from
+    one shared naming formula: primary's `resid_post_all` family and
+    backup's `resid_post` family are confirmed-different `sae_lens`
+    releases, and layer 29 does not even exist under backup's release, nor
+    layer 24's `_medium` variant under primary's)."""
     import dataclasses as _dc
 
-    if layer not in _GEMMA_SCIENTIFIC_LAYERS:
+    configuration = next((c for c in MATCHED_CONFIGURATIONS.values() if c.gemma_layer == layer), None)
+    if configuration is None:
         raise targets.TargetIdentityMismatch(
             f"--layer {layer} is not one of the two predeclared Gemma scientific layers "
             f"{_GEMMA_SCIENTIFIC_LAYERS} -- refusing to run discovery against a third, "
@@ -723,10 +833,39 @@ def _gemma_scientific_target(*, layer: int) -> targets.TargetPairing:
     base = targets.GEMMA_3_12B_IT_TARGET
     return _dc.replace(
         base, expected_layer=layer,
-        sae_id=f"resid_post/layer_{layer}_width_16k_l0_medium",
-        sae_loader_id=f"layer_{layer}_width_16k_l0_medium",
+        sae_release=configuration.gemma_sae_release,
+        sae_id=configuration.gemma_sae_id,
+        sae_loader_id=configuration.gemma_sae_loader_id,
         expected_hook_name=f"blocks.{layer}.hook_resid_post",
     )
+
+
+def resolve_gemma_num_hidden_layers(model_path: str | Path) -> int:
+    """Reads `config.json` directly rather than trusting `model.cfg.n_layers`
+    alone: Gemma 3's own config nests the TEXT decoder's depth under
+    `text_config.num_hidden_layers` -- a multimodal `Gemma3Config` also
+    carries a DIFFERENT, unrelated `vision_config.num_hidden_layers`, and
+    reading the wrong one would silently compute a wrong depth fraction.
+    Falls back to a top-level `num_hidden_layers` only when `text_config`
+    is genuinely absent (a text-only config shape), never merely preferred
+    over it."""
+    config_path = Path(model_path) / "config.json"
+    if not config_path.is_file():
+        raise FileNotFoundError(f"Gemma config.json not found at {config_path}")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    if "text_config" in config:
+        text_config = config["text_config"]
+        if "num_hidden_layers" not in text_config:
+            raise targets.TargetIdentityMismatch(
+                f"{config_path} has a text_config block with no num_hidden_layers -- refusing to "
+                f"fall back to the top-level or vision value for the text decoder's depth."
+            )
+        return int(text_config["num_hidden_layers"])
+    if "num_hidden_layers" not in config:
+        raise targets.TargetIdentityMismatch(
+            f"{config_path} has neither text_config.num_hidden_layers nor a top-level num_hidden_layers"
+        )
+    return int(config["num_hidden_layers"])
 
 
 @dataclass(frozen=True)
@@ -736,10 +875,13 @@ class GemmaHookPreflightResult:
     hook_fired: bool
     hook_invocation_count: int
     captured_last_dim: int
+    layer_index_asserted: int
     passed: bool
 
 
-def run_gemma_hook_preflight(model, sae, hook_name: str, *, expected_hidden_dim: int) -> GemmaHookPreflightResult:
+def run_gemma_hook_preflight(
+    model, sae, hook_name: str, *, expected_hidden_dim: int, expected_layer: int,
+) -> GemmaHookPreflightResult:
     """A real, tiny forward pass with a temporary probe hook -- proves the
     configured hook STRING (`sae.cfg.metadata.hook_name`) actually fires on
     the intended text-decoder layer with the expected tensor shape, rather
@@ -751,7 +893,28 @@ def run_gemma_hook_preflight(model, sae, hook_name: str, *, expected_hidden_dim:
     `hook_name` was actually resolved for whichever layer was loaded (29,
     24, or any future layer) -- nothing here is specific to a single
     layer number, per this check's own requirement not to encode a
-    layer-31-only (or layer-29-only) fix."""
+    layer-31-only (or layer-29-only) fix.
+
+    `expected_layer` is recorded here (`layer_index_asserted`) as an
+    explicit, auditable field, but this function deliberately does NOT
+    derive an expected hook-name STRING from it and compare -- the
+    Gemma preflight addendum's own instruction is that a configured hook
+    string ("model.layers.29.output"-shaped scientific metadata) is "not
+    necessarily the literal runtime attribute path", so asserting layer
+    identity by re-deriving and string-matching a hook name here would
+    make exactly the mistake that addendum warns against. The actual
+    layer-identity check against a STRING is `final_pairing_targets.
+    validate_hook_identity(hook_name, target)`, already called by
+    `load_gemma_scientific_target` immediately before this function runs,
+    against `target.expected_hook_name` (itself derived from
+    `MATCHED_CONFIGURATIONS`, the single source of truth for which layer
+    a configuration means) -- this function's own, INDEPENDENT proof of
+    layer correctness is purely dynamic: the fact that a hook fires AT
+    ALL with the expected dimension on the exact `hook_name` that was
+    already validated is what rules out a wrong-layer or vision-side
+    hook, since TransformerLens routes hooks by exact graph-node name and
+    cannot fire a `hook_name` string on a different module than the one
+    that string names."""
     import torch
 
     captured_shapes: list[tuple[int, ...]] = []
@@ -770,15 +933,15 @@ def run_gemma_hook_preflight(model, sae, hook_name: str, *, expected_hidden_dim:
     result = GemmaHookPreflightResult(
         configured_hook_string=hook_name, runtime_class=type(model).__name__,
         hook_fired=hook_fired, hook_invocation_count=len(captured_shapes),
-        captured_last_dim=last_dim, passed=passed,
+        captured_last_dim=last_dim, layer_index_asserted=expected_layer, passed=passed,
     )
     if not passed:
         raise targets.TargetIdentityMismatch(
             f"Gemma hook preflight FAILED for hook_name={hook_name!r} (runtime_class="
             f"{result.runtime_class!r}): hook_fired={hook_fired}, hook_invocation_count="
-            f"{result.hook_invocation_count}, captured_last_dim={last_dim}, expected="
-            f"{expected_hidden_dim} -- refusing to proceed with discovery on a hook that is "
-            f"absent, wrong-layer, vision-side, or wrong-dimension."
+            f"{result.hook_invocation_count}, captured_last_dim={last_dim}, expected_dim="
+            f"{expected_hidden_dim}, expected_layer={expected_layer} -- refusing to proceed with "
+            f"discovery on a hook that is absent, wrong-layer, vision-side, or wrong-dimension."
         )
     return result
 
@@ -848,7 +1011,23 @@ def load_gemma_scientific_target(
     hook_name = sae.cfg.metadata.hook_name
     targets.validate_hook_identity(hook_name, target)
     targets.validate_hidden_dims(model.cfg.d_model, sae.cfg.d_in, target)
-    hook_preflight = run_gemma_hook_preflight(model, sae, hook_name, expected_hidden_dim=target.expected_hidden_dim)
+    hook_preflight = run_gemma_hook_preflight(
+        model, sae, hook_name, expected_hidden_dim=target.expected_hidden_dim, expected_layer=layer,
+    )
+
+    gemma_n_layers = resolve_gemma_num_hidden_layers(model_path)
+    if gemma_n_layers != model.cfg.n_layers:
+        raise targets.TargetIdentityMismatch(
+            f"config.json text_config.num_hidden_layers={gemma_n_layers} disagrees with the loaded "
+            f"HookedTransformer's model.cfg.n_layers={model.cfg.n_layers} -- refusing to compute a "
+            f"depth fraction from a value that does not match what was actually loaded."
+        )
+    configuration = next((c for c in MATCHED_CONFIGURATIONS.values() if c.gemma_layer == layer), None)
+    if configuration is None:
+        raise AssertionError("unreachable: layer already validated against _GEMMA_SCIENTIFIC_LAYERS")
+    gemma_depth_fraction = assert_gemma_qwen_depth_matches(
+        gemma_layer=layer, gemma_n_layers=gemma_n_layers, qwen_depth_fraction=configuration.qwen_depth_fraction,
+    )
 
     provenance = {
         "target": f"{target.name}-scientific",
@@ -870,6 +1049,10 @@ def load_gemma_scientific_target(
         },
         "hook_preflight": asdict(hook_preflight),
         "layer": {"engineering_layer": layer, "engineering_only": False, "hook_name": hook_name},
+        "depth_matching": {
+            "gemma_n_layers": gemma_n_layers, "gemma_depth_fraction": gemma_depth_fraction,
+            "qwen_depth_fraction": configuration.qwen_depth_fraction, "configuration": configuration.name,
+        },
     }
     return model, sae, hook_name, provenance
 
@@ -1035,6 +1218,157 @@ def corpus_max_per_feature(backend: Backend, background_docs: list[str]) -> dict
     else:
         scores = _qwen_max_activation_per_feature(backend, background_docs)
     return {i: float(scores[i]) for i in range(backend.d_sae)}
+
+
+# ---------------------------------------------------------------------------
+# Grid assembly: the 14-concept x 2-pairing x 3-gate x 3-family x 2-locale
+# grid `primary_shared_gabc_count` (the frozen backup-trigger formula's own
+# input) is computed FROM. One `Backend` (one pairing, one configuration)
+# evaluates all 14 concepts; a separate aggregation step (see
+# `compute_primary_completeness_and_shared_count`) combines both pairings'
+# grids. An ERROR cell is never silently treated as a FAIL -- completeness
+# is not inferred from a clean process exit, per this task's own
+# instruction.
+# ---------------------------------------------------------------------------
+
+
+def rank_candidates_for_concept(
+    backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str, shortlist_size: int
+) -> list[RankedFeature]:
+    """Ranks candidates using EVERY locale's positive-split text pooled
+    together (a shortlist is a starting point for per-locale G-A/B/C
+    testing below, not itself a per-locale claim)."""
+    texts: list[str] = []
+    for locale in FROZEN_PROMPT_SET_LOCALES:
+        texts += [r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="positive")]
+    ranked = rank_features_by_activation(backend, texts, top_n=shortlist_size)
+    return exclude_mechanical_only(backend.pairing, ranked)
+
+
+@dataclass(frozen=True)
+class CandidateGabcEvaluation:
+    feature_index: int
+    gate_a_b_results: list[dict]
+    gate_c_results: list[dict]
+    survives_gabc: bool
+
+
+@dataclass(frozen=True)
+class ConceptPairingVerdict:
+    concept_id: str
+    pairing: str
+    status: Literal["pass", "fail", "error"]
+    surviving_feature_index: int | None
+    candidates_evaluated: list[dict]  # asdict(CandidateGabcEvaluation), in ranked order, up to and including the winner (or all, on fail)
+    error: str | None
+
+
+def evaluate_concept_on_pairing(
+    backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str, shortlist_size: int,
+    locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES,
+) -> ConceptPairingVerdict:
+    """One (concept, pairing) grid cell's full verdict: the first ranked
+    candidate feature that passes G-A+G-B+G-C in EVERY family/locale it was
+    tested on is the surviving feature (`status='pass'`); if none of the
+    shortlisted candidates survive, `status='fail'`; if evaluation itself
+    raises (missing rows, a backend failure, anything), `status='error'`
+    with the exception recorded -- an error must never be read as a fail,
+    since a fail is a genuine negative result and an error is the absence
+    of one."""
+    try:
+        ranked = rank_candidates_for_concept(backend, artifact, concept_id=concept_id, shortlist_size=shortlist_size)
+        evaluated: list[CandidateGabcEvaluation] = []
+        surviving_feature_index: int | None = None
+        for candidate in ranked:
+            gate_ab: list[GateABResult] = []
+            gate_c: list[GateCResult] = []
+            for locale in locales:
+                gate_ab += compute_gate_a_and_b_per_family(
+                    backend, artifact, concept_id=concept_id, locale=locale, feature_index=candidate.feature_index
+                )
+                gate_c += compute_gate_c_per_family(
+                    backend, artifact, concept_id=concept_id, locale=locale, feature_index=candidate.feature_index
+                )
+            survives = feature_survives_gabc(gate_ab, gate_c)
+            evaluated.append(
+                CandidateGabcEvaluation(
+                    feature_index=candidate.feature_index, gate_a_b_results=[asdict(r) for r in gate_ab],
+                    gate_c_results=[asdict(r) for r in gate_c], survives_gabc=survives,
+                )
+            )
+            if survives:
+                surviving_feature_index = candidate.feature_index
+                break
+        status: Literal["pass", "fail"] = "pass" if surviving_feature_index is not None else "fail"
+        return ConceptPairingVerdict(
+            concept_id=concept_id, pairing=backend.pairing, status=status,
+            surviving_feature_index=surviving_feature_index,
+            candidates_evaluated=[asdict(e) for e in evaluated], error=None,
+        )
+    except Exception as exc:  # an ERROR cell must record ANY failure, not a curated subset
+        return ConceptPairingVerdict(
+            concept_id=concept_id, pairing=backend.pairing, status="error",
+            surviving_feature_index=None, candidates_evaluated=[], error=f"{type(exc).__name__}: {exc}",
+        )
+
+
+def run_concept_grid(
+    backend: Backend, artifact: FrozenPromptArtifact, *, shortlist_size: int,
+    concept_ids: list[str] | None = None, progress: ProgressLog | None = None,
+) -> list[ConceptPairingVerdict]:
+    """Evaluates every one of the frozen artifact's 14 concepts (or an
+    explicit subset, for tests) on ONE already-loaded `backend`, resuming
+    per-concept via `progress` exactly like every other stage in this
+    file."""
+    if concept_ids is None:
+        concept_ids = sorted({r["concept_id"] for r in artifact.rows})
+    verdicts: list[ConceptPairingVerdict] = []
+    for concept_id in concept_ids:
+        key = f"grid_{backend.pairing}_{concept_id}"
+        if progress is not None and progress.is_done(key):
+            verdicts.append(ConceptPairingVerdict(**progress.result(key)["verdict"]))
+            continue
+        verdict = evaluate_concept_on_pairing(backend, artifact, concept_id=concept_id, shortlist_size=shortlist_size)
+        verdicts.append(verdict)
+        if progress is not None:
+            progress.record(key, {"verdict": asdict(verdict)})
+    return verdicts
+
+
+def compute_primary_completeness_and_shared_count(
+    grids_by_pairing: dict[str, list[ConceptPairingVerdict]], *, concept_ids: list[str],
+) -> tuple[bool, int]:
+    """`primary_complete`: every cell of the concept x pairing grid carries
+    an explicit pass/fail verdict (an 'error' cell is NOT complete --
+    completeness is not inferred from a clean process exit).
+    `primary_shared_gabc_count`: the number of concepts where BOTH ruled
+    pairings independently surfaced a (possibly different) feature that
+    survives G-A+G-B+G-C on that pairing -- 'shared' means both models
+    passed, not that they share a feature index (features on different
+    models/SAEs are never the same feature); the frozen protocol's
+    `shared_gabc` is per-configuration cross-pairing agreement, not
+    cross-pairing feature identity."""
+    expected_pairings = {targets.GEMMA_3_12B_IT_TARGET.name, targets.QWEN_3_5_27B_TARGET.name}
+    if set(grids_by_pairing) != expected_pairings:
+        raise ValueError(f"grids_by_pairing must have exactly the keys {sorted(expected_pairings)}, got {sorted(grids_by_pairing)}")
+
+    by_concept_pairing: dict[tuple[str, str], ConceptPairingVerdict] = {}
+    for pairing, verdicts in grids_by_pairing.items():
+        for v in verdicts:
+            if v.pairing != pairing:
+                raise ValueError(f"verdict for concept {v.concept_id!r} under key {pairing!r} carries pairing={v.pairing!r}")
+            by_concept_pairing[(v.concept_id, pairing)] = v
+
+    complete = True
+    shared_count = 0
+    for concept_id in concept_ids:
+        cells = [by_concept_pairing.get((concept_id, p)) for p in expected_pairings]
+        if any(cell is None or cell.status == "error" for cell in cells):
+            complete = False
+            continue
+        if all(cell.status == "pass" for cell in cells):
+            shared_count += 1
+    return complete, shared_count
 
 
 # ---------------------------------------------------------------------------

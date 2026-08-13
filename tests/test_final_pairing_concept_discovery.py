@@ -567,16 +567,36 @@ def test_matched_configurations_match_the_predeclared_values():
 
 
 def test_gemma_scientific_target_rejects_a_third_layer_and_derives_ids_correctly():
+    """Values confirmed directly against the locally-installed
+    sae_lens==6.44.2 registry (2026-08-13 staging-facts addendum):
+    primary's `resid_post_all` family and backup's `resid_post` family are
+    CONFIRMED-DIFFERENT sae_lens releases -- layer 29 exists only under
+    `gemma-scope-2-12b-it-res-all` (as `layer_29_width_16k_l0_big`, not
+    `_l0_medium`), and layer 24's `_l0_medium` variant exists only under
+    `gemma-scope-2-12b-it-res` (not `-res-all`)."""
     with pytest.raises(targets.TargetIdentityMismatch):
         d._gemma_scientific_target(layer=31)  # the mechanical layer -- not a scientific candidate
     with pytest.raises(targets.TargetIdentityMismatch):
         d._gemma_scientific_target(layer=1)
-    variant = d._gemma_scientific_target(layer=29)
-    assert variant.expected_layer == 29
-    assert variant.sae_id == "resid_post/layer_29_width_16k_l0_medium"
-    assert variant.sae_loader_id == "layer_29_width_16k_l0_medium"
-    assert variant.expected_hook_name == "blocks.29.hook_resid_post"
-    assert variant.model_repo_id == targets.GEMMA_3_12B_IT_TARGET.model_repo_id
+
+    primary = d._gemma_scientific_target(layer=29)
+    assert primary.expected_layer == 29
+    assert primary.sae_release == "gemma-scope-2-12b-it-res-all"
+    assert primary.sae_id == "resid_post_all/layer_29_width_16k_l0_big"
+    assert primary.sae_loader_id == "layer_29_width_16k_l0_big"
+    assert primary.expected_hook_name == "blocks.29.hook_resid_post"
+    assert primary.model_repo_id == targets.GEMMA_3_12B_IT_TARGET.model_repo_id
+
+    backup = d._gemma_scientific_target(layer=24)
+    assert backup.expected_layer == 24
+    assert backup.sae_release == "gemma-scope-2-12b-it-res"
+    assert backup.sae_id == "resid_post/layer_24_width_16k_l0_medium"
+    assert backup.sae_loader_id == "layer_24_width_16k_l0_medium"
+    assert backup.expected_hook_name == "blocks.24.hook_resid_post"
+
+    # The two releases are genuinely different strings, matching the
+    # confirmed sae_lens registry fact this test's docstring records.
+    assert primary.sae_release != backup.sae_release
 
 
 def test_load_backend_requires_layer_for_gemma_too():
@@ -766,26 +786,27 @@ def test_compute_gate_a_and_b_per_family_honors_explicit_threshold_overrides():
 def test_gemma_hook_preflight_passes_when_the_hook_fires_with_the_right_dimension():
     model = _FakeGemmaModel()
     sae = _FakeSAE()
-    result = d.run_gemma_hook_preflight(model, sae, HOOK_NAME, expected_hidden_dim=D_MODEL)
+    result = d.run_gemma_hook_preflight(model, sae, HOOK_NAME, expected_hidden_dim=D_MODEL, expected_layer=29)
     assert result.passed is True
     assert result.hook_fired is True
     assert result.hook_invocation_count == 1
     assert result.captured_last_dim == D_MODEL
     assert result.configured_hook_string == HOOK_NAME
+    assert result.layer_index_asserted == 29
 
 
 def test_gemma_hook_preflight_fails_closed_when_the_hook_never_fires():
     model = _FakeGemmaModel()
     sae = _FakeSAE()
     with pytest.raises(targets.TargetIdentityMismatch):
-        d.run_gemma_hook_preflight(model, sae, "blocks.999.hook_that_does_not_exist", expected_hidden_dim=D_MODEL)
+        d.run_gemma_hook_preflight(model, sae, "blocks.999.hook_that_does_not_exist", expected_hidden_dim=D_MODEL, expected_layer=29)
 
 
 def test_gemma_hook_preflight_fails_closed_on_a_dimension_mismatch():
     model = _FakeGemmaModel()
     sae = _FakeSAE()
     with pytest.raises(targets.TargetIdentityMismatch):
-        d.run_gemma_hook_preflight(model, sae, HOOK_NAME, expected_hidden_dim=D_MODEL + 1)
+        d.run_gemma_hook_preflight(model, sae, HOOK_NAME, expected_hidden_dim=D_MODEL + 1, expected_layer=29)
 
 
 def test_no_real_model_path_is_ever_touched_by_this_test_module():
