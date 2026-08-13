@@ -55,6 +55,7 @@ WHAT THIS FILE DOES NOT DO, ON PURPOSE:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,49 @@ ROOT_REQUIRED_FIELDS: tuple[str, ...] = (
     "validation", "subject", "calibration", "positions",
     "prompt_set", "causal_validation", "dose_response",
 )
+
+#: A STATIC SNAPSHOT of Engineer 3's `accepted_input_schema()`, captured
+#: 2026-08-13 from a clean worktree of `eng3/concept-bundle` at this exact
+#: commit (verified: `python scripts/concept_bundle_publish.py validate
+#: --discovery <synthetic document built by this file> --git-root
+#: <this repo>` returned `accepted: true, chronology_problems: []`, and
+#: `reconcile-schema` was also run against it -- see this module's own
+#: docstring for the results). Committed so the standalone preflight (and
+#: anything else that must run OFFLINE, e.g. on a Tamia compute node with
+#: no internet and no eng3/concept-bundle checkout available) can still do
+#: a real, non-fabricated structural check without a live worktree.
+STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT = "2c8cf5b8a67873043ca026dfe99f6eb5ce145c06"
+STATIC_ENG3_SCHEMA_SNAPSHOT_PATH = "tests/fixtures/eng3_concept_bundle/accepted_input_schema_2c8cf5b.json"
+
+
+def reconcile_against_static_snapshot(repo_root: str | Path, produced_document: dict[str, Any]) -> dict[str, Any]:
+    """Offline reconciliation against the committed STATIC SNAPSHOT (see
+    `STATIC_ENG3_SCHEMA_SNAPSHOT_PATH` above), never a live worktree --
+    this is what makes the check runnable on an offline Tamia compute
+    node. This is necessarily a snapshot in time: if `eng3/concept-bundle`
+    moves, re-capture the snapshot and re-run the LIVE `validate`/
+    `reconcile-schema` commands (`reconcile_producer_output_with_eng3`/
+    `reconcile_schema_with_eng3` above) against a fresh checkout -- this
+    function's result should be treated as provisional until that's done,
+    and it says so in its own output rather than claiming certainty."""
+    snapshot_path = Path(repo_root) / STATIC_ENG3_SCHEMA_SNAPSHOT_PATH
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    missing_root_fields = [f for f in ROOT_REQUIRED_FIELDS if f not in produced_document]
+    version_agrees = snapshot.get("schema_version") == DISCOVERY_SCHEMA_VERSION
+    return {
+        "snapshot_path": str(snapshot_path),
+        "snapshot_commit": STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT,
+        "snapshot_schema_version": snapshot.get("schema_version"),
+        "producer_schema_version": DISCOVERY_SCHEMA_VERSION,
+        "schema_version_agrees": version_agrees,
+        "missing_root_fields": missing_root_fields,
+        "compatible": version_agrees and not missing_root_fields,
+        "caveat": (
+            "structural, offline, root-field-only check against a point-in-time snapshot -- "
+            "not a substitute for the live validate_discovery()/reconcile-schema run against a "
+            "current eng3/concept-bundle checkout"
+        ),
+    }
 
 
 def _gate_entries_from_grid_ab_c(
