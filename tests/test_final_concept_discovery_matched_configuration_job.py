@@ -376,3 +376,128 @@ def test_main_cli_has_no_run_backup_flag():
     decide the backup trigger -- it is always computed from grid outputs."""
     with pytest.raises(SystemExit):
         matched.parse_args(["--run-backup", "true"])
+
+
+# ---------------------------------------------------------------------------
+# Backup execution readiness: the frozen 1.5x remaining-time rule and
+# free-VRAM assertion. COMPLETE/PARTIAL/NOT_ATTEMPTED.
+# ---------------------------------------------------------------------------
+
+
+def test_assert_sufficient_time_for_backup_attempts_when_time_allows():
+    readiness = matched.assert_sufficient_time_for_backup(
+        job_start_time=0.0, job_time_limit_seconds=10_000.0, primary_elapsed_seconds=1000.0,
+        now_fn=lambda: 1000.0,  # 1000s elapsed, 9000s remain; 1.5*1000=1500 <= 9000
+    )
+    assert readiness.attempt is True
+    assert readiness.status == "ready"
+
+
+def test_assert_sufficient_time_for_backup_refuses_when_time_is_short():
+    readiness = matched.assert_sufficient_time_for_backup(
+        job_start_time=0.0, job_time_limit_seconds=10_000.0, primary_elapsed_seconds=7000.0,
+        now_fn=lambda: 9000.0,  # 9000s elapsed, 1000s remain; 1.5*7000=10500 > 1000
+    )
+    assert readiness.attempt is False
+    assert readiness.status == "not_attempted_insufficient_time"
+
+
+def test_assert_sufficient_free_vram_passes_when_every_gpu_clears_the_bar():
+    calls = {"collect": 0, "empty_cache": 0}
+    free = matched.assert_sufficient_free_vram(
+        ["0", "1"], min_free_bytes=1_000_000,
+        collect_garbage_fn=lambda: calls.__setitem__("collect", calls["collect"] + 1),
+        empty_cache_fn=lambda: calls.__setitem__("empty_cache", calls["empty_cache"] + 1),
+        free_vram_fn=lambda gid: 2_000_000,
+    )
+    assert free == {"0": 2_000_000, "1": 2_000_000}
+    assert calls == {"collect": 1, "empty_cache": 1}
+
+
+def test_assert_sufficient_free_vram_raises_when_a_gpu_falls_short():
+    with pytest.raises(matched.InsufficientVramError, match="insufficient free VRAM"):
+        matched.assert_sufficient_free_vram(
+            ["0", "1"], min_free_bytes=1_000_000,
+            collect_garbage_fn=lambda: None, empty_cache_fn=lambda: None,
+            free_vram_fn=lambda gid: 500_000 if gid == "1" else 5_000_000,
+        )
+
+
+def test_check_backup_readiness_checks_time_before_vram():
+    """An insufficient-time verdict must never even query VRAM."""
+    vram_called = {"n": 0}
+
+    def free_vram_fn(gid):
+        vram_called["n"] += 1
+        return 5_000_000
+
+    readiness = matched.check_backup_readiness(
+        job_start_time=0.0, job_time_limit_seconds=100.0, primary_elapsed_seconds=1000.0, now_fn=lambda: 99.0,
+        gpu_ids=["0"], min_free_vram_bytes=1, collect_garbage_fn=lambda: None, empty_cache_fn=lambda: None,
+        free_vram_fn=free_vram_fn,
+    )
+    assert readiness.attempt is False
+    assert readiness.status == "not_attempted_insufficient_time"
+    assert vram_called["n"] == 0
+
+
+def test_run_matched_configuration_job_writes_not_attempted_when_readiness_refuses(tmp_path):
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+    backup_launched = {"called": False}
+
+    def factory(lanes):
+        if lanes is backup_lanes:
+            backup_launched["called"] = True
+        return _make_orchestrator_factory({})(lanes)
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+        run_backup=True, job_result_path=tmp_path / "result.json", orchestrator_factory=factory,
+        backup_readiness_checker=lambda: matched.BackupReadiness(attempt=False, status="not_attempted_insufficient_time", detail="not enough time"),
+    )
+    assert backup_launched["called"] is False
+    assert result["backup_execution_status"] == "NOT_ATTEMPTED"
+    assert result["backup_result"] is None
+    assert result["status"] == "partial_execution"
+    assert result["selected_configuration"] == discovery.PRIMARY_CONFIGURATION.name
+
+
+def test_run_matched_configuration_job_writes_complete_when_readiness_allows_and_backup_passes(tmp_path):
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+        run_backup=True, job_result_path=tmp_path / "result.json", orchestrator_factory=_make_orchestrator_factory({}),
+        backup_readiness_checker=lambda: matched.BackupReadiness(attempt=True, status="ready", detail="plenty of time"),
+    )
+    assert result["backup_execution_status"] == "COMPLETE"
+    assert result["backup_result"] is not None
+    assert result["status"] == "complete_pass"
+
+
+def test_run_matched_configuration_job_writes_partial_when_readiness_allows_but_backup_fails(tmp_path):
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+        run_backup=True, job_result_path=tmp_path / "result.json",
+        orchestrator_factory=_make_orchestrator_factory({"qwen": 1}),
+        backup_readiness_checker=lambda: matched.BackupReadiness(attempt=True, status="ready", detail="plenty of time"),
+    )
+    assert result["backup_execution_status"] == "PARTIAL"
+    assert result["status"] == "failure"  # both primary and backup qwen fail in this fake factory
+
+
+def test_backup_readiness_checker_defaults_to_none_and_never_gates_existing_callers(tmp_path):
+    """No backup_readiness_checker supplied -> behavior is IDENTICAL to
+    before this feature existed (backup_execution_status still reported,
+    but never blocks)."""
+    result = _run(tmp_path, run_backup=True)
+    assert result["backup_execution_status"] == "COMPLETE"
+    assert result["backup_readiness"] is None

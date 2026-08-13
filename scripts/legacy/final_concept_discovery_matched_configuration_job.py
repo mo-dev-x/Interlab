@@ -43,6 +43,7 @@ could mix content across configurations.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import functools
 import json
 import sys
@@ -56,11 +57,116 @@ import final_concept_discovery_dual_gpu_job as dual_gpu  # noqa: E402
 import final_pairing_concept_discovery as discovery  # noqa: E402
 
 SCHEMA_VERSION = 1
+#: The frozen "1.5x remaining-time" rule: backup is only ATTEMPTED if
+#: 1.5 * (primary's own measured elapsed time) fits within however much
+#: wall-clock the allocation has left.
+BACKUP_TIME_SAFETY_FACTOR = 1.5
 
 
 class MatchedConfigurationError(ValueError):
     """Raised before any process is launched -- a config collision between
     primary and backup, or a missing/invalid trigger decision."""
+
+
+@dataclasses.dataclass(frozen=True)
+class BackupReadiness:
+    attempt: bool
+    status: str  # "ready" | "not_attempted_insufficient_time" | "failed_insufficient_vram"
+    detail: str
+
+
+def assert_sufficient_time_for_backup(
+    *, job_start_time: float, job_time_limit_seconds: float, primary_elapsed_seconds: float,
+    now_fn=None, safety_factor: float = BACKUP_TIME_SAFETY_FACTOR,
+) -> BackupReadiness:
+    """The frozen 1.5x remaining-time rule. Never raises -- an
+    insufficient-time verdict is a legitimate, NOT_ATTEMPTED outcome, not
+    a failure; the caller writes that status rather than launching
+    backup."""
+    import time as _time
+
+    now = (now_fn or _time.time)()
+    elapsed_since_start = now - job_start_time
+    remaining = job_time_limit_seconds - elapsed_since_start
+    required = safety_factor * primary_elapsed_seconds
+    if required > remaining:
+        return BackupReadiness(
+            attempt=False, status="not_attempted_insufficient_time",
+            detail=(
+                f"backup requires an estimated {required:.0f}s ({safety_factor}x primary's measured "
+                f"{primary_elapsed_seconds:.0f}s), but only {remaining:.0f}s remain in the allocation"
+            ),
+        )
+    return BackupReadiness(attempt=True, status="ready", detail=f"{remaining:.0f}s remain, {required:.0f}s required")
+
+
+class InsufficientVramError(RuntimeError):
+    """Raised (never merely logged) when a GPU does not report enough
+    free VRAM before backup would launch -- primary's process exiting
+    should have released it; a shortfall here is a genuine resource
+    failure, not a NOT_ATTEMPTED outcome."""
+
+
+def assert_sufficient_free_vram(
+    gpu_ids: list[str], *, min_free_bytes: int, collect_garbage_fn=None, empty_cache_fn=None, free_vram_fn=None,
+) -> dict[str, int]:
+    """Releases lingering Python-side references (`gc.collect`), empties
+    torch's CUDA caching allocator (`torch.cuda.empty_cache`), then
+    queries actual free VRAM per GPU (`torch.cuda.mem_get_info`) and
+    asserts every one meets `min_free_bytes`. All three steps are
+    injectable seams (real by default) -- no test in this project's
+    suite calls the real CUDA functions."""
+    import gc as _gc
+
+    (collect_garbage_fn or _gc.collect)()
+    if empty_cache_fn is not None:
+        empty_cache_fn()
+    else:
+        import torch
+
+        torch.cuda.empty_cache()
+
+    if free_vram_fn is not None:
+        free_bytes = {gid: free_vram_fn(gid) for gid in gpu_ids}
+    else:
+        import torch
+
+        free_bytes = {}
+        for gid in gpu_ids:
+            free, _total = torch.cuda.mem_get_info(int(gid))
+            free_bytes[gid] = free
+
+    insufficient = {gid: b for gid, b in free_bytes.items() if b < min_free_bytes}
+    if insufficient:
+        raise InsufficientVramError(
+            f"insufficient free VRAM before backup (required >= {min_free_bytes} bytes per GPU): {insufficient}"
+        )
+    return free_bytes
+
+
+def check_backup_readiness(
+    *, job_start_time: float, job_time_limit_seconds: float, primary_elapsed_seconds: float,
+    gpu_ids: list[str], min_free_vram_bytes: int, now_fn=None, collect_garbage_fn=None, empty_cache_fn=None, free_vram_fn=None,
+) -> BackupReadiness:
+    """The combined time + VRAM gate `run_matched_configuration_job` calls
+    right before launching backup (when a `backup_readiness_checker` is
+    supplied -- see that function's docstring). Time is checked FIRST
+    (cheaper, and a NOT_ATTEMPTED verdict should never depend on having
+    already queried GPU memory)."""
+    time_readiness = assert_sufficient_time_for_backup(
+        job_start_time=job_start_time, job_time_limit_seconds=job_time_limit_seconds,
+        primary_elapsed_seconds=primary_elapsed_seconds, now_fn=now_fn,
+    )
+    if not time_readiness.attempt:
+        return time_readiness
+    try:
+        assert_sufficient_free_vram(
+            gpu_ids, min_free_bytes=min_free_vram_bytes, collect_garbage_fn=collect_garbage_fn,
+            empty_cache_fn=empty_cache_fn, free_vram_fn=free_vram_fn,
+        )
+    except InsufficientVramError as exc:
+        return BackupReadiness(attempt=False, status="failed_insufficient_vram", detail=str(exc))
+    return BackupReadiness(attempt=True, status="ready", detail=time_readiness.detail)
 
 
 def _all_lane_paths(lanes: list[dual_gpu.LaneSpec]) -> dict[Path, str]:
@@ -142,6 +248,7 @@ def run_matched_configuration_job(
     orchestrator_factory=dual_gpu.DualGpuOrchestrator,
     run_backup: bool | None = None,
     trigger_resolver=None,
+    backup_readiness_checker=None,
 ) -> dict:
     """Runs primary, then EITHER uses the caller-supplied `run_backup`
     (test-only override -- see module docstring; the scheduled entry
@@ -150,7 +257,19 @@ def run_matched_configuration_job(
     `compute_trigger_from_grid_outputs` bound via `functools.partial`)
     AFTER primary completes and uses its `.run_backup` -- raising
     `TriggerResolutionFailed` if `.fail_run` is True (an incomplete
-    primary), before backup is ever considered."""
+    primary), before backup is ever considered.
+
+    If the trigger says to run backup AND `backup_readiness_checker` is
+    supplied (a zero-argument callable, typically `check_backup_readiness`
+    bound via `functools.partial` with the job's real time-budget/GPU
+    facts), it is called ONE more time right before backup would launch.
+    A `BackupReadiness` with `attempt=False` overrides the trigger's own
+    `run_backup=True` -- `backup_execution_status` becomes
+    `NOT_ATTEMPTED` (insufficient time) rather than launching a backup
+    that cannot complete, or the readiness check's own failure is
+    recorded and backup is likewise not launched. `backup_readiness_checker`
+    defaults to `None` (no gate) so every existing caller/test is
+    unaffected."""
     if run_backup is None and trigger_resolver is None:
         raise ValueError("run_matched_configuration_job requires either run_backup or trigger_resolver")
     validate_primary_backup_paths_disjoint(primary_lanes, backup_lanes)
@@ -170,10 +289,18 @@ def run_matched_configuration_job(
         run_backup = trigger_result.run_backup
 
     backup_result = None
+    backup_readiness = None
+    backup_execution_status = None
     if run_backup:
-        backup_orchestrator = orchestrator_factory(backup_lanes)
-        backup_orchestrator.launch_all()
-        backup_result = backup_orchestrator.wait_all()
+        if backup_readiness_checker is not None:
+            backup_readiness = backup_readiness_checker()
+        if backup_readiness is not None and not backup_readiness.attempt:
+            backup_execution_status = "NOT_ATTEMPTED"
+        else:
+            backup_orchestrator = orchestrator_factory(backup_lanes)
+            backup_orchestrator.launch_all()
+            backup_result = backup_orchestrator.wait_all()
+            backup_execution_status = "COMPLETE" if backup_result["status"] == "complete_pass" else "PARTIAL"
 
     for lane in primary_result["lanes"]:
         lane["configuration"] = discovery.PRIMARY_CONFIGURATION.name
@@ -183,6 +310,8 @@ def run_matched_configuration_job(
 
     if primary_result["status"] != "complete_pass":
         overall_status = "failure" if primary_result["status"] == "failure" else "partial_execution"
+    elif run_backup and backup_execution_status == "NOT_ATTEMPTED":
+        overall_status = "partial_execution"
     elif run_backup and backup_result is not None and backup_result["status"] != "complete_pass":
         overall_status = "failure" if backup_result["status"] == "failure" else "partial_execution"
     else:
@@ -192,8 +321,10 @@ def run_matched_configuration_job(
         "schema_version": SCHEMA_VERSION,
         "status": overall_status,
         "overall_exit_code": 0 if overall_status == "complete_pass" else 1,
-        "selected_configuration": discovery.BACKUP_CONFIGURATION.name if run_backup else discovery.PRIMARY_CONFIGURATION.name,
+        "selected_configuration": discovery.BACKUP_CONFIGURATION.name if (run_backup and backup_result is not None) else discovery.PRIMARY_CONFIGURATION.name,
         "run_backup": run_backup,
+        "backup_execution_status": backup_execution_status,
+        "backup_readiness": None if backup_readiness is None else asdict(backup_readiness),
         "trigger_result": None if trigger_result is None else asdict(trigger_result),
         "trigger_inputs": trigger_inputs,
         "primary_configuration": {
