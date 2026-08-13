@@ -1,0 +1,116 @@
+{
+  "$comment": "SUPPLEMENTAL, NON-GATING. Records the resolution of OI-3. This artifact changes no configuration, no eligibility rule and no threshold. It does not supersede scientific_config_identity.json v1.2.0, which remains active and unmodified.",
+  "artifact_type": "open_item_resolution",
+  "artifact_version": "oi3-release-weight-resolution/1.0.0",
+  "gating": false,
+  "gates_execution": false,
+  "supersedes": null,
+
+  "references": {
+    "identity_protocol": "protocols/final_pairing/v1/scientific_config_identity.json",
+    "identity_protocol_version": "final-pairing-config-identity/1.2.0",
+    "identity_commit": "93450e5dbeaa30fcff8f212dc83f893b09208cb2",
+    "identity_sha256": "ccee05428a431de9a29e2baefb31f493f1ae9a95eb9d34b830663da53757caf5",
+    "identity_status": "ACTIVE AND UNCHANGED. This artifact does not revise it.",
+    "trigger_protocol": "protocols/final_pairing/v1/backup_trigger.json",
+    "trigger_commit": "125b1d3e825f0e6cc83c20ba54ef2c345e4372f9",
+    "trigger_sha256": "4a234e59799089e634f00c59d5fed71c73d0f7466e30f0c20a7d72ef4c9d23d3",
+    "trigger_status": "ACTIVE AND UNCHANGED."
+  },
+
+  "open_item": {
+    "id": "OI-3",
+    "opened_in": "final-pairing-config-identity/1.2.0",
+    "question": "Are resid_post and resid_post_all distinct training runs, or one set of runs published under two namespaces with different tier coverage?",
+    "method": "Compare params.safetensors SHA-256 for layer_24_width_16k_l0_big, the tier published in BOTH namespaces, at revision 4c419f1ba0be8b7754d4151d4f26c23b92a9029e.",
+    "status": "CLOSED",
+    "open_actions_remaining": 0
+  },
+
+  "evidence": {
+    "repository_id": "google/gemma-scope-2-12b-it",
+    "revision": "4c419f1ba0be8b7754d4151d4f26c23b92a9029e",
+    "probe_target": "layer_24_width_16k_l0_big",
+    "probe_rationale": "This tier is the only one published in BOTH namespaces at layer 24, which is what makes the comparison decisive. l0_medium exists in resid_post only, per OI-1.",
+    "files": [
+      {
+        "path": "resid_post/layer_24_width_16k_l0_big/params.safetensors",
+        "release": "gemma-scope-2-12b-it-res",
+        "sha256": "774f3026d928bb46e522ba42e1b1e829a9ed7349c575e72a435e5a6ca84fa34a"
+      },
+      {
+        "path": "resid_post_all/layer_24_width_16k_l0_big/params.safetensors",
+        "release": "gemma-scope-2-12b-it-res-all",
+        "sha256": "ce4e0275357879bdafefecdf8262031335f4ab743b0876d4b2121f21500e9cf6"
+      }
+    ],
+    "verdict": "DIFFERENT"
+  },
+
+  "interpretation": {
+    "established": "The two releases contain distinct weights. They are distinct training outputs, NOT selective publication of identical weights.",
+    "not_established": {
+      "statement": "WHY they differ.",
+      "detail": "The hashes establish that the weights are not the same file. They say nothing about whether the difference arises from different training data, a different seed, different hyperparameters, or a different run of the same recipe.",
+      "rule": "Record the observation. Do not narrate a mechanism."
+    },
+    "effect_on_v1_2_0": {
+      "configuration_changes": "NONE",
+      "eligibility_changes": "NONE",
+      "threshold_changes": "NONE",
+      "prohibition_changes": "NONE",
+      "what_actually_changed": "The EPISTEMIC STATUS of a limit already recorded, not the limit. v1.2.0 prohibited attributing any primary-to-backup difference to release namespace or training artifact, and did so in a way that covered both possible OI-3 outcomes. That prohibition now rests on a demonstrated fact rather than on an unresolved possibility. It neither widens nor narrows."
+    }
+  },
+
+  "reaffirmed_unchanged": {
+    "active_primary": {
+      "release": "gemma-scope-2-12b-it-res-all",
+      "scientific_sae_id": "resid_post_all/layer_29_width_16k_l0_big",
+      "layer": 29,
+      "status": "UNCHANGED"
+    },
+    "active_backup": {
+      "release": "gemma-scope-2-12b-it-res",
+      "scientific_sae_id": "resid_post/layer_24_width_16k_l0_medium",
+      "layer": 24,
+      "params_sha256": "2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e",
+      "status": "UNCHANGED"
+    },
+    "statements": [
+      "OI-3 does not gate execution.",
+      "The fallback is NOT a controlled ablation.",
+      "No primary-to-backup difference may be attributed to depth, observed L0, release namespace, or training artifact. Three dimensions move together in Gemma and two in Qwen.",
+      "Cross-model matched comparison remains PRIMARY-PRIMARY or BACKUP-BACKUP only.",
+      "Qwen TopK k and Gemma observed L0 remain incommensurable; no cross-model sparsity claim is permitted.",
+      "Each configuration is judged only by its own independent gates.",
+      "No open action remains from OI-3."
+    ]
+  },
+
+  "rejected_alternative": {
+    "$comment": "The point of recording this. A known-available alternative named and refused is stronger than one left unmentioned, because it closes the 'we did not know it existed' and 'it seemed a reasonable swap' paths.",
+    "candidate": "resid_post_all/layer_24_width_16k_l0_big",
+    "release": "gemma-scope-2-12b-it-res-all",
+    "sha256": "ce4e0275357879bdafefecdf8262031335f4ab743b0876d4b2121f21500e9cf6",
+    "status": "IDENTIFIED, AVAILABLE, AND NOT SELECTED",
+    "prohibition": "MUST NOT be staged, downloaded for experimental use, substituted for the active backup, or reported as an alternative result.",
+    "why_this_needs_stating": "It is a real SAE at the backup depth in the backup width, and OI-3 has just proven it is a genuinely different instrument. If the backup underperforms it becomes an obvious swap. That swap would be post-hoc configuration selection after observing results, which backup_trigger.json prohibits under 'no third SAE family or layer'. Its availability is precisely what makes the prohibition necessary rather than academic.",
+    "authority": "protocols/final_pairing/v1/backup_trigger.json, prohibitions[0]"
+  },
+
+  "strengthened_hazard": {
+    "$comment": "Not a new rule. A demonstrated instance of an existing one, which is enforced differently from a theoretical one.",
+    "rule_in_v1_2_0": "NEVER persist loader_sae_id without its release; the same flat key can resolve to different weights across namespaces.",
+    "status_before_OI_3": "Stated as a possibility.",
+    "status_now": "DEMONSTRATED. The flat key layer_24_width_16k_l0_big resolves to 774f3026... under one release and ce4e0275... under the other. Same key, same layer, same width, same tier, different weights.",
+    "consequence": "Any record carrying loader_sae_id without release is not merely underspecified in principle; it is ambiguous in fact for at least this key at this revision."
+  },
+
+  "provenance": {
+    "closed_by": "LA-C",
+    "gate_proven_by": "LA-B, complete v1.2 gate with positive and negative controls",
+    "recorded_by": "PM",
+    "record_type": "supplemental resolution, non-gating"
+  }
+}
