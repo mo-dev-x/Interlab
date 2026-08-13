@@ -185,17 +185,29 @@ default thresholds from the frozen artifact's own
 explicitly by a caller with a documented reason to. `shared_substrate`
 semantics (`unrelated`/`heldout_neutral` rows are IDENTICAL across all 14
 concepts by design) are preserved by `rows_for_concept`, which does not
-deduplicate across concepts. **This function is NOT yet wired into `run()`'s
-own automatic 7-stage pipeline** -- see "Not yet implemented" below.
+deduplicate across concepts. `compute_gate_c_per_family` (G-C, specificity
+AUROC vs. `near_miss`), `feature_survives_gabc`, `evaluate_concept_on_
+pairing`, and `run_concept_grid` now assemble the FULL 14-concept x
+2-pairing grid automatically (same-feature G-A+G-B+G-C conjunction), and
+`compute_primary_completeness_and_shared_count`/`evaluate_backup_trigger`
+compute `primary_complete`/`primary_shared_gabc_count`/`RUN_BACKUP`/
+`FAIL_RUN` from that grid -- the gap this section previously described is
+closed.
 
-## `--judge-config`
+## `--judge-config` and the judged gates (G-D/G-E)
 
-Optional. No real judge is implemented or invoked anywhere in this tool --
-`--judge-config` only records WHICH judge identity a later stage should
-use (`{"model": "...", "rubric_version": "...", "prompt_version": "..."}`);
-omitting it records the same honest `{"model": "none", ...}` identity
-`interplab.characterization.indexer.NoOpJudge` uses. This tool never
-invents a concept label or a judged score.
+`--judge-config` still only records identity metadata for the generic
+stage-6 dose curve. G-D (Amplify) and G-E (Suppress) are judged gates and
+are now REAL: `scripts/final_pairing/final_pairing_causal_judge.py`
+computes their pass/fail arithmetic against the real, separate Lodestar
+package (`d:/lodstar`), and `scripts/final_pairing/final_pairing_judge_
+cli.py` is the actual, runnable CLI that drives a real Lodestar
+`AnthropicJudge` run against transfer-verified generation files -- see
+"The one-allocation two-machine workflow" below for the real commands.
+Omitting `--judge-config` still records the honest `{"model": "none",
+...}` identity `interplab.characterization.indexer.NoOpJudge` uses for
+the unrelated, non-judged stage-6 curve; it has no bearing on G-D/G-E,
+which always go through the real judge CLI now that it exists.
 
 ## Gemma dynamic hook resolution (LA-C preflight)
 
@@ -353,46 +365,50 @@ python scripts/final_pairing/final_concept_discovery_matched_configuration_job.p
   --backup-gemma-config /path/to/backup_gemma_lane.json \
   --backup-qwen-config /path/to/backup_qwen_lane.json \
   --trigger-inputs-json /path/to/trigger_inputs.json \
-  --run-backup false \
+  --primary-gemma-grid-path results/final_pairing/concept_discovery/gemma/grid.json \
+  --primary-qwen-grid-path results/final_pairing/concept_discovery/qwen/grid.json \
+  --concept-id cheese --concept-id astronomy \
   --job-result-path results/final_pairing/concept_discovery/matched_job_result.json
 ```
 
-**CORRECTION: the backup trigger's Boolean rule is not unknown.** An
-earlier version of this packet said it had "not yet [been] returned" --
-it is frozen at `protocols/final_pairing/v1/backup_trigger.json` (commit
+**`--run-backup` no longer exists as a CLI input -- it is a test-only
+override, never a scheduled-run flag.** The backup trigger's Boolean rule
+is frozen at `protocols/final_pairing/v1/backup_trigger.json` (commit
 `125b1d3`): `RUN_BACKUP = primary_complete AND (primary_shared_gabc_count
-< 3)`, `FAIL_RUN = NOT primary_complete`, threshold 3 fixed and not
-changeable after any activation is computed. `final_pairing_concept_
-discovery.evaluate_backup_trigger(primary_complete=..., primary_shared_
-gabc_count=...)` implements exactly this formula and is unit-tested
-against it.
-
-**`--run-backup` is still not COMPUTED by this tool**, for a narrower
-reason than before: the formula's own INPUT, `primary_shared_gabc_count`,
-is defined as "the number of concepts where the SAME feature passes G-A,
-G-B, AND G-C on BOTH pairings within the primary configuration" -- a full
-14-concept x 2-pairing x 3-gate x 3-family x 2-locale grid with a
-per-feature conjunction across gates. No script in this repository
-assembles that grid yet: `final_pairing_concept_discovery.py` discovers
-one concept per invocation, and G-C (AUROC vs. `near_miss`) has no
-implementation at all (only G-A/G-B, via `compute_gate_a_and_b_per_family`).
-Until that aggregation exists, whoever assembles it should call
-`evaluate_backup_trigger` and pass its `.run_backup` result to
-`--run-backup` here, rather than re-deriving the formula by hand.
+< 3)`, `FAIL_RUN = NOT primary_complete`. Its input,
+`primary_shared_gabc_count`, is now computed FOR REAL: `final_pairing_
+concept_discovery.run_concept_grid`/`evaluate_concept_on_pairing`
+assemble the full 14-concept x 2-pairing grid (same-feature G-A+G-B+G-C
+conjunction, G-C now implemented via `compute_gate_c_per_family`), each
+pairing writes its own `grid.json`
+(`write_grid_result`/`read_grid_result`, exact path only, never globbed),
+and `compute_trigger_from_grid_outputs` in the matched-configuration job
+reads BOTH `--primary-*-grid-path` files, calls `compute_primary_
+completeness_and_shared_count` + `evaluate_backup_trigger`, and passes
+the result on automatically -- `run_matched_configuration_job` calls this
+`trigger_resolver` whenever `run_backup` is not explicitly given, raising
+`TriggerResolutionFailed` on `FAIL_RUN` rather than launching anything.
 `--trigger-inputs-json` is still loaded and persisted verbatim into the
-output -- never interpreted or used to compute the boolean here, since
-this file still isn't where that grid gets assembled.
+output for audit, but never used to compute the boolean.
 
-Separately, the frozen file also requires a **depth-matching assertion**
-before either configuration's activations are computed: Gemma's
-`depth_fraction` (`layer / n_layers`, computed from the ACTUALLY LOADED
-model, never assumed) must be within 0.02 of the matched Qwen
-`depth_fraction` (`PRIMARY_CONFIGURATION.qwen_depth_fraction == 0.59375`,
-`BACKUP_CONFIGURATION.qwen_depth_fraction == 0.5`) --
-`assert_gemma_qwen_depth_matches(gemma_layer=..., gemma_n_layers=...,
-qwen_depth_fraction=...)` implements and raises closed on this; it is not
-yet called from `load_backend`/`load_gemma_scientific_target` (another
-real, disclosed gap -- see "Not yet implemented").
+The frozen file's **depth-matching assertion** is now wired into the real
+loader: `load_gemma_scientific_target` computes `gemma_n_layers` from the
+actually-loaded model's `config.json` (`resolve_gemma_num_hidden_layers`,
+preferring `text_config.num_hidden_layers`), cross-checks it against
+`model.cfg.n_layers`, and calls `assert_gemma_qwen_depth_matches(gemma_
+layer=..., gemma_n_layers=..., qwen_depth_fraction=...)` before recording
+`provenance["depth_matching"]` -- no longer a documented-but-unwired gap.
+
+**Backup execution is gated on readiness, not merely triggered.**
+`check_backup_readiness`/`assert_sufficient_time_for_backup` (1.5x the
+elapsed primary time against the remaining Slurm wall clock) and `assert_
+sufficient_free_vram` (real `gc.collect()`/`torch.cuda.empty_cache()`/
+`torch.cuda.mem_get_info()`, time checked first so an insufficient-time
+verdict never queries VRAM) run immediately before backup would launch;
+`run_matched_configuration_job`'s result records `backup_execution_
+status` as exactly one of `COMPLETE`/`PARTIAL`/`NOT_ATTEMPTED` --
+`NOT_ATTEMPTED` when triggered but not readiness-cleared, with
+`selected_configuration` correctly falling back to PRIMARY in that case.
 
 Primary and backup run SEQUENTIALLY through the same dual-GPU orchestrator
 (never concurrently) -- primary's subprocesses have already exited, so
@@ -492,118 +508,157 @@ established for the mechanical-acceptance evidence). Verify on the
 receiving end with `sha256sum -c final_concept_discovery_${COMMIT}.tar.gz.sha256`
 before staging or running anything from the extracted tree.
 
-## Not yet implemented (explicitly deferred, not silently dropped)
+## The one-allocation two-machine workflow
 
-Given the volume of requirements accumulated across this dispatch and its
-addenda, the following were deliberately NOT attempted this pass, each for
-a stated reason -- not oversight:
+Frozen at `protocols/final_pairing/v1/one_allocation_dose_generation.json`
+(v1.0.0, `gating: true`): Tamia has no outbound internet, so Lodestar
+cannot be called from inside a GPU allocation, and only ONE combined
+allocation is authorized. The resolution is to move ALL generation before
+ALL judging -- concretely, a Tamia (offline, GPU) stage followed by a
+SEPARATE local (networked) judging stage, connected by a verified
+transfer, never the reverse and never interleaved:
 
-1. **The official per-SAE `examples.safetensors` census** (activations/
+1. **Tamia, one allocation (offline): discovery + generation.**
+   `final_pairing_concept_discovery.py`'s grid functions compute G-A/B/C
+   (see above); `scripts/final_pairing/final_pairing_one_allocation_
+   generation.py`'s `generate_concept_complete` then generates BOTH
+   directions x all five doses x (15-prompt/1-repeat sweep AND
+   20-prompt/3-repeat confirmation) for one concept at a time, never
+   partially -- `assess_concept_generation_readiness` refuses to start a
+   concept the remaining wall time cannot finish (`NOT_ATTEMPTED`, never a
+   truncated partial result). Sweep and confirmation seeds are
+   independently derived (`derive_seed`, salted by purpose) and explicitly
+   checked disjoint (`assert_seed_sets_disjoint`) before the concept is
+   considered done -- a shared seed would let a sweep generation double as
+   a confirmation repeat, biasing the very estimate selection is based on.
+   `build_suppress_dose_grid`/`build_amplify_dose_grid` enforce the
+   five-point shape (Suppress: four descending clamp fractions + ABLATE as
+   the fifth point; Amplify: five distinct clamp doses). This module NEVER
+   imports `final_pairing_causal_judge` or `lodestar`, at module scope or
+   inside any function (verified by a source-level AST scan in its own
+   test suite) -- no judge call is reachable from inside the allocation,
+   structurally, not just by convention.
+   `write_generation_manifest` hashes every generated file AND the
+   manifest itself before the allocation is released.
+
+2. **Transfer.** Move the output directory off the cluster. Re-verify
+   with `final_pairing_one_allocation_generation.verify_generation_
+   manifest(manifest_path, files_root=<destination>)` -- any file hash
+   mismatch, or a mismatch in the manifest's OWN hash, is a hard stop
+   (`TransferVerificationFailed`), never a warning.
+
+3. **Local machine, networked: judge the sweep, select, commit.**
+   `scripts/final_pairing/final_pairing_judge_cli.py judge-sweep` verifies
+   the transfer manifest again, builds real `lodestar.models.Generation`
+   objects from the sweep files only, runs a REAL Lodestar cost estimate
+   BEFORE any call (persisted to disk), refuses to proceed if the
+   predicted uncached cost exceeds `--budget-usd` (zero paid calls made in
+   that case), and otherwise judges for real through Lodestar's
+   content-addressed cache. A researcher applies the frozen discovery
+   protocol's LOW/MEDIUM/HIGH dose-threshold rule
+   (`final_pairing_concept_discovery.select_calibration_candidates`) to
+   the judged sweep and runs `write-selection` to record and, critically,
+   **COMMIT `selection_record.json` to git** -- this commit IS the stage
+   boundary (`ADDITION_2_sealing_is_mechanical`), verified later by
+   `assert_selection_precedes_confirmation`'s real `git merge-base
+   --is-ancestor` check, never merely trusted.
+4. **Judge confirmation at the three selected doses only.**
+   `judge-confirmation` re-verifies the selection commit is a STRICT
+   ancestor of the confirmation-judging commit, then reads ONLY the three
+   selected doses' confirmation files (`assert_never_opens_unselected`
+   refuses anything else) -- the two unselected doses' files are stamped
+   `UNUSED_FOR_SELECTION_OR_CLAIM` and are never opened, judged, or
+   spot-read, retained rather than deleted (their retention is itself the
+   evidence that no post-hoc substitution occurred).
+5. **Suppress spot-read, after selection, outside Tamia.** The mandatory
+   10-output researcher spot-read (`final_pairing_causal_judge.build_
+   spot_read_packet`/`resolve_spot_read_decision`, already built) happens
+   only once selection is committed, at the selected strength only.
+
+Example commands (local machine, after transfer):
+
+```bash
+python scripts/final_pairing/local_judge_preflight.py   # no paid call; verifies wiring before spending anything
+
+python scripts/final_pairing/final_pairing_judge_cli.py judge-sweep \
+  --manifest /path/to/generation_manifest_amplify.json --concept-id cheese --pairing-id gemma-3-12b-it \
+  --direction amplify --judge-model claude-sonnet-4-5-20250929 --model-name google/gemma-3-12b-it \
+  --budget-usd 25.00 --cache-path D:/devcache/lodestar_cache/final_pairing/cache.sqlite \
+  --output-dir D:/devcache/lodestar_runs/final_pairing/cheese_amplify
+
+python scripts/final_pairing/final_pairing_judge_cli.py write-selection \
+  --concept-id cheese --pairing-id gemma-3-12b-it --direction amplify \
+  --low-dose 1 --medium-dose 2 --high-dose 4 \
+  --out selection_record.json --repo-root . --commit-message "select doses for cheese/amplify"
+
+python scripts/final_pairing/final_pairing_judge_cli.py judge-confirmation \
+  --manifest /path/to/generation_manifest_amplify_stamped.json --concept-id cheese --pairing-id gemma-3-12b-it \
+  --direction amplify --judge-model claude-sonnet-4-5-20250929 --model-name google/gemma-3-12b-it \
+  --budget-usd 25.00 --selection-record selection_record.json \
+  --selection-commit <commit from write-selection> --confirmation-commit <commit after judging> --repo-root .
+```
+
+The generation manifest is written PER DIRECTION (never one manifest spanning both Amplify and Suppress -- a separate ruling from the Architect, since the two directions have separate prompt sets, grids, and selection records). Before `judge-confirmation` can run, the manifest passed to it must be the STAMPED copy (`final_pairing_one_allocation_generation.stamp_manifest_with_selection`), with `label="UNUSED_FOR_SELECTION_OR_CLAIM"` set on every unselected confirmation dose's entry -- the original, transfer-verified manifest is never mutated in place. `--selection-commit`/`--confirmation-commit` are filled in via `final_pairing_judge_cli.finalize_selection_ancestry` once the confirmation-judging commit actually exists (these two fields cannot be known at `write-selection` time, since a file cannot embed the hash of its own future commit).
+
+Engineer 3's real `dose-check --manifest <stamped manifest> --selection-record <selection record>` command (commit ac9ea40) verifies the whole graph: seed disjointness, one file per dose, five doses per COMPLETE concept, the confirmation shape parsed from the protocol itself, the sealed stamp, and the git ancestry -- proven against a real manifest/selection-record pair this project's own test suite generates (see the closing report for the captured passing run).
+
+`--lodestar-source-root` (default: `LODESTAR_SOURCE_ROOT` env var, else
+`D:/lodstar`) is inserted onto `sys.path` explicitly -- Lodestar is never
+installed into this repository's own `.venv`. `ANTHROPIC_API_KEY` is read
+from the environment only, never logged, printed, or accepted on the
+command line. `MockJudge`/`NoOpJudge` model identities are refused by
+name (`assert_judge_model_is_attestable`) from ever reaching a function
+that persists a result as attested evidence, independent of and in
+addition to Engineer 3's own `NOOP_JUDGE_MODELS` refusal.
+
+## What remains genuinely undone (disclosed, not silently dropped)
+
+1. **No cell of the grid, no generation, and no judged score in this
+   packet has ever been produced against real GPU/model weights or a real
+   Anthropic API call.** No Tamia allocation and no GPU were available in
+   this environment. Every function above is real code, exercised against
+   real frozen artifacts and real (CPU, tiny-tensor) fake backends -- the
+   fake backends' own embedding rule is tuned to the unit-test suite's
+   short fixture sentences, not the real, richer bilingual frozen prompt
+   set, so an end-to-end grid run against them legitimately returns
+   `status="fail"` rather than an organic pass (proven, and reported
+   honestly, in the closing report for this pass rather than manufactured
+   to look green).
+2. **No real, paid Lodestar judgment has been made.** The judge CLI's
+   real, zero-cost cost-estimation path IS exercised for real in this
+   repository's test suite (against Lodestar's real cost arithmetic); the
+   actual `AnthropicJudge` network call is exercised in tests only via an
+   injected `judge_factory` returning Lodestar's own real `MockJudge` --
+   proving the estimate/budget/cache/persistence machinery without
+   spending money or requiring a credential, since there is no real
+   Tamia-generated transfer manifest in this environment to judge yet.
+3. **The official per-SAE `examples.safetensors` census** (activations/
    positions/seq_ids/tokens/feature_frequencies/logit_effects/top-bottom
-   logits, shipped alongside each Gemma Scope 2 SAE directory) is not read
-   anywhere in this codebase. No such file exists on any machine used in
-   this investigation, so a parser for its exact tensor layout would be
-   unverified against a real file -- writing one blind risks silently
-   wrong code that looks complete. `rank_features_by_activation`/
-   `corpus_max_per_feature` still do their own forward passes over the
-   supplied prompt texts; this is correct but does not yet take advantage
-   of the cheaper official pre-filter (dead/ultra-high-frequency exclusion,
-   reduced forward-pass volume) the LA-C addendum describes. G-A/B/C still
-   run on the frozen researcher-authored prompts regardless, per that same
-   addendum -- this gap is a missed optimization, not a correctness gap.
-2. **The dual-GPU orchestrator does not yet implement the staggered
-   cold-load READY-handshake** (start Qwen on GPU 1, wait for an atomic
-   READY record from its own model+SAE load, only then start Gemma on
-   GPU 0, then let both scientific stages proceed concurrently). It still
-   launches both lanes together via `launch_all()`. `final_pairing_
-   concept_discovery.py`'s own `run()` does not yet emit any READY record
-   at all. This is a real, load-bearing sequencing gap if simultaneous
-   12B+27B cold loads turn out to contend for host RAM/PCIe bandwidth on a
-   real node -- flagged here rather than shipped as an untested guess at
-   the handshake protocol's exact shape (timeout value, READY record
-   schema, which stage boundary counts as "loaded").
-3. **`compute_gate_a_and_b_per_family` is implemented and tested (including
-   against the real frozen artifact) but not yet wired into `run()`'s
-   automatic pipeline.** `run()` still uses the earlier, simpler generic
-   train/holdout AUC design (`validate_specificity`) against whatever
-   `--prompt-set-path` supplies. Consuming `FrozenPromptArtifact` directly
-   inside `run()`'s stage 1/2 (so a single CLI invocation does ranking +
-   G-A/G-B against the real per-family/per-split structure end-to-end) is
-   the natural next step, not done here to avoid a same-day rewrite of an
-   already-tested pipeline under this level of time pressure.
-4. **G-C (specificity vs. near_miss), G-D (Amplify, heldout_neutral
-   substrate), and G-E (Suppress, heldout_eliciting substrate) are not
-   implemented at all.** All three need judged relevance/coherence deltas
-   from a real generation + a real Lodestar-backed judge (`ci_method: "SS9
-   prompt-group bootstrap"` in `metadata.json["thresholds"]` names the
-   statistical machinery, `interplab.stats.stats.bootstrap_ci`/
-   `seed_variance`, but no real judge exists anywhere in this codebase --
-   see "no invented concept labels/judges" throughout). `--judge-config`
-   still only records an identity; nothing calls it.
-
-## Unresolved protocol fields (still required from the Architect)
-
-Ranked by how much they block a real run:
-
-1. **RESOLVED, corrected from an earlier version of this packet: the
-   backup trigger's Boolean rule is frozen** at `protocols/final_pairing/
-   v1/backup_trigger.json` (commit `125b1d3`), found and wired in
-   (`evaluate_backup_trigger`, `assert_gemma_qwen_depth_matches`) after
-   this packet had already stated the opposite. What is still genuinely
-   missing is not the rule but its INPUT: no script in this repository
-   assembles the full 14-concept grid (`primary_complete`,
-   `primary_shared_gabc_count`) the formula reads, and G-C has no
-   implementation at all yet (see "Not yet implemented" above). This is
-   the actual remaining blocker for computing `--run-backup` automatically
-   -- not an unknown rule.
-   (My own exhaustive-repo-search claim in an earlier draft of this packet
-   -- that no such rule existed anywhere under any name -- was itself
-   wrong: `protocols/` was committed to this exact branch before that
-   search ran, in a directory I never checked. Recorded here rather than
-   silently amended, since the same failure mode -- assuming absence from
-   a search that didn't cover every directory -- is worth remembering,
-   not just fixing.)
-2. **UPDATE: `metadata.json["thresholds"]` now DEFINES `G_A_separation_
-   auroc_min` (0.9), `G_B_activation_floor_fraction_of_observed_max` (0.2),
-   and `G_B_fire_rate_min` (0.7)** -- these are no longer missing for G-A/
-   G-B, and `compute_gate_a_and_b_per_family` reads them by default. What
-   remains unresolved: `--specificity-auc-threshold` (this runner's own,
-   SEPARATE, generic stage-2 gate, used by `run()`'s automatic pipeline,
-   which is not yet the same computation as G-A/G-B -- see "Not yet
-   implemented" item 3 above) still has no Architect-given value of its
-   own, and `second_target_relevance_gain_min: 1.0` in the same thresholds
-   block may or may not be the intended value for `--bundle-materiality-
-   threshold` (stage 4's greedy-composition gate) -- the name suggests it
-   is, but nothing confirms that mapping is exactly right rather than
-   coincidentally similar.
-3. **`G_D_amplify_relevance_delta_min` (3.0) / `G_E_suppress_relevance_
-   delta_max` (-3.0) / `G_D_coherence_median_min` / `G_E_coherence_median_
-   min` (both 6.0) exist in `metadata.json` but cannot be used yet** --
-   they gate JUDGED relevance/coherence deltas, and no real judge exists
-   anywhere in this codebase (see "Not yet implemented" item 4). This
-   packet's `--calibration-low/-medium/-high-threshold` (stage 6, in
-   `value_in_max_units`) remain a distinct, simpler mechanism with no
-   Architect-given value -- whether Low/Medium/High should instead be
-   DERIVED from G-D/G-E's judged thresholds once a real judge exists,
-   rather than being a separate dose-unit boundary, is itself an open
-   design question this packet does not resolve.
-4. **Whether `value_in_max_units` (multiples of the background-corpus max
-   activation) is the correct unit convention for the Architect's
-   Low/Medium/High tiers**, or whether a different unit (e.g. an absolute
-   activation value, or a percentile) was intended -- this tool adopted
-   `value_in_max_units` because it is the ONLY dose-unit convention already
-   established anywhere in this codebase (`interplab.interventions.spec.
-   InterventionSpec.value_in_max_units`); no calibration-tier unit is
-   defined anywhere else to compare against.
-5. **Whether `resid_post/layer_<L>_width_16k_l0_medium` is really the
-   correct Gemma-Scope-2 registry naming for layers 29 and 24** (verified
-   present in the installed `sae_lens` registry for layer 31 only, per the
-   already-accepted mechanical target) -- Lab Assistant B's own
-   verification against the real release metadata, requested in the
-   ratified scientific SAE decision for Qwen, has an exact Gemma analog
-   this packet assumes but cannot independently confirm without network/
-   Tamia access.
-7. **A real judge implementation.** `--judge-config` only records an
-   identity; no code path anywhere in this tool actually scores or labels
-   anything. Wiring a real Lodestar-backed judge is out of scope here, per
-   this dispatch's own "do not invent concept labels" instruction.
+   logits, shipped alongside each Gemma Scope 2 SAE directory) is still
+   not read anywhere in this codebase -- no such file exists on any
+   machine used in this investigation, so a parser for its exact tensor
+   layout remains unverified against a real file. `rank_features_by_
+   activation`/`corpus_max_per_feature` still do their own forward passes
+   over the supplied prompt texts (correct, just not taking advantage of
+   the cheaper official pre-filter).
+4. **`--calibration-low/-medium/-high-threshold` (stage 6, in
+   `value_in_max_units`) and the one-allocation protocol's LOW/MEDIUM/HIGH
+   selection remain the SAME dose-threshold mechanism** (`select_
+   calibration_candidates`), applied to judged sweep scores by researcher
+   judgment rather than by a newly-invented judged-score-to-tier algorithm
+   this packet does not find clearly specified anywhere -- a disclosed
+   scoping decision, not a silent guess, per this project's own "flag
+   ambiguity, don't invent" rule.
+5. **This development machine's own `.venv` lacks two of Lodestar's
+   dependencies** (`anthropic`, `aiosqlite`) by design -- per the explicit
+   instruction not to install Lodestar's dependencies into `qwen-sae-
+   interp`. `local_judge_preflight.py` correctly reports `setup_failure`
+   (never a fabricated pass) for the two cases that need them on this
+   specific machine; it is designed to run wherever Lodestar's full
+   dependency set is installed, which this machine deliberately is not.
+6. **Some of the Gemma local-loader addendum's required coverage is
+   satisfied by REUSE of `final_pairing_targets.py`'s own pre-existing,
+   extensively-tested suite** (wrong-revision-refused, symlink-escape-
+   refused, sibling-prefix-refused) rather than new authorship in this
+   pass -- named here explicitly rather than left ambiguous about which
+   coverage is new.

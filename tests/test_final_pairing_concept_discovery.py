@@ -1026,3 +1026,113 @@ def test_run_dose_response_confirmation_resumes_without_recomputing_completed_ce
         d.run_intervention = original
     assert calls["n"] == 0
     assert len(second[1.0]) == 4
+
+
+# ---------------------------------------------------------------------------
+# params_sha256: measured-vs-expected identity v1.3 hash semantics, and the
+# identity-artifact hash guard itself.
+# ---------------------------------------------------------------------------
+
+
+def test_compute_file_sha256_matches_hashlib_reference(tmp_path):
+    path = tmp_path / "blob.bin"
+    path.write_bytes(b"some bytes" * 1000)
+    assert d.compute_file_sha256(path) == hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_assert_params_sha256_matches_returns_the_measured_digest_on_a_match(tmp_path):
+    path = tmp_path / "params.safetensors"
+    path.write_bytes(b"fake sae weights")
+    expected = hashlib.sha256(path.read_bytes()).hexdigest()
+    measured = d.assert_params_sha256_matches([str(path)], expected_sha256=expected)
+    assert measured == expected
+
+
+def test_assert_params_sha256_matches_refuses_a_mismatch_rather_than_returning_the_expected_value(tmp_path):
+    path = tmp_path / "params.safetensors"
+    path.write_bytes(b"fake sae weights, tampered")
+    wrong_expected = "0" * 64
+    with pytest.raises(targets.TargetIdentityMismatch, match="hard stop"):
+        d.assert_params_sha256_matches([str(path)], expected_sha256=wrong_expected)
+
+
+def test_assert_params_sha256_matches_refuses_when_no_params_file_is_present(tmp_path):
+    other = tmp_path / "cfg.json"
+    other.write_text("{}", encoding="utf-8")
+    with pytest.raises(targets.TargetIdentityMismatch, match=r"no params\.safetensors"):
+        d.assert_params_sha256_matches([str(other)], expected_sha256="0" * 64)
+
+
+def test_assert_params_sha256_matches_refuses_more_than_one_params_file(tmp_path):
+    first = tmp_path / "a" / "params.safetensors"
+    second = tmp_path / "b" / "params.safetensors"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_bytes(b"one")
+    second.write_bytes(b"two")
+    with pytest.raises(targets.TargetIdentityMismatch, match=r"exactly one params\.safetensors"):
+        d.assert_params_sha256_matches([str(first), str(second)], expected_sha256="0" * 64)
+
+
+def test_primary_and_backup_configurations_carry_distinct_frozen_params_hashes():
+    assert d.PRIMARY_CONFIGURATION.gemma_params_expected_sha256 == (
+        "6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e"
+    )
+    assert d.BACKUP_CONFIGURATION.gemma_params_expected_sha256 == (
+        "2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e"
+    )
+    assert d.PRIMARY_CONFIGURATION.gemma_params_expected_sha256 != d.BACKUP_CONFIGURATION.gemma_params_expected_sha256
+
+
+def test_validate_scientific_config_identity_hash_passes_against_the_real_frozen_artifact():
+    digest = d.validate_scientific_config_identity_hash(REPO_ROOT)
+    assert digest == d.IDENTITY_PROTOCOL_SHA256
+
+
+def test_validate_scientific_config_identity_hash_refuses_a_tampered_copy(tmp_path):
+    tampered_root = tmp_path
+    tampered_path = tampered_root / "protocols" / "final_pairing" / "v1" / "scientific_config_identity.json"
+    tampered_path.parent.mkdir(parents=True)
+    tampered_path.write_text('{"protocol_version": "tampered"}', encoding="utf-8")
+    with pytest.raises(d.PromptArtifactError, match="altered or superseded"):
+        d.validate_scientific_config_identity_hash(tampered_root)
+
+
+# ---------------------------------------------------------------------------
+# Dtype boundary: bfloat16 residual + float32 SAE math, explicit cast back.
+# `_make_clamp_hook` (interplab/interventions/hooks.py, frozen) already
+# implements this correctly -- these tests are the previously-missing
+# numerical proof, calling that frozen function directly.
+# ---------------------------------------------------------------------------
+
+
+def test_dtype_boundary_bfloat16_residual_float32_sae_explicit_cast_back():
+    diagnostics = d.verify_dtype_boundary_policy(residual_dtype=torch.bfloat16)
+    assert diagnostics.residual_input_dtype == "torch.bfloat16"
+    assert diagnostics.residual_output_dtype == "torch.bfloat16"
+    assert diagnostics.sae_encode_input_dtypes == ["torch.float32"]
+    assert diagnostics.sae_decode_input_dtypes == ["torch.float32", "torch.float32"]  # clean_recon, clamped_recon
+    assert diagnostics.explicit_cast_confirmed is True
+
+
+def test_dtype_boundary_also_holds_for_float16_residual():
+    diagnostics = d.verify_dtype_boundary_policy(residual_dtype=torch.float16)
+    assert diagnostics.residual_output_dtype == "torch.float16"
+    assert diagnostics.sae_encode_input_dtypes == ["torch.float32"]
+
+
+def test_dtype_recording_sae_catches_a_would_be_regression_directly():
+    """Proves the recording fake itself is a real, live probe, not a
+    rubber stamp: if `_make_clamp_hook` ever passed the residual through
+    WITHOUT casting to float32 first, `_DtypeRecordingSAE.encode` would
+    receive a bfloat16 tensor against its own float32 weight matrix --
+    which torch itself refuses with a dtype-mismatch RuntimeError (proven
+    directly here, bypassing the hook), an even stronger guarantee than a
+    silently-recorded wrong dtype would be. The dtype is recorded before
+    the matmul is attempted, so `encode_input_dtypes` reflects the actual
+    (wrong) input even though the call itself then raises."""
+    recording_sae = d._DtypeRecordingSAE(d_in=8, d_sae=16)
+    x_bf16 = torch.randn(1, 3, 8, dtype=torch.bfloat16)
+    with pytest.raises(RuntimeError, match="dtype"):
+        recording_sae.encode(x_bf16)
+    assert recording_sae.encode_input_dtypes == [torch.bfloat16]

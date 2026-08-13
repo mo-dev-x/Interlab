@@ -1,0 +1,168 @@
+{
+  "objects": {
+    "<root>": {
+      "required": [
+        "discovery_schema_version",
+        "run",
+        "pairing",
+        "concept",
+        "discovery",
+        "validation",
+        "subject",
+        "calibration",
+        "positions",
+        "prompt_set",
+        "causal_validation",
+        "dose_response",
+        "configuration"
+      ]
+    },
+    "calibration": {
+      "<direction>": {
+        "required": [
+          "operation",
+          "targets"
+        ]
+      },
+      "directions": {
+        "required": [
+          "amplify",
+          "suppress"
+        ]
+      },
+      "required": [
+        "protocol",
+        "calibrated_by",
+        "calibrated_at",
+        "directions"
+      ]
+    },
+    "causal_validation": {
+      "judge": {
+        "required": [
+          "model",
+          "rubric_version",
+          "prompt_version"
+        ]
+      },
+      "optional": [
+        "spot_read",
+        "generated_only_diagnostic"
+      ],
+      "required": [
+        "prompt_set_commit",
+        "computed_at_commit",
+        "positions",
+        "gates",
+        "judge"
+      ],
+      "spot_read": {
+        "required": [
+          "approved_by",
+          "approved_at",
+          "note",
+          "sampled_generations"
+        ]
+      }
+    },
+    "concept": {
+      "required": [
+        "concept_id",
+        "hypothesis_source"
+      ]
+    },
+    "configuration": {
+      "required": [
+        "name",
+        "completeness",
+        "model_n_layers",
+        "grid_cells_expected",
+        "grid_cells_recorded"
+      ]
+    },
+    "discovery": {
+      "optional": [
+        "candidate_index",
+        "candidate_rank",
+        "engineering_index_rediscovery_note"
+      ],
+      "required": [
+        "rediscovered_in_this_run",
+        "search_scope",
+        "inherited_from_legacy"
+      ]
+    },
+    "dose_response": {
+      "required": [
+        "computed_at_commit",
+        "observations"
+      ]
+    },
+    "pairing": {
+      "layer_selection": {
+        "required": [
+          "selected_by",
+          "rationale",
+          "recorded_in"
+        ]
+      },
+      "optional": [
+        "layer_selection"
+      ],
+      "required": [
+        "model_id",
+        "model_revision",
+        "sae_repo_id",
+        "sae_repo_revision",
+        "sae_id",
+        "layer",
+        "release",
+        "loader_sae_id",
+        "params_sha256"
+      ]
+    },
+    "positions": {
+      "enum": [
+        "all",
+        "generated_only"
+      ]
+    },
+    "prompt_set": {
+      "required": [
+        "prompt_set_id",
+        "source_path",
+        "source_sha256",
+        "source_commit",
+        "paraphrase_families"
+      ]
+    },
+    "run": {
+      "required": [
+        "run_id",
+        "code_commit",
+        "entrypoint",
+        "host",
+        "created_at"
+      ]
+    },
+    "subject": {
+      "type": "array of {content_hash, location, role}"
+    },
+    "validation": {
+      "required": [
+        "feature_index",
+        "concept_id",
+        "specificity",
+        "sensitivity",
+        "cross_lingual_firing",
+        "selectivity",
+        "probe",
+        "verdict",
+        "verdict_basis"
+      ]
+    }
+  },
+  "schema_id": "concept_bundle.discovery_input",
+  "schema_version": "1.3",
+  "status": "ENGINEER 1 PRODUCER DECLARATION -- ratified against d833ba4's reconcile-schema/gating-report"
+}

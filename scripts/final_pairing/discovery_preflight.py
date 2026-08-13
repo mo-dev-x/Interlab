@@ -134,9 +134,10 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
         d.run_prompt_set_validator(REPO_ROOT)
         artifact = d.load_frozen_prompt_artifact(REPO_ROOT, allow_pi_gated=True)
         d.validate_backup_trigger_protocol_hash(REPO_ROOT)
+        d.validate_scientific_config_identity_hash(REPO_ROOT)
         return (
             f"prompt_set_commit={artifact.commit[:12]} prompt_sha256={artifact.prompt_sets_sha256[:12]} "
-            f"rows={len(artifact.rows)} backup_trigger_sha256_verified=True"
+            f"rows={len(artifact.rows)} backup_trigger_sha256_verified=True identity_v1.3_sha256_verified=True"
         )
 
     runner.case("frozen_prompt_and_protocol_hash_validation", case_frozen_hashes)
@@ -369,12 +370,17 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
 
     def case_document_shape() -> str:
         head = _git_head()
+        synthetic_manifest_path = tmp_root / "generation_manifest_amplify_synthetic.json"
+        synthetic_manifest_path.write_text(json.dumps({"synthetic": "preflight manifest, not a real run"}), encoding="utf-8")
+        synthetic_selection_path = tmp_root / "selection_record_amplify_synthetic.json"
+        synthetic_selection_path.write_text(json.dumps({"synthetic": "preflight selection record, not a real run"}), encoding="utf-8")
         document = ed.assemble_discovery_document(
-            run_id="r-preflight-0001", code_commit=head, entrypoint="scripts.legacy.discovery_preflight",
+            run_id="r-preflight-0001", code_commit=head, entrypoint="scripts.final_pairing.discovery_preflight",
             host="preflight-synthetic", created_at="2026-08-13T00:00:00Z",
             model_id="google/gemma-3-12b-it", model_revision="deadbeef" * 5,
             sae_repo_id="google/gemma-scope-2-12b-it", sae_repo_revision="deadbeef" * 5,
             sae_id="resid_post_all/layer_29_width_16k_l0_big", layer=29,
+            release="gemma-scope-2-12b-it-res-all", loader_sae_id="layer_29_width_16k_l0_big", params_sha256=None,
             layer_selection={"selected_by": "preflight", "rationale": "synthetic", "recorded_in": "tamia:preflight/discovery_record.json"},
             concept_id="cheese", hypothesis_source="synthetic preflight hypothesis",
             search_scope="preflight synthetic shortlist", candidate_index=1, engineering_index_rediscovery_note=None,
@@ -403,11 +409,24 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
                 {"gate": "G-D", "status": "pass", "direction": "amplify", "evidence": "preflight synthetic"},
             ],
             spot_read=None,
+            judge_model="claude-sonnet-4-5-20250929", judge_rubric_version="1.0", judge_prompt_version="lodestar-steering-v1",
             dose_response={
                 "amplify": {"computed_at_commit": head,
                             "observations": [{"dose_multiple": 0.5, "arm": "steered", "n_generations": 20, "effect_note": "synthetic"}],
                             "unit": "corpus_max_multiple", "measured_maximum": 12.3,
                             "strength_mapping": {"low": 0.5, "medium": 1.0, "high": 2.0}},
+            },
+            configuration_name="primary", configuration_completeness="COMPLETE",
+            configuration_model_n_layers=48, configuration_grid_cells_expected=1, configuration_grid_cells_recorded=1,
+            generation_manifests={
+                "amplify": ed.build_manifest_reference(synthetic_manifest_path, computed_at_commit=head),
+                "suppress": None,
+            },
+            selection_records={
+                "amplify": ed.build_selection_record_reference(
+                    synthetic_selection_path, selection_commit=head, confirmation_judging_commit=head,
+                ),
+                "suppress": None,
             },
         )
         document_holder["document"] = document
@@ -490,18 +509,24 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("checkpoint_interruption_and_exact_cell_resume", case_checkpoint_resume)
 
     # -----------------------------------------------------------------
-    # 15. Producer/consumer schema compatibility.
+    # 15. Producer/consumer schema compatibility -- OFFLINE, NON-GATING
+    # defense-in-depth only (this Tamia compute node has no eng3/
+    # concept-bundle checkout and no internet; the actual submission gate
+    # is `run_gating_report_with_eng3`, run separately against a live
+    # worktree -- see the closing report for that real result).
     # -----------------------------------------------------------------
     def case_schema_reconciliation() -> str:
         document = document_holder.get("document")
         if document is None:
             raise SetupFailure("document_amplify_only_all_positions_four_binding_records did not run first")
         result = ed.reconcile_against_static_snapshot(REPO_ROOT, document)
+        if result["gating"]:
+            raise AssertionError("reconcile_against_static_snapshot must never report itself as gating")
         if not result["compatible"]:
             raise AssertionError(f"producer/consumer schema reconciliation reported incompatible: {result}")
-        return json.dumps({k: result[k] for k in ("snapshot_commit", "schema_version_agrees", "compatible")})
+        return json.dumps({k: result[k] for k in ("snapshot_commit", "schema_version_agrees", "compatible", "gating")})
 
-    runner.case("producer_consumer_schema_compatibility", case_schema_reconciliation)
+    runner.case("producer_consumer_schema_compatibility_offline_nongating", case_schema_reconciliation)
 
     # -----------------------------------------------------------------
     # 16 + 17. Exact $SLURM_JOB_ID roots; noncanonical sibling ignored.

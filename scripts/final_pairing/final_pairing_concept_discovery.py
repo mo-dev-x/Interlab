@@ -195,19 +195,102 @@ class MatchedConfiguration:
     gemma_sae_release: str
     gemma_sae_id: str
     gemma_sae_loader_id: str
+    #: The frozen EXPECTED digest of this configuration's params.safetensors
+    #: file, from protocols/final_pairing/v1/scientific_config_identity.json
+    #: v1.3.0 (commit 5a5175d) `configurations.<NAME>.params_expected_sha256`.
+    #: This is compared against a digest MEASURED from the actual file loaded
+    #: at runtime (`assert_params_sha256_matches` below) -- it is never itself
+    #: emitted as `pairing.params_sha256`: "a recorded revision is trusted
+    #: only where a hash check enforces it", so the emitted value must come
+    #: from hashing the file on disk, not from copying this constant.
+    gemma_params_expected_sha256: str
 
 
 PRIMARY_CONFIGURATION = MatchedConfiguration(
     name="primary", qwen_layer=38, qwen_sae_family="L0_100", qwen_sparsity=100, gemma_layer=29, qwen_depth_fraction=0.59375,
     gemma_sae_release="gemma-scope-2-12b-it-res-all", gemma_sae_id="resid_post_all/layer_29_width_16k_l0_big",
     gemma_sae_loader_id="layer_29_width_16k_l0_big",
+    gemma_params_expected_sha256="6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e",
 )
 BACKUP_CONFIGURATION = MatchedConfiguration(
     name="backup", qwen_layer=32, qwen_sae_family="L0_50", qwen_sparsity=50, gemma_layer=24, qwen_depth_fraction=0.5,
     gemma_sae_release="gemma-scope-2-12b-it-res", gemma_sae_id="resid_post/layer_24_width_16k_l0_medium",
     gemma_sae_loader_id="layer_24_width_16k_l0_medium",
+    gemma_params_expected_sha256="2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e",
 )
 MATCHED_CONFIGURATIONS: dict[str, MatchedConfiguration] = {"primary": PRIMARY_CONFIGURATION, "backup": BACKUP_CONFIGURATION}
+
+# protocols/final_pairing/v1/scientific_config_identity.json, v1.3.0 (commit
+# 5a5175d): the version this file's MATCHED_CONFIGURATIONS constants above
+# are transcribed from. v1.3.0's only change from v1.2.0 (93450e5) is
+# supplying PRIMARY's params_expected_sha256 (was null/PENDING); no
+# configuration, layer, release, or threshold changed.
+IDENTITY_PROTOCOL_PATH = "protocols/final_pairing/v1/scientific_config_identity.json"
+IDENTITY_PROTOCOL_COMMIT = "5a5175d36eac9802b45f76aeb5b52ff6b25220a8"
+IDENTITY_PROTOCOL_SHA256 = "ac41a858b9e8a82159d2bd85c114dfcc8cec1b4d2b6f8a250c6482c18c915023"
+
+
+def validate_scientific_config_identity_hash(repo_root: str | Path) -> str:
+    """Fails closed if `scientific_config_identity.json`'s actual bytes
+    don't match the pinned v1.3.0 hash -- the same discipline as
+    `validate_backup_trigger_protocol_hash`, applied to the identity
+    artifact this file's `MATCHED_CONFIGURATIONS` constants are
+    transcribed from, so a silently-edited or reverted identity file is
+    caught rather than trusted because this file's own constants still
+    read as v1.3.0."""
+    path = Path(repo_root) / IDENTITY_PROTOCOL_PATH
+    if not path.is_file():
+        raise PromptArtifactError(f"scientific-config identity protocol not found at {path}")
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != IDENTITY_PROTOCOL_SHA256.lower():
+        raise PromptArtifactError(
+            f"{path} sha256={actual!r} != pinned {IDENTITY_PROTOCOL_SHA256!r} -- refusing to run "
+            f"discovery against an altered or superseded scientific-config identity artifact."
+        )
+    return actual
+
+
+def compute_file_sha256(path: str | Path, *, chunk_size: int = 1 << 20) -> str:
+    """Streaming SHA-256 of a file's actual bytes on disk -- never a
+    stand-in for reading the whole file into memory at once, since SAE
+    params files can be large."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def assert_params_sha256_matches(resolved_sae_files: list[str], *, expected_sha256: str) -> str:
+    """Finds the SAE's `params.safetensors` among the files sae_lens
+    actually resolved locally, computes ITS ACTUAL SHA-256 from the bytes
+    on disk, and asserts it equals `expected_sha256` (the frozen
+    identity artifact's `params_expected_sha256` for this configuration).
+    Returns the MEASURED digest -- the caller must persist exactly this
+    return value as `pairing.params_sha256`, never the `expected_sha256`
+    argument itself: 'the revision string says what was downloaded, and
+    only the hash says what is on disk', so a value that was never
+    actually computed from the loaded file is not a verified hash
+    regardless of whether it happens to be correct."""
+    candidates = [f for f in resolved_sae_files if Path(f).name == "params.safetensors"]
+    if not candidates:
+        raise targets.TargetIdentityMismatch(
+            f"no params.safetensors found among resolved SAE files {resolved_sae_files} -- cannot "
+            f"measure a params hash to verify against the frozen identity artifact"
+        )
+    if len(candidates) > 1:
+        raise targets.TargetIdentityMismatch(
+            f"expected exactly one params.safetensors among resolved SAE files, found "
+            f"{len(candidates)}: {candidates}"
+        )
+    measured = compute_file_sha256(candidates[0])
+    if measured != expected_sha256:
+        raise targets.TargetIdentityMismatch(
+            f"{candidates[0]} hashes to {measured!r}, not the frozen expected "
+            f"{expected_sha256!r} ({IDENTITY_PROTOCOL_COMMIT}). Mismatch is a hard stop: the "
+            f"revision says what was downloaded, only the hash says what is on disk."
+        )
+    return measured
 
 # The backup trigger's exact Boolean rule -- frozen at
 # protocols/final_pairing/v1/backup_trigger.json (commit 125b1d3), found
@@ -1180,6 +1263,13 @@ def load_gemma_scientific_target(
     subdirectory_identity = targets.validate_sae_files_match_expected_subdirectory(resolved_sae_files, sae_path, target)
     targets.validate_sae_symlink_targets_stay_in_repository_cache(resolved_sae_files, sae_path, target)
 
+    configuration = next((c for c in MATCHED_CONFIGURATIONS.values() if c.gemma_layer == layer), None)
+    if configuration is None:
+        raise AssertionError("unreachable: layer already validated against _GEMMA_SCIENTIFIC_LAYERS")
+    measured_params_sha256 = assert_params_sha256_matches(
+        resolved_sae_files, expected_sha256=configuration.gemma_params_expected_sha256,
+    )
+
     sae = sae.to(dtype=torch.float32)
     sae.eval()
 
@@ -1201,9 +1291,6 @@ def load_gemma_scientific_target(
             f"HookedTransformer's model.cfg.n_layers={model.cfg.n_layers} -- refusing to compute a "
             f"depth fraction from a value that does not match what was actually loaded."
         )
-    configuration = next((c for c in MATCHED_CONFIGURATIONS.values() if c.gemma_layer == layer), None)
-    if configuration is None:
-        raise AssertionError("unreachable: layer already validated against _GEMMA_SCIENTIFIC_LAYERS")
     gemma_depth_fraction = assert_gemma_qwen_depth_matches(
         gemma_layer=layer, gemma_n_layers=gemma_n_layers, qwen_depth_fraction=configuration.qwen_depth_fraction,
     )
@@ -1229,6 +1316,10 @@ def load_gemma_scientific_target(
             "subdirectory_membership_verified": subdirectory_identity["sae_subdirectory_membership_verified"],
             "physical_cache_containment_verified": True,
             "registry_release_and_subdirectory_verified": True,
+            # MEASURED from the actual params.safetensors bytes on disk (assert_params_sha256_matches),
+            # already asserted equal to the frozen identity artifact's expected value above -- never the
+            # expected constant copied in without hashing the file.
+            "params_sha256": measured_params_sha256,
             # sae.cfg carries loader defaults (e.g. context_size, dataset_path) that describe
             # HOW the SAE was trained upstream, not a measurement this pipeline made -- never
             # copied into provenance as if they were this run's own scientific claims.
@@ -1707,6 +1798,91 @@ def validate_specificity(
 # ---------------------------------------------------------------------------
 
 from interplab.interventions.hooks import _make_clamp_hook  # noqa: E402
+
+
+class _DtypeRecordingSAE:
+    """A minimal `.encode`/`.decode` object used ONLY to observe what
+    dtype `_make_clamp_hook` (frozen, `interplab/interventions/hooks.py`)
+    actually passes it -- deliberately does NOT auto-cast its own inputs
+    (unlike `final_pairing_fakes.FakeSAE`, whose `encode`/`decode` call
+    `.to(torch.float32)` internally and would therefore mask a real
+    caller-side regression). If `_make_clamp_hook` ever stopped casting
+    the residual to float32 before calling `encode`/`decode`, this object
+    would receive and record the WRONG dtype, catching it."""
+
+    def __init__(self, d_in: int, d_sae: int) -> None:
+        import torch
+
+        self.encode_input_dtypes: list[torch.dtype] = []
+        self.decode_input_dtypes: list[torch.dtype] = []
+        w = torch.zeros(d_sae, d_in, dtype=torch.float32)
+        w[0, 0] = 1.0
+        self._w = w
+
+    def encode(self, x):
+        import torch
+
+        self.encode_input_dtypes.append(x.dtype)
+        return torch.relu(x) @ self._w.T
+
+    def decode(self, feats):
+        self.decode_input_dtypes.append(feats.dtype)
+        return feats @ self._w
+
+
+@dataclass(frozen=True)
+class DtypeBoundaryDiagnostics:
+    residual_input_dtype: str
+    residual_output_dtype: str
+    sae_encode_input_dtypes: list[str]
+    sae_decode_input_dtypes: list[str]
+    explicit_cast_confirmed: bool
+
+
+def verify_dtype_boundary_policy(
+    *, residual_dtype=None, d_in: int = 8, d_sae: int = 16, feature_index: int = 0, clamp_value: float = 1.0,
+    seq_len: int = 3, batch: int = 1,
+) -> DtypeBoundaryDiagnostics:
+    """A REAL, direct numerical proof of the dtype boundary policy the
+    frozen `_make_clamp_hook` already implements: the INPUT residual
+    retains the model's own dtype (bfloat16 here by default -- this
+    project's real Gemma/Qwen inference dtype); the SAE's encode/decode
+    math runs in float32 (`_DtypeRecordingSAE` observes and records the
+    exact dtype it receives, never assuming it); and the reconstructed
+    intervention delta is cast EXPLICITLY back to the residual's own
+    dtype before `hook_fn` returns -- never an implicit promotion of the
+    whole residual stream to float32. Calls `_make_clamp_hook` DIRECTLY
+    against a synthetic tensor (no model, no GPU, no real weights) so
+    this is a genuine test of the frozen hook's actual dtype arithmetic,
+    not a description of intended behavior."""
+    import torch
+
+    residual_dtype = residual_dtype or torch.bfloat16
+    recording_sae = _DtypeRecordingSAE(d_in, d_sae)
+    resid = torch.randn(batch, seq_len, d_in, dtype=residual_dtype)
+    hook_fn = _make_clamp_hook(recording_sae, feature_index, clamp_value, "all", None, [])
+    result = hook_fn(resid, hook=None)
+
+    if any(dt != torch.float32 for dt in recording_sae.encode_input_dtypes):
+        raise AssertionError(
+            f"SAE encode() received a non-float32 tensor: {recording_sae.encode_input_dtypes} -- the residual "
+            f"must be cast to float32 BEFORE the SAE encode/decode round trip, never passed through at model dtype."
+        )
+    if any(dt != torch.float32 for dt in recording_sae.decode_input_dtypes):
+        raise AssertionError(
+            f"SAE decode() received a non-float32 tensor: {recording_sae.decode_input_dtypes}"
+        )
+    if result.dtype != residual_dtype:
+        raise AssertionError(
+            f"dtype boundary violated: input residual dtype {residual_dtype} became {result.dtype} on return -- "
+            f"the model residual stream must never be implicitly promoted away from its own dtype."
+        )
+    return DtypeBoundaryDiagnostics(
+        residual_input_dtype=str(residual_dtype), residual_output_dtype=str(result.dtype),
+        sae_encode_input_dtypes=[str(dt) for dt in recording_sae.encode_input_dtypes],
+        sae_decode_input_dtypes=[str(dt) for dt in recording_sae.decode_input_dtypes],
+        explicit_cast_confirmed=(result.dtype == residual_dtype),
+    )
 
 
 @contextlib.contextmanager
