@@ -115,6 +115,41 @@ def reconcile_against_static_snapshot(repo_root: str | Path, produced_document: 
     }
 
 
+def build_direction_block(
+    *, operation: str, feature_indices: list[int], unit: str | None = None, unit_source: str | None = None,
+    strengths: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    """Builds one `calibration.directions.<name>` block, ENFORCING the
+    ablate/clamp shape rule rather than trusting the caller: ablate
+    (Suppress's operation) carries no `unit`/`unit_source`/`strengths` and
+    every target's weight is exactly 1.0 ("Suppress HIGH is ABLATE with no
+    magnitude, unit, or unit_source and weights exactly 1.0"); clamp
+    requires all three. Raises on a caller attempting the wrong shape for
+    the given operation, rather than silently dropping or defaulting
+    anything."""
+    if operation not in ("clamp", "ablate"):
+        raise ValueError(f"operation must be 'clamp' or 'ablate', got {operation!r}")
+    if operation == "ablate":
+        if unit is not None or unit_source is not None or strengths is not None:
+            raise ValueError(
+                "an ablate direction must carry no unit/unit_source/strengths -- ablation has no "
+                "dose, so there is nothing for any of the three to describe"
+            )
+        return {
+            "operation": "ablate",
+            "targets": [{"feature_idx": i, "weight": 1.0} for i in feature_indices],
+        }
+    if unit is None or unit_source is None or strengths is None:
+        raise ValueError("a clamp direction requires unit, unit_source, and strengths, all non-None")
+    if sorted(strengths) != ["high", "low", "medium"]:
+        raise ValueError(f"strengths must have exactly the keys low/medium/high, got {sorted(strengths)}")
+    return {
+        "operation": "clamp",
+        "targets": [{"feature_idx": i, "weight": 1.0} for i in feature_indices],
+        "unit": unit, "unit_source": unit_source, "strengths": dict(strengths),
+    }
+
+
 def _gate_entries_from_grid_ab_c(
     gate_ab_results: list[dict], gate_c_results: list[dict],
 ) -> list[dict[str, Any]]:

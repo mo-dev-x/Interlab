@@ -956,3 +956,73 @@ def test_run_gemma_raw_hf_hook_preflight_fails_closed_on_a_dimension_mismatch():
     tokens = torch.zeros((1, 4))
     with pytest.raises(targets.TargetIdentityMismatch):
         d.run_gemma_raw_hf_hook_preflight(model, tokens, layer=1, expected_hidden_dim=999)
+
+
+# ---------------------------------------------------------------------------
+# Dose-response confirmation sweep: every held-out prompt, n_repeats times
+# each, per dose.
+# ---------------------------------------------------------------------------
+
+
+def test_run_dose_response_confirmation_covers_every_prompt_and_repeat_per_dose():
+    backend = make_fake_gemma_backend()
+    corpus_max = d.corpus_max_per_feature(backend, NEGATIVE_TEXTS)
+    held_out = [f"{p} for confirmation" for p in POSITIVE_TEXTS[:4]]  # 4 held-out prompts
+    results = d.run_dose_response_confirmation(
+        backend, [CONCEPT_FEATURE], direction="clamp", dose_grid=[0.5, 1.0], corpus_max=corpus_max,
+        positions="all", held_out_prompts=held_out, n_repeats=3, base_seed=0, max_new_tokens=1,
+    )
+    assert set(results) == {0.5, 1.0}
+    for outcomes in results.values():
+        assert len(outcomes) == len(held_out) * 3  # 4 prompts x 3 repeats
+
+
+def test_run_dose_response_confirmation_rejects_empty_held_out_prompts():
+    backend = make_fake_gemma_backend()
+    corpus_max = d.corpus_max_per_feature(backend, NEGATIVE_TEXTS)
+    with pytest.raises(ValueError, match="at least one held-out prompt"):
+        d.run_dose_response_confirmation(
+            backend, [CONCEPT_FEATURE], direction="clamp", dose_grid=[1.0], corpus_max=corpus_max,
+            positions="all", held_out_prompts=[], n_repeats=3, base_seed=0, max_new_tokens=1,
+        )
+
+
+def test_run_dose_response_confirmation_rejects_zero_repeats():
+    backend = make_fake_gemma_backend()
+    corpus_max = d.corpus_max_per_feature(backend, NEGATIVE_TEXTS)
+    with pytest.raises(ValueError, match="n_repeats must be at least 1"):
+        d.run_dose_response_confirmation(
+            backend, [CONCEPT_FEATURE], direction="clamp", dose_grid=[1.0], corpus_max=corpus_max,
+            positions="all", held_out_prompts=["x"], n_repeats=0, base_seed=0, max_new_tokens=1,
+        )
+
+
+def test_run_dose_response_confirmation_resumes_without_recomputing_completed_cells(tmp_path):
+    backend = make_fake_gemma_backend()
+    corpus_max = d.corpus_max_per_feature(backend, NEGATIVE_TEXTS)
+    held_out = POSITIVE_TEXTS[:2]
+    progress = d.ProgressLog(tmp_path / "confirmation_progress.jsonl")
+    first = d.run_dose_response_confirmation(
+        backend, [CONCEPT_FEATURE], direction="clamp", dose_grid=[1.0], corpus_max=corpus_max,
+        positions="all", held_out_prompts=held_out, n_repeats=2, base_seed=0, max_new_tokens=1, progress=progress,
+    )
+    assert len(first[1.0]) == 4  # 2 prompts x 2 repeats
+
+    calls = {"n": 0}
+    original = d.run_intervention
+
+    def spy(*args, **kwargs):
+        calls["n"] += 1
+        return original(*args, **kwargs)
+
+    d.run_intervention = spy
+    try:
+        resumed_progress = d.ProgressLog(tmp_path / "confirmation_progress.jsonl")
+        second = d.run_dose_response_confirmation(
+            backend, [CONCEPT_FEATURE], direction="clamp", dose_grid=[1.0], corpus_max=corpus_max,
+            positions="all", held_out_prompts=held_out, n_repeats=2, base_seed=0, max_new_tokens=1, progress=resumed_progress,
+        )
+    finally:
+        d.run_intervention = original
+    assert calls["n"] == 0
+    assert len(second[1.0]) == 4

@@ -156,7 +156,28 @@ class MatchedConfiguration:
     assuming one release for both, as an earlier version of this file did
     via a single f-string formula, would have failed
     `validate_sae_loader_id_registered` for the primary configuration at
-    runtime, not merely been imprecise."""
+    runtime, not merely been imprecise.
+
+    This same fact is now separately, formally frozen at
+    `protocols/final_pairing/v1/scientific_config_identity.json`
+    (`final-pairing-config-identity/1.2.0`, commit 93450e5): BOTH releases
+    are FORCED (PRIMARY because layer 29 is off the canonical resid_post
+    grid; BACKUP because `resid_post_all` does not publish `l0_medium` at
+    layer 24 at all -- OI-1, closed) -- the split is NECESSARY, not
+    cosmetic, an earlier ("packaging, not a third family") premise that
+    protocol version explicitly WITHDRAWS. Per that same protocol: a
+    PRIMARY-to-BACKUP difference moves layer, sparsity tier, AND release/
+    training-artifact simultaneously in Gemma (and layer/k in Qwen) --
+    nothing in this file may attribute an observed PRIMARY-vs-BACKUP
+    outcome to any ONE of those dimensions; backup is a fallback
+    configuration, not a controlled ablation. Qwen TopK `k` and Gemma
+    observed L0 remain non-commensurable throughout this file: no ratio,
+    proportional-match, or "aligned/similar/matched sparsity" claim is
+    ever made between them anywhere in this codebase (verified by a
+    literal repo-wide search for those exact retracted phrasings during
+    the 1.2.0 integration pass) -- matching between the two models is by
+    transformer depth fraction ONLY (`qwen_depth_fraction`/
+    `assert_gemma_qwen_depth_matches`)."""
 
     name: Literal["primary", "backup"]
     qwen_layer: int
@@ -1884,6 +1905,53 @@ def compose_bundle_greedily(
 
 
 # ---------------------------------------------------------------------------
+# Dose-response CONFIRMATION: the cheap single-prompt curve above (used by
+# `run()` to pick calibration candidates) is not evidence of a real,
+# generalizing effect on its own. This sweep re-runs each dose in the
+# grid against every one of the 20 held-out prompts, three times each
+# (three distinct seeds) -- the confirmation this task's own dispatch
+# calls for, kept as a SEPARATE stage rather than folded into the cheap
+# curve so the two can be resumed/inspected independently.
+# ---------------------------------------------------------------------------
+
+
+def run_dose_response_confirmation(
+    backend: Backend, feature_indices: list[int], *,
+    direction: Literal["clamp", "ablate"], dose_grid: list[float], corpus_max: dict[int, float],
+    positions: str, held_out_prompts: list[str], n_repeats: int, base_seed: int, max_new_tokens: int,
+    progress: ProgressLog | None = None,
+) -> dict[float, list[InterventionOutcome]]:
+    """`len(held_out_prompts) * n_repeats` outcomes per dose -- every one
+    of the 20 held-out prompts, each repeated `n_repeats` times with a
+    distinct seed (`base_seed + repeat_index`), for EVERY dose in
+    `dose_grid`. Resumable exactly like every other stage in this file:
+    each (dose, prompt_index, repeat) cell is its own progress-log key."""
+    if not held_out_prompts:
+        raise ValueError("run_dose_response_confirmation requires at least one held-out prompt")
+    if n_repeats < 1:
+        raise ValueError("n_repeats must be at least 1")
+    results: dict[float, list[InterventionOutcome]] = {}
+    for dose in dose_grid:
+        outcomes: list[InterventionOutcome] = []
+        for prompt_index, prompt in enumerate(held_out_prompts):
+            for repeat in range(n_repeats):
+                key = f"confirmation_dose_{dose}_prompt_{prompt_index}_repeat_{repeat}"
+                if progress is not None and progress.is_done(key):
+                    outcomes.append(InterventionOutcome(**progress.result(key)["outcome"]))
+                    continue
+                outcome = run_intervention(
+                    backend, feature_indices, direction=direction, value_in_max_units=dose,
+                    corpus_max=corpus_max, positions=positions, prompt=prompt,
+                    seed=base_seed + repeat, max_new_tokens=max_new_tokens,
+                )
+                outcomes.append(outcome)
+                if progress is not None:
+                    progress.record(key, {"outcome": asdict(outcome)})
+        results[dose] = outcomes
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Stage 6: Low/Medium/High calibration candidates from a dose-response
 # curve. The three boundaries are required CLI thresholds (Architect's
 # rule) -- this file only applies them, in value_in_max_units, to whichever
@@ -2054,6 +2122,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     p.add_argument("--positions", choices=["all", "generated_only"], default="all")
     p.add_argument("--record-generated-only-diagnostic", action="store_true", help="Additionally run every intervention under generated_only as a separate diagnostic. positions=all remains the public calibration path regardless.")
+    p.add_argument("--confirmation-repeats", type=int, default=3, help="Only used with --use-frozen-prompt-artifact: repeats per held-out prompt in the dose-response confirmation sweep (heldout_neutral for clamp, heldout_eliciting for ablate).")
 
     p.add_argument("--shortlist-size", type=int, required=True)
     p.add_argument("--direction", choices=["clamp", "ablate"], required=True)
@@ -2206,6 +2275,28 @@ def run(args: argparse.Namespace) -> dict:
         medium_threshold=args.calibration_medium_threshold, high_threshold=args.calibration_high_threshold,
     )
 
+    confirmation_by_dose: dict[float, list[InterventionOutcome]] | None = None
+    if args.use_frozen_prompt_artifact:
+        # heldout_neutral backs an Amplify confirmation; heldout_eliciting
+        # backs a Suppress (ablate) confirmation -- matching G-D/G-E's own
+        # prompt-role split (see final_pairing_causal_judge.py).
+        confirmation_split = "heldout_eliciting" if args.direction == "ablate" else "heldout_neutral"
+        held_out_rows = rows_for_concept(
+            frozen_artifact.rows, concept_id=prompt_set.concept_id, locale="en", split=confirmation_split,
+        )
+        held_out_prompts = [r["text"] for r in held_out_rows]
+        if len(held_out_prompts) != 20:
+            raise ValueError(
+                f"expected exactly 20 '{confirmation_split}' prompts for concept_id="
+                f"{prompt_set.concept_id!r} locale='en', found {len(held_out_prompts)}"
+            )
+        confirmation_by_dose = run_dose_response_confirmation(
+            backend, bundle.feature_indices, direction=args.direction, dose_grid=dose_grid,
+            corpus_max=corpus_max, positions="all", held_out_prompts=held_out_prompts,
+            n_repeats=args.confirmation_repeats, base_seed=args.seed, max_new_tokens=args.max_new_tokens,
+            progress=progress,
+        )
+
     final_result = {
         "schema_version": SCHEMA_VERSION,
         "pairing": args.pairing,
@@ -2223,6 +2314,10 @@ def run(args: argparse.Namespace) -> dict:
         "positions": args.positions,
         "dose_response": [asdict(o) for o in dose_outcomes],
         "generated_only_diagnostic": [asdict(o) for o in diagnostic_outcomes] if args.record_generated_only_diagnostic else None,
+        "dose_response_confirmation": (
+            None if confirmation_by_dose is None
+            else {str(dose): [asdict(o) for o in outcomes] for dose, outcomes in confirmation_by_dose.items()}
+        ),
         "calibration_candidates": {tier: (asdict(c) if c is not None else None) for tier, c in calibration.items()},
         "provenance": {
             "model": backend.provenance["model"],
