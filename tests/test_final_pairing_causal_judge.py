@@ -1,4 +1,4 @@
-"""Tests for scripts/legacy/final_pairing_causal_judge.py.
+"""Tests for scripts/final_pairing/final_pairing_causal_judge.py.
 
 `lodestar` is not installed in this repository's environment (confirmed:
 `import lodestar` raises `ModuleNotFoundError` here) -- every test below
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "scripts" / "legacy"))
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "final_pairing"))
 
 import final_pairing_causal_judge as judge_mod  # noqa: E402
 

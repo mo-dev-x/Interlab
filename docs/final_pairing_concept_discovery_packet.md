@@ -8,19 +8,23 @@ and behavioral judgment -- it invents no concept labels and no scientific
 thresholds (every threshold below is a required CLI argument with no code
 default; see "Unresolved protocol fields" at the end of this document).
 
-Built on `final-pairing-harness` (successor to `b6d598b`). Three new
-scripts, none of which modify `final_pairing_harness.py`,
-`final_pairing_targets.py`, or anything under `interplab/` (the accepted
-mechanical-acceptance harness and Engineer 3's sealing pipeline,
-respectively -- both untouched):
+Built on `final-pairing-harness` (successor to `b6d598b`). Seven scripts
+under the non-legacy `scripts/final_pairing/` package (relocated from
+`scripts/legacy/` in this pass; thin `runpy`-based wrappers remain at the
+old `scripts/legacy/<name>.py` paths purely for command-line
+backward-compatibility -- they carry no logic and forward to the real
+implementation), none of which modify `final_pairing_harness.py`,
+`final_pairing_targets.py` (both of which correctly remain under
+`scripts/legacy/`, the already-accepted mechanical-acceptance harness),
+or anything under `interplab/` (Engineer 3's sealing pipeline):
 
-- `scripts/legacy/final_pairing_concept_discovery.py` -- the per-pairing
+- `scripts/final_pairing/final_pairing_concept_discovery.py` -- the per-pairing
   discovery/calibration runner (7 stages).
-- `scripts/legacy/final_concept_discovery_dual_gpu_job.py` -- concurrent
+- `scripts/final_pairing/final_concept_discovery_dual_gpu_job.py` -- concurrent
   Gemma+Qwen orchestration inside one Slurm allocation, one node, 4xH100
   (Gemma on physical GPU 0, Qwen on physical GPU 1, GPUs 2-3 reserved for a
   separately authored judge process).
-- `scripts/legacy/final_concept_discovery_matched_configuration_job.py` --
+- `scripts/final_pairing/final_concept_discovery_matched_configuration_job.py` --
   primary-then-conditional-backup sequencing across the two predeclared
   matched configurations, on top of the dual-GPU orchestrator.
 
@@ -35,7 +39,7 @@ does not repeat that reasoning, only the runnable commands and schemas.
 ### Gemma discovery
 
 ```bash
-HF_HUB_OFFLINE=1 python scripts/legacy/final_pairing_concept_discovery.py \
+HF_HUB_OFFLINE=1 python scripts/final_pairing/final_pairing_concept_discovery.py \
   --pairing gemma-3-12b-it \
   --model-path /path/from/lab-assistant-1/inventory/gemma-3-12b-it \
   --sae-path /path/from/lab-assistant-1/inventory/gemma-scope-2-12b-it \
@@ -69,7 +73,7 @@ rejected: it is not a scientific candidate.
 ### Qwen discovery
 
 ```bash
-HF_HUB_OFFLINE=1 python scripts/legacy/final_pairing_concept_discovery.py \
+HF_HUB_OFFLINE=1 python scripts/final_pairing/final_pairing_concept_discovery.py \
   --pairing qwen-3.5-27b \
   --model-path /path/from/lab-assistant-1/inventory/qwen3.5-27b \
   --sae-path /path/from/lab-assistant-1/inventory/qwen-scope/layer38.sae.pt \
@@ -273,7 +277,7 @@ performs (it has no network/Tamia access).
 ## Combined orchestration entry point (dual GPU, one Slurm allocation)
 
 ```bash
-python scripts/legacy/final_concept_discovery_dual_gpu_job.py \
+python scripts/final_pairing/final_concept_discovery_dual_gpu_job.py \
   --gemma-config /path/to/gemma_lane.json \
   --qwen-config /path/to/qwen_lane.json \
   --job-result-path results/final_pairing/concept_discovery/dual_gpu_job_result.json \
@@ -343,7 +347,7 @@ evidence or bundle is authored here.
 ## Matched-configuration sequencing (primary, then conditional backup)
 
 ```bash
-python scripts/legacy/final_concept_discovery_matched_configuration_job.py \
+python scripts/final_pairing/final_concept_discovery_matched_configuration_job.py \
   --primary-gemma-config /path/to/primary_gemma_lane.json \
   --primary-qwen-config /path/to/primary_qwen_lane.json \
   --backup-gemma-config /path/to/backup_gemma_lane.json \

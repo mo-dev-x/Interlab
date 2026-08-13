@@ -1,4 +1,4 @@
-"""CPU-only, fake-backend tests for scripts/legacy/final_pairing_concept_discovery.py.
+"""CPU-only, fake-backend tests for scripts/final_pairing/final_pairing_concept_discovery.py.
 
 No real Gemma-3-12B-it/Qwen3.5-27B/Gemma-Scope-2/Qwen-Scope weights exist on
 any machine used in this investigation (same standing fact as
@@ -25,7 +25,7 @@ import pytest
 import torch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "scripts" / "legacy"))
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "final_pairing"))
 
 import final_pairing_concept_discovery as d  # noqa: E402
 import final_pairing_targets as targets  # noqa: E402

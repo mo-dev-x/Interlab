@@ -107,7 +107,14 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR))
+# final_pairing_harness.py/final_pairing_targets.py are the frozen,
+# already-accepted mechanical-acceptance artifacts (job 407008/406092) and
+# deliberately remain under scripts/legacy/ -- this file lives under the
+# non-legacy scripts/final_pairing/ (the current canonical discovery
+# runner), so BOTH directories go on sys.path.
+LEGACY_SCRIPT_DIR = SCRIPT_DIR.parent / "legacy"
+sys.path.insert(0, str(LEGACY_SCRIPT_DIR))
+sys.path.insert(0, str(SCRIPT_DIR))  # inserted LAST -> searched FIRST, so this file's own name never resolves to a scripts/legacy/ compatibility stub of the same name
 
 import final_pairing_harness as harness  # noqa: E402
 import final_pairing_targets as targets  # noqa: E402

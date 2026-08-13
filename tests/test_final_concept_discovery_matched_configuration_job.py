@@ -1,4 +1,4 @@
-"""Tests for scripts/legacy/final_concept_discovery_matched_configuration_job.py.
+"""Tests for scripts/final_pairing/final_concept_discovery_matched_configuration_job.py.
 
 Reuses the same fake-process seam as
 test_final_concept_discovery_dual_gpu_job.py -- no real subprocess is ever
@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "scripts" / "legacy"))
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "final_pairing"))
 
 import final_concept_discovery_dual_gpu_job as dual_gpu  # noqa: E402
 import final_concept_discovery_matched_configuration_job as matched  # noqa: E402

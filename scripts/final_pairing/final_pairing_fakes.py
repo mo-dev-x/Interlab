@@ -21,11 +21,18 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import sys
 import tempfile
+from pathlib import Path
 
-import final_pairing_concept_discovery as d
-import final_pairing_targets as targets
-import torch
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_LEGACY_SCRIPT_DIR = _SCRIPT_DIR.parent / "legacy"
+sys.path.insert(0, str(_LEGACY_SCRIPT_DIR))
+sys.path.insert(0, str(_SCRIPT_DIR))  # inserted LAST -> searched FIRST, so this file's own name never resolves to a scripts/legacy/ compatibility stub of the same name
+
+import final_pairing_concept_discovery as d  # noqa: E402
+import final_pairing_targets as targets  # noqa: E402
+import torch  # noqa: E402
 
 D_MODEL = 6
 D_SAE = 8

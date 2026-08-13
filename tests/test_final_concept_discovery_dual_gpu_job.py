@@ -1,5 +1,5 @@
 """Resource-isolation tests for
-scripts/legacy/final_concept_discovery_dual_gpu_job.py.
+scripts/final_pairing/final_concept_discovery_dual_gpu_job.py.
 
 Every test here uses a fake process/signal seam -- no real subprocess is
 ever spawned, no real OS signal is ever delivered, and (verified
@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "scripts" / "legacy"))
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "final_pairing"))
 
 import final_concept_discovery_dual_gpu_job as job  # noqa: E402
 

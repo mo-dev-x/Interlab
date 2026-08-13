@@ -1,4 +1,4 @@
-"""Tests for scripts/legacy/final_pairing_evidence_document.py.
+"""Tests for scripts/final_pairing/final_pairing_evidence_document.py.
 
 No network, no eng3/concept-bundle checkout required for these tests --
 `reconcile_against_static_snapshot` is checked against the committed
@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "scripts" / "legacy"))
+sys.path.insert(0, str(REPO_ROOT / "scripts" / "final_pairing"))
 
 import final_pairing_evidence_document as ed  # noqa: E402
 
