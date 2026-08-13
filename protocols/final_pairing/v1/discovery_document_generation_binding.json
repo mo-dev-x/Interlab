@@ -1,7 +1,14 @@
 {
-  "$comment": "GATING. Binds every discovery document to the generation manifest that produced it, and fixes where selection chronology lives. Discovery-input/evidence plumbing only.",
-  "protocol_version": "final-pairing-discovery-generation-binding/1.0.0",
+  "$comment": "GATING. Binds every discovery document to the per-direction generation manifests that produced it, and fixes where selection chronology lives. Discovery-input/evidence plumbing only.",
+  "protocol_version": "final-pairing-discovery-generation-binding/1.1.0",
   "gating": true,
+  "supersedes": {
+    "protocol_version": "final-pairing-discovery-generation-binding/1.0.0",
+    "commit": "f60fa9a452663f79b82a9206fc60d46f3e6cdbc9",
+    "sha256": "88374b4b30bfdb73582fcb615bdf6b61377631ffd1e77b60e3f15dab72dd8f30",
+    "reason": "v1.0.0 contained a structural contradiction: it required a SINGULAR generation_manifest on the discovery document while ruling that manifests are PER DIRECTION with a scalar direction field. A document carrying non-null Amplify and Suppress cannot bind two required manifests through one reference. Corrected to per-direction maps.",
+    "second_instance_of_the_same_defect": "causal_validation.selection_record was also singular, and Amplify and Suppress have SEPARATE selection records by standing ruling (different grids, different stopping rules, independent selection). The chain 'manifest < selection' was therefore ill-formed per direction: a single selection_commit cannot be correct for two directions selected at different times. Found by applying the Orchestrator's own reasoning one level down, and corrected in the same pass rather than left for discovery after implementation."
+  },
   "scope": {
     "touches": ["the discovery-document schema", "promotion verification"],
     "does_not_touch": [
@@ -25,6 +32,11 @@
       "sha256": "sha256:ac41a858b9e8a82159d2bd85c114dfcc8cec1b4d2b6f8a250c6482c18c915023",
       "role": "AUTHORITY for expected params hashes and identity-field consistency. Not a peer of the manifest or the document."
     },
+    "frozen_prompt_artifact": {
+      "path": "prompts/final_pairing/v1/prompt_sets.jsonl",
+      "commit": "880b48a7f50b8c716e64956b915857dd1fcde350",
+      "sha256": "sha256:b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f"
+    },
     "trigger_protocol": {
       "path": "protocols/final_pairing/v1/backup_trigger.json",
       "sha256": "sha256:4a234e59799089e634f00c59d5fed71c73d0f7466e30f0c20a7d72ef4c9d23d3",
@@ -33,36 +45,84 @@
   },
 
   "schema_version_decision": {
-    "verdict": "MAJOR bump of the discovery-document schema.",
+    "verdict": "MAJOR bump of the discovery-document schema. RETAINED UNCHANGED from v1.0.0.",
     "reasoning": "A new REQUIRED top-level object invalidates every previously valid document, and under the strict codec already in force (additionalProperties: false) an older reader also rejects the new field. Both directions break, so this is not additive.",
     "cost_now_versus_later": "Zero legacy corpus exists -- no discovery document has been promoted yet. The bump therefore needs no back-compatibility shim and no dual-read path. That will not be true after the first promotion, which is the argument for doing it in this change rather than deferring it.",
-    "version_number": "Engineer 3 applies the MAJOR bump to the current schema version. This ruling fixes the CLASS of bump, not the numeral -- I have not read the current schema and will not assert its version."
+    "version_number": "Engineer 3 applies the MAJOR bump to the current schema version. This ruling fixes the CLASS of bump, not the numeral.",
+    "one_bump_not_two": "v1.0.0 was never implemented, so the correction here does not require a second bump. One MAJOR bump carries both the binding and its corrected shape."
   },
 
-  "discovery_document_required_object": {
-    "nesting": "top level",
-    "key": "generation_manifest",
-    "required": true,
-    "fields": {
-      "source_path": {"type": "string", "semantics": "Repository-relative path of the exact immutable generation_manifest.json consumed by promotion."},
-      "source_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "semantics": "RECOMPUTED by promotion from the manifest bytes. Never copied from anywhere."},
-      "computed_at_commit": {"type": "string", "semantics": "Full git commit containing those exact manifest bytes. Verified by reading the blob at that commit, not by trusting the field."},
-      "protocol_path": {"type": "string", "const": "protocols/final_pairing/v1/one_allocation_dose_generation.json"},
-      "protocol_sha256": {"type": "string", "const": "sha256:bd1974b4c44802fa7a49fb7a4ed65df78a9ba66cdca78bb6fc0da69cf42252cf"}
-    },
+  "ManifestReference": {
+    "$defs_note": "Used identically under both generation_manifests keys.",
+    "source_path": {"type": "string", "semantics": "Repository-relative path of the exact immutable generation_manifest.json consumed by promotion."},
+    "source_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "semantics": "RECOMPUTED by promotion from the manifest bytes. Never copied from anywhere."},
+    "computed_at_commit": {"type": "string", "semantics": "Full git commit containing those exact manifest bytes. Verified by reading the blob at that commit, not by trusting the field."},
+    "protocol_path": {"type": "string", "const": "protocols/final_pairing/v1/one_allocation_dose_generation.json"},
+    "protocol_sha256": {"type": "string", "const": "sha256:bd1974b4c44802fa7a49fb7a4ed65df78a9ba66cdca78bb6fc0da69cf42252cf"},
     "additionalProperties": false
   },
 
-  "manifest_granularity": {
-    "verdict": "ONE MANIFEST PER (run_id, configuration, concept_id, pairing_id, direction). NOT one covering both directions.",
-    "direction_field": "SCALAR. Never an array, never nested.",
-    "reasoning": [
-      "Amplify and Suppress are already separated at every level by standing ruling: different prompt sets (neutral vs eliciting), different dose grids (ascending CLAMP vs descending CLAMP plus ABLATE), different stopping rules, separate selection records. A shared manifest would be the single place they recombine.",
-      "DECISIVE: Amplify-only publication is permitted and expected. A concept passing G-D but failing G-E would leave a combined manifest containing a direction that produced no promotable result, forcing promotion to PARTIALLY accept an attestation. Partial acceptance of an attestation is the exact failure mode this protocol chain exists to remove.",
-      "Item 9 of the ruling -- a manifest covering another direction blocks promotion -- is mechanically checkable against a scalar and awkward against an array.",
-      "No extra cost: concept-complete generation ordering means both directions finish in the same pass, so the two manifests are written at the same moment."
-    ],
-    "co_allocation_is_still_provable": "Both per-direction manifests carry the SAME run_id and source_commit. Co-allocation is proven by shared identity rather than by merging the records, so separating them loses nothing."
+  "SelectionRecordReference": {
+    "source_path": {"type": "string"},
+    "source_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "semantics": "RECOMPUTED by promotion."},
+    "selection_commit": {"type": "string", "semantics": "full git commit containing those exact selection-record bytes"},
+    "confirmation_judging_commit": {"type": "string"},
+    "additionalProperties": false
+  },
+
+  "discovery_document_required_objects": {
+    "generation_manifests": {
+      "nesting": "top level",
+      "required": true,
+      "additionalProperties": false,
+      "properties": {
+        "amplify": "ManifestReference | null",
+        "suppress": "ManifestReference | null"
+      },
+      "rules": [
+        "amplify is REQUIRED AND NON-NULL iff calibration.directions.amplify is non-null.",
+        "suppress is REQUIRED AND NON-NULL iff calibration.directions.suppress is non-null.",
+        "A null published direction MUST carry a null manifest reference in this promotion document.",
+        "Each referenced manifest's scalar direction field MUST equal its map key: amplify -> AMPLIFY, suppress -> SUPPRESS.",
+        "ONE MANIFEST MAY NOT OCCUPY BOTH KEYS, even if bytes or hash are duplicated. Enforced three ways: the two source_path values must differ, the two source_sha256 values must differ, and each manifest's scalar direction must match its key.",
+        "Both keys null is invalid: a discovery document with no published direction is not promotable."
+      ]
+    },
+    "selection_records": {
+      "nesting": "causal_validation.selection_records",
+      "required": true,
+      "additionalProperties": false,
+      "properties": {
+        "amplify": "SelectionRecordReference | null",
+        "suppress": "SelectionRecordReference | null"
+      },
+      "rules": [
+        "Nullity MUST mirror generation_manifests exactly: a direction with a non-null manifest has a non-null selection record, and a direction with a null manifest has a null selection record.",
+        "One selection record may not occupy both keys. Distinct source_path and distinct source_sha256 required.",
+        "CORRECTED IN 1.1.0 from a singular causal_validation.selection_record. Amplify and Suppress select independently under different grids and different stopping rules, so a single selection_commit cannot be correct for both."
+      ]
+    }
+  },
+
+  "amplify_only_publication": {
+    "shape": {
+      "generation_manifests.amplify": "valid ManifestReference",
+      "generation_manifests.suppress": null,
+      "causal_validation.selection_records.amplify": "valid SelectionRecordReference",
+      "causal_validation.selection_records.suppress": null
+    },
+    "two_direction_publication": "Two independently valid references in each map. Neither is derived from, nor validated by, the other.",
+    "null_means_not_published_not_not_generated": {
+      "statement": "A failed or non-published Suppress direction sets suppress = null in this promotion document. The Suppress manifest and its outputs REMAIN PRESERVED in the run's immutable generation inventory.",
+      "prohibition": "That preserved manifest is NOT accepted as the manifest of a null published direction. It may not be referenced, counted, or offered as partial evidence.",
+      "why_preserved": "Deleting it would destroy the record that Suppress was generated and went unpublished, which is itself the evidence that no post-hoc substitution occurred. Exactly parallel to the retention rule for sealed dose outputs at unselected doses."
+    }
+  },
+
+  "per_direction_verification": {
+    "rule": "Each non-null direction is INDEPENDENTLY loaded, hash-recomputed, identity-checked, and subjected to the COMPLETE dose gate. No check on one direction is inherited by the other.",
+    "atomicity": "PROMOTION IS ATOMIC ACROSS EVERY NON-NULL DIRECTION IN THE DOCUMENT. If any non-null direction fails any check, the whole document fails. There is no partial acceptance and no promotion of the passing direction alone.",
+    "atomicity_note": "A document may legitimately publish one direction -- that is a nullity declared BEFORE verification. It may never DEGRADE to one direction because the other failed verification. Those are different things and only the first is permitted."
   },
 
   "manifest_required_bindings": {
@@ -86,17 +146,18 @@
         "path": "repository-relative or run-relative path",
         "sha256": "sha256:<64 hex>, full digest of the output file",
         "seed": "integer, the generation seed for this file",
-        "selection_status": "SELECTED | UNUSED_FOR_SELECTION_OR_CLAIM, stamped after selection"
+        "selection_status": "SELECTED | UNUSED_FOR_SELECTION_OR_CLAIM"
       }
     },
     "completeness": "COMPLETE | PARTIAL | NOT_ATTEMPTED",
     "protocol_path": "protocols/final_pairing/v1/one_allocation_dose_generation.json",
     "protocol_sha256": "sha256:bd1974b4c44802fa7a49fb7a4ed65df78a9ba66cdca78bb6fc0da69cf42252cf",
-    "additionalProperties": false
+    "additionalProperties": false,
+    "physical_granularity": "ONE physical manifest per (run_id, configuration, concept_id, pairing_id, direction). RETAINED UNCHANGED."
   },
 
   "identity_equality_checks": {
-    "$comment": "Exhaustive. Promotion fails on any mismatch.",
+    "$comment": "Exhaustive, and applied SEPARATELY to each non-null direction's manifest. RETAINED UNCHANGED from v1.0.0 apart from being per-direction.",
     "two_way_manifest_equals_document": [
       "run_id",
       "source_commit",
@@ -107,13 +168,14 @@
       "sae_revision",
       "release",
       "loader_sae_id",
-      "scientific_sae_id",
-      "direction"
+      "scientific_sae_id"
     ],
+    "direction_equals_its_map_key": "manifest.direction == uppercase(map key). Checked instead of document equality, because the key IS the document-side assertion.",
+    "cross_direction_consistency": "Where both directions are non-null, their manifests must agree on run_id, source_commit, configuration, concept_id, pairing_id, model_revision, sae_revision, release, loader_sae_id, scientific_sae_id and params_measured_sha256. They must DIFFER on direction. This is what proves co-allocation without merging the records.",
     "three_way_including_the_identity_protocol": {
       "field": "params sha256",
       "check": "manifest.params_measured_sha256 == document's recorded value == identity v1.3.0 params_expected_sha256 for that configuration",
-      "why_three_way": "A two-way check between manifest and document passes when both were copied from each other and both are wrong. The identity protocol is the AUTHORITY; manifest and document must each agree WITH IT, not merely with one another. Same principle as forbidding the document to attest by copying the manifest's self-declared digest.",
+      "why_three_way": "A two-way check between manifest and document passes when both were copied from each other and both are wrong. The identity protocol is the AUTHORITY; manifest and document must each agree WITH IT, not merely with one another.",
       "expected_values": {
         "PRIMARY": "sha256:6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e",
         "BACKUP": "sha256:2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e"
@@ -127,32 +189,38 @@
     "value_checks": [
       "completeness == COMPLETE. PARTIAL and NOT_ATTEMPTED block promotion.",
       "every files[].sha256 recomputed from the file on disk; any mismatch blocks promotion.",
-      "SEED DISJOINTNESS RE-VERIFIED FROM THE MANIFEST: the set of seeds where purpose == SWEEP and the set where purpose == CONFIRMATION must not intersect at the same (dose, prompt). The generation job asserts this; promotion must verify it independently, because a self-reported assertion is not evidence.",
-      "exactly three files per (dose set) carry selection_status SELECTED per dose, and the two unselected doses' files carry UNUSED_FOR_SELECTION_OR_CLAIM."
+      "SEED DISJOINTNESS RE-VERIFIED FROM THE MANIFEST, per direction: seeds where purpose == SWEEP and seeds where purpose == CONFIRMATION must not intersect at the same (dose, prompt). The generation job asserts this; promotion must verify it independently, because a self-reported assertion is not evidence.",
+      "exactly three doses carry selection_status SELECTED; the remaining doses' files carry UNUSED_FOR_SELECTION_OR_CLAIM."
     ]
   },
 
   "chronology_linkage": {
-    "location": "causal_validation.selection_record",
-    "fields": {
-      "source_path": {"type": "string"},
-      "source_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "semantics": "RECOMPUTED by promotion."},
-      "selection_commit": {"type": "string", "semantics": "full git commit containing those exact selection-record bytes"},
-      "confirmation_judging_commit": {"type": "string"},
-      "additionalProperties": false
+    "first_node_ruling": {
+      "question": "Is the chain's first node the sealed registry record's commit, or the frozen prompt source commit?",
+      "verdict": "THE FROZEN PROMPT SOURCE COMMIT AND BLOB. Use the discovery document's authoritative prompt_set.source_commit and prompt_set.source_sha256.",
+      "reasoning": "What must precede generation is the PROMPTS THEMSELVES BEING IMMUTABLE, which is what the source commit proves. A sealed registry record is a downstream bookkeeping artifact created during evidence assembly, typically after the run. Requiring it to predate generation would force sealing a registry record before GPU execution -- not how the workflow runs -- and would fail runs whose actual ordering is impeccable.",
+      "do_not": "Do not require a later-sealed registry record to predate generation.",
+      "pinned_by_hash_not_only_by_commit": {
+        "rule": "prompt_set.source_sha256 must equal sha256:b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f and prompt_set.source_commit must equal 880b48a7f50b8c716e64956b915857dd1fcde350.",
+        "why": "A commit reference alone would let a document point at some other prompt file at some earlier commit. The hash pins it to the actual frozen artifact.",
+        "scope_note": "These are constants for final_pairing/v1. Freezing a new prompt-set version requires a new version of THIS protocol, not an edit to a document."
+      }
     },
-    "THREE_LINK_CHAIN": {
-      "$comment": "THE ADDITION. The recommendation specifies only link 2, which proves selection preceded judging but leaves open whether generation preceded selection -- the more consequential of the two.",
-      "link_1": "generation_manifest.computed_at_commit is a STRICT ANCESTOR of causal_validation.selection_record.selection_commit",
-      "link_1_why": "Without it, the manifest could be committed AFTER doses were chosen, meaning the generation files could have been produced or altered once the selection was known. Link 2 alone cannot detect that.",
-      "link_2": "selection_commit is a STRICT ANCESTOR of confirmation_judging_commit",
-      "link_3": "prompt_set_record's commit is a STRICT ANCESTOR of causal_validation_record's commit",
-      "link_3_status": "PRE-EXISTING, restated here so the full chain reads in one place.",
-      "full_chain": "prompt sets frozen -> generation manifest committed -> selection committed -> confirmation judged",
-      "strictness": "STRICT ancestry throughout. Equal commits are a FAILURE: if two records land in the same commit, nothing about their order is established.",
-      "verification": "git merge-base --is-ancestor <earlier> <later> AND <earlier> != <later>",
-      "existence": "Every referenced commit must exist and be reachable. An unreachable or dangling commit blocks promotion."
-    }
+    "required_strict_chain_per_non_null_direction": [
+      "prompt_set.source_commit",
+      "generation_manifests.<direction>.computed_at_commit",
+      "causal_validation.selection_records.<direction>.selection_commit",
+      "causal_validation.selection_records.<direction>.confirmation_judging_commit"
+    ],
+    "link_semantics": {
+      "link_1": "prompts frozen before generation",
+      "link_2": "generation before dose selection. Without this link one proves selection preceded judging but not that generation preceded selection -- a manifest committed after doses were chosen would mean the outputs could have been produced or altered once the selection was known.",
+      "link_3": "selection before confirmation judging"
+    },
+    "strictness": "STRICT ancestry on every link. ALL FOUR COMMITS MUST BE DISTINCT. Equal commits are a FAILURE: two records landing in one commit establish no order between them.",
+    "verification": "For each consecutive pair (A, B): git merge-base --is-ancestor A B AND A != B.",
+    "reachability": "Every referenced commit must exist and be reachable. An unreachable or dangling commit blocks promotion.",
+    "independence": "The chain is verified SEPARATELY for each non-null direction. Amplify's chain passing says nothing about Suppress's."
   },
 
   "prohibited_verification_shortcuts": [
@@ -161,22 +229,34 @@
     "Copied-digest: the document quoting the manifest's declared digest instead of promotion recomputing it from bytes.",
     "Trusting computed_at_commit without reading the blob at that commit.",
     "Trusting the generation job's own seed-disjointness assertion instead of re-deriving it from the recorded seeds.",
-    "Treating dose checking as an optional side report. IT IS PART OF PROMOTION."
+    "Treating dose checking as an optional side report. IT IS PART OF PROMOTION.",
+    "Verifying one direction and inheriting the result for the other.",
+    "Accepting a preserved manifest from the run inventory in place of a null published direction."
   ],
 
   "promotion_blocking_conditions": [
-    "generation_manifest object absent from the discovery document.",
+    "generation_manifests absent, or carrying a key outside {amplify, suppress}.",
+    "causal_validation.selection_records absent, or carrying a key outside {amplify, suppress}.",
+    "nullity of generation_manifests.<d> not matching nullity of calibration.directions.<d>.",
+    "nullity of selection_records.<d> not mirroring nullity of generation_manifests.<d>.",
+    "both directions null.",
+    "one manifest referenced under both keys, by path or by hash.",
+    "one selection record referenced under both keys, by path or by hash.",
+    "manifest.direction not equal to its map key.",
     "manifest missing, unreadable, malformed, or not committed.",
-    "recomputed source_sha256 != declared source_sha256.",
-    "computed_at_commit does not contain those exact manifest bytes.",
-    "any two-way identity mismatch between manifest and document.",
+    "recomputed source_sha256 != declared source_sha256, for a manifest or a selection record.",
+    "computed_at_commit or selection_commit not containing the exact declared bytes.",
+    "any two-way identity mismatch between a manifest and the document.",
+    "two non-null manifests disagreeing on any shared identity field, or agreeing on direction.",
     "params sha256 disagreeing with identity v1.3.0 on any of the three sides.",
     "manifest covering another concept_id, pairing_id, configuration, run_id or direction.",
     "completeness != COMPLETE.",
     "any output file hash mismatch.",
     "sweep and confirmation seeds intersecting at the same cell.",
-    "any chronology link failing, including equal commits where strict ancestry is required.",
-    "protocol_path or protocol_sha256 not matching the frozen one-allocation protocol exactly."
+    "prompt_set.source_commit or source_sha256 not matching the frozen constants.",
+    "any chronology link failing, any two of the four commits equal, or any commit unreachable.",
+    "protocol_path or protocol_sha256 not matching the frozen one-allocation protocol exactly.",
+    "any non-null direction failing any check -- promotion is atomic."
   ],
 
   "relationship_to_existing_evidence": {
@@ -192,6 +272,7 @@
       "a substitute for the feature_certificate",
       "an ATTESTED requirement -- ATTESTED still needs its four content-addressed evidence_refs"
     ],
-    "two_gates_two_inputs": "The four evidence_refs plus feature_certificate satisfy ATTESTED, which is a claim about scientific results. The generation manifest satisfies promotion, which is a claim about which bytes produced them. Different gates, different inputs, same hash-recomputation discipline. Neither absorbs the other."
+    "two_gates_two_inputs": "The four evidence_refs plus feature_certificate satisfy ATTESTED, which is a claim about scientific results. The generation manifests satisfy promotion, which is a claim about which bytes produced them. Different gates, different inputs, same hash-recomputation discipline. Neither absorbs the other.",
+    "prompt_set_record_versus_prompt_set_source": "The prompt_set_record evidence_ref is unchanged and still required for ATTESTED. It is NOT the chronology chain's first node; prompt_set.source_commit is. Two different roles for two different gates."
   }
 }
