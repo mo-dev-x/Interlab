@@ -1,6 +1,12 @@
 {
   "$comment": "Extends backup_trigger.json without modifying it. Records the full Gemma loader/scientific identity split. Frozen before any activation is computed.",
-  "protocol_version": "final-pairing-config-identity/1.0.0",
+  "protocol_version": "final-pairing-config-identity/1.1.0",
+  "supersedes": {
+    "protocol_version": "final-pairing-config-identity/1.0.0",
+    "commit": "0fcd51d3a3a51a36818dd8378796eaaa791fc779",
+    "sha256": "22669a05ca403c0e3dc4ac09246c81cce270d06104daca1a02bd9d44231ee23f",
+    "reason": "v1.0.0 recorded a sparsity_pairing block asserting a constant 1.2x proportional match between Qwen TopK k and Gemma observed L0. That conclusion does not follow: the two quantities are not commensurable and their ratio has no referent. RETRACTED in full and replaced by sparsity_metadata below."
+  },
   "extends": {
     "protocol": "protocols/final_pairing/v1/backup_trigger.json",
     "commit": "125b1d3e825f0e6cc83c20ba54ef2c345e4372f9",
@@ -43,7 +49,6 @@
       "layer": 29,
       "width": 16384,
       "architecture": "jump_relu",
-      "observed_l0": 120,
       "hook": "resid_post",
       "release_is_forced": true,
       "release_rationale": "Layer 29 is not on the fixed 25/50/65/85 percent resid_post grid, so resid_post_all is REQUIRED, not preferred."
@@ -57,7 +62,6 @@
       "layer": 24,
       "width": 16384,
       "architecture": "jump_relu",
-      "observed_l0": 60,
       "hook": "resid_post",
       "release_is_forced": false,
       "release_rationale": "Layer 24 sits at 50 percent depth, which IS on the resid_post grid, so the canonical release is available."
@@ -68,18 +72,97 @@
     }
   },
 
-  "sparsity_pairing": {
-    "$comment": "The L0 tiers are matched across models, deliberately and proportionally.",
-    "PRIMARY": {"qwen_l0": 100, "gemma_observed_l0": 120, "ratio": 1.2},
-    "BACKUP": {"qwen_l0": 50, "gemma_observed_l0": 60, "ratio": 1.2},
-    "assessment": "Constant 1.2 ratio across both configurations. The cross-model sparsity match is preserved in each, so neither matched comparison is confounded by sparsity."
+  "depth_fraction_matching": {
+    "status": "VERIFIED",
+    "gemma_n_layers": 48,
+    "gemma_n_layers_source": "text_config.num_hidden_layers, observed by LA-C",
+    "qwen_n_layers": 64,
+    "tolerance": 0.02,
+    "PRIMARY": {
+      "gemma": {"layer": 29, "depth_fraction": 0.6041666666666666},
+      "qwen": {"layer": 38, "depth_fraction": 0.59375},
+      "delta": 0.0104166666666666,
+      "verdict": "PASS"
+    },
+    "BACKUP": {
+      "gemma": {"layer": 24, "depth_fraction": 0.5},
+      "qwen": {"layer": 32, "depth_fraction": 0.5},
+      "delta": 0.0,
+      "verdict": "PASS"
+    },
+    "statement": "Depth fraction is the ONLY dimension along which the two models are matched."
+  },
+
+  "sparsity_metadata": {
+    "$comment": "Raw per-SAE metadata, recorded separately per model. These are NOT two measurements of one quantity.",
+    "qwen": {
+      "PRIMARY": {"mechanism": "topk", "k": 100, "width": "W80K per repository identifier"},
+      "BACKUP": {"mechanism": "topk", "k": 50, "width": "W80K per repository identifier"},
+      "quantity_type": "FIXED ARCHITECTURAL CONSTRAINT",
+      "semantics": "k is exact and enforced by construction: exactly k features are active on every token. It is a hyperparameter, not a measurement. It has no variance and no corpus dependence."
+    },
+    "gemma": {
+      "PRIMARY": {"mechanism": "jump_relu", "observed_l0": 120, "tier": "l0_big", "width": 16384},
+      "BACKUP": {"mechanism": "jump_relu", "observed_l0": 60, "tier": "l0_medium", "width": 16384},
+      "quantity_type": "EMPIRICAL CORPUS-DEPENDENT MEAN",
+      "semantics": "observed L0 is the average count of features exceeding their learned threshold, measured over a corpus. It is a point estimate of a random variable with per-token variance, and the corpus it was measured on is NOT our corpus."
+    },
+    "non_equivalence": {
+      "statement": "Qwen k and Gemma observed L0 are NOT COMMENSURABLE. Their numeric ratio has no scientific meaning.",
+      "reasons": [
+        "Different kinds of quantity: one is a fixed hyperparameter, the other an empirical mean.",
+        "Different statistical status: k is a constant with zero variance; observed L0 is a point estimate of a distribution.",
+        "Different reference corpus: the Gemma figure was measured on a corpus that is not ours and is not the corpus used anywhere in this protocol.",
+        "Different dictionary scale: Gemma width 16384 against Qwen width ~80K, so raw counts are not even on the same base."
+      ],
+      "demonstration": "Two equally defensible readings of the SAME two numbers disagree by a factor of five. Raw counts give 120/100 = 1.2. Density (L0/width) gives roughly 0.0073 against 0.0013, near 5.9. A quantity whose 'ratio' depends entirely on an arbitrary choice of normalisation is not a property of the configurations. It is an artifact of the arithmetic."
+    },
+    "retracted_claim": {
+      "text": "constant 1.2x proportional sparsity match; neither matched comparison is confounded by sparsity",
+      "status": "RETRACTED",
+      "where_it_appeared": "v1.0.0 sparsity_pairing block and the PM report accompanying it",
+      "why_wrong": "The 1.2 ratio was computed from incommensurable numerators. No cross-model sparsity relationship was ever established, so none could be preserved."
+    }
+  },
+
+  "matched_pair_eligibility": {
+    "derives_from": [
+      "matched transformer depth fraction, within tolerance 0.02, verified above",
+      "independent validation of each side at its own configuration through its own gates"
+    ],
+    "does_not_derive_from": [
+      "any sparsity correspondence",
+      "any width correspondence",
+      "any architectural correspondence between topk and jump_relu"
+    ],
+    "statement": "A pair is eligible because both sides independently pass their gates at matched relative depth. Sparsity plays no role in eligibility and confers none."
+  },
+
+  "prohibited_sparsity_claims": {
+    "rule": "NO cross-model sparsity claim of any kind is permitted.",
+    "prohibited_forms": [
+      "any ratio between Qwen k and Gemma observed L0",
+      "proportional match, matched sparsity, sparsity-matched",
+      "constant 1.2x or any other multiplier",
+      "comparable, similar, equivalent or aligned sparsity",
+      "sparser than, denser than, or any ordering of the two models by sparsity",
+      "normalising either quantity by width, layer count or anything else in order to compare them",
+      "asserting that a matched comparison is or is not confounded by sparsity"
+    ],
+    "permitted": "Reporting each model's own sparsity metadata separately, labelled with its own quantity_type, with no relational statement between them.",
+    "within_model_exception": {
+      "statement": "A sparsity change is interpretable WITHIN one model, never ACROSS models.",
+      "detail": "Qwen k 100 -> 50 is a halving of a single commensurable quantity. Gemma observed L0 120 -> 60 is likewise commensurable with itself. Neither licenses any statement relating the Qwen change to the Gemma change.",
+      "precedent": "Identical in form to the standing dose rule: LOW/MEDIUM/HIGH are labels scoped to a single pairing and are never compared across pairings."
+    }
   },
 
   "interpretive_limit_primary_to_backup": {
-    "statement": "PRIMARY to BACKUP changes DEPTH and SPARSITY TIER SIMULTANEOUSLY on both models.",
-    "detail": "Qwen 38/L0_100 -> 32/L0_50; Gemma 29/l0_big(120) -> 24/l0_medium(60).",
-    "consequence": "If BACKUP succeeds where PRIMARY failed, the improvement CANNOT be attributed to depth or to sparsity. The two move together.",
-    "acceptable_because": "BACKUP is a fallback configuration, not a controlled contrast. Each matched cross-model comparison remains internally clean.",
+    "status": "RETAINED from v1.0.0, unchanged in force",
+    "statement": "PRIMARY to BACKUP changes DEPTH and SPARSITY TIER SIMULTANEOUSLY within each model.",
+    "detail": "Within Qwen: layer 38 -> 32 and k 100 -> 50. Within Gemma: layer 29 -> 24 and observed L0 120 -> 60. Both statements are within-model and therefore well-formed.",
+    "consequence": "If BACKUP succeeds where PRIMARY failed, the improvement CANNOT be attributed to depth or to sparsity. The two move together within each model.",
+    "acceptable_because": "BACKUP is a fallback configuration, not a controlled contrast.",
     "prohibited_claims": [
       "the shallower layer worked better",
       "lower sparsity improved separation",
@@ -111,19 +194,17 @@
   "open_items_for_LA1": [
     {
       "id": "OI-1",
+      "status": "OPEN, NON-BLOCKING",
       "question": "Does layer 24 also exist in the resid_post_all release, and if so are its weights byte-identical to the resid_post copy?",
-      "why": "If identical, the BACKUP release choice is cosmetic. If not, the two releases are distinct training artifacts and the PRIMARY/BACKUP contrast carries a further difference beyond depth and sparsity.",
+      "why": "If identical, the BACKUP release choice is cosmetic. If not, the two releases are distinct training artifacts and the PRIMARY/BACKUP contrast carries a further difference beyond depth and sparsity tier.",
       "how": "Compare tensor SHA-256 between the two release paths for layer 24.",
-      "blocking": false,
       "report_to": "PM before any cross-configuration statement is written"
     },
     {
       "id": "OI-2",
-      "question": "Gemma n_layers, read from the loaded config.",
-      "why": "backup_trigger.json requires abs(gemma_depth_fraction - qwen_depth_fraction) <= 0.02 and Gemma's depth_fraction is still null.",
-      "expectation": "If n_layers == 48 then 29/48 = 0.604 vs Qwen 0.594 (delta 0.010, passes) and 24/48 = 0.500 vs Qwen 0.500 (exact). This is a prediction to confirm, not a recorded fact.",
-      "blocking": true,
-      "report_to": "PM before any activation is computed"
+      "status": "CLOSED",
+      "closed_by": "LA-C, text_config.num_hidden_layers = 48",
+      "resolution": "Both configurations PASS the depth-fraction assertion. See depth_fraction_matching."
     }
   ],
 
@@ -134,6 +215,7 @@
     "A layer off the 25/50/65/85 percent grid requires the -res-all release.",
     "Every scientific record cites scientific_sae_id; loader_sae_id appears only in loading code.",
     "context_size and dataset_path, wherever persisted, carry the literal label LOADER DEFAULT, NOT PROVENANCE.",
-    "Runtime loading is local-path only; a stock-loader call is a hard failure, not a fallback."
+    "Runtime loading is local-path only; a stock-loader call is a hard failure, not a fallback.",
+    "Qwen and Gemma sparsity metadata are persisted in separate objects, each labelled with its quantity_type. They may not appear as two values of one field, in one row, or under one shared key -- a shared field name asserts commensurability that does not exist."
   ]
 }
