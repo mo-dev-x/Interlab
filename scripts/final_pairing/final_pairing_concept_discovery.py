@@ -250,6 +250,52 @@ def validate_scientific_config_identity_hash(repo_root: str | Path) -> str:
     return actual
 
 
+GENERATION_SETTINGS_PROTOCOL_PATH = "protocols/final_pairing/v1/generation_settings.json"
+GENERATION_SETTINGS_PROTOCOL_VERSION = "final-pairing-generation-settings/1.0.0"
+GENERATION_SETTINGS_PROTOCOL_SHA256 = "975e90e0271e750aea8f871f4776d2a3d0169ea4fe410e544081957907e613b1"
+
+#: The frozen, EXPLICIT generation kwargs (`generation_settings.json`
+#: section 1) -- identical across pairings, configurations, directions,
+#: locales, and control/steered arms. `do_sample=True` (not the greedy
+#: `do_sample=False` this file's OTHER callers still use, e.g. `run()`'s
+#: single-concept pipeline) corrects a real defect: under greedy decoding
+#: a seed has no effect, so "three fresh confirmation repeats" were
+#: byte-identical, silently voiding the whole point of disjoint sweep/
+#: confirmation seeds. `top_k=0` explicitly DISABLES top-k truncation
+#: (so only top_p governs) rather than leaving it unset and inheriting
+#: whichever model's own generation_config.json default. `max_new_tokens`
+#: is deliberately NOT part of this dict -- the protocol freezes it at 48
+#: for the one-allocation generation specifically, applied by that
+#: module's own callers, not hardcoded into `run_intervention`/`run_
+#: baseline_generation`, which remain shared with callers that need a
+#: different token budget (e.g. `run()`'s own `--max-new-tokens`).
+GENERATION_SETTINGS: dict[str, Any] = {
+    "do_sample": True, "temperature": 0.7, "top_p": 0.9, "top_k": 0,
+    "repetition_penalty": 1.0, "no_repeat_ngram_size": 0, "min_new_tokens": 0,
+    "num_beams": 1, "num_return_sequences": 1,
+}
+#: The frozen max_new_tokens for one-allocation generation specifically
+#: (generation_settings.json's own `settings.max_new_tokens`) -- kept
+#: separate from `GENERATION_SETTINGS` per the note above.
+ONE_ALLOCATION_MAX_NEW_TOKENS = 48
+
+
+def validate_generation_settings_protocol_hash(repo_root: str | Path) -> str:
+    """Fails closed if `generation_settings.json`'s actual bytes don't
+    match the pinned hash -- same discipline as this project's other
+    frozen-protocol hash guards."""
+    path = Path(repo_root) / GENERATION_SETTINGS_PROTOCOL_PATH
+    if not path.is_file():
+        raise PromptArtifactError(f"generation-settings protocol not found at {path}")
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != GENERATION_SETTINGS_PROTOCOL_SHA256:
+        raise PromptArtifactError(
+            f"{path} sha256={actual!r} != pinned {GENERATION_SETTINGS_PROTOCOL_SHA256!r} -- refusing to "
+            f"generate against an altered or unpinned generation-settings protocol."
+        )
+    return actual
+
+
 def compute_file_sha256(path: str | Path, *, chunk_size: int = 1 << 20) -> str:
     """Streaming SHA-256 of a file's actual bytes on disk -- never a
     stand-in for reading the whole file into memory at once, since SAE
@@ -457,6 +503,105 @@ class PromptArtifactError(ValueError):
     failed. Always raised before either discovery lane runs."""
 
 
+TRANSFER_MANIFEST_FILENAME = "transfer_manifest.json"
+
+
+class TransferManifestError(ValueError):
+    """The archive-side transfer manifest (`transfer_manifest.json`,
+    written once by `build_transfer_manifest`/`write_transfer_manifest` on
+    the machine that still has `.git`, e.g. immediately before a `git
+    archive` transfer to Tamia) is missing a required field, or its
+    recorded file hash disagrees with what is actually on disk after
+    transfer."""
+
+
+def _has_git_directory(repo_root: str | Path) -> bool:
+    return (Path(repo_root) / ".git").exists()
+
+
+def build_transfer_manifest(repo_root: str | Path, *, extra_paths: tuple[str, ...] = ()) -> dict:
+    """WINDOWS/DEV-SIDE ONLY (requires `.git`): records the exact commit
+    and per-file hashes an archive (e.g. `git archive HEAD`) is about to
+    ship to Tamia, which has no `.git` at all after extraction -- so Tamia
+    can never run `git status`/`git rev-parse` for itself. Runs the SAME
+    dirty-tree check `load_frozen_prompt_artifact` used to run on every
+    single invocation, but only ONCE, HERE, at archive-build time, across
+    the frozen prompt artifact directory and every one of `extra_paths`
+    (e.g. `protocols/final_pairing/v1/`). Because `git archive` only ever
+    exports COMMITTED content, a clean check here means the archived bytes
+    are exactly HEAD's tree -- nothing on the Tamia side needs to (or can)
+    re-run this check; it re-verifies the resulting BYTES instead, via
+    `load_transfer_manifest`/the frozen sha256 constants."""
+    repo_root = Path(repo_root)
+    paths_to_check = (FROZEN_PROMPT_SET_DIR, *extra_paths)
+    rc, out = _git(repo_root, "status", "--porcelain", "--", *paths_to_check)
+    if rc != 0:
+        raise TransferManifestError(f"git status failed while building the transfer manifest: {out}")
+    if out.strip():
+        raise TransferManifestError(
+            f"refusing to build a transfer manifest from a dirty working tree under {paths_to_check}:\n{out}"
+        )
+    rc, head = _git(repo_root, "rev-parse", "HEAD")
+    if rc != 0 or not head:
+        raise TransferManifestError(f"git rev-parse HEAD failed while building the transfer manifest: {head!r}")
+
+    files: dict[str, str] = {}
+    for rel in (
+        f"{FROZEN_PROMPT_SET_DIR}/prompt_sets.jsonl", f"{FROZEN_PROMPT_SET_DIR}/metadata.json", *extra_paths,
+    ):
+        path = repo_root / rel
+        if not path.is_file():
+            raise TransferManifestError(f"transfer manifest source file not found: {path}")
+        files[rel] = compute_file_sha256(path)
+
+    return {"schema_version": SCHEMA_VERSION, "source_commit": head, "files": files}
+
+
+def write_transfer_manifest(
+    repo_root: str | Path, *, extra_paths: tuple[str, ...] = (), out_path: str | Path | None = None,
+) -> dict:
+    """Writes the manifest `build_transfer_manifest` computes to
+    `<repo_root>/transfer_manifest.json` (or `out_path`) -- the file a
+    `git archive` invocation should include alongside the code (it lives
+    in the working tree, not in git history, so it must be added to the
+    archive command's own file list or copied in afterward)."""
+    manifest = build_transfer_manifest(repo_root, extra_paths=extra_paths)
+    path = Path(out_path) if out_path is not None else Path(repo_root) / TRANSFER_MANIFEST_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+    return manifest
+
+
+def load_transfer_manifest(repo_root: str | Path) -> dict | None:
+    """Returns `None` (never raises) when no transfer manifest is present
+    -- the normal case on a Windows/dev checkout that still has `.git` and
+    has never been archived. Tamia-side code should treat a present
+    manifest as authoritative and a `None` manifest as "fall back to a
+    live git check, if `.git` exists here at all"."""
+    path = Path(repo_root) / TRANSFER_MANIFEST_FILENAME
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _verify_against_transfer_manifest(transfer_manifest: dict, *, jsonl_path: Path, metadata_path: Path) -> None:
+    required = ("source_commit", "files")
+    missing = [k for k in required if k not in transfer_manifest]
+    if missing:
+        raise TransferManifestError(f"{TRANSFER_MANIFEST_FILENAME} is missing required field(s): {missing}")
+    files = transfer_manifest["files"]
+    for path, suffix in ((jsonl_path, "prompt_sets.jsonl"), (metadata_path, "metadata.json")):
+        rel = f"{FROZEN_PROMPT_SET_DIR}/{suffix}"
+        if rel not in files:
+            raise TransferManifestError(f"{TRANSFER_MANIFEST_FILENAME} does not record a hash for {rel}")
+        actual = compute_file_sha256(path)
+        if actual != files[rel]:
+            raise TransferManifestError(
+                f"{path} sha256={actual!r} != {TRANSFER_MANIFEST_FILENAME}'s recorded {files[rel]!r} -- "
+                f"the file was altered after the transfer archive was built"
+            )
+
+
 @dataclass(frozen=True)
 class FrozenPromptArtifact:
     commit: str
@@ -488,6 +633,22 @@ def load_frozen_prompt_artifact(repo_root: str | Path, *, allow_pi_gated: bool =
     The PI-gated concept (`political_framing`) is excluded from `.rows`
     unless `allow_pi_gated=True` is passed explicitly -- there is no
     default-on path to a public configuration seeing it.
+
+    ARCHIVE EXECUTION MUST NOT REQUIRE `.git`: a Tamia allocation receives
+    this repository via a `git archive`-based transfer (see
+    `build_transfer_manifest`/`write_transfer_manifest`), which by
+    construction never includes a `.git` directory. A live
+    `git status`/`git rev-parse` call would therefore always fail there --
+    not merely be redundant. Precedence: (1) if `transfer_manifest.json`
+    is present (the Tamia-side case), the dirty-tree check is NOT re-run
+    here at all -- it already ran once, on Windows, before the archive was
+    built (`build_transfer_manifest`'s own dirty-tree check); this
+    function instead re-verifies the manifest's recorded per-file hashes
+    against what is actually on disk after transfer. (2) Otherwise, if
+    `.git` exists (the Windows/dev-side case, no archive has been built
+    yet), the original live dirty-tree check runs exactly as before.
+    (3) Neither present is a hard stop -- there is no way to prove the
+    artifact was not tampered with after being committed.
     """
     repo_root = Path(repo_root)
     artifact_dir = repo_root / FROZEN_PROMPT_SET_DIR
@@ -496,13 +657,23 @@ def load_frozen_prompt_artifact(repo_root: str | Path, *, allow_pi_gated: bool =
     if not jsonl_path.is_file() or not metadata_path.is_file():
         raise PromptArtifactError(f"frozen prompt artifact not found under {artifact_dir}")
 
-    rc, out = _git(repo_root, "status", "--porcelain", "--", str(FROZEN_PROMPT_SET_DIR))
-    if rc != 0:
-        raise PromptArtifactError(f"git status failed while checking the frozen prompt artifact: {out}")
-    if out.strip():
+    transfer_manifest = load_transfer_manifest(repo_root)
+    if transfer_manifest is not None:
+        _verify_against_transfer_manifest(transfer_manifest, jsonl_path=jsonl_path, metadata_path=metadata_path)
+    elif _has_git_directory(repo_root):
+        rc, out = _git(repo_root, "status", "--porcelain", "--", str(FROZEN_PROMPT_SET_DIR))
+        if rc != 0:
+            raise PromptArtifactError(f"git status failed while checking the frozen prompt artifact: {out}")
+        if out.strip():
+            raise PromptArtifactError(
+                f"the frozen prompt artifact directory has uncommitted changes -- refusing to run "
+                f"discovery against a dirty or uncommitted replacement:\n{out}"
+            )
+    else:
         raise PromptArtifactError(
-            f"the frozen prompt artifact directory has uncommitted changes -- refusing to run "
-            f"discovery against a dirty or uncommitted replacement:\n{out}"
+            f"{repo_root} has neither {TRANSFER_MANIFEST_FILENAME} nor a .git directory -- cannot verify "
+            f"the frozen prompt artifact was not tampered with after being committed. Build a transfer "
+            f"manifest (write_transfer_manifest) before archiving this repository for Tamia."
         )
 
     actual_metadata_hash = hashlib.sha256(metadata_path.read_bytes()).hexdigest()
@@ -1922,7 +2093,7 @@ def _bundle_hook_fn(backend: Backend, feature_indices: list[int], clamp_value: f
 @dataclass
 class InterventionOutcome:
     feature_indices: list[int]
-    direction: Literal["clamp", "ablate"]
+    direction: Literal["clamp", "ablate", "baseline"]
     value_in_max_units: float
     corpus_max_used: float
     absolute_clamp_value: float
@@ -1930,12 +2101,29 @@ class InterventionOutcome:
     generated_text: str
     verdict: dict
     spec: dict  # interplab.interventions.spec.InterventionSpec-shaped, for sealing-pipeline compatibility
+    #: True iff generation stopped at max_new_tokens rather than at a stop
+    #: token (EOS/end-of-turn) -- `generation_settings.json`'s own
+    #: `truncation_flag` requirement: "48 tokens ... is thin for Suppress
+    #: ... this flag makes the adequacy of 48 an empirical question."
+    truncated: bool = False
+
+
+def _resolved_generation_kwargs(max_new_tokens: int, generation_kwargs: dict[str, Any] | None) -> dict[str, Any]:
+    """`do_sample=False` (greedy) unless the caller supplies its own
+    `generation_kwargs` (e.g. `final_pairing_concept_discovery.
+    GENERATION_SETTINGS`, the frozen, EXPLICIT one-allocation settings) --
+    `max_new_tokens` always comes from the function's own parameter, never
+    from inside `generation_kwargs`, so there is exactly one place a
+    caller sets it."""
+    resolved = {"do_sample": False, **(generation_kwargs or {})}
+    resolved["max_new_tokens"] = max_new_tokens
+    return resolved
 
 
 def run_intervention(
     backend: Backend, feature_indices: list[int], *,
     direction: Literal["clamp", "ablate"], value_in_max_units: float, corpus_max: dict[int, float],
-    positions: str, prompt: str, seed: int, max_new_tokens: int,
+    positions: str, prompt: str, seed: int, max_new_tokens: int, generation_kwargs: dict[str, Any] | None = None,
 ) -> InterventionOutcome:
     import torch
 
@@ -1945,6 +2133,7 @@ def run_intervention(
 
     seed_feature = feature_indices[0]
     absolute_clamp_value = 0.0 if direction == "ablate" else float(value_in_max_units) * float(corpus_max[seed_feature])
+    gen_kwargs = _resolved_generation_kwargs(max_new_tokens, generation_kwargs)
 
     trace: list = []
     if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
@@ -1959,8 +2148,9 @@ def run_intervention(
         )
         torch.manual_seed(seed)
         with _attached(backend, hook_fn):
-            out_tokens = model.generate(tokens, max_new_tokens=max_new_tokens, do_sample=False, verbose=False)
+            out_tokens = model.generate(tokens, verbose=False, **gen_kwargs)
         generated_text = model.tokenizer.decode(out_tokens[0])
+        new_token_count = out_tokens.shape[1] - tokens.shape[1]
     else:
         from transformers import AutoTokenizer
 
@@ -1975,8 +2165,9 @@ def run_intervention(
         )
         torch.manual_seed(seed)
         with _attached(backend, hook_fn), torch.no_grad():
-            out_ids = backend.model_obj.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+            out_ids = backend.model_obj.generate(**inputs, **gen_kwargs)
         generated_text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
+        new_token_count = out_ids.shape[1] - inputs["input_ids"].shape[1]
 
     verdict = harness.mechanical_verdict(trace, positions=positions)
     spec = {
@@ -1992,6 +2183,64 @@ def run_intervention(
         feature_indices=list(feature_indices), direction=direction, value_in_max_units=float(value_in_max_units),
         corpus_max_used=float(corpus_max[seed_feature]), absolute_clamp_value=float(absolute_clamp_value),
         positions=positions, generated_text=generated_text, verdict=verdict, spec=spec,
+        truncated=bool(new_token_count >= gen_kwargs["max_new_tokens"]),
+    )
+
+
+def run_baseline_generation(
+    backend: Backend, *, prompt: str, seed: int, max_new_tokens: int, positions: str,
+    generation_kwargs: dict[str, Any] | None = None,
+) -> InterventionOutcome:
+    """The unsteered (CONTROL) counterpart to `run_intervention`: generates
+    from the SAME prompt/seed/max_new_tokens with NO hook attached at all
+    -- not a clamp/ablate at value 0, an actual absence of intervention.
+    G-D/G-E's own `evaluate_gate_d`/`evaluate_gate_e` (`final_pairing_
+    causal_judge.py`) already require a `control_relevance_by_prompt` map
+    computed from generations paired with the steered ones at the SAME
+    prompt_id -- this is the only place in the codebase that can produce
+    those generations, since Tamia is the only place doing model
+    inference. `generation_settings.json`'s own `3_control_arm.SAME_SEED_
+    IS_MANDATORY` rule means the CALLER must pass the exact same `seed`
+    (and, for an attested run, the exact same `generation_kwargs`) it used
+    for the steered generation this control pairs with -- this function
+    does not re-derive or default either.
+
+    Returns an `InterventionOutcome` with `direction='baseline'`,
+    `feature_indices=[]`, `value_in_max_units=0.0`. `verdict={}` and
+    `spec['kind']='baseline'` -- there is no hook diagnostic trace to
+    report a mechanical verdict from (mechanical acceptance is a property
+    of the CLAMP/ABLATE hook, which a baseline run never attaches), so an
+    empty verdict is the honest result, not a fabricated pass/fail."""
+    import torch
+
+    gen_kwargs = _resolved_generation_kwargs(max_new_tokens, generation_kwargs)
+
+    if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
+        model = backend.model_obj
+        tokens = model.to_tokens(prompt)
+        torch.manual_seed(seed)
+        out_tokens = model.generate(tokens, verbose=False, **gen_kwargs)
+        generated_text = model.tokenizer.decode(out_tokens[0])
+        new_token_count = out_tokens.shape[1] - tokens.shape[1]
+    else:
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(backend.provenance["model"]["local_path"])
+        inputs = tokenizer(prompt, return_tensors="pt").to(backend._qwen_device)
+        torch.manual_seed(seed)
+        with torch.no_grad():
+            out_ids = backend.model_obj.generate(**inputs, **gen_kwargs)
+        generated_text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
+        new_token_count = out_ids.shape[1] - inputs["input_ids"].shape[1]
+
+    spec = {
+        "kind": "baseline", "feature_index": None, "value_in_max_units": 0.0, "corpus_max": None,
+        "positions": positions, "checkpoint_hash": backend.checkpoint_hash, "direction_seed": None,
+    }
+    return InterventionOutcome(
+        feature_indices=[], direction="baseline", value_in_max_units=0.0, corpus_max_used=0.0,
+        absolute_clamp_value=0.0, positions=positions, generated_text=generated_text, verdict={}, spec=spec,
+        truncated=bool(new_token_count >= gen_kwargs["max_new_tokens"]),
     )
 
 
@@ -2288,6 +2537,18 @@ class ProgressLog:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument(
+        "--mode", choices=["full", "grid"], default="full",
+        help=(
+            "'full' (default): the single-concept 7-stage pipeline (rank -> specificity -> bundle -> "
+            "dose-response -> confirmation), unchanged. 'grid': the production discovery-lane mode -- "
+            "evaluates G-A/B/C for EVERY concept in the frozen prompt artifact (all 14, both locales; "
+            "there is deliberately no subset/--concept-id flag) on this one already-loaded backend and "
+            "writes grid.json (run_concept_grid + write_grid_result), then exits. Does not run "
+            "specificity/bundle/dose-response/confirmation at all -- that is a separate, later stage "
+            "(final_pairing_one_allocation_generation.py) driven off this grid's surviving features."
+        ),
+    )
     p.add_argument("--pairing", required=True, choices=sorted(targets.ALL_TARGETS))
     p.add_argument("--model-path", required=True)
     p.add_argument("--sae-path", required=True)
@@ -2297,36 +2558,61 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--expected-model-revision", default=None)
     p.add_argument("--expected-sae-revision", default=None)
 
-    p.add_argument("--prompt-set-path", required=True)
-    p.add_argument("--prompt-set-sha256", required=True)
+    p.add_argument("--prompt-set-path", default=None, help="Required in --mode full.")
+    p.add_argument("--prompt-set-sha256", default=None, help="Required in --mode full.")
     p.add_argument("--judge-config", default=None, help="Optional path to a {model,rubric_version,prompt_version} JSON. Defaults to the NoOp identity -- no judge is ever actually invoked by this file.")
     p.add_argument("--use-frozen-prompt-artifact", action="store_true", help=f"Additionally validate prompts/final_pairing/v1/ against the pinned commit {FROZEN_PROMPT_SET_COMMIT} and hashes, run the committed validator, and stamp prompt_set_commit/prompt_set_sha256 in the output. Refuses a dirty or hash-mismatched artifact.")
-    p.add_argument("--allow-pi-gated", action="store_true", help="Only meaningful with --use-frozen-prompt-artifact. Never set for a public configuration -- political_framing stays excluded otherwise.")
+    p.add_argument("--allow-pi-gated", action="store_true", help="Only meaningful with --use-frozen-prompt-artifact (mode=full) or --mode grid. Never set for a public configuration -- political_framing stays excluded otherwise.")
 
     p.add_argument("--positions", choices=["all", "generated_only"], default="all")
     p.add_argument("--record-generated-only-diagnostic", action="store_true", help="Additionally run every intervention under generated_only as a separate diagnostic. positions=all remains the public calibration path regardless.")
     p.add_argument("--confirmation-repeats", type=int, default=3, help="Only used with --use-frozen-prompt-artifact: repeats per held-out prompt in the dose-response confirmation sweep (heldout_neutral for clamp, heldout_eliciting for ablate).")
 
-    p.add_argument("--shortlist-size", type=int, required=True)
-    p.add_argument("--direction", choices=["clamp", "ablate"], required=True)
-    p.add_argument("--dose-grid", required=True, help="Comma-separated floats, in value_in_max_units (multiples of the background-corpus max activation).")
+    p.add_argument("--shortlist-size", type=int, required=True, help="Required in both modes.")
+    p.add_argument("--direction", choices=["clamp", "ablate"], default=None, help="Required in --mode full.")
+    p.add_argument("--dose-grid", default=None, help="Required in --mode full. Comma-separated floats, in value_in_max_units (multiples of the background-corpus max activation).")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--prompt", default="Tell me about your day.")
     p.add_argument("--max-new-tokens", type=int, default=8)
     p.add_argument("--device", default="cuda")
     p.add_argument("--dtype", default="bfloat16")
 
-    p.add_argument("--specificity-auc-threshold", type=float, required=True)
-    p.add_argument("--bundle-materiality-threshold", type=float, required=True)
+    p.add_argument("--specificity-auc-threshold", type=float, default=None, help="Required in --mode full.")
+    p.add_argument("--bundle-materiality-threshold", type=float, default=None, help="Required in --mode full.")
     p.add_argument("--bundle-max-size", type=int, default=1)
-    p.add_argument("--calibration-low-threshold", type=float, required=True)
-    p.add_argument("--calibration-medium-threshold", type=float, required=True)
-    p.add_argument("--calibration-high-threshold", type=float, required=True)
+    p.add_argument("--calibration-low-threshold", type=float, default=None, help="Required in --mode full.")
+    p.add_argument("--calibration-medium-threshold", type=float, default=None, help="Required in --mode full.")
+    p.add_argument("--calibration-high-threshold", type=float, default=None, help="Required in --mode full.")
 
     p.add_argument("--out-dir", required=True)
     p.add_argument("--state-dir", required=True, help="Separate from --out-dir: holds the resumable progress log only.")
     p.add_argument("--ready-path", default=None, help="If set, a READY record is written here immediately after the backend (model+SAE) finishes loading -- for the dual-GPU orchestrator's staggered-cold-load handshake. Omitted for a standalone/non-staggered run.")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    _validate_args_for_mode(p, args)
+    return args
+
+
+_FULL_MODE_REQUIRED_FIELDS = (
+    "prompt_set_path", "prompt_set_sha256", "direction", "dose_grid", "specificity_auc_threshold",
+    "bundle_materiality_threshold", "calibration_low_threshold", "calibration_medium_threshold",
+    "calibration_high_threshold",
+)
+
+
+def _validate_args_for_mode(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """`--mode full`'s own fields stay `required=True` in spirit, but are
+    declared `default=None` at the argparse level so `--mode grid` (which
+    needs none of them) does not have to supply placeholder values for
+    flags it never uses. Enforced here instead, with the same fail-closed
+    `parser.error` (exit code 2, matching argparse's own convention for a
+    genuinely missing required argument) `--mode grid` never touches this
+    path at all -- there is no field required there beyond `--shortlist-
+    size`, which stays `required=True` at the parser level since both
+    modes need it."""
+    if args.mode == "full":
+        missing = [f for f in _FULL_MODE_REQUIRED_FIELDS if getattr(args, f) is None]
+        if missing:
+            parser.error(f"--mode full requires: {', '.join('--' + f.replace('_', '-') for f in missing)}")
 
 
 def _parse_dose_grid(raw: str) -> list[float]:
@@ -2516,8 +2802,75 @@ def run(args: argparse.Namespace) -> dict:
     return final_result
 
 
+def run_grid_mode(args: argparse.Namespace) -> dict:
+    """`--mode grid`: the real production discovery-lane entry point.
+    Loads ONE already-configured backend (one pairing, one configuration),
+    validates the frozen prompt artifact (git-independent -- see
+    `load_frozen_prompt_artifact`), then evaluates G-A/B/C for EVERY
+    concept the frozen artifact carries (`run_concept_grid`'s own default
+    `concept_ids=None` -- there is no CLI flag anywhere in this function
+    that could narrow that set; a production run always covers all 14)
+    and writes `grid.json` via `write_grid_result`. Returns the same
+    aggregate dict `write_grid_result`'s caller already gets, plus the
+    written path, so `main()` can report status without re-reading the
+    file it just wrote.
+
+    Does not rank/compose a bundle/run any dose-response or confirmation
+    intervention -- those stages belong to `final_pairing_one_allocation_
+    generation.py`'s CLI, driven off THIS grid's `surviving_feature_index`
+    per concept, once the grid (and the automatic backup-trigger decision
+    it feeds) has been written."""
+    out_dir = Path(args.out_dir)
+    state_dir = Path(args.state_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    progress = ProgressLog(state_dir / "progress.jsonl")
+
+    run_prompt_set_validator(REPO_ROOT)
+    # The frozen backup-trigger protocol's own grid is fixed at "14 concepts x 2
+    # pairings x 3 gates x 3 paraphrase families x 2 locales" (protocols/final_
+    # pairing/v1/backup_trigger.json) -- primary_shared_gabc_count's range is
+    # explicitly 0-14. allow_pi_gated is therefore NOT wired to --allow-pi-gated
+    # here (that flag governs --mode full's single-concept, public-facing
+    # exclusion); grid mode always evaluates all 14, including political_framing,
+    # since a 13-concept grid would silently break the trigger's own arithmetic.
+    artifact = load_frozen_prompt_artifact(REPO_ROOT, allow_pi_gated=True)
+
+    backend = load_backend(
+        pairing=args.pairing, model_path=args.model_path, sae_path=args.sae_path, layer=args.layer,
+        expected_model_revision=args.expected_model_revision, expected_sae_revision=args.expected_sae_revision,
+        device=args.device, dtype=args.dtype, sae_family=args.qwen_sae_family, sparsity=args.qwen_sparsity,
+    )
+    if args.ready_path is not None:
+        write_ready_record(args.ready_path, pairing=args.pairing, device=args.device)
+
+    verdicts = run_concept_grid(backend, artifact, shortlist_size=args.shortlist_size, progress=progress)
+    grid_path = write_grid_result(out_dir, args.pairing, verdicts)
+
+    concept_count = len(verdicts)
+    error_count = sum(1 for v in verdicts if v.status == "error")
+    pass_count = sum(1 for v in verdicts if v.status == "pass")
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "mode": "grid",
+        "pairing": args.pairing,
+        "prompt_set_commit": artifact.commit,
+        "prompt_set_sha256": artifact.prompt_sets_sha256,
+        "concept_count": concept_count,
+        "pass_count": pass_count,
+        "fail_count": concept_count - pass_count - error_count,
+        "error_count": error_count,
+        "grid_path": str(grid_path),
+        "status": "complete" if error_count == 0 else "complete_with_errors",
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.mode == "grid":
+        grid_result = run_grid_mode(args)
+        print(json.dumps({"status": grid_result["status"], "pairing": grid_result["pairing"], "grid_path": grid_result["grid_path"]}, indent=2))
+        return 0 if grid_result["error_count"] == 0 else 1
     result = run(args)
     print(json.dumps({"status": result["status"], "concept_id": result.get("concept_id")}, indent=2))
     return 0 if result["status"] in ("complete", "no_candidate_passed_specificity") else 1

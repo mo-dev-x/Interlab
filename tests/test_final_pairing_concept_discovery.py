@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -123,7 +124,7 @@ class _FakeGemmaModel:
             resid = fn(resid, hook=None)
         return resid
 
-    def generate(self, tokens: torch.Tensor, *, max_new_tokens: int, do_sample: bool, verbose: bool = False):
+    def generate(self, tokens: torch.Tensor, *, max_new_tokens: int, do_sample: bool, verbose: bool = False, **_kwargs):
         seq = [self._texts_by_token[int(t)] for t in tokens[0].tolist()]
         resid = torch.stack([_text_embedding(t) for t in seq]).unsqueeze(0)
         for _name, fn in self._active_hooks:
@@ -419,6 +420,111 @@ def _common_cli_args(prompt_set_path: Path, prompt_set_sha256: str, out_dir: Pat
         "--calibration-low-threshold", "1.0", "--calibration-medium-threshold", "1.5", "--calibration-high-threshold", "2.0",
         "--out-dir", str(out_dir), "--state-dir", str(state_dir),
     ]
+
+
+# ---------------------------------------------------------------------------
+# --mode grid: the real production discovery-lane CLI entry point.
+# ---------------------------------------------------------------------------
+
+
+def _grid_mode_cli_args(out_dir: Path, state_dir: Path, *, shortlist_size: int = 2) -> list[str]:
+    return [
+        "--mode", "grid", "--pairing", "gemma-3-12b-it",
+        "--model-path", "/fake/model", "--sae-path", "/fake/sae",
+        "--shortlist-size", str(shortlist_size),
+        "--out-dir", str(out_dir), "--state-dir", str(state_dir),
+    ]
+
+
+def test_parse_args_grid_mode_does_not_require_full_mode_only_flags(tmp_path):
+    args = d.parse_args(_grid_mode_cli_args(tmp_path / "out", tmp_path / "state"))
+    assert args.mode == "grid"
+    assert args.prompt_set_path is None
+    assert args.direction is None
+
+
+def test_parse_args_full_mode_still_requires_the_original_fields(tmp_path):
+    """--mode full (the default) must still refuse a genuinely incomplete
+    invocation -- relaxing these flags to default=None for grid mode must
+    not silently make them optional for the pipeline that actually needs
+    them."""
+    with pytest.raises(SystemExit):
+        d.parse_args([
+            "--pairing", "gemma-3-12b-it", "--model-path", "/fake/model", "--sae-path", "/fake/sae",
+            "--shortlist-size", "3", "--out-dir", str(tmp_path / "out"), "--state-dir", str(tmp_path / "state"),
+            # --prompt-set-path, --direction, --dose-grid, and the threshold flags are all omitted.
+        ])
+
+
+def test_parse_args_grid_mode_exposes_no_concept_subset_flag(tmp_path):
+    """The production grid CLI must never be able to narrow which concepts
+    it evaluates -- there is no --concept-id/--concept-ids flag at all."""
+    with pytest.raises(SystemExit):
+        d.parse_args([*_grid_mode_cli_args(tmp_path / "out", tmp_path / "state"), "--concept-id", "cheese"])
+
+
+def test_run_grid_mode_covers_all_14_concepts_including_the_pi_gated_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(d, "load_backend", lambda **kwargs: make_fake_gemma_backend())
+    out_dir, state_dir = tmp_path / "out", tmp_path / "state"
+    args = d.parse_args(_grid_mode_cli_args(out_dir, state_dir))
+
+    result = d.run_grid_mode(args)
+
+    assert result["concept_count"] == 14
+    verdicts = d.read_grid_result(Path(result["grid_path"]))
+    assert len(verdicts) == 14
+    assert {v.concept_id for v in verdicts} == {r["concept_id"] for r in d.load_frozen_prompt_artifact(d.REPO_ROOT, allow_pi_gated=True).rows}
+    assert d.PI_GATED_CONCEPT_ID in {v.concept_id for v in verdicts}
+    assert all(v.pairing == "gemma-3-12b-it" for v in verdicts)
+    assert all(v.status in ("pass", "fail", "error") for v in verdicts)
+
+
+def test_run_grid_mode_writes_a_ready_record_when_ready_path_is_given(tmp_path, monkeypatch):
+    monkeypatch.setattr(d, "load_backend", lambda **kwargs: make_fake_gemma_backend())
+    out_dir, state_dir = tmp_path / "out", tmp_path / "state"
+    ready_path = tmp_path / "ready.json"
+    args = d.parse_args([*_grid_mode_cli_args(out_dir, state_dir), "--ready-path", str(ready_path), "--device", "cpu"])
+
+    d.run_grid_mode(args)
+
+    assert ready_path.is_file()
+    record = json.loads(ready_path.read_text(encoding="utf-8"))
+    assert record["pairing"] == "gemma-3-12b-it"
+    assert record["device"] == "cpu"
+
+
+def test_main_dispatches_to_grid_mode_and_reports_grid_path(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(d, "load_backend", lambda **kwargs: make_fake_gemma_backend())
+    out_dir, state_dir = tmp_path / "out", tmp_path / "state"
+    exit_code = d.main(_grid_mode_cli_args(out_dir, state_dir))
+    assert exit_code == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["pairing"] == "gemma-3-12b-it"
+    assert Path(printed["grid_path"]).is_file()
+
+
+def test_run_grid_mode_is_resumable_via_state_dir_progress_log(tmp_path, monkeypatch):
+    """A second invocation against the same --state-dir must not re-run
+    concepts the first invocation already completed (run_concept_grid's
+    own progress-log resumability, exercised end-to-end through the CLI)."""
+    call_count = {"n": 0}
+    real_evaluate = d.evaluate_concept_on_pairing
+
+    def counting_evaluate(*args, **kwargs):
+        call_count["n"] += 1
+        return real_evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(d, "load_backend", lambda **kwargs: make_fake_gemma_backend())
+    monkeypatch.setattr(d, "evaluate_concept_on_pairing", counting_evaluate)
+    out_dir, state_dir = tmp_path / "out", tmp_path / "state"
+    args = d.parse_args(_grid_mode_cli_args(out_dir, state_dir))
+
+    d.run_grid_mode(args)
+    first_call_count = call_count["n"]
+    assert first_call_count == 14
+
+    d.run_grid_mode(args)
+    assert call_count["n"] == first_call_count  # no concept re-evaluated the second time
 
 
 def test_run_writes_provenance_with_model_sae_layer_and_checkpoint_hash(tmp_path, monkeypatch):
@@ -730,6 +836,115 @@ def test_load_frozen_prompt_artifact_rejects_a_wrong_expected_row_count(monkeypa
         d.load_frozen_prompt_artifact(d.REPO_ROOT)
 
 
+# ---------------------------------------------------------------------------
+# Archive execution must not require .git: the transfer manifest is the
+# git-independent substitute for the Tamia side of a `git archive` transfer.
+# ---------------------------------------------------------------------------
+
+
+def _copy_frozen_artifact_into(dest_root: Path) -> Path:
+    """Copies the real, committed frozen prompt artifact directory into a
+    bare (non-git) tmp tree, so `load_frozen_prompt_artifact` can be
+    exercised against it with NO `.git` present at all."""
+    src = d.REPO_ROOT / d.FROZEN_PROMPT_SET_DIR
+    dest = dest_root / d.FROZEN_PROMPT_SET_DIR
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(src, dest)
+    return dest
+
+
+def test_build_transfer_manifest_records_a_real_head_commit_and_the_pinned_hashes():
+    manifest = d.build_transfer_manifest(d.REPO_ROOT)
+    assert len(manifest["source_commit"]) == 40
+    assert all(c in "0123456789abcdef" for c in manifest["source_commit"])
+    assert manifest["files"][f"{d.FROZEN_PROMPT_SET_DIR}/prompt_sets.jsonl"] == d.FROZEN_PROMPT_SETS_SHA256
+    assert manifest["files"][f"{d.FROZEN_PROMPT_SET_DIR}/metadata.json"] == d.FROZEN_METADATA_SHA256
+
+
+def test_build_transfer_manifest_refuses_a_dirty_working_tree(monkeypatch):
+    def dirty_git(repo_root, *args):
+        if args[0] == "status":
+            return 0, " M prompts/final_pairing/v1/metadata.json"
+        return 0, "deadbeef" * 5
+
+    monkeypatch.setattr(d, "_git", dirty_git)
+    with pytest.raises(d.TransferManifestError, match="dirty working tree"):
+        d.build_transfer_manifest(d.REPO_ROOT)
+
+
+def test_build_transfer_manifest_refuses_when_git_status_itself_fails(monkeypatch):
+    monkeypatch.setattr(d, "_git", lambda repo_root, *args: (128, "fatal: not a git repository"))
+    with pytest.raises(d.TransferManifestError, match="git status failed"):
+        d.build_transfer_manifest(d.REPO_ROOT)
+
+
+def test_write_and_load_transfer_manifest_round_trip(tmp_path, monkeypatch):
+    _copy_frozen_artifact_into(tmp_path)
+
+    def clean_git(repo_root, *args):
+        if args[0] == "status":
+            return 0, ""
+        return 0, "a" * 40
+
+    monkeypatch.setattr(d, "_git", clean_git)
+    written = d.write_transfer_manifest(tmp_path)
+    loaded = d.load_transfer_manifest(tmp_path)
+    assert loaded == written
+    assert (tmp_path / d.TRANSFER_MANIFEST_FILENAME).is_file()
+    assert written["source_commit"] == "a" * 40
+
+
+def test_load_transfer_manifest_returns_none_when_absent(tmp_path):
+    assert d.load_transfer_manifest(tmp_path) is None
+
+
+def test_load_frozen_prompt_artifact_succeeds_via_transfer_manifest_with_no_git_at_all(tmp_path, monkeypatch):
+    """The exact Tamia-side scenario: a directory with the frozen artifact
+    and a transfer_manifest.json, but NO .git directory whatsoever. Must
+    succeed without ever invoking `git`."""
+    _copy_frozen_artifact_into(tmp_path)
+    assert not (tmp_path / ".git").exists()
+
+    def _git_must_not_be_called(repo_root, *args):
+        raise AssertionError(f"git must never be invoked on the Tamia side; called with {args}")
+
+    monkeypatch.setattr(d, "_git", _git_must_not_be_called)
+    real_manifest = {
+        "schema_version": d.SCHEMA_VERSION, "source_commit": "b" * 40,
+        "files": {
+            f"{d.FROZEN_PROMPT_SET_DIR}/prompt_sets.jsonl": d.FROZEN_PROMPT_SETS_SHA256,
+            f"{d.FROZEN_PROMPT_SET_DIR}/metadata.json": d.FROZEN_METADATA_SHA256,
+        },
+    }
+    (tmp_path / d.TRANSFER_MANIFEST_FILENAME).write_text(json.dumps(real_manifest), encoding="utf-8")
+
+    artifact = d.load_frozen_prompt_artifact(tmp_path)
+    assert artifact.prompt_sets_sha256 == d.FROZEN_PROMPT_SETS_SHA256
+
+
+def test_load_frozen_prompt_artifact_refuses_a_file_altered_after_the_manifest_was_built(tmp_path):
+    dest = _copy_frozen_artifact_into(tmp_path)
+    real_manifest = d.build_transfer_manifest(d.REPO_ROOT)
+    (tmp_path / d.TRANSFER_MANIFEST_FILENAME).write_text(json.dumps(real_manifest), encoding="utf-8")
+    # Tamper with the file AFTER the manifest was written (post-transfer alteration).
+    (dest / "metadata.json").write_text((dest / "metadata.json").read_text(encoding="utf-8") + " ", encoding="utf-8")
+    with pytest.raises(d.TransferManifestError, match="was altered after the transfer archive was built"):
+        d.load_frozen_prompt_artifact(tmp_path)
+
+
+def test_load_frozen_prompt_artifact_refuses_a_manifest_missing_required_fields(tmp_path):
+    _copy_frozen_artifact_into(tmp_path)
+    (tmp_path / d.TRANSFER_MANIFEST_FILENAME).write_text(json.dumps({"files": {}}), encoding="utf-8")
+    with pytest.raises(d.TransferManifestError, match="missing required field"):
+        d.load_frozen_prompt_artifact(tmp_path)
+
+
+def test_load_frozen_prompt_artifact_refuses_when_neither_git_nor_transfer_manifest_exist(tmp_path):
+    _copy_frozen_artifact_into(tmp_path)
+    with pytest.raises(d.PromptArtifactError, match=r"neither transfer_manifest\.json nor a \.git directory"):
+        d.load_frozen_prompt_artifact(tmp_path)
+
+
 def test_rows_for_concept_preserves_shared_substrate_identity_across_concepts():
     artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
     cheese_unrelated = d.rows_for_concept(artifact.rows, concept_id="cheese", locale="en", split="unrelated")
@@ -956,6 +1171,63 @@ def test_run_gemma_raw_hf_hook_preflight_fails_closed_on_a_dimension_mismatch():
     tokens = torch.zeros((1, 4))
     with pytest.raises(targets.TargetIdentityMismatch):
         d.run_gemma_raw_hf_hook_preflight(model, tokens, layer=1, expected_hidden_dim=999)
+
+
+# ---------------------------------------------------------------------------
+# Baseline (CONTROL) generation: no hook attached at all -- the paired
+# unsteered counterpart G-D/G-E's evaluate_gate_d/evaluate_gate_e need.
+# ---------------------------------------------------------------------------
+
+
+def test_run_baseline_generation_attaches_no_hook_and_reports_baseline_direction():
+    backend = make_fake_gemma_backend()
+    outcome = d.run_baseline_generation(backend, prompt="hello", seed=0, max_new_tokens=2, positions="all")
+    assert outcome.direction == "baseline"
+    assert outcome.feature_indices == []
+    assert outcome.value_in_max_units == 0.0
+    assert outcome.verdict == {}
+    assert outcome.spec["kind"] == "baseline"
+    assert outcome.generated_text == "fake-generated-text"
+
+
+def test_run_baseline_generation_is_deterministic_given_the_same_seed():
+    backend = make_fake_gemma_backend()
+    first = d.run_baseline_generation(backend, prompt="hello", seed=7, max_new_tokens=2, positions="all")
+    second = d.run_baseline_generation(backend, prompt="hello", seed=7, max_new_tokens=2, positions="all")
+    assert first.generated_text == second.generated_text
+
+
+def test_run_intervention_defaults_to_greedy_when_no_generation_kwargs_given():
+    backend = make_fake_gemma_backend()
+    outcome = d.run_intervention(
+        backend, [CONCEPT_FEATURE], direction="clamp", value_in_max_units=1.0,
+        corpus_max=d.corpus_max_per_feature(backend, NEGATIVE_TEXTS), positions="all",
+        prompt="hello", seed=0, max_new_tokens=3,
+    )
+    assert outcome.truncated is True  # the fake always emits exactly max_new_tokens
+
+
+def test_run_intervention_accepts_the_frozen_generation_settings_without_error():
+    """The fake model must not choke on the frozen one-allocation sampling
+    kwargs (temperature/top_p/top_k/... ) it does not otherwise use."""
+    backend = make_fake_gemma_backend()
+    outcome = d.run_intervention(
+        backend, [CONCEPT_FEATURE], direction="clamp", value_in_max_units=1.0,
+        corpus_max=d.corpus_max_per_feature(backend, NEGATIVE_TEXTS), positions="all",
+        prompt="hello", seed=0, max_new_tokens=3, generation_kwargs=d.GENERATION_SETTINGS,
+    )
+    assert outcome.generated_text == "fake-generated-text"
+
+
+def test_generation_settings_protocol_hash_matches_the_real_frozen_artifact():
+    d.validate_generation_settings_protocol_hash(d.REPO_ROOT)  # must not raise
+
+
+def test_generation_settings_protocol_hash_refuses_a_tampered_copy(tmp_path):
+    (tmp_path / "protocols" / "final_pairing" / "v1").mkdir(parents=True)
+    (tmp_path / "protocols" / "final_pairing" / "v1" / "generation_settings.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(d.PromptArtifactError):
+        d.validate_generation_settings_protocol_hash(tmp_path)
 
 
 # ---------------------------------------------------------------------------

@@ -249,6 +249,12 @@ def run_matched_configuration_job(
     run_backup: bool | None = None,
     trigger_resolver=None,
     backup_readiness_checker=None,
+    validate_prompt_artifact=dual_gpu.default_prompt_artifact_validator,
+    run_preflight=dual_gpu.default_preflight_runner,
+    wait_for_ready=None,
+    ready_timeout_seconds: float = 1800.0,
+    poll_interval_seconds: float = 5.0,
+    repo_root: Path = dual_gpu.REPO_ROOT,
 ) -> dict:
     """Runs primary, then EITHER uses the caller-supplied `run_backup`
     (test-only override -- see module docstring; the scheduled entry
@@ -258,6 +264,24 @@ def run_matched_configuration_job(
     AFTER primary completes and uses its `.run_backup` -- raising
     `TriggerResolutionFailed` if `.fail_run` is True (an incomplete
     primary), before backup is ever considered.
+
+    Both primary AND backup launch through `dual_gpu.run_dual_gpu_job_for_
+    lanes` -- the SAME real preflight -> prompt-artifact-validation ->
+    staggered-cold-load-handshake sequence the standalone dual-GPU job
+    uses, never `DualGpuOrchestrator.launch_all()` directly. A primary
+    (or backup) that fails this gate before any weights load reports
+    `status='failure'` with `lanes: []`, exactly like a lane-level
+    failure -- there is no separate, weaker code path here that could
+    launch either configuration's lanes concurrently or without having
+    first validated the frozen prompt artifact.
+
+    If primary's own gate/lanes did not reach `complete_pass`, the
+    backup trigger is never resolved from primary's (possibly nonexistent)
+    grid.json -- `run_backup` is forced to `False` and `trigger_result`
+    stays `None`; an infrastructure failure must never be read as
+    "primary_complete=False" (a SCIENTIFIC verdict) by trying to open a
+    grid file that a preflight or validation failure means was never
+    written.
 
     If the trigger says to run backup AND `backup_readiness_checker` is
     supplied (a zero-argument callable, typically `check_backup_readiness`
@@ -274,19 +298,29 @@ def run_matched_configuration_job(
         raise ValueError("run_matched_configuration_job requires either run_backup or trigger_resolver")
     validate_primary_backup_paths_disjoint(primary_lanes, backup_lanes)
 
-    primary_orchestrator = orchestrator_factory(primary_lanes)
-    primary_orchestrator.launch_all()
-    primary_result = primary_orchestrator.wait_all()
+    primary_result = dual_gpu.run_dual_gpu_job_for_lanes(
+        primary_lanes, orchestrator_factory=orchestrator_factory, validate_prompt_artifact=validate_prompt_artifact,
+        run_preflight=run_preflight, repo_root=repo_root, ready_timeout_seconds=ready_timeout_seconds,
+        poll_interval_seconds=poll_interval_seconds, wait_for_ready=wait_for_ready,
+    )
 
     trigger_result = None
     if run_backup is None:
-        trigger_result = trigger_resolver()
-        if trigger_result.fail_run:
-            raise TriggerResolutionFailed(
-                f"primary_complete=False: the backup-trigger formula cannot be evaluated, and an "
-                f"incomplete primary must never fall through to backup. trigger={trigger_result}"
-            )
-        run_backup = trigger_result.run_backup
+        if primary_result["status"] != "complete_pass":
+            # An infrastructure failure (preflight, prompt-artifact validation, or a lane
+            # itself failing) means primary never produced a trustworthy grid.json --
+            # resolving the trigger against it would either raise the wrong exception
+            # (FileNotFoundError) or read a stale/foreign file. Backup is simply not
+            # attempted; this is NOT the same thing as the trigger's own FAIL_RUN.
+            run_backup = False
+        else:
+            trigger_result = trigger_resolver()
+            if trigger_result.fail_run:
+                raise TriggerResolutionFailed(
+                    f"primary_complete=False: the backup-trigger formula cannot be evaluated, and an "
+                    f"incomplete primary must never fall through to backup. trigger={trigger_result}"
+                )
+            run_backup = trigger_result.run_backup
 
     backup_result = None
     backup_readiness = None
@@ -297,9 +331,11 @@ def run_matched_configuration_job(
         if backup_readiness is not None and not backup_readiness.attempt:
             backup_execution_status = "NOT_ATTEMPTED"
         else:
-            backup_orchestrator = orchestrator_factory(backup_lanes)
-            backup_orchestrator.launch_all()
-            backup_result = backup_orchestrator.wait_all()
+            backup_result = dual_gpu.run_dual_gpu_job_for_lanes(
+                backup_lanes, orchestrator_factory=orchestrator_factory, validate_prompt_artifact=validate_prompt_artifact,
+                run_preflight=run_preflight, repo_root=repo_root, ready_timeout_seconds=ready_timeout_seconds,
+                poll_interval_seconds=poll_interval_seconds, wait_for_ready=wait_for_ready,
+            )
             backup_execution_status = "COMPLETE" if backup_result["status"] == "complete_pass" else "PARTIAL"
 
     for lane in primary_result["lanes"]:
@@ -360,6 +396,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--primary-qwen-grid-path", required=True, help="The Qwen primary lane's own grid.json (exact path -- never globbed).")
     p.add_argument("--concept-id", action="append", required=True, dest="concept_ids", help="Repeatable: one --concept-id per concept in the grid (all 14 for a production run).")
     p.add_argument("--job-result-path", required=True)
+    p.add_argument("--ready-timeout-seconds", type=float, default=1800.0, help="How long to wait for each configuration's lead lane (Qwen) READY record before failing closed.")
+    p.add_argument("--poll-interval-seconds", type=float, default=5.0)
     return p.parse_args(argv)
 
 
@@ -386,6 +424,7 @@ def main(argv: list[str] | None = None) -> int:
     result = run_matched_configuration_job(
         primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs=trigger_inputs,
         trigger_resolver=trigger_resolver, job_result_path=Path(args.job_result_path),
+        ready_timeout_seconds=args.ready_timeout_seconds, poll_interval_seconds=args.poll_interval_seconds,
     )
     print(json.dumps({"status": result["status"], "selected_configuration": result["selected_configuration"]}, indent=2))
     return result["overall_exit_code"]

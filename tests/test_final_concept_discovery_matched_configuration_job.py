@@ -84,6 +84,34 @@ def _make_orchestrator_factory(exit_codes: dict[str, int]):
     return factory
 
 
+def _fake_run_preflight(repo_root):
+    """Stands in for the real `discovery_preflight.py` subprocess -- these
+    tests exercise `run_matched_configuration_job`'s SEQUENCING, not the
+    preflight script itself (that has its own test suite)."""
+    return {"overall": "pass", "executed_cases": 0, "expected_cases": 0, "cases": []}
+
+
+def _fake_validate_prompt_artifact(repo_root):
+    """Stands in for the real frozen-prompt-artifact git/hash check --
+    these tests never touch a real repo checkout's artifact state."""
+    return None
+
+
+def _fake_wait_for_ready(ready_path, **kwargs):
+    """Stands in for `final_pairing_concept_discovery.wait_for_ready_record`
+    -- the fake launched processes never write a real ready.json, so the
+    real waiter would hang/time out. Returns immediately, as if the lead
+    lane's READY record had already arrived."""
+    return None
+
+
+_REAL_GATE_FAKES = {
+    "run_preflight": _fake_run_preflight,
+    "validate_prompt_artifact": _fake_validate_prompt_artifact,
+    "wait_for_ready": _fake_wait_for_ready,
+}
+
+
 def _standard_paths(tmp_path: Path) -> dict:
     return {
         "primary_gemma": _write_lane_json(tmp_path, "primary_gemma"),
@@ -101,6 +129,7 @@ def _run(tmp_path: Path, *, run_backup: bool, exit_codes: dict[str, int] | None 
     return matched.run_matched_configuration_job(
         primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={"note": "test"},
         run_backup=run_backup, job_result_path=tmp_path / "job_result.json", orchestrator_factory=factory,
+        **_REAL_GATE_FAKES,
     )
 
 
@@ -155,6 +184,90 @@ def test_backup_result_json_file_is_written_and_never_reuses_primarys_path(tmp_p
 
 
 # ---------------------------------------------------------------------------
+# The real preflight/prompt-artifact-validation gate, and staggered launch
+# (NEVER launch_all), apply to BOTH primary and backup -- not just to the
+# standalone dual-GPU job. Mirrors test_final_concept_discovery_dual_gpu_
+# job.py's own preflight/staggering proofs, one level up.
+# ---------------------------------------------------------------------------
+
+
+def test_a_failing_preflight_blocks_both_primary_and_backup_and_never_resolves_the_trigger(tmp_path):
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+
+    def failing_preflight(repo_root):
+        raise dual_gpu.PreflightFailed("9 cases expected, 3 executed -- discovery_preflight.py did not report a clean pass")
+
+    resolver_calls = {"n": 0}
+
+    def resolver():
+        resolver_calls["n"] += 1
+        raise AssertionError("must never be called: primary never reached complete_pass, so its grid.json is untrustworthy")
+
+    launched = []
+
+    def factory(lanes):
+        launched.append(lanes)
+        raise AssertionError("must never be constructed: preflight failed before any launch")
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+        trigger_resolver=resolver, job_result_path=tmp_path / "result.json", orchestrator_factory=factory,
+        run_preflight=failing_preflight, validate_prompt_artifact=_fake_validate_prompt_artifact,
+    )
+    assert launched == []
+    assert resolver_calls["n"] == 0
+    assert result["run_backup"] is False
+    assert result["backup_result"] is None
+    assert result["primary_result"]["status"] == "failure"
+    assert result["primary_result"]["lanes"] == []
+    assert result["status"] == "failure"
+
+
+def test_both_primary_and_backup_launch_via_staggered_handshake_never_launch_all(tmp_path):
+    """Qwen (the lead lane) must be launched, and reach READY, before Gemma
+    (the follower) is launched -- for BOTH primary and backup. Proven with
+    the REAL `write_ready_record`/`wait_for_ready_record` handshake (not a
+    no-op fake), exactly like test_final_concept_discovery_dual_gpu_job.py
+    proves it for the standalone job. `launch_all` would launch both lanes
+    with no such ordering constraint at all."""
+    import final_pairing_concept_discovery as discovery_module
+
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+
+    launch_order = []
+
+    def make_launch():
+        def fake_launch(command, *, env, cwd, log_path):
+            name = "gemma" if env["CUDA_VISIBLE_DEVICES"] == "0" else "qwen"
+            launch_order.append(name)
+            if name == dual_gpu.STAGGER_LEAD_LANE:
+                ready_index = command.index("--ready-path")
+                ready_path = Path(command[ready_index + 1])
+                discovery_module.write_ready_record(ready_path, pairing="qwen-3.5-27b", device="cuda:0")
+            return _FakeProcess(pid=hash(name) % 10000, exit_code=0)
+
+        return fake_launch
+
+    def factory(lanes):
+        return dual_gpu.DualGpuOrchestrator(
+            lanes, launch=make_launch(), sleep_fn=lambda _s: None, signal_module=_FakeSignalModule()
+        )
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+        run_backup=True, job_result_path=tmp_path / "result.json", orchestrator_factory=factory,
+        run_preflight=_fake_run_preflight, validate_prompt_artifact=_fake_validate_prompt_artifact,
+    )
+    assert result["status"] == "complete_pass"
+    # Two configurations x (qwen then gemma) = exactly this order, never gemma-before-qwen.
+    assert launch_order == ["qwen", "gemma", "qwen", "gemma"]
+
+
+# ---------------------------------------------------------------------------
 # The trigger boolean is never computed here -- only recorded.
 # ---------------------------------------------------------------------------
 
@@ -174,6 +287,7 @@ def test_run_backup_false_never_launches_the_backup_orchestrator(tmp_path):
     result = matched.run_matched_configuration_job(
         primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={"x": 1},
         run_backup=False, job_result_path=tmp_path / "result.json", orchestrator_factory=factory,
+        **_REAL_GATE_FAKES,
     )
     assert result["backup_result"] is None
     assert result["run_backup"] is False
@@ -188,6 +302,7 @@ def test_trigger_inputs_are_persisted_verbatim_not_reinterpreted(tmp_path):
     result = matched.run_matched_configuration_job(
         primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs=weird_inputs,
         run_backup=False, job_result_path=tmp_path / "result.json", orchestrator_factory=_make_orchestrator_factory({}),
+        **_REAL_GATE_FAKES,
     )
     assert result["trigger_inputs"] == weird_inputs
 
@@ -341,6 +456,7 @@ def test_run_matched_configuration_job_uses_trigger_resolver_when_run_backup_is_
         primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
         trigger_resolver=resolver, job_result_path=tmp_path / "result.json",
         orchestrator_factory=_make_orchestrator_factory({}),
+        **_REAL_GATE_FAKES,
     )
     assert calls["n"] == 1
     assert result["run_backup"] is True
@@ -367,6 +483,7 @@ def test_run_matched_configuration_job_raises_before_backup_when_trigger_resolve
             primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
             trigger_resolver=failing_resolver, job_result_path=tmp_path / "result.json",
             orchestrator_factory=factory,
+            **_REAL_GATE_FAKES,
         )
     assert backup_launched["called"] is False
 
@@ -456,6 +573,7 @@ def test_run_matched_configuration_job_writes_not_attempted_when_readiness_refus
         primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
         run_backup=True, job_result_path=tmp_path / "result.json", orchestrator_factory=factory,
         backup_readiness_checker=lambda: matched.BackupReadiness(attempt=False, status="not_attempted_insufficient_time", detail="not enough time"),
+        **_REAL_GATE_FAKES,
     )
     assert backup_launched["called"] is False
     assert result["backup_execution_status"] == "NOT_ATTEMPTED"
@@ -473,6 +591,7 @@ def test_run_matched_configuration_job_writes_complete_when_readiness_allows_and
         primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
         run_backup=True, job_result_path=tmp_path / "result.json", orchestrator_factory=_make_orchestrator_factory({}),
         backup_readiness_checker=lambda: matched.BackupReadiness(attempt=True, status="ready", detail="plenty of time"),
+        **_REAL_GATE_FAKES,
     )
     assert result["backup_execution_status"] == "COMPLETE"
     assert result["backup_result"] is not None
@@ -489,6 +608,7 @@ def test_run_matched_configuration_job_writes_partial_when_readiness_allows_but_
         run_backup=True, job_result_path=tmp_path / "result.json",
         orchestrator_factory=_make_orchestrator_factory({"qwen": 1}),
         backup_readiness_checker=lambda: matched.BackupReadiness(attempt=True, status="ready", detail="plenty of time"),
+        **_REAL_GATE_FAKES,
     )
     assert result["backup_execution_status"] == "PARTIAL"
     assert result["status"] == "failure"  # both primary and backup qwen fail in this fake factory

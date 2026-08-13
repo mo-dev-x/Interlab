@@ -432,21 +432,37 @@ def default_preflight_runner(repo_root: Path) -> dict:
     return report
 
 
-def run_dual_gpu_job(
-    args: argparse.Namespace, *,
+def run_dual_gpu_job_for_lanes(
+    lanes: list[LaneSpec], *,
     orchestrator_factory=DualGpuOrchestrator,
     validate_prompt_artifact=default_prompt_artifact_validator,
     run_preflight=default_preflight_runner,
     repo_root: Path = REPO_ROOT,
+    ready_timeout_seconds: float = 1800.0,
+    poll_interval_seconds: float = 5.0,
+    wait_for_ready=None,
 ) -> dict:
-    """The standalone preflight (`discovery_preflight.py`) runs FIRST,
-    before either lane launches and before either child could load any
-    weights -- a preflight failure stops both lanes with `lanes: []`,
-    exactly like a prompt-artifact validation failure. Only after the
-    preflight reports a clean pass does the (cheaper, narrower) frozen-
-    prompt-artifact check run, then both lanes launch via the staggered
-    cold-load handshake (`DualGpuOrchestrator.launch_staggered` -- Qwen
-    first, Gemma only after Qwen's own READY record).
+    """The shared preflight -> prompt-validation -> staggered-launch ->
+    wait sequence, factored out of `run_dual_gpu_job` so a SECOND caller
+    (`final_concept_discovery_matched_configuration_job.run_matched_
+    configuration_job`, for BOTH its primary and backup lane groups) can
+    reuse the exact same gate rather than re-deriving (and potentially
+    drifting from) it. This is the only place that decides "is it safe to
+    load weights yet" -- a caller that instead calls
+    `DualGpuOrchestrator(...).launch_all()` directly bypasses every gate
+    below, which is exactly the defect this function exists to make
+    structurally impossible to repeat.
+
+    The standalone preflight (`discovery_preflight.py`) runs FIRST, before
+    either lane launches and before either child could load any weights --
+    a preflight failure stops both lanes with `lanes: []`, exactly like a
+    prompt-artifact validation failure. Only after the preflight reports a
+    clean pass does the (cheaper, narrower) frozen-prompt-artifact check
+    run, then both lanes launch via the staggered cold-load handshake
+    (`DualGpuOrchestrator.launch_staggered` -- Qwen first, Gemma only
+    after Qwen's own READY record) -- NEVER `launch_all`, which would
+    load both models concurrently and defeat the cold-load handshake
+    entirely.
 
     A hash mismatch, validation failure, or row-count mismatch in the
     frozen prompt artifact stops BOTH lanes -- this check runs once, here,
@@ -469,15 +485,33 @@ def run_dual_gpu_job(
             "preflight_report": preflight_report,
         }
 
+    orchestrator = orchestrator_factory(lanes)
+    orchestrator.launch_staggered(ready_timeout_seconds=ready_timeout_seconds, wait_for_ready=wait_for_ready)
+    result = orchestrator.wait_all(poll_interval=poll_interval_seconds)
+    result["preflight_report"] = preflight_report
+    return result
+
+
+def run_dual_gpu_job(
+    args: argparse.Namespace, *,
+    orchestrator_factory=DualGpuOrchestrator,
+    validate_prompt_artifact=default_prompt_artifact_validator,
+    run_preflight=default_preflight_runner,
+    repo_root: Path = REPO_ROOT,
+) -> dict:
+    """CLI-facing wrapper: loads both lanes from `args`' config paths and
+    delegates the actual preflight/validation/staggered-launch/wait
+    sequence to `run_dual_gpu_job_for_lanes`, which is the single place
+    that sequence is implemented."""
     lanes = [
         load_lane_spec("gemma", args.gemma_config),
         load_lane_spec("qwen", args.qwen_config),
     ]
-    orchestrator = orchestrator_factory(lanes)
-    orchestrator.launch_staggered(ready_timeout_seconds=args.ready_timeout_seconds)
-    result = orchestrator.wait_all(poll_interval=args.poll_interval_seconds)
-    result["preflight_report"] = preflight_report
-    return result
+    return run_dual_gpu_job_for_lanes(
+        lanes, orchestrator_factory=orchestrator_factory, validate_prompt_artifact=validate_prompt_artifact,
+        run_preflight=run_preflight, repo_root=repo_root, ready_timeout_seconds=args.ready_timeout_seconds,
+        poll_interval_seconds=args.poll_interval_seconds,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

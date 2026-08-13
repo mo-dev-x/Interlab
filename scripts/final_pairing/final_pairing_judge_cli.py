@@ -197,15 +197,26 @@ def load_generation_files(paths: list[str | Path]) -> list[dict[str, Any]]:
     return [json.loads(Path(p).read_text(encoding="utf-8")) for p in paths]
 
 
-def manifest_entries(manifest: dict[str, Any], *, direction: str, purpose: str, dose: int | None = None) -> list[dict[str, Any]]:
+def manifest_entries(manifest: dict[str, Any], *, direction: str, purpose: str, dose: str | None = None) -> list[dict[str, Any]]:
     """Filters a verified generation manifest's `files` entries -- the
     ONLY supported way this module selects which files to read. There is
     no path here that globs a directory independent of the manifest, so a
-    file the manifest does not list can never be judged."""
+    file the manifest does not list can never be judged.
+
+    `direction` is checked against the MANIFEST's own top-level scalar
+    (schema 2.0, commit 67ad4ef -- a manifest covers exactly one
+    direction, so every file entry already matches it or the manifest is
+    malformed) rather than a per-file field, which no longer exists.
+    `purpose`/`dose` are matched case-insensitively against the file
+    entries' own ruled UPPERCASE storage ("SWEEP"/"CONFIRMATION"/
+    "CONTROL"; dose labels like "0.5x"/"ABLATE") -- CONTROL entries carry
+    no `dose` key at all, so `dose is not None` never matches one."""
+    if manifest["direction"].lower() != direction.lower():
+        return []
     entries = [
         e for e in manifest["files"]
-        if e["direction"] == direction and e["purpose"] == purpose
-        and (dose is None or e["dose"] == dose)
+        if e["purpose"].lower() == purpose.lower()
+        and (dose is None or e.get("dose") == dose)
     ]
     return entries
 
@@ -350,27 +361,31 @@ def run_judging(
 
 @dataclass(frozen=True)
 class SelectionRecord:
-    """Matches Engineer 3's real, enforcing `_dose_selection_problems`
-    shape exactly (commit ac9ea40): `concept_id`/`pairing_id`/`direction`
-    identify the cell; `status` is `"SELECTED"` or `"FAILED"`; a SELECTED
-    record names a dose for every one of `low`/`medium`/`high` in
-    `selected`, with `unselected` covering every OTHER generated
-    confirmation dose (selected UNION unselected must equal every
-    generated confirmation dose for that cell); a FAILED record names NO
-    selected doses (`sealed_output_rules.if_direction_fails`: all five
-    stay sealed)."""
+    """`concept_id`/`pairing_id`/`direction` identify the cell; `status`
+    is `"SELECTED"` or `"FAILED"`; a SELECTED record names a dose for
+    every one of `low`/`medium`/`high` in `selected`, with `unselected`
+    covering every OTHER generated confirmation dose (selected UNION
+    unselected must equal every generated confirmation dose for that
+    cell); a FAILED record names NO selected doses
+    (`sealed_output_rules.if_direction_fails`: all five stay sealed).
+
+    Doses are STRING labels (e.g. "1.0x", "ABLATE") -- matching the real
+    manifest's own dose identifiers (`final_pairing_one_allocation_
+    generation.GenerationFileRecord.dose_label`/`stamp_manifest_with_
+    selection`'s `unselected_doses`), not the integer dose indices an
+    earlier version of this module used."""
 
     concept_id: str
     pairing_id: str
     direction: str
     status: Literal["SELECTED", "FAILED"]
-    selected: dict[str, int]  # {"low": dose, "medium": dose, "high": dose} -- empty for FAILED
-    unselected: list[int]
+    selected: dict[str, str]  # {"low": dose_label, "medium": dose_label, "high": dose_label} -- empty for FAILED
+    unselected: list[str]
 
 
 def build_selected_record(
-    *, concept_id: str, pairing_id: str, direction: str, low_dose: int, medium_dose: int, high_dose: int,
-    all_confirmation_doses: list[int],
+    *, concept_id: str, pairing_id: str, direction: str, low_dose: str, medium_dose: str, high_dose: str,
+    all_confirmation_doses: list[str],
 ) -> SelectionRecord:
     selected = {"low": low_dose, "medium": medium_dose, "high": high_dose}
     unselected = sorted(set(all_confirmation_doses) - set(selected.values()))
@@ -380,7 +395,7 @@ def build_selected_record(
     )
 
 
-def build_failed_record(*, concept_id: str, pairing_id: str, direction: str, all_confirmation_doses: list[int]) -> SelectionRecord:
+def build_failed_record(*, concept_id: str, pairing_id: str, direction: str, all_confirmation_doses: list[str]) -> SelectionRecord:
     """A FAILED selection is a RESULT, not an error -- all five doses stay
     sealed (`sealed_output_rules.if_direction_fails`)."""
     return SelectionRecord(
@@ -471,7 +486,7 @@ def assert_selection_precedes_confirmation(
 
 
 def assert_never_opens_unselected(
-    manifest: dict[str, Any], selection: SelectionRecord, *, requested_doses: list[int],
+    manifest: dict[str, Any], selection: SelectionRecord, *, requested_doses: list[str],
 ) -> None:
     """Refuses to proceed if `requested_doses` includes anything outside
     the three selected doses -- the structural half of `ADDITION_3`'s
@@ -563,7 +578,13 @@ def _cmd_judge_sweep(args) -> int:
 
 
 def _cmd_write_selection(args) -> int:
-    all_doses = list(range(one_alloc.DOSES_PER_DIRECTION))
+    manifest = one_alloc.verify_generation_manifest(args.manifest, files_root=args.files_root)
+    all_doses = sorted({e["dose"] for e in manifest["files"] if e["purpose"] == "CONFIRMATION"})
+    if len(all_doses) != one_alloc.DOSES_PER_DIRECTION:
+        raise causal_judge.CausalJudgeUnavailable(
+            f"manifest {args.manifest} carries {len(all_doses)} distinct confirmation dose(s) "
+            f"{all_doses}, not the {one_alloc.DOSES_PER_DIRECTION} the frozen grid requires"
+        )
     if args.failed:
         record = build_failed_record(
             concept_id=args.concept_id, pairing_id=args.pairing_id, direction=args.direction,
@@ -650,12 +671,14 @@ def build_arg_parser():
     judge_sweep.set_defaults(func=_cmd_judge_sweep)
 
     write_sel = sub.add_parser("write-selection", help="write + commit selection_record.json (the stage boundary)")
+    write_sel.add_argument("--manifest", required=True, help="path to a transfer-verified generation_manifest.json, read for its real confirmation dose labels")
+    write_sel.add_argument("--files-root", default=None, help="re-root manifest file paths here (post-transfer location)")
     write_sel.add_argument("--concept-id", required=True)
     write_sel.add_argument("--pairing-id", required=True)
     write_sel.add_argument("--direction", required=True, choices=["amplify", "suppress"])
-    write_sel.add_argument("--low-dose", type=int, help="required unless --failed")
-    write_sel.add_argument("--medium-dose", type=int, help="required unless --failed")
-    write_sel.add_argument("--high-dose", type=int, help="required unless --failed")
+    write_sel.add_argument("--low-dose", help="dose label (e.g. '1.0x', 'ABLATE'); required unless --failed")
+    write_sel.add_argument("--medium-dose", help="dose label (e.g. '2.0x', 'ABLATE'); required unless --failed")
+    write_sel.add_argument("--high-dose", help="dose label (e.g. '4.0x', 'ABLATE'); required unless --failed")
     write_sel.add_argument("--failed", action="store_true", help="record a FAILED selection: all five doses stay sealed")
     write_sel.add_argument("--out", required=True)
     write_sel.add_argument("--repo-root", required=True)

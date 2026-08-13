@@ -149,28 +149,39 @@ def test_build_lodestar_generations_from_dose_file_builds_one_real_generation_pe
 # ---------------------------------------------------------------------------
 
 
+_PAIRING_ID_GEMMA = "google/gemma-3-12b-it+google/gemma-scope-2-12b-it"
+
 _MANIFEST_KWARGS = dict(
     run_id="r-test-0001", source_commit="0" * 40, configuration_name="primary",
-    model_id="google/gemma-3-12b-it", model_revision="deadbeef" * 5,
-    sae_repo_id="google/gemma-scope-2-12b-it", sae_repo_revision="4c419f1ba0be8b7754d4151d4f26c23b92a9029e",
+    concept_id="cheese", pairing_id=_PAIRING_ID_GEMMA, model_revision="deadbeef" * 5,
+    sae_revision="4c419f1ba0be8b7754d4151d4f26c23b92a9029e",
     release="gemma-scope-2-12b-it-res-all", loader_sae_id="layer_29_width_16k_l0_big",
     scientific_sae_id="resid_post_all/layer_29_width_16k_l0_big",
     measured_params_sha256="6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e",
-    concepts={"cheese": "COMPLETE"},
 )
 
 
 def _tiny_manifest(tmp_path, *, n_doses=3):
     backend = fakes.make_fake_gemma_backend()
     corpus_max = d.corpus_max_per_feature(backend, ["background text"])
-    records = []
+    prompts = [f"prompt {i}" for i in range(2)]
+    seeds = one_alloc.derive_seeds(
+        namespace="sweep", concept_id="cheese", pairing_id=backend.pairing, direction="amplify",
+        locale="en", n_prompts=2, n_repeats=1,
+    )
+    control = one_alloc.generate_control_file(
+        backend, corpus_max=corpus_max, positions="all", prompts=prompts, purpose="sweep", n_repeats=1,
+        seeds=seeds, max_new_tokens=1, out_dir=tmp_path, concept_id="cheese", pairing_id=backend.pairing,
+        direction="amplify", locale="en",
+    )
+    records = [control]
     for dose_index in range(n_doses):
         dose = one_alloc.DoseSpec(kind="clamp", value_in_max_units=float(dose_index + 1))
         records.append(one_alloc.generate_dose_file(
-            backend, [CONCEPT_FEATURE], dose=dose, dose_index=dose_index, corpus_max=corpus_max, positions="all",
-            prompts=[f"prompt {i}" for i in range(2)], purpose="sweep", n_repeats=1,
-            base_seed_namespace="sweep", max_new_tokens=1, out_dir=tmp_path,
-            concept_id="cheese", pairing_id=backend.pairing, direction="amplify",
+            backend, [CONCEPT_FEATURE], dose=dose, corpus_max=corpus_max, positions="all",
+            prompts=prompts, purpose="sweep", n_repeats=1, seeds=seeds, max_new_tokens=1, out_dir=tmp_path,
+            concept_id="cheese", pairing_id=backend.pairing, direction="amplify", locale="en",
+            control_ref=control.path,
         ))
     manifest_path = tmp_path / "generation_manifest.json"
     one_alloc.write_generation_manifest(records, manifest_path, **_MANIFEST_KWARGS)
@@ -421,12 +432,13 @@ def test_cli_judge_sweep_requires_budget_usd():
         ])
 
 
-def test_cli_write_selection_accepts_low_medium_high_doses():
+def test_cli_write_selection_accepts_low_medium_high_dose_labels():
     parser = jc.build_arg_parser()
     args = parser.parse_args([
-        "write-selection", "--concept-id", "cheese", "--pairing-id", "gemma-3-12b-it", "--direction", "amplify",
-        "--low-dose", "1", "--medium-dose", "2", "--high-dose", "4", "--out", "selection_record.json",
+        "write-selection", "--manifest", "generation_manifest.json",
+        "--concept-id", "cheese", "--pairing-id", "gemma-3-12b-it", "--direction", "amplify",
+        "--low-dose", "1.0x", "--medium-dose", "2.0x", "--high-dose", "4.0x", "--out", "selection_record.json",
         "--repo-root", ".", "--commit-message", "select",
     ])
-    assert args.low_dose == 1 and args.medium_dose == 2 and args.high_dose == 4
+    assert args.low_dose == "1.0x" and args.medium_dose == "2.0x" and args.high_dose == "4.0x"
     assert args.failed is False

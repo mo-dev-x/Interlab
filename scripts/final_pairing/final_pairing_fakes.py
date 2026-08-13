@@ -128,7 +128,7 @@ class FakeGemmaModel:
             resid = fn(resid, hook=None)
         return resid
 
-    def generate(self, tokens: torch.Tensor, *, max_new_tokens: int, do_sample: bool, verbose: bool = False):
+    def generate(self, tokens: torch.Tensor, *, max_new_tokens: int, do_sample: bool, verbose: bool = False, **_kwargs):
         seq = [self._texts_by_token[int(t)] for t in tokens[0].tolist()]
         resid = torch.stack([text_embedding(t) for t in seq]).unsqueeze(0)
         for _name, fn in self._active_hooks:
