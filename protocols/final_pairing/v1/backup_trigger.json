@@ -1,0 +1,188 @@
+{
+  "$comment": "Frozen BEFORE any activation is computed. Every threshold, trigger and precedence rule here is pre-registered. Changing any value after activation exists invalidates the run.",
+  "protocol_version": "final-pairing-backup-trigger/1.0.0",
+  "supersedes": null,
+  "depends_on": {
+    "prompt_set_protocol_version": "final-pairing-discovery/1.0.0",
+    "prompt_set_commit": "880b48a7f50b8c716e64956b915857dd1fcde350",
+    "prompt_sets_sha256": "b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f",
+    "prompt_artifact_path": "prompts/final_pairing/v1/prompt_sets.jsonl",
+    "mutability": "The prompt artifact is frozen and is not modified by this protocol under any branch."
+  },
+
+  "established_facts": {
+    "qwen_n_layers": 64,
+    "l0_notation": "L0_50 / L0_100 denote TopK sparsity, NOT layer index. Independently confirmed by LA-D.",
+    "sae_families_permitted": 2,
+    "third_sae_family_or_layer": "PROHIBITED"
+  },
+
+  "configurations": {
+    "PRIMARY": {
+      "qwen": {"sae": "L0_100", "layer": 38, "depth_fraction": 0.59375},
+      "gemma": {"hook": "resid_post", "layer": 29, "depth_fraction": null},
+      "ratified_by": "researcher"
+    },
+    "BACKUP": {
+      "qwen": {"sae": "L0_50", "layer": 32, "depth_fraction": 0.50000},
+      "gemma": {"hook": "resid_post", "layer": 24, "depth_fraction": null},
+      "ratified_by": "researcher"
+    },
+    "depth_matching_assertion": {
+      "requirement": "LA-1 records gemma n_layers from the loaded config at run time, computes depth_fraction = layer / n_layers, and writes it into the run card.",
+      "tolerance": 0.02,
+      "rule": "abs(gemma_depth_fraction - qwen_depth_fraction) <= 0.02 for the configuration being run.",
+      "on_violation": "STOP. Do not compute activations. Report to PM. The pairing claim rests on matched depth; an unverified match is not a match."
+    }
+  },
+
+  "definitions": {
+    "feature_survives_gabc": {
+      "statement": "A single feature f survives G-A/B/C for concept c on pairing p in configuration k iff THAT SAME FEATURE passes all three gates.",
+      "gates": {
+        "G_A": "AUROC(positive vs pooled controls) >= 0.90 in EVERY paraphrase family independently",
+        "G_B": "fire rate at >= 0.20 x observed max >= 0.70 in EVERY paraphrase family independently",
+        "G_C": "AUROC(positive vs near_miss) >= 0.75"
+      },
+      "anti_cherry_pick": "One feature passing G-A and a DIFFERENT feature passing G-C does NOT constitute survival. The conjunction is per-feature, not per-concept."
+    },
+    "concept_survives_gabc": "Concept c survives on pairing p in configuration k iff at least one feature satisfies feature_survives_gabc.",
+    "shared_gabc": "Concept c is shared in configuration k iff it survives on BOTH gemma AND qwen within that SAME configuration k.",
+    "primary_shared_gabc_count": "Number of concepts satisfying shared_gabc in PRIMARY. Range 0-14. This is the ONLY quantity the backup trigger reads.",
+    "shared_validated_count": {
+      "statement": "Number of concepts that are shared_gabc in a configuration AND additionally pass G-D (Amplify causal) on both pairings in that same configuration.",
+      "warning": "DISTINCT FROM primary_shared_gabc_count. G-A/B/C survival is correlational; only G-D is causal. A G-A/B/C survivor is NOT a validated shared concept and may not be reported as one. The trigger uses the former; every scientific claim uses the latter."
+    },
+    "primary_complete": {
+      "statement": "TRUE iff every cell of the primary grid holds an explicitly recorded pass/fail verdict.",
+      "grid": "14 concepts x 2 pairings x 3 gates x 3 paraphrase families x 2 locales",
+      "not_sufficient": "The absence of a raised exception is NOT completeness. Each cell must carry a recorded verdict."
+    }
+  },
+
+  "trigger": {
+    "boolean_expression": "RUN_BACKUP = primary_complete AND (primary_shared_gabc_count < 3)",
+    "failure_expression": "FAIL_RUN = NOT primary_complete",
+    "inputs_permitted": [
+      "G-A/B/C verdicts from the PRIMARY configuration only"
+    ],
+    "inputs_prohibited": [
+      "any causal generation output",
+      "any dose-response sweep",
+      "any judged score",
+      "any coherence or relevance measurement",
+      "any BACKUP-configuration result",
+      "effect magnitudes of any kind"
+    ],
+    "error_handling": {
+      "rule": "AN EXECUTION ERROR NEVER TRIGGERS BACKUP.",
+      "rationale": "The trigger is a scientific measurement of how many concepts are shared. An incomplete primary UNDERCOUNTS, so falling through to backup would let an infrastructure failure masquerade as a scientific finding. 'We did not measure' and 'we measured few' are different states and must not collapse into one, exactly as dead and unexplained must not.",
+      "on_incomplete": "FAIL_RUN. Repair the failed lane, recompute the affected cells, re-evaluate primary_complete. Only then evaluate the trigger.",
+      "on_repair": "Repaired cells overwrite nothing outside the failed lane. Successful primary cells are never recomputed."
+    },
+    "threshold_mutability": "FROZEN. The value 3 may not be changed after any activation is computed."
+  },
+
+  "asymmetry": {
+    "question": "Gemma yields many survivors, Qwen yields few. What runs?",
+    "ruling": "BOTH pairings run their matched backups. Never one alone.",
+    "rationale": "Running only the weak arm's backup selects that arm's layer CONDITIONAL ON having observed which concepts it supports, while the other arm's layer was chosen blind. That is post-hoc layer selection on one side, and it manufactures cross-model agreement by tuning one arm until it matches the other.",
+    "structural_note": "The trigger reads the SHARED count, never per-model counts, so asymmetry cannot enter the trigger at all. A Gemma-rich / Qwen-poor split simply produces a low shared count and fires both matched backups. The trigger is asymmetry-blind by construction.",
+    "entire_run_fails": false
+  },
+
+  "time_and_execution": {
+    "start_condition": "BACKUP may begin only after BOTH primary G-A/B/C lanes are complete and the trigger has evaluated TRUE. The trigger reads a shared count, which does not exist until both lanes finish.",
+    "memory_release": {
+      "requirement": "Primary model and SAE weights must be fully released before backup weights are loaded.",
+      "steps": ["delete model and SAE references", "torch.cuda.empty_cache()", "assert free VRAM >= backup requirement before loading"],
+      "rationale": "Qwen3.5-27B at bf16 is roughly 54 GB and Gemma-3-12B roughly 24 GB; with KV cache they do not co-fit an 80 GB device. A silent OOM mid-backup produces a partial result set, which is the outcome this protocol most needs to avoid."
+    },
+    "insufficient_wall_time": {
+      "rule": "Decided BEFORE backup starts, never discovered during it.",
+      "preflight": "If remaining wall time < 1.5 x estimated backup duration, do NOT start backup.",
+      "record": "BACKUP_NOT_ATTEMPTED_INSUFFICIENT_TIME",
+      "rationale": "A truncated backup yields a partial result set covering an arbitrary subset of concepts, which invites selection after the fact. Not starting is strictly safer than starting and stopping."
+    },
+    "completeness_field": {
+      "requirement": "Every configuration's result set carries completeness in {COMPLETE, PARTIAL, NOT_ATTEMPTED}.",
+      "claim_eligibility": "Only completeness == COMPLETE on BOTH arms is claim-eligible.",
+      "partial": "PARTIAL results are retained and reported as partial. They may not support any comparison, preset, or public claim."
+    }
+  },
+
+  "result_preservation": {
+    "primary_results_immutable": true,
+    "rules": [
+      "Every primary result is preserved even when backup runs and outperforms it.",
+      "Primary results are never overwritten, relabelled, deleted, or moved.",
+      "Backup results are written to a separate namespace keyed by configuration.",
+      "Triggering backup does NOT invalidate primary. If primary yields exactly 2 shared concepts, backup fires (2 < 3) while primary remains fully claim-eligible on its own."
+    ]
+  },
+
+  "precedence": {
+    "rule": "PRIMARY > BACKUP, fixed.",
+    "evaluation_order": "Precedence is applied BEFORE any effect magnitude is read.",
+    "if_concept_passes_both": {
+      "candidate_source": "PRIMARY",
+      "backup_role": "REPLICATION",
+      "backup_reporting": "Backup effect sizes MAY be reported as supporting replication evidence. They may NEVER be substituted for the primary result."
+    },
+    "prohibited": "Selecting between primary and backup by whichever shows the larger observed effect. This is prohibited regardless of how large the difference is or how it is justified."
+  },
+
+  "comparison_claims": {
+    "allowed_configurations_for_cross_model_claims": [
+      "PRIMARY gemma + PRIMARY qwen",
+      "BACKUP gemma + BACKUP qwen"
+    ],
+    "prohibited_configurations_for_cross_model_claims": [
+      "PRIMARY gemma + BACKUP qwen",
+      "BACKUP gemma + PRIMARY qwen"
+    ],
+    "rationale": "A mixed-depth cross-model comparison is uninterpretable by construction: a difference cannot be attributed to the model rather than to the depth. The confound is total, not partial.",
+    "comparable_quantities": [
+      "findability (binary)",
+      "AUROC separation",
+      "judged relevance gain at each pairing's OWN MEDIUM",
+      "coherence at each pairing's OWN HIGH",
+      "target count"
+    ],
+    "never_comparable": [
+      "any dose",
+      "any clamp value",
+      "any strength label treated as a measurement"
+    ],
+    "standing_line": "Doses are not comparable across pairings. LOW/MEDIUM/HIGH are labels scoped to a single pairing x concept x direction."
+  },
+
+  "mixed_depth_demo_preset": {
+    "question": "May a scientifically validated mixed-depth result support a non-comparative shared demo preset?",
+    "ruling": "PERMITTED as a single-model preset on each tab. PROHIBITED in Compare.",
+    "conditions": [
+      "Each side independently passes G-A through G-D at its own depth.",
+      "Both layers are displayed in the public UI, not merely recorded in the run card.",
+      "The preset carries mixed_depth: true.",
+      "Compare mode rejects any preset with mixed_depth == true."
+    ],
+    "rationale": "The demo makes no equivalence claim, but visual adjacency does: two results side by side read as comparable whether or not the text says so. Compare is the comparative surface, so that is the exact boundary. Recording the mixed depth only in the run card would repeat the pattern where provenance exists but is never where the reader looks."
+  },
+
+  "operational_targets": {
+    "demo_may_proceed_at": {"shared_validated_count": 1},
+    "general_cross_model_comparison_claim_requires": {"shared_validated_count": 2},
+    "backup_triggered_below": {"primary_shared_gabc_count": 3},
+    "note": "The demo floor and the claim floor read shared_validated_count (post-G-D). The backup trigger reads primary_shared_gabc_count (pre-causal). These are different quantities at different stages and must never be substituted for one another."
+  },
+
+  "prohibitions": [
+    "No third SAE family or layer under any outcome.",
+    "No threshold tuned after any activation is computed.",
+    "No modification to the frozen prompt artifact.",
+    "No legacy feature index or calibration value reused; Qwen3.5-27B is not Qwen2.5-14B and gemma-3-12b-it is not gemma-3-12b-pt.",
+    "No inspection of causal, dose-response or judged output before the trigger is evaluated.",
+    "No mixed-depth cross-model comparison.",
+    "No partial result presented as a completed comparison."
+  ]
+}
