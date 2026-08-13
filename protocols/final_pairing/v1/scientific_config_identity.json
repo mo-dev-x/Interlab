@@ -1,21 +1,35 @@
 {
   "$comment": "Extends backup_trigger.json without modifying it. Records the full Gemma loader/scientific identity split. Frozen before any activation is computed.",
-  "protocol_version": "final-pairing-config-identity/1.2.0",
+  "protocol_version": "final-pairing-config-identity/1.3.0",
   "supersedes": {
-    "protocol_version": "final-pairing-config-identity/1.1.0",
-    "commit": "9a57d9e8dcab6ed47612e5808123b965261bbe59",
-    "sha256": "21f258d1b2203287296786712fa9f05b9fde6d422bc04cf2e9abef1cb1d44fc6",
-    "reason": "OI-1 closed with a finding neither anticipated branch covered. v1.1.0 recorded BACKUP release_is_forced=false on the premise that -res was merely the canonical option for an on-grid layer. In fact resid_post_all does not publish l0_medium at layer 24 at all, so -res is the only source. Both releases are forced, for different reasons, and the PRIMARY-to-BACKUP contrast gains a third moving dimension.",
+    "protocol_version": "final-pairing-config-identity/1.2.0",
+    "commit": "93450e5dbeaa30fcff8f212dc83f893b09208cb2",
+    "sha256": "ccee05428a431de9a29e2baefb31f493f1ae9a95eb9d34b830663da53757caf5",
+    "reason": "v1.2.0 carried PRIMARY params_sha256 as null with status PENDING. An authoritative identity artifact cannot leave null the value that runtime verification must check against; promotion was correctly refused on that basis. v1.3.0 supplies it. NO CONFIGURATION CHANGES: same repository, revision, releases, layers, widths, architectures, hooks and tiers.",
     "lineage": [
       {"version": "1.0.0", "commit": "0fcd51d3a3a51a36818dd8378796eaaa791fc779", "sha256": "22669a05ca403c0e3dc4ac09246c81cce270d06104daca1a02bd9d44231ee23f"},
-      {"version": "1.1.0", "commit": "9a57d9e8dcab6ed47612e5808123b965261bbe59", "sha256": "21f258d1b2203287296786712fa9f05b9fde6d422bc04cf2e9abef1cb1d44fc6"}
+      {"version": "1.1.0", "commit": "9a57d9e8dcab6ed47612e5808123b965261bbe59", "sha256": "21f258d1b2203287296786712fa9f05b9fde6d422bc04cf2e9abef1cb1d44fc6"},
+      {"version": "1.2.0", "commit": "93450e5dbeaa30fcff8f212dc83f893b09208cb2", "sha256": "ccee05428a431de9a29e2baefb31f493f1ae9a95eb9d34b830663da53757caf5"}
     ]
+  },
+  "unresolved_fields": {
+    "count": 0,
+    "statement": "No identity field in this artifact is null, pending, provisional or awaiting a value. Every field required for runtime verification is populated."
   },
   "extends": {
     "protocol": "protocols/final_pairing/v1/backup_trigger.json",
     "commit": "125b1d3e825f0e6cc83c20ba54ef2c345e4372f9",
     "sha256": "4a234e59799089e634f00c59d5fed71c73d0f7466e30f0c20a7d72ef4c9d23d3",
     "mutability": "backup_trigger.json is unchanged by this artifact."
+  },
+  "supplemental_records": {
+    "oi3_release_weight_resolution": {
+      "path": "protocols/final_pairing/v1/oi3_release_weight_resolution.json",
+      "commit": "80c073ee393610e0d8353ff21c7f561d370f7b19",
+      "sha256": "ff83219800beb93d3ddb398f9225d8ae7e49db00366ebc588b83cf47e1451627",
+      "gating": false,
+      "role": "Records the OI-3 verdict DIFFERENT: the two Gemma Scope releases are distinct training outputs, not selective publication of identical weights. Non-gating. It changes no configuration, eligibility rule or threshold in this artifact; it converts an already-recorded prohibition from resting on an open possibility to resting on a demonstrated fact."
+    }
   },
   "depends_on": {
     "prompt_set_commit": "880b48a7f50b8c716e64956b915857dd1fcde350",
@@ -55,8 +69,8 @@
       "width": 16384,
       "architecture": "jump_relu",
       "hook": "resid_post",
-      "params_sha256": null,
-      "params_sha256_status": "PENDING - LA-1 records at download, per the runtime_loading procedure",
+      "params_expected_sha256": "6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e",
+      "params_expected_sha256_status": "RECORDED in 1.3.0. Was null/PENDING in 1.2.0.",
       "release_is_forced": true,
       "release_rationale": "Layer 29 is not on the fixed 25/50/65/85 percent resid_post grid, so resid_post_all is the only namespace that publishes it."
     },
@@ -70,8 +84,8 @@
       "width": 16384,
       "architecture": "jump_relu",
       "hook": "resid_post",
-      "params_sha256": "2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e",
-      "params_sha256_status": "RECORDED by LA-C",
+      "params_expected_sha256": "2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e",
+      "params_expected_sha256_status": "RECORDED by LA-C in 1.2.0, retained unchanged.",
       "release_is_forced": true,
       "release_is_forced_corrected_in": "1.2.0",
       "release_rationale": "resid_post_all does NOT publish l0_medium at layer 24 at that revision; it publishes only l0_small and l0_big. resid_post is therefore the ONLY source for the canonical backup SAE. v1.1.0 recorded this as false on the incorrect premise that an on-grid layer makes -res merely the canonical option among two."
@@ -232,8 +246,17 @@
       "Verify tensor hashes at load. The revision is authoritative for WHAT WAS DOWNLOADED; it is not evidence that what is on disk matches it."
     ],
     "rule": "A recorded revision is trusted only where a hash check enforces it. Do not treat the string as the guarantee.",
-    "backup_params_expected_sha256": "2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e",
-    "backup_params_rule": "The downloaded backup params file MUST hash to the value above. Mismatch is a hard stop, not a warning."
+    "expected_params_sha256": {
+      "PRIMARY": {
+        "path": "resid_post_all/layer_29_width_16k_l0_big/params.safetensors",
+        "sha256": "6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e"
+      },
+      "BACKUP": {
+        "path": "resid_post/layer_24_width_16k_l0_medium/params.safetensors",
+        "sha256": "2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e"
+      }
+    },
+    "params_rule": "BOTH downloaded params files MUST hash to the values above. Mismatch on either is a HARD STOP, not a warning, and not a condition to be retried past. Verification is required at download AND at every load, because the recorded revision attests what was fetched, never what is on disk now."
   },
 
   "non_authoritative_fields": {
@@ -260,14 +283,22 @@
     },
     {
       "id": "OI-3",
-      "status": "OPEN, NON-BLOCKING",
+      "status": "CLOSED",
+      "closed_by": "LA-C",
       "question": "Are resid_post and resid_post_all distinct training runs, or one set of runs published under two namespaces with different tier coverage?",
-      "why": "OI-1 established that the namespaces publish different tier sets, which is consistent with both explanations. The distinction changes how precisely the PRIMARY-to-BACKUP difference can be described. It changes no permitted claim, because the prohibition covers both cases identically.",
-      "how": "layer_24_width_16k_l0_big is published in BOTH namespaces per the OI-1 finding. Compare its params SHA-256 across the two. Identical implies shared weights under selective publication; different implies distinct training runs.",
-      "cost": "One hash comparison on an already-available pair.",
-      "report_to": "PM. Do not let it gate any experimental work."
+      "verdict": "DIFFERENT. layer_24_width_16k_l0_big hashes to 774f3026... under resid_post and ce4e0275... under resid_post_all. The releases are distinct training outputs, not selective publication of identical weights.",
+      "resolution_artifact": "protocols/final_pairing/v1/oi3_release_weight_resolution.json @ 80c073ee393610e0d8353ff21c7f561d370f7b19",
+      "effect_on_this_artifact": "NONE. The prohibition on attributing a PRIMARY-to-BACKUP difference to release namespace or training artifact was already written to cover both outcomes; it now rests on a demonstrated fact rather than an open possibility.",
+      "rejected_alternative": "resid_post_all/layer_24_width_16k_l0_big is IDENTIFIED, AVAILABLE, AND NOT SELECTED. It must not be staged, substituted or reported. See the resolution artifact."
     }
   ],
+  "open_items_summary": {
+    "OI-1": "CLOSED",
+    "OI-2": "CLOSED",
+    "OI-3": "CLOSED",
+    "open_count": 0,
+    "statement": "No open item and no unresolved identity field remains."
+  },
 
   "validation_rules": [
     "release, loader_sae_id and scientific_sae_id are all present or the record is invalid.",
@@ -278,7 +309,8 @@
     "Every scientific record cites scientific_sae_id; loader_sae_id appears only in loading code.",
     "context_size and dataset_path, wherever persisted, carry the literal label LOADER DEFAULT, NOT PROVENANCE.",
     "Runtime loading is local-path only; a stock-loader call is a hard failure, not a fallback.",
-    "The backup params file must hash to 2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e; mismatch is a hard stop.",
+    "The PRIMARY params file must hash to 6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e and the BACKUP params file to 2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e; mismatch on either is a hard stop.",
+    "No identity field may be null, pending or provisional. A promotion gate must refuse an identity artifact that leaves unpopulated a value runtime verification depends on.",
     "Qwen and Gemma sparsity metadata are persisted in separate objects, each labelled with its quantity_type. They may not appear as two values of one field, in one row, or under one shared key -- a shared field name asserts commensurability that does not exist."
   ]
 }

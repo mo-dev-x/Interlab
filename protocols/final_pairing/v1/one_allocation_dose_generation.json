@@ -1,0 +1,145 @@
+{
+  "$comment": "GATING. Freezes the stage boundary between generation, selection and confirmation judging under a single offline GPU allocation. Frozen before any generation is performed.",
+  "protocol_version": "final-pairing-one-allocation-dose-generation/1.0.0",
+  "gating": true,
+  "ratifies": "The PM-recommended generate-all-then-seal rule, WITH FOUR ADDITIONS. The rule as proposed is sound in its data flow but underspecified in three places and statistically defective in one.",
+
+  "references": {
+    "identity_protocol": "protocols/final_pairing/v1/scientific_config_identity.json",
+    "identity_protocol_version": "final-pairing-config-identity/1.3.0",
+    "trigger_protocol": "protocols/final_pairing/v1/backup_trigger.json",
+    "trigger_sha256": "4a234e59799089e634f00c59d5fed71c73d0f7466e30f0c20a7d72ef4c9d23d3",
+    "trigger_status": "ACTIVE AND UNCHANGED by this artifact",
+    "prompt_set_commit": "880b48a7f50b8c716e64956b915857dd1fcde350",
+    "prompt_sets_sha256": "b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f"
+  },
+
+  "constraint": {
+    "problem": "Tamia compute nodes have no outbound internet, so Lodestar cannot be called from inside a GPU allocation. Dose selection requires judged results. Authorization exists for ONE combined allocation.",
+    "naive_sequence_is_impossible": "generate sweep -> judge -> select -> generate confirmation would need the GPU after judging, i.e. a second allocation.",
+    "resolution": "Move ALL generation before ALL judging. Trade bounded extra generation for a second allocation."
+  },
+
+  "stages": [
+    {
+      "stage": 1,
+      "name": "GPU ALLOCATION - discovery",
+      "location": "Tamia, offline",
+      "actions": ["Compute G-A/B/C for all candidates on both pairings in the active configuration."],
+      "judging": "NONE"
+    },
+    {
+      "stage": 2,
+      "name": "GPU ALLOCATION - generation, both directions",
+      "location": "Tamia, offline, SAME allocation as stage 1",
+      "actions": [
+        "SWEEP: 5 doses x 15 held-out prompts x 1 repeat, seed set S_sweep.",
+        "CONFIRMATION: 5 doses x 20 held-out prompts x 3 repeats, seed set S_conf, DISJOINT from S_sweep.",
+        "Both of the above for AMPLIFY (neutral held-out) and for SUPPRESS (eliciting held-out), separately.",
+        "Write one file per (concept, pairing, direction, dose, purpose).",
+        "Hash every file, emit generation_manifest.json with all hashes, hash the manifest.",
+        "Assert completeness before releasing the allocation."
+      ],
+      "judging": "NONE. No judge call, no score, no inspection, no spot-read, no eyeballing of raw text.",
+      "prohibition": "Nothing generated here may be read by a human before stage 4 is committed."
+    },
+    {
+      "stage": 3,
+      "name": "TRANSFER",
+      "actions": ["Move outputs off the cluster.", "Re-verify every file hash against generation_manifest.json.", "Hash mismatch is a hard stop."]
+    },
+    {
+      "stage": 4,
+      "name": "JUDGE SWEEP, THEN SELECT AND COMMIT",
+      "actions": [
+        "Lodestar judges the SWEEP ONLY. temperature 0, rubrics coherence and concept_relevance v1.0.",
+        "Select LOW / HIGH / MEDIUM under the frozen rules in the discovery protocol.",
+        "Write selection_record.json naming the three selected dose values per (concept, pairing, direction), plus the two unselected.",
+        "COMMIT selection_record.json TO GIT. This commit is the stage boundary."
+      ],
+      "inputs_permitted": ["judged SWEEP results only"],
+      "inputs_prohibited": ["any confirmation output, judged or raw", "any confirmation file listing beyond its manifest hash"]
+    },
+    {
+      "stage": 5,
+      "name": "JUDGE CONFIRMATION AT SELECTED DOSES ONLY",
+      "precondition": "selection_record.json is committed and its commit is an ANCESTOR of the confirmation-judging commit.",
+      "actions": [
+        "Lodestar judges the already-generated confirmation outputs for the THREE selected doses, 20 prompts x 3 repeats.",
+        "Suppress only: researcher spot-read of 10 outputs at the selected strength.",
+        "The two unselected doses' files are never opened."
+      ]
+    }
+  ],
+
+  "ADDITION_1_seed_disjointness": {
+    "severity": "CORRECTS A STATISTICAL DEFECT IN THE PROPOSAL",
+    "problem": "The proposal specifies no seeds. If the 15 sweep prompts are a subset of the 20 confirmation prompts and share a seed at the same dose, the sweep generation IS one of the three confirmation repeats. The dose was selected partly BECAUSE that repeat scored well, so reusing it inflates the confirmation estimate at exactly the dose that goes into the claim. That is a winner's curse on the reported number.",
+    "rule": "S_conf must be DISJOINT from S_sweep. Confirmation repeats are three FRESH generations, independent of the generation that drove selection.",
+    "cost": "The sweep is 5 x 15 x 1 = 75 generations against confirmation 5 x 20 x 3 = 300, per concept, pairing and direction. Full independence costs 75 extra generations, about 25 percent on top of reuse -- negligible against the allocation already committed, and it buys an unbiased confirmation estimate.",
+    "verification": "generation_manifest.json records the seed of every file. Any intersection between S_sweep and S_conf at the same (concept, pairing, direction, dose, prompt) is a hard stop."
+  },
+
+  "ADDITION_2_sealing_is_mechanical": {
+    "severity": "MAKES AN INTENTION ENFORCEABLE",
+    "problem": "A directory nobody is supposed to look in is not a control. 'Sealed' as stated is a promise, and promises leave no evidence either way.",
+    "rule": "The stage boundary is a GIT ANCESTRY CHECK. selection_record.json must be committed, and that commit must be an ancestor of the commit carrying any confirmation judgment. Verified with git merge-base --is-ancestor.",
+    "why_this_instrument": "Identical to the standing rule that prompt_set_record must precede causal_validation_record in history. Reuses an instrument already in force rather than inventing a second mechanism.",
+    "residual_risk_stated_plainly": "Git ordering proves selection preceded confirmation JUDGING. It cannot prove no human read raw confirmation text beforehand. That residue is mitigated, not eliminated: the outputs are unjudged raw generations, and reading 300 of them to eyeball a dose is not a realistic shortcut when judged scores are what selection actually needs. The mitigation is honest about its limit rather than claiming a guarantee it does not have."
+  },
+
+  "ADDITION_3_one_file_per_dose": {
+    "severity": "PREVENTS UNAVOIDABLE EXPOSURE",
+    "problem": "If five doses share one file, reading the three selected doses necessarily opens the two unselected ones.",
+    "rule": "One file per (concept, pairing, direction, dose, purpose). Filenames encode the dose. Unselected files are never opened, and their non-opening is observable.",
+    "labelling": "Each unselected file's manifest entry is stamped UNUSED_FOR_SELECTION_OR_CLAIM."
+  },
+
+  "ADDITION_4_concept_complete_ordering": {
+    "severity": "PREVENTS A PARTIAL RESULT SET",
+    "problem": "The proposal does not order generation. Breadth-first across concepts means a wall-clock overrun leaves every concept partial, which is unusable and invites selecting whichever concepts happen to be complete.",
+    "rule": "Generate CONCEPT-COMPLETE: finish one concept entirely -- both directions, all five doses, sweep and confirmation, both locales -- before starting the next. A time-out then leaves N fully usable concepts instead of 14 unusable ones.",
+    "preflight": "Engineer 1 reports an estimated per-concept generation time before the allocation starts. If the remaining wall time cannot fit at least one whole concept, do not start.",
+    "precedent": "Same principle as the backup wall-time preflight in backup_trigger.json: never truncate into a partial comparison."
+  },
+
+  "sealed_output_rules": {
+    "label": "UNUSED_FOR_SELECTION_OR_CLAIM",
+    "applies_to": "confirmation outputs at the two doses not selected, for every concept, pairing and direction",
+    "prohibitions": [
+      "may not influence dose selection",
+      "may not be judged",
+      "may not be spot-read",
+      "may not be reported, summarised, counted or referenced as a result",
+      "may not be cited as evidence that a dose 'would have' performed differently",
+      "may not be unsealed if the selected doses disappoint"
+    ],
+    "retention": "Retained, not deleted. Deleting them would destroy the record that they were generated and left unused, which is itself the evidence that no post-hoc substitution occurred.",
+    "if_direction_fails": "If selection fails for a direction (for Amplify, LOW > HIGH; for Suppress, no dose clears the relevance drop), that direction fails and ALL FIVE doses stay sealed. A failed selection is a result. It is not a licence to open the sealed set and look for a better dose."
+  },
+
+  "suppress_specifics": {
+    "prompt_set": "held-out ELICITING, never the neutral substrate",
+    "dose_grid": "The five-point grid for SUPPRESS comprises descending CLAMP fractions plus ABLATE as one grid point. ABLATE carries no value, no unit, no unit_source, and all weights exactly 1.0.",
+    "spot_read": "The mandatory 10-output researcher spot-read happens in stage 5, at the SELECTED strength only, AFTER selection is committed. Spot-reading before selection is prohibited -- it is inspection of generated output and falls under the stage-2 prohibition.",
+    "asymmetry_preserved": "Amplify and Suppress have separate prompt sets, separate grids, separate stopping rules and separate selection records. Nothing about one is derived from the other."
+  },
+
+  "what_this_does_not_change": [
+    "No threshold is altered. G-A 0.90, G-B 0.70 at 0.20 of observed max, G-C 0.75, G-D +3.0 relevance with coherence >= 6.0, G-E -3.0 with coherence >= 6.0 all stand.",
+    "No post-hoc selection is permitted. Selection reads the judged sweep and nothing else.",
+    "backup_trigger.json is unchanged, including its rule that an execution error never triggers backup.",
+    "The frozen prompt artifact is unchanged.",
+    "positions=ALL for public calibration; GENERATED_ONLY remains a separately reported diagnostic."
+  ],
+
+  "hard_stops": [
+    "Any judge call from inside the GPU allocation.",
+    "Any human reading of generated output before selection_record.json is committed.",
+    "S_sweep and S_conf intersecting at the same cell.",
+    "A file hash mismatch at transfer or at load.",
+    "A confirmation judgment whose commit does not descend from the selection commit.",
+    "Opening a file stamped UNUSED_FOR_SELECTION_OR_CLAIM.",
+    "Starting generation when the remaining wall time cannot fit one whole concept."
+  ]
+}
