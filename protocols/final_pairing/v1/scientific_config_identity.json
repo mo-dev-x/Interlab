@@ -1,0 +1,139 @@
+{
+  "$comment": "Extends backup_trigger.json without modifying it. Records the full Gemma loader/scientific identity split. Frozen before any activation is computed.",
+  "protocol_version": "final-pairing-config-identity/1.0.0",
+  "extends": {
+    "protocol": "protocols/final_pairing/v1/backup_trigger.json",
+    "commit": "125b1d3e825f0e6cc83c20ba54ef2c345e4372f9",
+    "sha256": "4a234e59799089e634f00c59d5fed71c73d0f7466e30f0c20a7d72ef4c9d23d3",
+    "mutability": "backup_trigger.json is unchanged by this artifact."
+  },
+  "depends_on": {
+    "prompt_set_commit": "880b48a7f50b8c716e64956b915857dd1fcde350",
+    "prompt_sets_sha256": "b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f"
+  },
+
+  "identity_field_semantics": {
+    "$comment": "These three fields are NOT interchangeable. Persisting any one alone loses information the others carry.",
+    "release": {
+      "meaning": "Selects the saes_map namespace inside sae_lens.",
+      "authoritative_for": "which hook family and layer coverage the entry is drawn from",
+      "may_be_omitted": false
+    },
+    "loader_sae_id": {
+      "meaning": "The flat sae_lens registry key.",
+      "authoritative_for": "nothing on its own",
+      "underspecified_alone": true,
+      "rule": "NEVER persist loader_sae_id without its release. The flat key is meaningful only RELATIVE to a namespace: the same string can exist in more than one release and resolve to different weights. Storing the key alone yields an identifier that reads as complete while its meaning lives somewhere else.",
+      "precedent": "Same defect class as feature_idx without sae_id, which the bundle contract already fixed by moving identity onto the target. An identifier that requires an out-of-band namespace to resolve is not an identifier."
+    },
+    "scientific_sae_id": {
+      "meaning": "The repository subdirectory AND the scientific identity of the SAE.",
+      "authoritative_for": "every scientific record, run card, evidence artifact and published claim",
+      "rule": "Scientific records cite scientific_sae_id. loader_sae_id appears only in loading code."
+    }
+  },
+
+  "configurations": {
+    "PRIMARY": {
+      "repository_id": "google/gemma-scope-2-12b-it",
+      "revision": "4c419f1ba0be8b7754d4151d4f26c23b92a9029e",
+      "release": "gemma-scope-2-12b-it-res-all",
+      "loader_sae_id": "layer_29_width_16k_l0_big",
+      "scientific_sae_id": "resid_post_all/layer_29_width_16k_l0_big",
+      "layer": 29,
+      "width": 16384,
+      "architecture": "jump_relu",
+      "observed_l0": 120,
+      "hook": "resid_post",
+      "release_is_forced": true,
+      "release_rationale": "Layer 29 is not on the fixed 25/50/65/85 percent resid_post grid, so resid_post_all is REQUIRED, not preferred."
+    },
+    "BACKUP": {
+      "repository_id": "google/gemma-scope-2-12b-it",
+      "revision": "4c419f1ba0be8b7754d4151d4f26c23b92a9029e",
+      "release": "gemma-scope-2-12b-it-res",
+      "loader_sae_id": "layer_24_width_16k_l0_medium",
+      "scientific_sae_id": "resid_post/layer_24_width_16k_l0_medium",
+      "layer": 24,
+      "width": 16384,
+      "architecture": "jump_relu",
+      "observed_l0": 60,
+      "hook": "resid_post",
+      "release_is_forced": false,
+      "release_rationale": "Layer 24 sits at 50 percent depth, which IS on the resid_post grid, so the canonical release is available."
+    },
+    "not_a_third_family": {
+      "statement": "The two release strings do NOT violate backup_trigger.json's prohibition on a third SAE family or layer.",
+      "reason": "Both configurations draw from ONE repository at ONE revision. The release namespace is packaging that follows from layer coverage, not an additional family. Two layers in two configurations remains two."
+    }
+  },
+
+  "sparsity_pairing": {
+    "$comment": "The L0 tiers are matched across models, deliberately and proportionally.",
+    "PRIMARY": {"qwen_l0": 100, "gemma_observed_l0": 120, "ratio": 1.2},
+    "BACKUP": {"qwen_l0": 50, "gemma_observed_l0": 60, "ratio": 1.2},
+    "assessment": "Constant 1.2 ratio across both configurations. The cross-model sparsity match is preserved in each, so neither matched comparison is confounded by sparsity."
+  },
+
+  "interpretive_limit_primary_to_backup": {
+    "statement": "PRIMARY to BACKUP changes DEPTH and SPARSITY TIER SIMULTANEOUSLY on both models.",
+    "detail": "Qwen 38/L0_100 -> 32/L0_50; Gemma 29/l0_big(120) -> 24/l0_medium(60).",
+    "consequence": "If BACKUP succeeds where PRIMARY failed, the improvement CANNOT be attributed to depth or to sparsity. The two move together.",
+    "acceptable_because": "BACKUP is a fallback configuration, not a controlled contrast. Each matched cross-model comparison remains internally clean.",
+    "prohibited_claims": [
+      "the shallower layer worked better",
+      "lower sparsity improved separation",
+      "depth 0.50 is preferable to depth 0.59",
+      "any statement attributing a PRIMARY-to-BACKUP difference to one of the two changed variables"
+    ]
+  },
+
+  "runtime_loading": {
+    "mode": "PINNED_LOCAL_ONLY",
+    "prohibited": "Calling the stock sae_lens loader at runtime.",
+    "reason": "The stock loader performs an unpinned raw HTTP shape request and exposes no revision parameter. Two independent consequences: (1) on Tamia the compute nodes have no outbound internet, so the request fails outright; (2) anywhere it does succeed, it resolves against HEAD, so a recorded revision would be provenance the loader does not honour -- a pin that reads as a pin and is not one.",
+    "required_procedure": [
+      "Materialise weights on the login node at the pinned revision 4c419f1ba0be8b7754d4151d4f26c23b92a9029e.",
+      "Record the SHA-256 of each downloaded tensor file.",
+      "At runtime, load from the local path only, with HF_HUB_OFFLINE=1.",
+      "Verify tensor hashes at load. The revision is authoritative for WHAT WAS DOWNLOADED; it is not evidence that what is on disk matches it."
+    ],
+    "rule": "A recorded revision is trusted only where a hash check enforces it. Do not treat the string as the guarantee."
+  },
+
+  "non_authoritative_fields": {
+    "$comment": "Emitted by sae_lens but carrying no provenance. Must be LABELLED inline wherever they are persisted, not merely omitted from claims -- an unlabelled field sitting beside authoritative ones reads as authoritative.",
+    "context_size": "LOADER DEFAULT, NOT PROVENANCE",
+    "dataset_path": "LOADER DEFAULT, NOT PROVENANCE",
+    "rule": "Never cite either in a run card, evidence artifact, or published claim as a property of the SAE or its training corpus."
+  },
+
+  "open_items_for_LA1": [
+    {
+      "id": "OI-1",
+      "question": "Does layer 24 also exist in the resid_post_all release, and if so are its weights byte-identical to the resid_post copy?",
+      "why": "If identical, the BACKUP release choice is cosmetic. If not, the two releases are distinct training artifacts and the PRIMARY/BACKUP contrast carries a further difference beyond depth and sparsity.",
+      "how": "Compare tensor SHA-256 between the two release paths for layer 24.",
+      "blocking": false,
+      "report_to": "PM before any cross-configuration statement is written"
+    },
+    {
+      "id": "OI-2",
+      "question": "Gemma n_layers, read from the loaded config.",
+      "why": "backup_trigger.json requires abs(gemma_depth_fraction - qwen_depth_fraction) <= 0.02 and Gemma's depth_fraction is still null.",
+      "expectation": "If n_layers == 48 then 29/48 = 0.604 vs Qwen 0.594 (delta 0.010, passes) and 24/48 = 0.500 vs Qwen 0.500 (exact). This is a prediction to confirm, not a recorded fact.",
+      "blocking": true,
+      "report_to": "PM before any activation is computed"
+    }
+  ],
+
+  "validation_rules": [
+    "release, loader_sae_id and scientific_sae_id are all present or the record is invalid.",
+    "loader_sae_id must never appear in a persisted record without release in the same object.",
+    "scientific_sae_id must be prefixed by the hook-family directory implied by release: resid_post_all/ for -res-all, resid_post/ for -res.",
+    "A layer off the 25/50/65/85 percent grid requires the -res-all release.",
+    "Every scientific record cites scientific_sae_id; loader_sae_id appears only in loading code.",
+    "context_size and dataset_path, wherever persisted, carry the literal label LOADER DEFAULT, NOT PROVENANCE.",
+    "Runtime loading is local-path only; a stock-loader call is a hard failure, not a fallback."
+  ]
+}
