@@ -1,0 +1,75 @@
+#!/bin/bash
+#SBATCH --job-name=fp-accept-e63b08e
+#SBATCH --account=aip-chgag196
+#SBATCH --time=02:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=0
+#SBATCH --gres=gpu:h100:4
+#SBATCH --output=/scratch/y/yazid/final_pairing_20260811_e63b08e/final_pairing_e63b08e/fp_accept_%j.log
+
+set -uo pipefail
+module load StdEnv/2023 python/3.11 arrow/25.0.0
+source ~/sprint-venv/bin/activate
+export HF_HUB_OFFLINE=1
+export CUDA_VISIBLE_DEVICES=0
+cd /scratch/y/yazid/final_pairing_20260811_e63b08e/final_pairing_e63b08e
+echo "SOURCE_COMMIT=$(cat SOURCE_COMMIT)  NODE=$(hostname)  JOB=$SLURM_JOB_ID"
+nvidia-smi --query-gpu=index,name,memory.total --format=csv
+
+GM=/scratch/y/yazid/hf_cache/hub/models--google--gemma-3-12b-pt/snapshots/295efb63d01a7017928f273a94ebb86105c9526f
+GS=/scratch/y/yazid/hf_cache/hub/models--google--gemma-scope-2-12b-pt/snapshots/bbabd1e4a3964914f5bf0f5f99b56c2a2da09802
+IM=/scratch/y/yazid/hf_cache/hub/models--google--gemma-3-12b-it/snapshots/96b6f1eccf38110c56df3a15bffe176da04bfd80
+IS=/scratch/y/yazid/hf_cache/hub/models--google--gemma-scope-2-12b-it/snapshots/4c419f1ba0be8b7754d4151d4f26c23b92a9029e
+QM=/scratch/y/yazid/hf_cache/hub/models--Qwen--Qwen3.5-27B/snapshots/fc05daec18b0a78c049392ed2e771dde82bdf654
+QS=/scratch/y/yazid/hf_cache/hub/models--Qwen--SAE-Res-Qwen3.5-27B-W80K-L0_50/snapshots/13d4221569f7ca5d3c1e605e3e3dc95117e4807c/layer0.sae.pt
+
+echo "===== STEP 0: known-good Gemma-PT differential (GATE, max_new_tokens=64) ====="
+python scripts/legacy/gemma3_tool_diff_test.py \
+  --model-path "$GM" --sae-path "$GS" \
+  --feature-idx 250 --mode steer --dose-multiple 4.0 --positions all \
+  --prompt "Tell me about your day." --seed 0 --max-new-tokens 64
+STEP0=$?; echo "STEP0_EXIT=$STEP0"
+if [ $STEP0 -ne 0 ]; then echo "GATE FAILED - stopping, no pairing scenarios run."; exit $STEP0; fi
+
+for POS in all generated_only; do
+  echo "===== GEMMA-IT STEER positions=$POS ====="
+  python scripts/legacy/final_pairing_harness.py \
+    --target gemma-3-12b-it --model-path "$IM" --sae-path "$IS" \
+    --expected-model-revision 96b6f1eccf38110c56df3a15bffe176da04bfd80 \
+    --expected-sae-revision 4c419f1ba0be8b7754d4151d4f26c23b92a9029e \
+    --feature-idx 250 --mode steer --raw-clamp-value 5000 \
+    --positions "$POS" --prompt "Tell me about your day." --seed 0 --max-new-tokens 8 \
+    --out results/final_pairing/gemma_3_12b_it_mechanical_$POS.json
+  echo "GEMMA_IT_${POS}_EXIT=$?"
+done
+
+for POS in all generated_only; do
+  echo "===== QWEN3.5 L0 STEER positions=$POS ====="
+  python scripts/legacy/final_pairing_harness.py \
+    --target qwen-3.5-27b --model-path "$QM" --sae-path "$QS" --qwen-layer 0 \
+    --expected-model-revision fc05daec18b0a78c049392ed2e771dde82bdf654 \
+    --expected-sae-revision 13d4221569f7ca5d3c1e605e3e3dc95117e4807c \
+    --feature-idx 4096 --mode steer --raw-clamp-value 20 \
+    --positions "$POS" --prompt "Tell me about your day." --seed 0 --max-new-tokens 8 \
+    --out results/final_pairing/qwen_3_5_27b_mechanical_$POS.json
+  echo "QWEN_${POS}_EXIT=$?"
+done
+
+echo "===== PEAK GPU MEMORY ====="
+nvidia-smi --query-gpu=index,memory.used --format=csv
+echo "===== PROVENANCE SUMMARY (reads JSON only) ====="
+python - <<'PY'
+import json,glob
+for f in sorted(glob.glob("results/final_pairing/*.json")):
+    d=json.load(open(f)); p=d.get("provenance",{}); s=p.get("sae",{}); v=d.get("verdict",{})
+    print("==",f)
+    print("   expected_sae_subdirectory:", s.get("expected_sae_subdirectory"))
+    print("   sae_subdirectory_membership_verified:", s.get("sae_subdirectory_membership_verified"))
+    print("   resolved_files:", s.get("resolved_files"))
+    print("   resolved_absolute_target:", d.get("resolved_absolute_target"))
+    print("   prefill/decode:", v.get("prefill_call_count"), "/", v.get("decode_call_count"))
+    print("   nonzero_steer_confirmed:", v.get("nonzero_steer_confirmed"))
+PY
+echo "===== ARTIFACTS ====="; ls -l results/final_pairing/

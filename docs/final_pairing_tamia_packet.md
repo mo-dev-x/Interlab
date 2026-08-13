@@ -4,10 +4,74 @@ Scope: mechanical acceptance only (does a nonzero STEER intervention reach
 the residual stream, with full diagnostics). No concept discovery, no
 feature meanings, no behavioral claims. Built and unit-tested on
 `final-pairing-harness` (successor to `b4481ec`, itself branched from
-`f355126`); **not run against real weights or a GPU** -- no allocation was
-available during this investigation. Everything below is the exact runnable
-command plus what to expect; read "Unresolved ambiguities" before running
-the Qwen side.
+`f355126`).
+
+**STATUS (corrected 2026-08-13, superseding the sentence this replaces):**
+both targets HAVE now run against real weights on real Tamia GPU allocations.
+Gemma passed mechanical acceptance under ALL and GENERATED_ONLY (job 407008);
+Qwen passed mechanical acceptance under ALL and GENERATED_ONLY as
+engineering-only evidence inside a mixed job in which Gemma itself failed
+(job 406092). See "Sealed evidence" immediately below for the bounded
+conclusions and required limitations, and `results/final_pairing/job_407008/`
+and `results/final_pairing/job_406092/` for the full sealed, hash-verified
+records. Everything else in this packet below was written before this
+evidence existed and is preserved for its historical engineering narrative;
+read "Unresolved ambiguities" for what is still genuinely open (the
+scientific/behavioral questions), not whether either path has ever run.
+
+## Sealed evidence (2026-08-13)
+
+Two Tamia jobs have been imported, independently hash-verified end-to-end
+(manifest hash, every named artifact's hash and size, and the manifest's own
+parsed-field claims cross-read against the raw artifacts), and adjudicated.
+Full chain-of-custody manifests, machine-readable inventories, and
+per-job adjudication READMEs live in `results/final_pairing/`.
+
+- **Job 407008** (source commit `de3b499`, 2026-08-12 18:58--19:03 -04:00,
+  node `tg11303`): **Gemma-3-12B-IT with Gemma Scope 2 resid_post layer 31
+  passed mechanical steering acceptance under ALL and GENERATED_ONLY.**
+  Symlink-containment preflight 11/11 on real Linux symlinks inside the
+  allocation; Step 0 gate passed all three criteria. See
+  `results/final_pairing/job_407008/README.md`.
+- **Job 406092** (source commit `e63b08e`, 2026-08-11 18:06--18:13 -04:00,
+  node `tg11102`): a MIXED job. **Gemma failed** (`ValueError`: the flat
+  `sae_lens` loader id had not yet been separated from the scientific
+  `sae_id` at this commit -- fixed the same day in `8005679`; no Gemma
+  scenario JSON was written). **Qwen3.5-27B with Qwen-Scope engineering
+  layer 0 passed mechanical steering under ALL and GENERATED_ONLY** as
+  ENGINEERING-ONLY evidence (layer 0, feature 4096 -- not a ratified layer
+  or a concept claim). The scheduler's `COMPLETED`/`0:0` for this job does
+  NOT mean acceptance passed -- the wrapper used at the time did not
+  aggregate per-scenario exit codes, so the two Gemma failures did not
+  propagate; **job 406092 was not a global acceptance pass.** See
+  `results/final_pairing/job_406092/README.md`.
+
+Required limitations, both jobs: mechanical correctness does not establish
+scientific concept quality or behavioral quality; GENERATED_ONLY masks the
+prefill hook write and leaves the first generated token's activation
+unaffected (recorded as a semantic difference from ALL, not reconciled); no
+public `--positions` default is claimed anywhere in this packet without
+separate researcher ratification; Gemma feature 250 / raw clamp 5000 and
+Qwen layer 0 / feature 4096 are engineering acceptance inputs only, carrying
+no ratified concept meaning.
+
+**Chronology correction (2026-08-13):** the "Orchestrator review, 2026-08-13"
+through "2026-08-17" headings used throughout the rest of this document below
+are narrative labels, not real calendar dates, and several of them are
+future-dated relative to when they were actually written. The real `git log`
+commit timestamps are: `8005679` (the "aggregate job failure" / "Separate
+Gemma artifact identity from loader identity" reviews, labeled 2026-08-13
+below) landed 2026-08-11 18:55 -04:00 -- the same real day as job 406092
+(2026-08-11 18:06--18:13). `1bfd920` (labeled 2026-08-14), `e5569ec` (labeled
+2026-08-15), `46a8643` (labeled 2026-08-16), and `de3b499` (labeled
+2026-08-17) all landed on the SAME real calendar day, 2026-08-12, at
+02:42/15:33/16:16/18:35 -04:00 respectively -- not across five separate days.
+Job 407008 (2026-08-12 18:58--19:03) ran after `de3b499` (18:35) on that same
+real day, so there is no chronological impossibility despite the "2026-08-17"
+label attached to that commit's review below; the label sequence was never
+intended as literal dates. Nothing below was rewritten to fix this beyond
+this note, per this packet's own convention of marking corrections rather
+than rewriting history.
 
 ## Step 0 -- known-good differential check FIRST (required before either new pairing)
 
@@ -395,12 +459,26 @@ closed before generation if the loaded class isn't exactly
 it's absent -- the release's own checkpoint contract lists it as present,
 so there is no more silent zero-bias fallback.
 
-**This command is still the least-verified part of this packet** -- see
-"Unresolved ambiguities" below before spending a GPU allocation on it.
-**Not part of the next scheduled GPU job** (2026-08-13 scope: Step 0 +
-the two Gemma scenarios only, no Qwen rerun -- see "Next GPU job" below).
-This section stays documented for whenever Qwen mechanical acceptance is
-separately authorized; nothing about Qwen changed in this review.
+**This command is still the least scientifically verified part of this
+packet** -- see "Unresolved ambiguities" below. **Not part of the next
+scheduled GPU job** (2026-08-13 scope: Step 0 + the two Gemma scenarios
+only, no Qwen rerun -- see "Next GPU job" below). This section stays
+documented for whenever Qwen mechanical acceptance is separately authorized
+at a ratified (non-engineering) layer; nothing about Qwen changed in this
+review.
+
+**SUPERSEDED IN PART (2026-08-13):** this exact command line (`--qwen-layer
+0`, `--feature-idx 4096`, `--raw-clamp-value 20`) DID run against real
+Qwen3.5-27B weights, mechanically, inside mixed job 406092 (source
+`e63b08e`, 2026-08-11) -- see "Sealed evidence" above and
+`results/final_pairing/job_406092/`. `nonzero_steer_confirmed: true` under
+both `--positions all` and `--positions generated_only`; the loaded runtime
+class was confirmed `Qwen3_5ForCausalLM` via `AutoModelForCausalLM`, exactly
+as this section predicted. This is still ENGINEERING-ONLY evidence (layer 0
+and feature 4096 are not ratified) and does not by itself authorize a
+ratified-layer Qwen mechanical acceptance run -- but the claim that the
+Qwen raw-HF path has "not run against real weights" is no longer true and
+must not be repeated as current status.
 
 ## Next GPU job -- single wrapper command (replaces manual chaining)
 
@@ -436,6 +514,14 @@ Next job's exact scope (2026-08-13): Step 0 only, then Gemma-3-12b-it
 `--positions all` and `--positions generated_only`, both at
 `--max-new-tokens 8` (the wrapper's own `--scenario-max-new-tokens`
 default). **No Qwen rerun.**
+
+**COMPLETED (2026-08-13):** this exact scope ran as job 407008 (source
+`de3b499`, 2026-08-12) and reported `status: "complete_pass"`,
+`overall_exit_code: 0` -- preflight 11/11, Step 0 gate passed, both Gemma
+scenarios exited 0. See "Sealed evidence" above and
+`results/final_pairing/job_407008/`. The command below is preserved
+verbatim as the exact command that was run and as the reproducible
+reference for any future re-run of this same scope.
 
 ```bash
 HF_HUB_OFFLINE=1 python scripts/legacy/final_pairing_gpu_job.py \
@@ -688,6 +774,18 @@ Ranked by how much they can invalidate a run if wrong:
    at runtime and fails clearly if it ever isn't). Still, none of this has
    touched real weights. Treat the first live run as the actual test of
    this design, not a formality.
+
+   **SUPERSEDED (2026-08-13):** the first live run happened -- mixed job
+   406092 (source `e63b08e`, 2026-08-11), sealed and adjudicated in
+   `results/final_pairing/job_406092/`. `model_runtime_class:
+   "Qwen3_5ForCausalLM"`, `selected_auto_class: "AutoModelForCausalLM"`,
+   `transformers_version: "5.14.1"` were all confirmed exactly as predicted
+   here, against real weights, with `nonzero_steer_confirmed: true` under
+   both `--positions all` and `--positions generated_only`. **"None of this
+   has touched real weights" is no longer true and must not be repeated as
+   current status.** What remains genuinely open is item 2 below (the
+   scientific trust assumptions about the SAE itself), not whether this
+   design has ever run.
 2. **`Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50`'s `b_dec` presence, the
    ReLU-then-TopK(50) activation order, and layer 0 as the release's own
    documented example are taken directly from the work order's stated
@@ -706,6 +804,12 @@ Ranked by how much they can invalidate a run if wrong:
    path in general, but "general" is not "verified for
    `Qwen3_5ForCausalLM` with a raw forward hook attached to one internal
    decoder layer."
+
+   **SUPERSEDED (2026-08-13):** it has now run, inside mixed job 406092 --
+   `qwen_3_5_27b_mechanical_all.json` / `_generated_only.json` each record
+   a real generation with 1 prefill + 7 decode hook invocations, activation
+   and residual-norm movement on every applied call. See
+   `results/final_pairing/job_406092/`.
 4. **The Gemma SAE local-snapshot-only resolver (2026-08-14) and shape
    shim (2026-08-15, live job 406826) have each been proven with REAL
    local files on disk and the REAL, unmocked `safe_open`/`hf_hub_
@@ -732,6 +836,15 @@ Ranked by how much they can invalidate a run if wrong:
    `revision` (or safetensors error) the failing call carried rather than
    assuming either fix above is wrong; it may be a call shape or file
    condition neither review anticipated.
+
+   **SUPERSEDED (2026-08-13):** the first live Command 1 run happened and
+   passed -- job 407008 (source `de3b499`, 2026-08-12). The real, unmodified
+   `SAE.from_pretrained -> gemma_3_sae_huggingface_loader` chain ran
+   end-to-end through both fixes: `provenance.sae.resolved_files` shows the
+   real `config.json` and `params.safetensors` paths served from the pinned
+   snapshot, `actual_class: "JumpReLUSAE"`, and both scenarios completed
+   with `nonzero_steer_confirmed: true`. See
+   `results/final_pairing/job_407008/`.
 5. **The exact-SAE-subdirectory guards (2026-08-12, the same-day "HF
    snapshot symlink containment" addendum, and the 2026-08-16 snapshot-
    guard fix) are unrun against a real huggingface_hub cache's actual
@@ -759,6 +872,14 @@ Ranked by how much they can invalidate a run if wrong:
    exercises -- has never executed successfully anywhere yet. Treat its
    first real run as the actual test of the containment fix, the
    standalone script, AND the preflight wiring together, not a formality.
+
+   **SUPERSEDED (2026-08-13):** the first real run happened and passed --
+   job 407008 (source `de3b499`, 2026-08-12): `executed_count: 11`,
+   `passed_count: 11`, `overall_passed: true`, on real Linux with real
+   symlinks, inside the allocation, before Step 0 or either Gemma scenario
+   ran. The containment fix, the standalone script, and the preflight
+   wiring have now each executed successfully for real. See "Sealed
+   evidence" above and `results/final_pairing/job_407008/`.
 6. **Gemma-3-12b-it side is comparatively low-risk but still unrun**:
    `google/gemma-3-12b-it` is confirmed in `transformer_lens`'s registry
    with the identical `d_model=3840`/`n_layers=48` as the already-proven
@@ -774,12 +895,25 @@ Ranked by how much they can invalidate a run if wrong:
    Command 1's own notes above). The remaining unknown is purely whether
    the actual HF snapshot bytes are staged on Tamia -- a Lab Assistant 1
    inventory question, not an engineering-design one.
+
+   **SUPERSEDED (2026-08-13):** the HF snapshot bytes were staged and this
+   ran for real -- job 407008 (source `de3b499`, 2026-08-12) resolved
+   `layer_31_width_16k_l0_medium` -> `resid_post/layer_31_width_16k_l0_medium`
+   through the real registry and loaded successfully. See
+   `results/final_pairing/job_407008/`.
 7. **`_patch_gemma3_safetensors_shape_lookup`'s applicability to the `-it`
    SAE release is inferred, not independently re-tested**: it's a generic
    fix for any `conversion_func="gemma_3"` release in the installed
    `sae_lens`, and `gemma-scope-2-12b-it-res` uses that same
    `conversion_func` (verified via the registry) -- reasoned to apply, not
    re-run against the `-it` release specifically.
+
+   **SUPERSEDED (2026-08-13):** it has now been re-run against the `-it`
+   release specifically, for real -- job 407008's `resolved_files` show the
+   shim reading the real `params.safetensors` under
+   `resid_post/layer_31_width_16k_l0_medium/` for `gemma-scope-2-12b-it-res`,
+   with the SAE loading successfully end-to-end. See
+   `results/final_pairing/job_407008/`.
 8. **No local machine used in this investigation can load either target's
    real weights** (no GPU, and neither snapshot is staged locally) -- every
    claim above is either read from public metadata/source (config.json,
@@ -787,6 +921,13 @@ Ranked by how much they can invalidate a run if wrong:
    `transformer_lens` registries) or derived by direct code reading, or
    proven with a synthetic/monkeypatched unit test. None of it substitutes
    for a real run.
+
+   **Still true of the development machine(s) used to write this packet --
+   NOT of Tamia.** Tamia itself has now run both targets for real (jobs
+   407008 and 406092; see "Sealed evidence" above). This item's scope is
+   narrowed to: development-machine claims not yet cross-checked against a
+   real run remain exactly as unverified as before; anything a Tamia job
+   has since exercised is no longer in that category.
 9. **`scripts/legacy/final_pairing_gpu_job.py` (the new wrapper, 2026-08-13)
    has never actually launched Step 0 or either Gemma scenario as a real
    subprocess.** Its own tests monkeypatch `_run` entirely -- they prove
@@ -795,3 +936,13 @@ Ranked by how much they can invalidate a run if wrong:
    real argument quoting/paths on Tamia's actual shell, behaves as
    expected. Treat the first real invocation as the first test of the
    wrapper itself, same as every other "not yet run for real" item above.
+
+   **SUPERSEDED (2026-08-13):** job 407008 was that first real invocation
+   (source `de3b499`, an even later commit than the wrapper version this
+   item describes) -- real subprocess calls, real argument quoting, on
+   Tamia's actual shell, all recorded verbatim in `job_result.json`'s own
+   `command` arrays, all exiting 0. See `results/final_pairing/job_407008/`.
+   Job 406092, on an earlier wrapper version predating `8005679`, is the
+   documented counterexample this same section elsewhere describes: real
+   subprocess launches that DID run, whose exit codes the wrapper of that
+   era failed to aggregate correctly.

@@ -1,0 +1,79 @@
+{
+  "preflight_name": "final_pairing_symlink_preflight",
+  "schema_version": 1,
+  "source_commit": "de3b499",
+  "platform": "Linux-6.8.0-136-generic-x86_64-Intel-R-_Xeon-R-_Gold_6442Y-with-glibc2.37",
+  "case_count": 11,
+  "executed_count": 11,
+  "passed_count": 11,
+  "overall_passed": true,
+  "setup_failure": null,
+  "cases": [
+    {
+      "name": "intended_symlink_passes_snapshot_guard",
+      "expected_outcome": "validate_sae_files_match_snapshot must not raise",
+      "actual_outcome": "passed",
+      "passed": true
+    },
+    {
+      "name": "intended_symlink_passes_exact_sae_family_guard",
+      "expected_outcome": "validate_sae_files_match_expected_subdirectory must not raise and must verify membership",
+      "actual_outcome": "passed",
+      "passed": true
+    },
+    {
+      "name": "intended_symlink_passes_physical_cache_guard",
+      "expected_outcome": "validate_sae_symlink_targets_stay_in_repository_cache must not raise",
+      "actual_outcome": "passed",
+      "passed": true
+    },
+    {
+      "name": "wrong_snapshot_revision_fails",
+      "expected_outcome": "validate_sae_files_match_snapshot must raise TargetIdentityMismatch",
+      "actual_outcome": "passed",
+      "passed": true
+    },
+    {
+      "name": "sibling_prefix_revision_fails",
+      "expected_outcome": "validate_sae_files_match_snapshot must raise TargetIdentityMismatch",
+      "actual_outcome": "passed",
+      "passed": true
+    },
+    {
+      "name": "attn_out_fails",
+      "expected_outcome": "validate_sae_files_match_expected_subdirectory must raise TargetIdentityMismatch",
+      "actual_outcome": "passed",
+      "passed": true
+    },
+    {
+      "name": "mlp_out_fails",
+      "expected_outcome": "validate_sae_files_match_expected_subdirectory must raise TargetIdentityMismatch",
+      "actual_outcome": "passed",
+      "passed": true
+    },
+    {
+      "name": "transcoder_fails",
+      "expected_outcome": "validate_sae_files_match_expected_subdirectory must raise TargetIdentityMismatch",
+      "actual_outcome": "passed",
+      "passed": true
+    },
+    {
+      "name": "escaping_symlink_fails_physical_containment",
+      "expected_outcome": "validate_sae_symlink_targets_stay_in_repository_cache must raise TargetIdentityMismatch",
+      "actual_outcome": "passed",
+      "passed": true
+    },
+    {
+      "name": "regular_in_snapshot_file_passes",
+      "expected_outcome": "all three validators must not raise for a non-symlinked file",
+      "actual_outcome": "passed",
+      "passed": true
+    },
+    {
+      "name": "duplicate_captured_paths_are_independently_accepted_and_retained",
+      "expected_outcome": "duplicate good paths pass; a duplicated bad path is reported for each occurrence",
+      "actual_outcome": "passed",
+      "passed": true
+    }
+  ]
+}

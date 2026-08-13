@@ -1,0 +1,57 @@
+{
+  "inventory_schema_version": 1,
+  "job_id": "407008",
+  "task": "Task A -- Gemma final-pairing mechanical acceptance",
+  "source_commit": "de3b499",
+  "chain_of_custody_manifest": "chain_of_custody.json",
+  "chain_of_custody_manifest_sha256": "10cbbb6e92b5fc5b7ec4a48974e3940c9c8495d71b1e5e5a0cf38ceb6b88984c",
+  "note": "Hashes below were computed independently by Engineer 1 against the local evidence copy at import time (2026-08-13), not merely copied from the sealed manifest. They match the manifest's own hashes_measured_now.*.local_copy entries for every file.",
+  "files": [
+    {
+      "name": "fp_gemma.sbatch",
+      "size_bytes": 1674,
+      "sha256": "50abe33c8a6162f7a0a6a9f9e6342809cd461ffc8fe40d8ff21b7a8230a32293",
+      "role": "sbatch wrapper as submitted"
+    },
+    {
+      "name": "fp_gemma_407008.log",
+      "size_bytes": 13637,
+      "sha256": "cab16e114b71d9828aaad5b39fe84664b3791766f59d67256ad64fe3c7dd1a5a",
+      "role": "full job stdout/stderr log"
+    },
+    {
+      "name": "gemma_3_12b_it_all.json",
+      "size_bytes": 8887,
+      "sha256": "c566dd33c38040df4eef332c3dab0e98bd3f266232f043229aaff1c6ccd9d1fe",
+      "role": "scenario result: positions=all"
+    },
+    {
+      "name": "gemma_3_12b_it_generated_only.json",
+      "size_bytes": 8886,
+      "sha256": "18421cd1cc8b22a7e83eb3fe383bfcd087a9fbf103efaf7c563c3c5e9fa89b69",
+      "role": "scenario result: positions=generated_only"
+    },
+    {
+      "name": "job_result.json",
+      "size_bytes": 4262,
+      "sha256": "792c73067c0598972e4529923cfe62182b82bc55714768a24a44b71c673c06a3",
+      "role": "aggregate job result (preflight + step0 + scenarios)"
+    },
+    {
+      "name": "symlink_preflight_result.json",
+      "size_bytes": 2783,
+      "sha256": "eba4cd1125f38ebadd5518d3d03ff06d5614ca2f01cd1cb99674ea202d983cc3",
+      "role": "standalone symlink-containment preflight result (11/11 cases)"
+    },
+    {
+      "name": "chain_of_custody.json",
+      "size_bytes": 26214,
+      "sha256": "10cbbb6e92b5fc5b7ec4a48974e3940c9c8495d71b1e5e5a0cf38ceb6b88984c",
+      "role": "sealed chain-of-custody manifest, imported verbatim"
+    }
+  ],
+  "excluded_by_design": [
+    "Model weights, SAE weight files, and the HF cache directory tree are not imported -- multi-gigabyte, reconstructible from the pinned revisions recorded in this evidence, not evidence of steering behavior themselves.",
+    "final_pairing_de3b499.tar.gz (the full run-directory archive, 3986182 bytes) is not imported -- its hash is recorded in chain_of_custody.json for traceability, but its contents are the same bounded files listed above plus the excluded HF cache; importing the archive itself would duplicate what is already tracked here."
+  ]
+}

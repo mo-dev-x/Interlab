@@ -1,0 +1,202 @@
+SOURCE_COMMIT=SOURCE_COMMIT=e63b08e  NODE=tg11102.tamia.ecpia.ca  JOB=406092
+index, name, memory.total [MiB]
+0, NVIDIA H100 80GB HBM3, 81559 MiB
+1, NVIDIA H100 80GB HBM3, 81559 MiB
+2, NVIDIA H100 80GB HBM3, 81559 MiB
+3, NVIDIA H100 80GB HBM3, 81559 MiB
+===== STEP 0: known-good Gemma-PT differential (GATE, max_new_tokens=64) =====
+Loading weights:   0%|          | 0/1065 [00:00<?, ?it/s]Loading weights:  23%|██▎       | 247/1065 [00:00<00:00, 2421.76it/s]Loading weights:  46%|████▌     | 490/1065 [00:00<00:00, 2232.27it/s]Loading weights:  67%|██████▋   | 715/1065 [00:00<00:00, 2142.67it/s]Loading weights:  87%|████████▋ | 930/1065 [00:00<00:00, 2121.75it/s]Loading weights: 100%|██████████| 1065/1065 [00:00<00:00, 2166.11it/s]
+Loaded pretrained model google/gemma-3-12b-pt into HookedTransformer
+{
+  "identical_text": false,
+  "first_char_divergence": 1,
+  "sweep_path_text": " Do You Check If You Try If You Do\n\nYou Don Just Be\n\nTry It Make You Make If Make You Don If It Make You Go If\n\nDo You Just Don Try It If It If You Try You Do It If You\n\n Keep If Try You Don You Don\n\n If Do You You If You\n\n If",
+  "tool_path_text": " You You You You It It If If It If Make If If If\n\nChoose\n\nYou You You\n\nYou\n\nIf You\n\nYou If\n\n You\n\n Be\n\n Go\n\n Make\n\n You\n\n Also\n\n Remember\n\n You\n\n\n\n\n\n If You You Make\n\n You\n\n You\n\n Make Be If Do You\n\n If You",
+  "activation_positions_compared": 69,
+  "max_abs_activation_diff": 0.0,
+  "mean_abs_activation_diff": 0.0,
+  "clamp_value": 42869.2928,
+  "feature_idx": 250,
+  "mode": "steer",
+  "dose_multiple": 4.0,
+  "positions": "all",
+  "prompt_len_tokens": 7
+}
+STEP0_EXIT=0
+===== GEMMA-IT STEER positions=all =====
+Loading weights:   0%|          | 0/1065 [00:00<?, ?it/s]Loading weights:  24%|██▍       | 254/1065 [00:00<00:00, 2516.94it/s]Loading weights:  48%|████▊     | 506/1065 [00:00<00:00, 2277.01it/s]Loading weights:  69%|██████▉   | 736/1065 [00:00<00:00, 2139.43it/s]Loading weights:  89%|████████▉ | 952/1065 [00:00<00:00, 2107.67it/s]Loading weights: 100%|██████████| 1065/1065 [00:00<00:00, 2165.87it/s]
+Loaded pretrained model google/gemma-3-12b-it into HookedTransformer
+Traceback (most recent call last):
+  File "/scratch/y/yazid/final_pairing_20260811_e63b08e/final_pairing_e63b08e/scripts/legacy/final_pairing_harness.py", line 868, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/scratch/y/yazid/final_pairing_20260811_e63b08e/final_pairing_e63b08e/scripts/legacy/final_pairing_harness.py", line 783, in main
+    model, sae, hook_name, provenance = load_gemma_it_target(
+                                        ^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/y/yazid/final_pairing_20260811_e63b08e/final_pairing_e63b08e/scripts/legacy/final_pairing_harness.py", line 550, in load_gemma_it_target
+    sae = SAE.from_pretrained(release=target.sae_release, sae_id=target.sae_id, device=device)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/y/yazid/sprint-venv/lib/python3.11/site-packages/sae_lens/saes/sae.py", line 608, in from_pretrained
+    return cls.from_pretrained_with_cfg_and_sparsity(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/y/yazid/sprint-venv/lib/python3.11/site-packages/sae_lens/saes/sae.py", line 669, in from_pretrained_with_cfg_and_sparsity
+    raise ValueError(
+ValueError: ID resid_post/layer_31_width_16k_l0_medium not found in release gemma-scope-2-12b-it-res. Valid IDs are ['layer_12_width_16k_l0_big', 'layer_12_width_16k_l0_medium', 'layer_12_width_16k_l0_small', 'layer_12_width_1m_l0_big', 'layer_12_width_1m_l0_medium', ...].
+GEMMA_IT_all_EXIT=1
+===== GEMMA-IT STEER positions=generated_only =====
+Loading weights:   0%|          | 0/1065 [00:00<?, ?it/s]Loading weights:  49%|████▊     | 519/1065 [00:00<00:00, 5172.17it/s]Loading weights:  97%|█████████▋| 1037/1065 [00:00<00:00, 4499.93it/s]Loading weights: 100%|██████████| 1065/1065 [00:00<00:00, 4572.19it/s]
+Loaded pretrained model google/gemma-3-12b-it into HookedTransformer
+Traceback (most recent call last):
+  File "/scratch/y/yazid/final_pairing_20260811_e63b08e/final_pairing_e63b08e/scripts/legacy/final_pairing_harness.py", line 868, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/scratch/y/yazid/final_pairing_20260811_e63b08e/final_pairing_e63b08e/scripts/legacy/final_pairing_harness.py", line 783, in main
+    model, sae, hook_name, provenance = load_gemma_it_target(
+                                        ^^^^^^^^^^^^^^^^^^^^^
+  File "/scratch/y/yazid/final_pairing_20260811_e63b08e/final_pairing_e63b08e/scripts/legacy/final_pairing_harness.py", line 550, in load_gemma_it_target
+    sae = SAE.from_pretrained(release=target.sae_release, sae_id=target.sae_id, device=device)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/y/yazid/sprint-venv/lib/python3.11/site-packages/sae_lens/saes/sae.py", line 608, in from_pretrained
+    return cls.from_pretrained_with_cfg_and_sparsity(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/y/yazid/sprint-venv/lib/python3.11/site-packages/sae_lens/saes/sae.py", line 669, in from_pretrained_with_cfg_and_sparsity
+    raise ValueError(
+ValueError: ID resid_post/layer_31_width_16k_l0_medium not found in release gemma-scope-2-12b-it-res. Valid IDs are ['layer_12_width_16k_l0_big', 'layer_12_width_16k_l0_medium', 'layer_12_width_16k_l0_small', 'layer_12_width_1m_l0_big', 'layer_12_width_1m_l0_medium', ...].
+GEMMA_IT_generated_only_EXIT=1
+===== QWEN3.5 L0 STEER positions=all =====
+Loading weights:   0%|          | 0/851 [00:00<?, ?it/s]Loading weights:  20%|██        | 174/851 [00:00<00:00, 1728.79it/s]Loading weights:  41%|████      | 347/851 [00:00<00:00, 1625.27it/s]Loading weights:  62%|██████▏   | 527/851 [00:00<00:00, 1697.59it/s]Loading weights:  82%|████████▏ | 701/851 [00:00<00:00, 1686.39it/s]Loading weights: 100%|██████████| 851/851 [00:00<00:00, 1710.66it/s]
+{
+  "hook_invocation_count": 8,
+  "prefill_call_count": 1,
+  "decode_call_count": 7,
+  "nonzero_steer_confirmed": true,
+  "first_disappearance_boundary": null
+}
+QWEN_all_EXIT=0
+===== QWEN3.5 L0 STEER positions=generated_only =====
+Loading weights:   0%|          | 0/851 [00:00<?, ?it/s]Loading weights:  60%|█████▉    | 508/851 [00:00<00:00, 5048.80it/s]Loading weights: 100%|██████████| 851/851 [00:00<00:00, 4704.86it/s]
+{
+  "hook_invocation_count": 8,
+  "prefill_call_count": 1,
+  "decode_call_count": 7,
+  "nonzero_steer_confirmed": true,
+  "first_disappearance_boundary": null
+}
+QWEN_generated_only_EXIT=0
+===== PEAK GPU MEMORY =====
+index, memory.used [MiB]
+0, 0 MiB
+1, 0 MiB
+2, 0 MiB
+3, 0 MiB
+===== PROVENANCE SUMMARY (reads JSON only) =====
+== results/final_pairing/qwen_3_5_27b_mechanical_all.json
+   expected_sae_subdirectory: None
+   sae_subdirectory_membership_verified: None
+   resolved_files: ['/scratch/y/yazid/hf_cache/hub/models--Qwen--SAE-Res-Qwen3.5-27B-W80K-L0_50/snapshots/13d4221569f7ca5d3c1e605e3e3dc95117e4807c/layer0.sae.pt']
+   resolved_absolute_target: 20.0
+   prefill/decode: 1 / 7
+   nonzero_steer_confirmed: True
+== results/final_pairing/qwen_3_5_27b_mechanical_generated_only.json
+   expected_sae_subdirectory: None
+   sae_subdirectory_membership_verified: None
+   resolved_files: ['/scratch/y/yazid/hf_cache/hub/models--Qwen--SAE-Res-Qwen3.5-27B-W80K-L0_50/snapshots/13d4221569f7ca5d3c1e605e3e3dc95117e4807c/layer0.sae.pt']
+   resolved_absolute_target: 20.0
+   prefill/decode: 1 / 7
+   nonzero_steer_confirmed: True
+===== ARTIFACTS =====
+total 9
+-rw-r----- 1 yazid yazid 7217 Aug 11 18:12 qwen_3_5_27b_mechanical_all.json
+-rw-r----- 1 yazid yazid 7200 Aug 11 18:12 qwen_3_5_27b_mechanical_generated_only.json
+
+======== GPU REPORT ========
+
+==============NVSMI LOG==============
+
+Timestamp                                              : Tue Aug 11 18:12:58 2026
+Driver Version                                         : 580.159.04
+CUDA Version                                           : 13.0
+
+Attached GPUs                                          : 4
+GPU 00000000:4E:00.0
+    Accounting Mode                                    : Enabled
+    Accounting Mode Buffer Size                        : 4000
+    Accounted Processes
+        Process ID                                     : 1042200
+            GPU Utilization                            : 15 %
+            Memory Utilization                         : 3 %
+            Max memory usage                           : 31988 MiB
+            Time                                       : 105931 ms
+            Is Running                                 : 0
+        Process ID                                     : 1042365
+            GPU Utilization                            : 0 %
+            Memory Utilization                         : 0 %
+            Max memory usage                           : 28672 MiB
+            Time                                       : 90200 ms
+            Is Running                                 : 0
+        Process ID                                     : 1042531
+            GPU Utilization                            : 1 %
+            Memory Utilization                         : 0 %
+            Max memory usage                           : 28672 MiB
+            Time                                       : 55222 ms
+            Is Running                                 : 0
+        Process ID                                     : 1042649
+            GPU Utilization                            : 3 %
+            Memory Utilization                         : 0 %
+            Max memory usage                           : 55416 MiB
+            Time                                       : 44659 ms
+            Is Running                                 : 0
+        Process ID                                     : 1042763
+            GPU Utilization                            : 5 %
+            Memory Utilization                         : 0 %
+            Max memory usage                           : 55416 MiB
+            Time                                       : 29292 ms
+            Is Running                                 : 0
+
+GPU 00000000:5F:00.0
+    Accounting Mode                                    : Enabled
+    Accounting Mode Buffer Size                        : 4000
+    Accounted Processes                                : None
+
+GPU 00000000:CB:00.0
+    Accounting Mode                                    : Enabled
+    Accounting Mode Buffer Size                        : 4000
+    Accounted Processes                                : None
+
+GPU 00000000:DB:00.0
+    Accounting Mode                                    : Enabled
+    Accounting Mode Buffer Size                        : 4000
+    Accounted Processes                                : None
+
+Tue Aug 11 18:12:58 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.159.04             Driver Version: 580.159.04     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA H100 80GB HBM3          On  |   00000000:4E:00.0 Off |                    0 |
+| N/A   31C    P0            123W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA H100 80GB HBM3          On  |   00000000:5F:00.0 Off |                    0 |
+| N/A   29C    P0             70W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA H100 80GB HBM3          On  |   00000000:CB:00.0 Off |                    0 |
+| N/A   29C    P0             70W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA H100 80GB HBM3          On  |   00000000:DB:00.0 Off |                    0 |
+| N/A   30C    P0             72W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+

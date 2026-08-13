@@ -1,0 +1,215 @@
+{
+  "target": "qwen-3.5-27b",
+  "positions": "all",
+  "requested_mode": "steer",
+  "requested_dose_multiple": null,
+  "requested_calibration_value": null,
+  "requested_raw_clamp_value": 20.0,
+  "resolved_absolute_target": 20.0,
+  "dose_or_raw_label": "raw engineering value (no manifest/calibration input available)",
+  "provenance": {
+    "target": "qwen-3.5-27b",
+    "model": {
+      "repository": "Qwen/Qwen3.5-27B",
+      "local_path": "/scratch/y/yazid/hf_cache/hub/models--Qwen--Qwen3.5-27B/snapshots/fc05daec18b0a78c049392ed2e771dde82bdf654",
+      "revision": "fc05daec18b0a78c049392ed2e771dde82bdf654",
+      "revision_verification": "hf_cache_layout",
+      "actual_class": "Qwen3_5ForCausalLM",
+      "transformers_version": "5.14.1",
+      "selected_auto_class": "AutoModelForCausalLM",
+      "decoder_attribute_path": "model.layers"
+    },
+    "sae": {
+      "repository": "Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50",
+      "release": null,
+      "sae_id": null,
+      "local_path": "/scratch/y/yazid/hf_cache/hub/models--Qwen--SAE-Res-Qwen3.5-27B-W80K-L0_50/snapshots/13d4221569f7ca5d3c1e605e3e3dc95117e4807c/layer0.sae.pt",
+      "revision": "13d4221569f7ca5d3c1e605e3e3dc95117e4807c",
+      "revision_verification": "hf_cache_layout",
+      "resolved_files": [
+        "/scratch/y/yazid/hf_cache/hub/models--Qwen--SAE-Res-Qwen3.5-27B-W80K-L0_50/snapshots/13d4221569f7ca5d3c1e605e3e3dc95117e4807c/layer0.sae.pt"
+      ],
+      "actual_class": "QwenScopeSAE",
+      "format": "qwen_scope_raw_pt",
+      "d_in": 5120,
+      "d_sae": 81920,
+      "k": 50
+    },
+    "layer": {
+      "engineering_layer": 0,
+      "engineering_only": true,
+      "hook_name": "resid_post:layer_0",
+      "hooked_module_class": "Qwen3_5DecoderLayer"
+    },
+    "feature_idx": 4096
+  },
+  "trace": [
+    {
+      "call_index": 0,
+      "call_classification": "prefill",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 20.0,
+      "backend_received_value": 20.0,
+      "hook_name": "resid_post:layer_0",
+      "hooked_tensor_shape": [
+        1,
+        6,
+        5120
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 20.0,
+      "feature_activation_after": 17.258426666259766,
+      "residual_delta_norm": 48.98870849609375,
+      "residual_norm": 34.12730407714844
+    },
+    {
+      "call_index": 1,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 20.0,
+      "backend_received_value": 20.0,
+      "hook_name": "resid_post:layer_0",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        5120
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 20.0,
+      "feature_activation_after": 17.23821449279785,
+      "residual_delta_norm": 19.999452590942383,
+      "residual_norm": 11.559428215026855
+    },
+    {
+      "call_index": 2,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 20.0,
+      "backend_received_value": 20.0,
+      "hook_name": "resid_post:layer_0",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        5120
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 20.0,
+      "feature_activation_after": 17.246410369873047,
+      "residual_delta_norm": 19.999679565429688,
+      "residual_norm": 11.675984382629395
+    },
+    {
+      "call_index": 3,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 20.0,
+      "backend_received_value": 20.0,
+      "hook_name": "resid_post:layer_0",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        5120
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 20.0,
+      "feature_activation_after": 17.24691390991211,
+      "residual_delta_norm": 19.999235153198242,
+      "residual_norm": 11.932032585144043
+    },
+    {
+      "call_index": 4,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 20.0,
+      "backend_received_value": 20.0,
+      "hook_name": "resid_post:layer_0",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        5120
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 20.0,
+      "feature_activation_after": 17.24110984802246,
+      "residual_delta_norm": 19.999134063720703,
+      "residual_norm": 12.126712799072266
+    },
+    {
+      "call_index": 5,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 20.0,
+      "backend_received_value": 20.0,
+      "hook_name": "resid_post:layer_0",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        5120
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 20.0,
+      "feature_activation_after": 17.24056625366211,
+      "residual_delta_norm": 19.99929428100586,
+      "residual_norm": 12.192588806152344
+    },
+    {
+      "call_index": 6,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 20.0,
+      "backend_received_value": 20.0,
+      "hook_name": "resid_post:layer_0",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        5120
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 20.0,
+      "feature_activation_after": 17.25465202331543,
+      "residual_delta_norm": 19.999738693237305,
+      "residual_norm": 9.638602256774902
+    },
+    {
+      "call_index": 7,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 20.0,
+      "backend_received_value": 20.0,
+      "hook_name": "resid_post:layer_0",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        5120
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 20.0,
+      "feature_activation_after": 17.138839721679688,
+      "residual_delta_norm": 20.00014877319336,
+      "residual_norm": 11.504183769226074
+    }
+  ],
+  "verdict": {
+    "hook_invocation_count": 8,
+    "prefill_call_count": 1,
+    "decode_call_count": 7,
+    "nonzero_steer_confirmed": true,
+    "first_disappearance_boundary": null
+  }
+}

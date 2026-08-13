@@ -16,7 +16,12 @@ venv/
 # Data & model weights (too large for git)
 data/raw/*
 !data/raw/.gitkeep
-results/
+results/*
+# Same dir/* + negation technique as the docs/reports/project_management
+# block below, same reason: this one tree is bounded, sealed evidence
+# (chain-of-custody manifests, inventories, adjudication READMEs, small
+# logs/JSON) that must be versioned, not bulk experiment output.
+!results/final_pairing/
 *.pt
 *.safetensors
 *.bin

@@ -1,0 +1,58 @@
+{
+  "inventory_schema_version": 1,
+  "job_id": "406092",
+  "task": "Task B -- mixed job: Gemma failed, Qwen layer-0 mechanical evidence only",
+  "source_commit": "e63b08e",
+  "chain_of_custody_manifest": "chain_of_custody.json",
+  "chain_of_custody_manifest_sha256": "fbbfbaf0f8ee48a789f7217c87461f1752bb46657e5087a81f74108a90309f16",
+  "note": "Hashes below were computed independently by Engineer 1 against the local evidence copy at import time (2026-08-13), not merely copied from the sealed manifest. They match the manifest's own hashes_measured_now.*.local_copy entries for every file.",
+  "files": [
+    {
+      "name": "fp_accept.sbatch",
+      "size_bytes": 4077,
+      "sha256": "e2e11d2be486701f3d00361f419bd3da91a69bf229ccafc5fec51536ca44b3f3",
+      "role": "sbatch wrapper as actually run (post-image, one authorized PYTHONPATH line added)"
+    },
+    {
+      "name": "fp_accept.sbatch.before",
+      "size_bytes": 3960,
+      "sha256": "6cbc5eb3c319b068ff80b8f7ef4e8b5ab716b66825165f18019608c458b76df7",
+      "role": "sbatch wrapper pre-image, retained for the authorized-edit audit trail"
+    },
+    {
+      "name": "fp_accept.sbatch.diff",
+      "size_bytes": 703,
+      "sha256": "9677441f75f6346a3f9a1d59825ebea3842c5e01348514a97f267590b793cfb9",
+      "role": "diff between pre-image and as-run wrapper (1 addition, 0 deletions); independently reproduced by Engineer 1 via a direct diff of the two files above, byte-identical to this stored copy"
+    },
+    {
+      "name": "fp_accept_406092.log",
+      "size_bytes": 13901,
+      "sha256": "3e4d6b8865176ea6d126d2ba0b037f7748f66c4033f4647d55c51f234839f6db",
+      "role": "full job stdout/stderr log, including the Gemma-IT ValueError traceback and the STEP0/GEMMA_IT/QWEN exit markers"
+    },
+    {
+      "name": "qwen_3_5_27b_mechanical_all.json",
+      "size_bytes": 7217,
+      "sha256": "bfb0d5bcc7fd7a8ff334121ba4f8be78e9a099ae7ef22177569f76f6e6c7dce4",
+      "role": "Qwen scenario result: positions=all"
+    },
+    {
+      "name": "qwen_3_5_27b_mechanical_generated_only.json",
+      "size_bytes": 7200,
+      "sha256": "d23a5f60ca4a6103e8bdebe37a3dd65bd0a44953e91ca0cb86f3a7aa0b0a609f",
+      "role": "Qwen scenario result: positions=generated_only"
+    },
+    {
+      "name": "chain_of_custody.json",
+      "size_bytes": 21272,
+      "sha256": "fbbfbaf0f8ee48a789f7217c87461f1752bb46657e5087a81f74108a90309f16",
+      "role": "sealed chain-of-custody manifest, imported verbatim"
+    }
+  ],
+  "excluded_by_design": [
+    "Model weights, SAE weight files, and the HF cache directory tree are not imported.",
+    "No Gemma scenario JSON exists for this job: both Gemma-IT scenarios failed before writing output (see gemma_failure_cause in chain_of_custody.json and the traceback in fp_accept_406092.log). There is nothing to import for Gemma from this job beyond the log's traceback -- Gemma's own mechanical acceptance is sealed separately under job 407008.",
+    "final_pairing_e63b08e.tar.gz (the full run-directory archive, 3941974 bytes) is not imported -- its hash is recorded in chain_of_custody.json for traceability."
+  ]
+}

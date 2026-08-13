@@ -1,0 +1,233 @@
+{
+  "target": "gemma-3-12b-it",
+  "positions": "all",
+  "requested_mode": "steer",
+  "requested_dose_multiple": null,
+  "requested_calibration_value": null,
+  "requested_raw_clamp_value": 5000.0,
+  "resolved_absolute_target": 5000.0,
+  "dose_or_raw_label": "raw engineering value (no manifest/calibration input available)",
+  "provenance": {
+    "target": "gemma-3-12b-it",
+    "model": {
+      "repository": "google/gemma-3-12b-it",
+      "local_path": "/scratch/y/yazid/hf_cache/hub/models--google--gemma-3-12b-it/snapshots/96b6f1eccf38110c56df3a15bffe176da04bfd80",
+      "revision": "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+      "revision_verification": "hf_cache_layout",
+      "actual_class": "HookedTransformer"
+    },
+    "sae": {
+      "repository": "google/gemma-scope-2-12b-it",
+      "release": "gemma-scope-2-12b-it-res",
+      "sae_id": "resid_post/layer_31_width_16k_l0_medium",
+      "loader_sae_id": "layer_31_width_16k_l0_medium",
+      "local_path": "/scratch/y/yazid/hf_cache/hub/models--google--gemma-scope-2-12b-it/snapshots/4c419f1ba0be8b7754d4151d4f26c23b92a9029e",
+      "revision": "4c419f1ba0be8b7754d4151d4f26c23b92a9029e",
+      "revision_verification": "hf_cache_layout",
+      "resolved_files": [
+        "/scratch/y/yazid/hf_cache/hub/models--google--gemma-scope-2-12b-it/snapshots/4c419f1ba0be8b7754d4151d4f26c23b92a9029e/resid_post/layer_31_width_16k_l0_medium/config.json",
+        "/scratch/y/yazid/hf_cache/hub/models--google--gemma-scope-2-12b-it/snapshots/4c419f1ba0be8b7754d4151d4f26c23b92a9029e/resid_post/layer_31_width_16k_l0_medium/params.safetensors",
+        "/scratch/y/yazid/hf_cache/hub/models--google--gemma-scope-2-12b-it/snapshots/4c419f1ba0be8b7754d4151d4f26c23b92a9029e/resid_post/layer_31_width_16k_l0_medium/params.safetensors"
+      ],
+      "requested_sae_files": [
+        {
+          "requested_filename": "resid_post/layer_31_width_16k_l0_medium/config.json",
+          "resolved_local_path": "/scratch/y/yazid/hf_cache/hub/models--google--gemma-scope-2-12b-it/snapshots/4c419f1ba0be8b7754d4151d4f26c23b92a9029e/resid_post/layer_31_width_16k_l0_medium/config.json"
+        },
+        {
+          "requested_filename": "resid_post/layer_31_width_16k_l0_medium/params.safetensors",
+          "resolved_local_path": "/scratch/y/yazid/hf_cache/hub/models--google--gemma-scope-2-12b-it/snapshots/4c419f1ba0be8b7754d4151d4f26c23b92a9029e/resid_post/layer_31_width_16k_l0_medium/params.safetensors"
+        },
+        {
+          "requested_filename": "resid_post/layer_31_width_16k_l0_medium/params.safetensors",
+          "resolved_local_path": "/scratch/y/yazid/hf_cache/hub/models--google--gemma-scope-2-12b-it/snapshots/4c419f1ba0be8b7754d4151d4f26c23b92a9029e/resid_post/layer_31_width_16k_l0_medium/params.safetensors"
+        }
+      ],
+      "local_snapshot_only": true,
+      "network_resolution_attempted": false,
+      "actual_class": "JumpReLUSAE",
+      "format": "sae_lens_registry",
+      "d_in": 3840,
+      "d_sae": 16384,
+      "k": null,
+      "used_zero_b_dec_default": null,
+      "expected_sae_subdirectory": "resid_post/layer_31_width_16k_l0_medium",
+      "sae_subdirectory_membership_verified": true
+    },
+    "layer": {
+      "engineering_layer": 31,
+      "hook_name": "blocks.31.hook_resid_post",
+      "hooked_module_class": "transformer_lens HookPoint (attached by hook_name via model.hooks())"
+    },
+    "feature_idx": 250
+  },
+  "trace": [
+    {
+      "call_index": 0,
+      "call_classification": "prefill",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 5000.0,
+      "backend_received_value": 5000.0,
+      "hook_name": "blocks.31.hook_resid_post",
+      "hooked_tensor_shape": [
+        1,
+        7,
+        3840
+      ],
+      "feature_activation_before": 1080.012451171875,
+      "assigned_feature_value": 5000.0,
+      "feature_activation_after": 4406.35009765625,
+      "residual_delta_norm": 12885.2314453125,
+      "residual_norm": 723557.875
+    },
+    {
+      "call_index": 1,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 5000.0,
+      "backend_received_value": 5000.0,
+      "hook_name": "blocks.31.hook_resid_post",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        3840
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 5000.0,
+      "feature_activation_after": 4137.41064453125,
+      "residual_delta_norm": 5198.6767578125,
+      "residual_norm": 71215.15625
+    },
+    {
+      "call_index": 2,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 5000.0,
+      "backend_received_value": 5000.0,
+      "hook_name": "blocks.31.hook_resid_post",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        3840
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 5000.0,
+      "feature_activation_after": 2022.24609375,
+      "residual_delta_norm": 5199.359375,
+      "residual_norm": 81949.6484375
+    },
+    {
+      "call_index": 3,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 5000.0,
+      "backend_received_value": 5000.0,
+      "hook_name": "blocks.31.hook_resid_post",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        3840
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 5000.0,
+      "feature_activation_after": 1726.9599609375,
+      "residual_delta_norm": 5198.5048828125,
+      "residual_norm": 81650.3671875
+    },
+    {
+      "call_index": 4,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 5000.0,
+      "backend_received_value": 5000.0,
+      "hook_name": "blocks.31.hook_resid_post",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        3840
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 5000.0,
+      "feature_activation_after": 1046.7265625,
+      "residual_delta_norm": 5199.41748046875,
+      "residual_norm": 84075.0
+    },
+    {
+      "call_index": 5,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 5000.0,
+      "backend_received_value": 5000.0,
+      "hook_name": "blocks.31.hook_resid_post",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        3840
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 5000.0,
+      "feature_activation_after": 2334.17822265625,
+      "residual_delta_norm": 5198.95166015625,
+      "residual_norm": 80956.375
+    },
+    {
+      "call_index": 6,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 5000.0,
+      "backend_received_value": 5000.0,
+      "hook_name": "blocks.31.hook_resid_post",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        3840
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 5000.0,
+      "feature_activation_after": 2326.30322265625,
+      "residual_delta_norm": 5199.06494140625,
+      "residual_norm": 77199.265625
+    },
+    {
+      "call_index": 7,
+      "call_classification": "decode",
+      "requested_mode": "steer",
+      "requested_dose_or_raw": "raw engineering value (no manifest/calibration input available)",
+      "calibration_input": null,
+      "resolved_absolute_target": 5000.0,
+      "backend_received_value": 5000.0,
+      "hook_name": "blocks.31.hook_resid_post",
+      "hooked_tensor_shape": [
+        1,
+        1,
+        3840
+      ],
+      "feature_activation_before": 0.0,
+      "assigned_feature_value": 5000.0,
+      "feature_activation_after": 2049.72216796875,
+      "residual_delta_norm": 4973.392578125,
+      "residual_norm": 63303.23046875
+    }
+  ],
+  "verdict": {
+    "hook_invocation_count": 8,
+    "prefill_call_count": 1,
+    "decode_call_count": 7,
+    "nonzero_steer_confirmed": true,
+    "first_disappearance_boundary": null
+  }
+}
