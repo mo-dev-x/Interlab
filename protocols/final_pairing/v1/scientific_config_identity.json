@@ -1,11 +1,15 @@
 {
   "$comment": "Extends backup_trigger.json without modifying it. Records the full Gemma loader/scientific identity split. Frozen before any activation is computed.",
-  "protocol_version": "final-pairing-config-identity/1.1.0",
+  "protocol_version": "final-pairing-config-identity/1.2.0",
   "supersedes": {
-    "protocol_version": "final-pairing-config-identity/1.0.0",
-    "commit": "0fcd51d3a3a51a36818dd8378796eaaa791fc779",
-    "sha256": "22669a05ca403c0e3dc4ac09246c81cce270d06104daca1a02bd9d44231ee23f",
-    "reason": "v1.0.0 recorded a sparsity_pairing block asserting a constant 1.2x proportional match between Qwen TopK k and Gemma observed L0. That conclusion does not follow: the two quantities are not commensurable and their ratio has no referent. RETRACTED in full and replaced by sparsity_metadata below."
+    "protocol_version": "final-pairing-config-identity/1.1.0",
+    "commit": "9a57d9e8dcab6ed47612e5808123b965261bbe59",
+    "sha256": "21f258d1b2203287296786712fa9f05b9fde6d422bc04cf2e9abef1cb1d44fc6",
+    "reason": "OI-1 closed with a finding neither anticipated branch covered. v1.1.0 recorded BACKUP release_is_forced=false on the premise that -res was merely the canonical option for an on-grid layer. In fact resid_post_all does not publish l0_medium at layer 24 at all, so -res is the only source. Both releases are forced, for different reasons, and the PRIMARY-to-BACKUP contrast gains a third moving dimension.",
+    "lineage": [
+      {"version": "1.0.0", "commit": "0fcd51d3a3a51a36818dd8378796eaaa791fc779", "sha256": "22669a05ca403c0e3dc4ac09246c81cce270d06104daca1a02bd9d44231ee23f"},
+      {"version": "1.1.0", "commit": "9a57d9e8dcab6ed47612e5808123b965261bbe59", "sha256": "21f258d1b2203287296786712fa9f05b9fde6d422bc04cf2e9abef1cb1d44fc6"}
+    ]
   },
   "extends": {
     "protocol": "protocols/final_pairing/v1/backup_trigger.json",
@@ -22,14 +26,15 @@
     "$comment": "These three fields are NOT interchangeable. Persisting any one alone loses information the others carry.",
     "release": {
       "meaning": "Selects the saes_map namespace inside sae_lens.",
-      "authoritative_for": "which hook family and layer coverage the entry is drawn from",
-      "may_be_omitted": false
+      "authoritative_for": "which hook family, layer coverage AND SPARSITY-TIER COVERAGE the entry is drawn from",
+      "may_be_omitted": false,
+      "strengthened_by_OI_1": "Release also determines WHICH TIERS EXIST at a given layer. The same layer publishes different tier sets in different namespaces, so release is load-bearing for availability, not only for naming."
     },
     "loader_sae_id": {
       "meaning": "The flat sae_lens registry key.",
       "authoritative_for": "nothing on its own",
       "underspecified_alone": true,
-      "rule": "NEVER persist loader_sae_id without its release. The flat key is meaningful only RELATIVE to a namespace: the same string can exist in more than one release and resolve to different weights. Storing the key alone yields an identifier that reads as complete while its meaning lives somewhere else.",
+      "rule": "NEVER persist loader_sae_id without its release. The flat key is meaningful only RELATIVE to a namespace: the same string can exist in more than one release and resolve to different weights, OR EXIST IN ONE AND NOT THE OTHER. Storing the key alone yields an identifier that reads as complete while its meaning lives somewhere else.",
       "precedent": "Same defect class as feature_idx without sae_id, which the bundle contract already fixed by moving identity onto the target. An identifier that requires an out-of-band namespace to resolve is not an identifier."
     },
     "scientific_sae_id": {
@@ -50,8 +55,10 @@
       "width": 16384,
       "architecture": "jump_relu",
       "hook": "resid_post",
+      "params_sha256": null,
+      "params_sha256_status": "PENDING - LA-1 records at download, per the runtime_loading procedure",
       "release_is_forced": true,
-      "release_rationale": "Layer 29 is not on the fixed 25/50/65/85 percent resid_post grid, so resid_post_all is REQUIRED, not preferred."
+      "release_rationale": "Layer 29 is not on the fixed 25/50/65/85 percent resid_post grid, so resid_post_all is the only namespace that publishes it."
     },
     "BACKUP": {
       "repository_id": "google/gemma-scope-2-12b-it",
@@ -63,12 +70,41 @@
       "width": 16384,
       "architecture": "jump_relu",
       "hook": "resid_post",
-      "release_is_forced": false,
-      "release_rationale": "Layer 24 sits at 50 percent depth, which IS on the resid_post grid, so the canonical release is available."
+      "params_sha256": "2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e",
+      "params_sha256_status": "RECORDED by LA-C",
+      "release_is_forced": true,
+      "release_is_forced_corrected_in": "1.2.0",
+      "release_rationale": "resid_post_all does NOT publish l0_medium at layer 24 at that revision; it publishes only l0_small and l0_big. resid_post is therefore the ONLY source for the canonical backup SAE. v1.1.0 recorded this as false on the incorrect premise that an on-grid layer makes -res merely the canonical option among two."
     },
     "not_a_third_family": {
       "statement": "The two release strings do NOT violate backup_trigger.json's prohibition on a third SAE family or layer.",
-      "reason": "Both configurations draw from ONE repository at ONE revision. The release namespace is packaging that follows from layer coverage, not an additional family. Two layers in two configurations remains two."
+      "reason": "The prohibition guards against expanding the configuration space after observing results. Two configurations remain two regardless of how many training artifacts they draw from. Nothing was added.",
+      "superseded_reason": {
+        "text": "The release namespace is packaging that follows from layer coverage, not an additional family.",
+        "status": "WITHDRAWN in 1.2.0",
+        "why": "OI-1 showed the namespaces publish different tier sets at the same layer, so they are not two views of one packaging. The conclusion survives; this premise does not, and a true conclusion resting on a false premise is how stale reasoning propagates."
+      }
+    }
+  },
+
+  "release_namespace_divergence": {
+    "$comment": "The OI-1 finding, recorded as the primary fact it is rather than as a footnote to the backup configuration.",
+    "finding": "At revision 4c419f1ba0be8b7754d4151d4f26c23b92a9029e, resid_post_all publishes only l0_small and l0_big at layer 24. l0_medium is absent from that namespace and exists only under resid_post.",
+    "source": "LA-C",
+    "consequences": [
+      "The split release choice is NECESSARY, not cosmetic. Neither configuration could have been drawn from a single namespace.",
+      "PRIMARY and BACKUP are distinct SAE artifacts, differing in layer, sparsity tier and release namespace simultaneously.",
+      "Release is load-bearing for AVAILABILITY, not merely for naming."
+    ],
+    "what_is_established": [
+      "The two configurations are distinct SAE artifacts.",
+      "l0_medium at layer 24 is unavailable in resid_post_all at this revision."
+    ],
+    "what_is_NOT_established": {
+      "statement": "Whether resid_post and resid_post_all represent DISTINCT TRAINING RUNS, or one set of runs published under two namespaces with different tier coverage.",
+      "why_it_is_open": "Different published tier sets is consistent with BOTH explanations. Selective publication of a shared training run would produce exactly the same observation.",
+      "why_it_does_not_block": "The prohibition below covers both explanations identically. Settling it would only sharpen how precisely the PRIMARY-to-BACKUP difference can be described; it changes no permitted claim.",
+      "tracked_as": "OI-3"
     }
   },
 
@@ -108,7 +144,7 @@
       "semantics": "observed L0 is the average count of features exceeding their learned threshold, measured over a corpus. It is a point estimate of a random variable with per-token variance, and the corpus it was measured on is NOT our corpus."
     },
     "non_equivalence": {
-      "statement": "Qwen k and Gemma observed L0 are NOT COMMENSURABLE. Their numeric ratio has no scientific meaning.",
+      "statement": "Qwen k and Gemma observed L0 are NOT COMMENSURABLE. Their numeric ratio has no scientific meaning. RETAINED UNCHANGED from 1.1.0.",
       "reasons": [
         "Different kinds of quantity: one is a fixed hyperparameter, the other an empirical mean.",
         "Different statistical status: k is a constant with zero variance; observed L0 is a point estimate of a distribution.",
@@ -133,9 +169,10 @@
     "does_not_derive_from": [
       "any sparsity correspondence",
       "any width correspondence",
-      "any architectural correspondence between topk and jump_relu"
+      "any architectural correspondence between topk and jump_relu",
+      "any release-namespace or training-artifact correspondence"
     ],
-    "statement": "A pair is eligible because both sides independently pass their gates at matched relative depth. Sparsity plays no role in eligibility and confers none."
+    "statement": "A pair is eligible because both sides independently pass their gates at matched relative depth. EACH CONFIGURATION IS JUDGED ONLY BY ITS OWN INDEPENDENT GATES. Sparsity, namespace and artifact provenance play no role in eligibility and confer none."
   },
 
   "prohibited_sparsity_claims": {
@@ -158,17 +195,30 @@
   },
 
   "interpretive_limit_primary_to_backup": {
-    "status": "RETAINED from v1.0.0, unchanged in force",
-    "statement": "PRIMARY to BACKUP changes DEPTH and SPARSITY TIER SIMULTANEOUSLY within each model.",
-    "detail": "Within Qwen: layer 38 -> 32 and k 100 -> 50. Within Gemma: layer 29 -> 24 and observed L0 120 -> 60. Both statements are within-model and therefore well-formed.",
-    "consequence": "If BACKUP succeeds where PRIMARY failed, the improvement CANNOT be attributed to depth or to sparsity. The two move together within each model.",
-    "acceptable_because": "BACKUP is a fallback configuration, not a controlled contrast.",
+    "status": "EXTENDED in 1.2.0 from two moving dimensions to three",
+    "statement": "PRIMARY to BACKUP changes THREE configuration dimensions simultaneously inside Gemma, and two inside Qwen.",
+    "detail": {
+      "gemma": "layer 29 -> 24, observed L0 tier l0_big(120) -> l0_medium(60), AND release / training artifact resid_post_all -> resid_post",
+      "qwen": "layer 38 -> 32, and k 100 -> 50"
+    },
+    "consequence": "NO PRIMARY-to-BACKUP difference may be attributed individually to depth, to observed L0, to release namespace, or to training artifact. All of them move together and no design isolates any one.",
+    "acceptable_because": "BACKUP IS A FALLBACK CONFIGURATION, NOT A CONTROLLED ABLATION. It exists to give the run a second chance at finding shared concepts, never to measure the effect of any parameter.",
+    "scope_note": "This confound lives ENTIRELY in the PRIMARY-to-BACKUP contrast. It does not touch either matched cross-model comparison, since primary-primary uses one Gemma artifact against one Qwen artifact and backup-backup likewise. The matched comparisons remain internally clean.",
     "prohibited_claims": [
       "the shallower layer worked better",
       "lower sparsity improved separation",
       "depth 0.50 is preferable to depth 0.59",
-      "any statement attributing a PRIMARY-to-BACKUP difference to one of the two changed variables"
+      "the resid_post release is better than resid_post_all, or the reverse",
+      "the backup SAE is a better or worse instrument than the primary SAE",
+      "any statement attributing a PRIMARY-to-BACKUP difference to one of the changed variables"
     ]
+  },
+
+  "comparison_scope": {
+    "cross_model_matched_comparison": "PRIMARY-PRIMARY or BACKUP-BACKUP only. UNCHANGED by the OI-1 finding.",
+    "prohibited": ["PRIMARY gemma + BACKUP qwen", "BACKUP gemma + PRIMARY qwen"],
+    "reason": "Mixed-depth cross-model comparison is a total confound. The OI-1 finding adds a mixed-artifact confound on top of it but does not change the ruling, which was already absolute.",
+    "authority": "protocols/final_pairing/v1/backup_trigger.json"
   },
 
   "runtime_loading": {
@@ -181,7 +231,9 @@
       "At runtime, load from the local path only, with HF_HUB_OFFLINE=1.",
       "Verify tensor hashes at load. The revision is authoritative for WHAT WAS DOWNLOADED; it is not evidence that what is on disk matches it."
     ],
-    "rule": "A recorded revision is trusted only where a hash check enforces it. Do not treat the string as the guarantee."
+    "rule": "A recorded revision is trusted only where a hash check enforces it. Do not treat the string as the guarantee.",
+    "backup_params_expected_sha256": "2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e",
+    "backup_params_rule": "The downloaded backup params file MUST hash to the value above. Mismatch is a hard stop, not a warning."
   },
 
   "non_authoritative_fields": {
@@ -191,20 +243,29 @@
     "rule": "Never cite either in a run card, evidence artifact, or published claim as a property of the SAE or its training corpus."
   },
 
-  "open_items_for_LA1": [
+  "open_items": [
     {
       "id": "OI-1",
-      "status": "OPEN, NON-BLOCKING",
-      "question": "Does layer 24 also exist in the resid_post_all release, and if so are its weights byte-identical to the resid_post copy?",
-      "why": "If identical, the BACKUP release choice is cosmetic. If not, the two releases are distinct training artifacts and the PRIMARY/BACKUP contrast carries a further difference beyond depth and sparsity tier.",
-      "how": "Compare tensor SHA-256 between the two release paths for layer 24.",
-      "report_to": "PM before any cross-configuration statement is written"
+      "status": "CLOSED",
+      "closed_by": "LA-C",
+      "original_question": "Does layer 24 also exist in the resid_post_all release, and if so are its weights byte-identical to the resid_post copy?",
+      "finding": "Neither anticipated branch. resid_post_all does not publish l0_medium at layer 24 at all; it publishes only l0_small and l0_big. The canonical backup exists solely under resid_post.",
+      "resolution": "The split release is NECESSARY, not cosmetic. Recorded in release_namespace_divergence and reflected in configurations.BACKUP.release_is_forced, corrected from false to true."
     },
     {
       "id": "OI-2",
       "status": "CLOSED",
       "closed_by": "LA-C, text_config.num_hidden_layers = 48",
-      "resolution": "Both configurations PASS the depth-fraction assertion. See depth_fraction_matching."
+      "resolution": "Both configurations PASS the depth-fraction assertion. PRIMARY delta 0.010417, BACKUP delta 0.000000. See depth_fraction_matching."
+    },
+    {
+      "id": "OI-3",
+      "status": "OPEN, NON-BLOCKING",
+      "question": "Are resid_post and resid_post_all distinct training runs, or one set of runs published under two namespaces with different tier coverage?",
+      "why": "OI-1 established that the namespaces publish different tier sets, which is consistent with both explanations. The distinction changes how precisely the PRIMARY-to-BACKUP difference can be described. It changes no permitted claim, because the prohibition covers both cases identically.",
+      "how": "layer_24_width_16k_l0_big is published in BOTH namespaces per the OI-1 finding. Compare its params SHA-256 across the two. Identical implies shared weights under selective publication; different implies distinct training runs.",
+      "cost": "One hash comparison on an already-available pair.",
+      "report_to": "PM. Do not let it gate any experimental work."
     }
   ],
 
@@ -213,9 +274,11 @@
     "loader_sae_id must never appear in a persisted record without release in the same object.",
     "scientific_sae_id must be prefixed by the hook-family directory implied by release: resid_post_all/ for -res-all, resid_post/ for -res.",
     "A layer off the 25/50/65/85 percent grid requires the -res-all release.",
+    "Tier availability is namespace-dependent and must never be assumed. A tier present in one release may be absent from another at the same layer.",
     "Every scientific record cites scientific_sae_id; loader_sae_id appears only in loading code.",
     "context_size and dataset_path, wherever persisted, carry the literal label LOADER DEFAULT, NOT PROVENANCE.",
     "Runtime loading is local-path only; a stock-loader call is a hard failure, not a fallback.",
+    "The backup params file must hash to 2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e; mismatch is a hard stop.",
     "Qwen and Gemma sparsity metadata are persisted in separate objects, each labelled with its quantity_type. They may not appear as two values of one field, in one row, or under one shared key -- a shared field name asserts commensurability that does not exist."
   ]
 }
