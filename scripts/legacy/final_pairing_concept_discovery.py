@@ -1925,6 +1925,84 @@ def select_calibration_candidates(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Staggered-cold-load READY handshake: the Qwen lane loads FIRST (physical
+# GPU 1, visible as cuda:0) and writes a READY record; only after that
+# record is observed does the Gemma lane (physical GPU 0, visible as
+# cuda:0) begin loading. Written here (not in
+# final_concept_discovery_dual_gpu_job.py) so the SAME record shape is
+# both written (by this file's own `run()`, after `load_backend()`
+# succeeds) and read (by the orchestrator waiting on it) -- one format,
+# not two independently-maintained ones.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ReadyRecord:
+    pairing: str
+    device: str
+    pid: int
+    loaded_at: float
+
+
+def write_ready_record(ready_path: str | Path, *, pairing: str, device: str) -> ReadyRecord:
+    """Written ATOMICALLY (write to a sibling .tmp file, then os.replace)
+    so a reader polling for `ready_path` never observes a partially-written
+    file -- os.replace is atomic on both POSIX and NTFS when source and
+    destination are on the same volume, which a sibling temp file always
+    is."""
+    import time as _time
+
+    record = ReadyRecord(pairing=pairing, device=device, pid=os.getpid(), loaded_at=_time.time())
+    path = Path(ready_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(asdict(record)), encoding="utf-8")
+    os.replace(tmp_path, path)
+    return record
+
+
+class ReadyHandshakeFailed(RuntimeError):
+    """The lead lane never wrote a valid READY record: it exited first,
+    timed out, or wrote a record naming the wrong pairing/device. Always
+    raised before the follower lane is launched -- failure before READY
+    fails the allocation; it must never masquerade as scientific
+    underperformance."""
+
+
+def wait_for_ready_record(
+    ready_path: str | Path, *, expected_pairing: str, expected_device: str,
+    process_alive_fn, timeout_seconds: float, poll_interval: float = 1.0, sleep_fn=None,
+) -> ReadyRecord:
+    """Polls for `ready_path`. `process_alive_fn()` returning False BEFORE
+    a valid READY record appears means the loader process exited without
+    ever becoming ready -- fails closed immediately rather than waiting
+    out the full timeout on a process that has already died. A READY
+    record naming a different pairing or device than expected is refused
+    rather than trusted (a misconfigured lane could otherwise silently
+    satisfy the wrong handshake)."""
+    import time as _time
+
+    sleep = sleep_fn or _time.sleep
+    path = Path(ready_path)
+    deadline = _time.monotonic() + timeout_seconds
+    while True:
+        if path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            record = ReadyRecord(**data)
+            if record.pairing != expected_pairing or record.device != expected_device:
+                raise ReadyHandshakeFailed(
+                    f"READY record at {path} names pairing={record.pairing!r} device={record.device!r}, "
+                    f"expected pairing={expected_pairing!r} device={expected_device!r}"
+                )
+            return record
+        if not process_alive_fn():
+            raise ReadyHandshakeFailed(f"the lead lane's process exited before writing a READY record at {path}")
+        if _time.monotonic() >= deadline:
+            raise ReadyHandshakeFailed(f"timed out after {timeout_seconds}s waiting for a READY record at {path}")
+        sleep(poll_interval)
+
+
 class ProgressLog:
     def __init__(self, path: Path):
         self.path = path
@@ -1995,6 +2073,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     p.add_argument("--out-dir", required=True)
     p.add_argument("--state-dir", required=True, help="Separate from --out-dir: holds the resumable progress log only.")
+    p.add_argument("--ready-path", default=None, help="If set, a READY record is written here immediately after the backend (model+SAE) finishes loading -- for the dual-GPU orchestrator's staggered-cold-load handshake. Omitted for a standalone/non-staggered run.")
     return p.parse_args(argv)
 
 
@@ -2034,6 +2113,8 @@ def run(args: argparse.Namespace) -> dict:
         expected_model_revision=args.expected_model_revision, expected_sae_revision=args.expected_sae_revision,
         device=args.device, dtype=args.dtype, sae_family=args.qwen_sae_family, sparsity=args.qwen_sparsity,
     )
+    if args.ready_path is not None:
+        write_ready_record(args.ready_path, pairing=args.pairing, device=args.device)
 
     ranked_key = "stage1_rank"
     if progress.is_done(ranked_key):

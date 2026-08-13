@@ -380,6 +380,15 @@ def test_a_passing_prompt_artifact_validator_allows_both_lanes_to_launch(tmp_pat
 
     def fake_launch(command, *, env, cwd, log_path):
         name = "gemma" if env["CUDA_VISIBLE_DEVICES"] == "0" else "qwen"
+        if name == job.STAGGER_LEAD_LANE:
+            # Mimics the real subprocess reaching READY instantly, so
+            # launch_staggered's wait_for_ready_record finds it on its
+            # very first check -- no real sleep needed in this test.
+            ready_index = command.index("--ready-path")
+            ready_path = Path(command[ready_index + 1])
+            import final_pairing_concept_discovery as discovery
+
+            discovery.write_ready_record(ready_path, pairing="qwen-3.5-27b", device="cuda:0")
         return processes[name]
 
     def fake_orchestrator_factory(lane_list):
@@ -515,3 +524,77 @@ def test_aggregate_result_contains_no_scientific_payload_fields():
     assert forbidden_keys.isdisjoint(result.keys())
     for lane in result["lanes"]:
         assert forbidden_keys.isdisjoint(lane.keys())
+
+
+# ---------------------------------------------------------------------------
+# CUDA_DEVICE_ORDER and staggered cold-load READY handshake
+# ---------------------------------------------------------------------------
+
+
+def test_env_for_lane_sets_cuda_device_order_pci_bus_id(tmp_path):
+    lanes = _make_lanes(tmp_path)
+    for lane in lanes:
+        env = job.env_for_lane(lane, base_env={})
+        assert env["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
+
+
+def _write_real_ready_record(lane: job.LaneSpec, *, pairing: str, device: str = "cuda:0") -> None:
+    import final_pairing_concept_discovery as discovery
+
+    discovery.write_ready_record(job.ready_path_for_lane(lane), pairing=pairing, device=device)
+
+
+def test_launch_staggered_launches_qwen_first_and_gemma_only_after_ready(tmp_path):
+    lanes = _make_lanes(tmp_path)
+    orch = job.DualGpuOrchestrator(lanes, launch=lambda *a, **k: _FakeProcess(pid=1), sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
+    # The lead lane's READY record already exists BEFORE launch_staggered is
+    # called -- realistic in that wait_for_ready_record's poll loop finds it
+    # on the very first check, so no test-time sleep is needed.
+    _write_real_ready_record(orch.lanes[job.STAGGER_LEAD_LANE], pairing="qwen-3.5-27b")
+    orch.launch_staggered()
+    assert set(orch._processes) == {"gemma", "qwen"}
+    assert orch._results["qwen"].start_time <= orch._results["gemma"].start_time
+
+
+def test_launch_staggered_fails_closed_when_lead_process_exits_before_ready(tmp_path):
+    lanes = _make_lanes(tmp_path)
+
+    def launch(command, *, env, cwd, log_path):
+        # The lead's process exits immediately (poll() returns non-None on
+        # the very first call) and NEVER writes a READY record.
+        return _FakeProcess(pid=1, exit_code=1, exit_after_polls=1)
+
+    orch = job.DualGpuOrchestrator(lanes, launch=launch, sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
+    with pytest.raises(Exception) as excinfo:
+        orch.launch_staggered(ready_timeout_seconds=5.0)
+    assert "exited before writing" in str(excinfo.value)
+    # The follower must never have been launched.
+    assert job.STAGGER_FOLLOW_LANE not in orch._processes
+
+
+def test_launch_staggered_fails_closed_on_a_ready_record_naming_the_wrong_pairing(tmp_path):
+    lanes = _make_lanes(tmp_path)
+    orch = job.DualGpuOrchestrator(lanes, launch=lambda *a, **k: _FakeProcess(pid=1), sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
+    _write_real_ready_record(orch.lanes[job.STAGGER_LEAD_LANE], pairing="the-wrong-pairing")
+    with pytest.raises(Exception) as excinfo:
+        orch.launch_staggered()
+    assert "names pairing" in str(excinfo.value)
+    assert job.STAGGER_FOLLOW_LANE not in orch._processes
+
+
+def test_launch_staggered_uses_an_injectable_wait_for_ready_seam(tmp_path):
+    """A fake wait_for_ready (mimicking a timeout, without a real sleep)
+    proves the seam is genuinely used rather than the real function being
+    hardcoded in."""
+    lanes = _make_lanes(tmp_path)
+    calls = {"n": 0}
+
+    def fake_wait_for_ready(ready_path, *, expected_pairing, expected_device, process_alive_fn, timeout_seconds, sleep_fn=None):
+        calls["n"] += 1
+        raise TimeoutError(f"simulated timeout waiting for {ready_path}")
+
+    orch = job.DualGpuOrchestrator(lanes, launch=lambda *a, **k: _FakeProcess(pid=1), sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
+    with pytest.raises(TimeoutError):
+        orch.launch_staggered(wait_for_ready=fake_wait_for_ready)
+    assert calls["n"] == 1
+    assert job.STAGGER_FOLLOW_LANE not in orch._processes

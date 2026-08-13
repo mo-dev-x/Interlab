@@ -51,6 +51,17 @@ LANE_NAMES = ("gemma", "qwen")
 LANE_GPU_ASSIGNMENT = {"gemma": "0", "qwen": "1"}  # fixed; never read from a lane's JSON
 RESERVED_JUDGE_GPUS = ("2", "3")  # documented, never assigned to either lane by this file
 
+# Staggered cold-load order (Gemma preflight addendum, item 6): Qwen loads
+# FIRST on GPU 1 and must reach READY before Gemma (GPU 0) begins loading.
+STAGGER_LEAD_LANE = "qwen"
+STAGGER_FOLLOW_LANE = "gemma"
+# Must match final_pairing_targets.QWEN_3_5_27B_TARGET.name /
+# GEMMA_3_12B_IT_TARGET.name -- literal here (not imported) to keep this
+# module's own import graph light; the READY record's own pairing field
+# is written by final_pairing_concept_discovery.write_ready_record from
+# the SAME --pairing CLI value final_pairing_targets validates elsewhere.
+_LANE_PAIRING = {"gemma": "gemma-3-12b-it", "qwen": "qwen-3.5-27b"}
+
 
 class LaneConfigError(ValueError):
     """A lane's JSON is malformed, names an unknown lane, or collides with
@@ -105,13 +116,14 @@ def validate_lane_paths_disjoint(lanes: list[LaneSpec]) -> None:
 
 
 def build_lane_command(lane: LaneSpec) -> list[str]:
-    """Appends --out-dir/--state-dir (authoritative from the LaneSpec, not
-    whatever the JSON's own argv might also contain) and --device cuda:0
-    LAST, so they win over any earlier occurrence in argv (argparse takes
-    the last value for a repeated store-action flag)."""
+    """Appends --out-dir/--state-dir/--ready-path (authoritative from the
+    LaneSpec, not whatever the JSON's own argv might also contain) and
+    --device cuda:0 LAST, so they win over any earlier occurrence in argv
+    (argparse takes the last value for a repeated store-action flag)."""
     return [
         sys.executable, str(DISCOVERY_SCRIPT), *lane.argv,
         "--out-dir", str(lane.out_dir), "--state-dir", str(lane.state_dir),
+        "--ready-path", str(ready_path_for_lane(lane)),
         "--device", "cuda:0",
     ]
 
@@ -119,8 +131,16 @@ def build_lane_command(lane: LaneSpec) -> list[str]:
 def env_for_lane(lane: LaneSpec, *, base_env: dict[str, str] | None = None) -> dict[str, str]:
     env = dict(base_env if base_env is not None else os.environ)
     env["CUDA_VISIBLE_DEVICES"] = LANE_GPU_ASSIGNMENT[lane.name]
+    env["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     env["TMPDIR"] = str(lane.tmp_dir)
     return env
+
+
+def ready_path_for_lane(lane: LaneSpec) -> Path:
+    """The exact, named READY-record path for one lane -- under its OWN
+    state_dir (never a shared or globbed location), so two lanes' READY
+    records can never collide or be confused with each other."""
+    return Path(lane.state_dir) / "ready.json"
 
 
 # ---------------------------------------------------------------------------
@@ -234,17 +254,49 @@ class DualGpuOrchestrator:
     def cuda_visible_devices_for(self, name: str) -> str:
         return LANE_GPU_ASSIGNMENT[name]
 
+    def _launch_one(self, name: str) -> None:
+        lane = self.lanes[name]
+        command = build_lane_command(lane)
+        env = env_for_lane(lane)
+        proc = self._launch(command, env=env, cwd=self._repo_root, log_path=lane.log_path)
+        self._processes[name] = proc
+        self._results[name] = LaneResult(
+            name=name, command=command, cuda_visible_devices=env["CUDA_VISIBLE_DEVICES"],
+            out_dir=str(lane.out_dir), state_dir=str(lane.state_dir), log_path=str(lane.log_path),
+            pid=proc.pid, start_time=self._time(), attempted=True,
+        )
+
     def launch_all(self) -> None:
-        for name, lane in self.lanes.items():
-            command = build_lane_command(lane)
-            env = env_for_lane(lane)
-            proc = self._launch(command, env=env, cwd=self._repo_root, log_path=lane.log_path)
-            self._processes[name] = proc
-            self._results[name] = LaneResult(
-                name=name, command=command, cuda_visible_devices=env["CUDA_VISIBLE_DEVICES"],
-                out_dir=str(lane.out_dir), state_dir=str(lane.state_dir), log_path=str(lane.log_path),
-                pid=proc.pid, start_time=self._time(), attempted=True,
-            )
+        for name in self.lanes:
+            self._launch_one(name)
+
+    def launch_staggered(self, *, ready_timeout_seconds: float = 1800.0, wait_for_ready=None) -> None:
+        """Cold-load handshake: launches ONLY `STAGGER_LEAD_LANE` (Qwen,
+        physical GPU 1, visible as cuda:0), waits for its own READY record
+        (written by `final_pairing_concept_discovery.write_ready_record`
+        after `load_backend()` succeeds) via `wait_for_ready` (defaults to
+        the real `final_pairing_concept_discovery.wait_for_ready_record`,
+        imported lazily), and only THEN launches `STAGGER_FOLLOW_LANE`
+        (Gemma, physical GPU 0). A `ReadyHandshakeFailed` (lead exited
+        first, timed out, or wrote a record naming the wrong pairing/
+        device) is raised BEFORE the follower is ever launched -- this
+        is a failure of the ALLOCATION, not a scientific result, and must
+        never be reported as one."""
+        if wait_for_ready is None:
+            import final_pairing_concept_discovery as discovery
+
+            wait_for_ready = discovery.wait_for_ready_record
+
+        self._launch_one(STAGGER_LEAD_LANE)
+        lead_process = self._processes[STAGGER_LEAD_LANE]
+        wait_for_ready(
+            ready_path_for_lane(self.lanes[STAGGER_LEAD_LANE]),
+            expected_pairing=_LANE_PAIRING[STAGGER_LEAD_LANE],
+            expected_device="cuda:0",
+            process_alive_fn=lambda: lead_process.poll() is None,
+            timeout_seconds=ready_timeout_seconds, sleep_fn=self._sleep,
+        )
+        self._launch_one(STAGGER_FOLLOW_LANE)
 
     def _install_signal_handlers(self) -> None:
         def _handler(signum, frame):
@@ -315,6 +367,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--qwen-config", required=True, help="Path to the Qwen lane's JSON.")
     p.add_argument("--job-result-path", required=True, help="Where to write the aggregate job_result.json.")
     p.add_argument("--poll-interval-seconds", type=float, default=5.0)
+    p.add_argument("--ready-timeout-seconds", type=float, default=1800.0, help="How long to wait for the lead lane's (Qwen) READY record before failing closed.")
     return p.parse_args(argv)
 
 
@@ -391,13 +444,14 @@ def run_dual_gpu_job(
     weights -- a preflight failure stops both lanes with `lanes: []`,
     exactly like a prompt-artifact validation failure. Only after the
     preflight reports a clean pass does the (cheaper, narrower) frozen-
-    prompt-artifact check run, then both lanes launch.
+    prompt-artifact check run, then both lanes launch via the staggered
+    cold-load handshake (`DualGpuOrchestrator.launch_staggered` -- Qwen
+    first, Gemma only after Qwen's own READY record).
 
     A hash mismatch, validation failure, or row-count mismatch in the
     frozen prompt artifact stops BOTH lanes -- this check runs once, here,
-    before `launch_all()` is ever called for either lane, rather than
-    being duplicated (and therefore potentially skipped) inside each
-    lane's own process."""
+    before either lane is launched, rather than being duplicated (and
+    therefore potentially skipped) inside each lane's own process."""
     try:
         preflight_report = run_preflight(repo_root)
     except Exception as exc:
@@ -420,7 +474,7 @@ def run_dual_gpu_job(
         load_lane_spec("qwen", args.qwen_config),
     ]
     orchestrator = orchestrator_factory(lanes)
-    orchestrator.launch_all()
+    orchestrator.launch_staggered(ready_timeout_seconds=args.ready_timeout_seconds)
     result = orchestrator.wait_all(poll_interval=args.poll_interval_seconds)
     result["preflight_report"] = preflight_report
     return result
