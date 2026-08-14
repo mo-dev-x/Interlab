@@ -52,7 +52,7 @@ same seed) by construction.
 
 MANIFEST GRANULARITY IS PER GENERATION, NOT PER PHYSICAL FILE (resolved
 against `conformance/concept_bundle/discovery_input_schema.json` schema
-2.0, `D:/devcache/wt/concept-bundle`, status "DECLARED BY ENGINEER 3,
+2.0, `eng3/concept-bundle @ 67ad4ef`, status "DECLARED BY ENGINEER 3,
 AWAITING ENGINEER 1 RATIFICATION" -- ratified here by implementing to
 it): `manifest_file_required` there lists BOTH `dose` (one physical file
 per dose) AND `prompt_id` (one row per generation) as required on every
@@ -126,8 +126,8 @@ valid, since LOW/MEDIUM/HIGH are chosen from the judged sweep under the
 frozen selection rules, not assigned by dose-grid position.
 
 MANIFEST-LEVEL `dose_grid` (schema 5.0, `conformance/concept_bundle/
-discovery_input_schema.json` at commit 3aff107, `D:/devcache/wt/
-concept-bundle`): the real consumer's validator (`concept_bundle_
+discovery_input_schema.json` at commit 3aff107, `eng3/concept-bundle`):
+the real consumer's validator (`concept_bundle_
 publish.dose_grid_problems`) now requires each direction's OWN generation
 manifest to carry its full five-point grid, MANIFEST LEVEL (one array,
 never repeated per file) -- `operation` and `value_in_max_units` are
@@ -560,7 +560,7 @@ INVENTORY_STAGE_PRE_SELECTION = "PRE_SELECTION"
 
 #: The ratified `generation_manifests.manifest_required` list from
 #: `conformance/concept_bundle/discovery_input_schema.json` schema 5.0
-#: (`D:/devcache/wt/concept-bundle`, status "DECLARED BY ENGINEER 3,
+#: (`eng3/concept-bundle @ 3aff107`, status "DECLARED BY ENGINEER 3,
 #: AWAITING ENGINEER 1 RATIFICATION" -- ratified here by implementing to
 #: it) -- every top-level manifest field, exhaustively (that schema
 #: declares every object closed: "unknown fields are refused"). Mirrored
@@ -576,7 +576,7 @@ INVENTORY_STAGE_PRE_SELECTION = "PRE_SELECTION"
 #: (commit 2dc9e338), replacing the per-file `selection_status` this list
 #: used to require indirectly via `MANIFEST_FILE_REQUIRED_FIELDS`.
 #: `dose_grid`/`causal_dose_grid_path`/`_version`/`_sha256` are schema
-#: 5.0's own addition (commit 3aff107, D:/devcache/wt/concept-bundle) --
+#: 5.0's own addition (commit 3aff107, eng3/concept-bundle) --
 #: the manifest-level five-point dose grid and its binding to the frozen
 #: `causal_dose_grid.json` artifact, checked point-by-point against it.
 MANIFEST_REQUIRED_FIELDS: tuple[str, ...] = (

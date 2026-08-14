@@ -12,9 +12,10 @@ never deleted.
 `test_real_runner_document_passes_live_gating_report_if_a_worktree_is_available`
 below DOES run the real, live `run_gating_report_with_eng3` subprocess --
 but only if a checked-out `eng3/concept-bundle` worktree is present on
-this machine at `D:/devcache/wt/concept-bundle` (skipped, not failed,
-otherwise, since that path is this specific development machine's, not
-portable). Neither ff2a565 nor 3aff107 is an ancestor of this branch,
+this machine, at the path named by `ENG3_WORKTREE` below (skipped, not
+failed, otherwise, since that path is this specific development
+machine's, not portable). Neither ff2a565 nor 3aff107 is an ancestor of
+this branch,
 confirmed via `git merge-base --is-ancestor` in both directions for both
 commits. Getting this to pass at 2003406 required fixing `producer_
 schema_declaration()`'s `causal_validation.selection_records`/

@@ -12,9 +12,9 @@ Neither ff2a565, 3aff107, nor 047fe17 is an ancestor of this branch
 (`final-pairing-harness`) -- confirmed via `git merge-base --is-
 ancestor` in both directions, both fail, for both commits. Every fact
 this file relies on about the current 047fe17 consumer was read directly out of
-`D:/devcache/wt/concept-bundle` (a real, separate worktree of
-`eng3/concept-bundle` checked out AT that commit), never assumed from an
-older commit's shape or copied from a stale excerpt fixture.
+`eng3/concept-bundle @ 047fe17` (a real, separate checkout at that
+commit), never assumed from an older commit's shape or copied from a
+stale excerpt fixture.
 
 LINEAGE: 2c8cf5b (schema v1.1) -> d833ba4/ac9ea40 (schema v1.3: added the
 root-level `configuration` block, `pairing.release`/`loader_sae_id`/
@@ -105,9 +105,9 @@ makes a mixed CLAMP+ABLATE triple unrepresentable regardless.
 
 SUPPRESS_NULL_DISPOSITION.JSON (protocols/final_pairing/v1/suppress_
 null_disposition.json, v1.0.0, commit cb0aca8, extends mixed_operation_
-publication v1.1.0): IMPLEMENTED (schema 5.0, commit 3aff107,
-D:/devcache/wt/concept-bundle -- the schema commit this ruling was
-pending on has now landed). When Suppress publishes `null` (fewer than
+publication v1.1.0): IMPLEMENTED (schema 5.0, commit 3aff107 on
+eng3/concept-bundle -- the schema commit this ruling was pending on has
+now landed). When Suppress publishes `null` (fewer than
 three of S1..S4 clear G-E, whether or not S5/ABLATE did), the document
 must carry a root-level `suppress_disposition` object (`{reason,
 ablation_cleared_ge}`, required iff `calibration.directions.suppress` is
@@ -121,8 +121,8 @@ entry naming `"G-E"` when suppress is null (`_validate_no_ge_gate_when_
 suppress_null`) -- with suppress null nothing about suppression is
 published, so a G-E gate has nothing to attach to.
 
-SCHEMA 3.0 -> 5.0 (commit ff2a565 -> commit 3aff107, D:/devcache/wt/
-concept-bundle): ff2a565 is still NOT an ancestor of this branch; 3aff107
+SCHEMA 3.0 -> 5.0 (commit ff2a565 -> commit 3aff107,
+eng3/concept-bundle): ff2a565 is still NOT an ancestor of this branch; 3aff107
 likewise is not (git merge-base --is-ancestor fails in both directions
 for both commits) -- every fact this file relies on about 3aff107 was
 read directly out of that worktree, checked out AT that commit, never
@@ -192,7 +192,7 @@ DISCOVERY_SCHEMA_VERSION = "5.0"  # verified equal to concept_bundle_publish.DIS
 #: document_generation_binding.json` v1.1.0 (commit 40061b6) and confirmed
 #: verbatim against `conformance/concept_bundle/discovery_input_schema.json`
 #: schema 3.0's own `objects["<root>"]["required"]` at Engineer 3's real
-#: commit ff2a565 (`D:/devcache/wt/concept-bundle`) -- UNCHANGED from
+#: commit ff2a565 (`eng3/concept-bundle`) -- UNCHANGED from
 #: schema 2.0's root list (2.0 -> 3.0 changed fields WITHIN
 #: `generation_manifests`/`causal_validation.selection_records`, not the
 #: root): `generation_manifests` is the field that bumped 1.3 -> 2.0 ("a
@@ -414,7 +414,7 @@ def build_direction_block(
 #: protocols/final_pairing/v1/suppress_null_disposition.json, v1.0.0,
 #: commit cb0aca8 -- consumed here for real at schema 5.0 (conformance/
 #: concept_bundle/discovery_input_schema.json, commit 3aff107,
-#: D:/devcache/wt/concept-bundle): a root-level `suppress_disposition`
+#: eng3/concept-bundle): a root-level `suppress_disposition`
 #: object, REQUIRED iff `calibration.directions.suppress` is null and
 #: PROHIBITED iff it is not -- mirrored here (never imported) from
 #: `concept_bundle_publish.SUPPRESS_DISPOSITION_FIELD`/`_FIELDS`/
@@ -856,7 +856,7 @@ def producer_schema_declaration() -> dict[str, Any]:
             "(commit 2dc9e338c12db1c1f3939a9f709f8af816ad8272); dose_grid/causal_dose_grid_* per causal_dose_"
             "grid.json v1.0.0 (commit c43a976); suppress_disposition per suppress_null_disposition.json v1.0.0 "
             "(commit cb0aca8). Reconciled via a real reconcile-schema/gating-report subprocess run against "
-            "D:/devcache/wt/concept-bundle at 047fe17 -- see this module's docstring and the closing report."
+            "eng3/concept-bundle @ 047fe17 -- see this module's docstring and the closing report."
         ),
         "objects": {
             "<root>": {"required": list(ROOT_REQUIRED_FIELDS), "conditional": [SUPPRESS_DISPOSITION_FIELD]},
