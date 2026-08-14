@@ -1,0 +1,112 @@
+{
+  "$comment": "GATING. Permanent ratification of the supersession-label exemption for frozen, digest-pinned historical records. Also serves as the exemption registry. Changes no identity, threshold, grid or prompt artifact.",
+  "protocol_version": "final-pairing-supersession-label-exemption/1.0.0",
+  "gating": true,
+  "supersedes": null,
+  "ratifies": {
+    "source": "coordinator-two-findings-ruling-ad4a5be.json",
+    "sha256": "sha256:a00b75b0b05f57d27821b5a8e8cbdaa42a345bc647b6d927b238f58e64f91c8b",
+    "scope_of_that_ruling": "one allocation only",
+    "this_artifact": "PERMANENT ratification, with two amendments"
+  },
+
+  "the_problem": {
+    "gate_as_built": "Every reference to a superseded identity commit must carry an inline supersedes / lineage / RETRACTED label.",
+    "what_it_cannot_distinguish": "A STALE LIVE document that still points at an old version, from a CORRECTLY FROZEN DATED record that pointed at the then-current version and has not been touched since.",
+    "the_circularity": "oi3_release_weight_resolution.json references identity v1.2.0 because v1.2.0 was current when it was written. Identity v1.3.0 pins that record by commit AND sha256 in supplemental_records. Adding an inline label would change the record's bytes, which would falsify a pin inside the authoritative identity artifact. The gate demands an edit that breaks the authority.",
+    "why_it_recurs": "Every frozen digest-pinned historical record trips this gate again each time the identity version advances. Left unratified it is a permanent false positive that trains people to wave the gate through."
+  },
+
+  "RATIFIED_TEST": {
+    "statement": "A reference to a superseded identity version is EXEMPT from the inline-label requirement iff ALL of the following hold.",
+    "conditions": [
+      {
+        "id": "C1",
+        "condition": "The referencing record is pinned by BOTH commit and sha256 in the superseding identity artifact's supplemental_records.",
+        "does": "Establishes that the CURRENT AUTHORITY has adopted this historical record. Without it, any old document referencing an old version would be exempt merely for being old."
+      },
+      {
+        "id": "C2",
+        "condition": "The referencing record's last-touching commit is a STRICT ANCESTOR of the superseding identity artifact's last-touching commit.",
+        "does": "Establishes the record is genuinely DATED -- it existed before the supersession and has not been edited since. Without it, a document edited today could still reference the old version and inherit exemption from a pin that was updated to match."
+      },
+      {
+        "id": "C3",
+        "condition": "AMENDMENT 1 -- the pin must VERIFY, not merely be present. The sha256 recorded in supplemental_records must equal the digest recomputed from the record's bytes at the pinned commit.",
+        "does": "Prevents a self-certifying exemption. A gate that checks only that the fields EXIST would accept a pin naming any digest at all. This is the same defect class as an ATTESTED provenance block whose evidence refs are never resolved: shape is not attestation."
+      },
+      {
+        "id": "C4",
+        "condition": "AMENDMENT 2 -- the record has an entry in exemption_registry below, naming which superseded version it references and why it is exempt.",
+        "does": "Relocates the DISCLOSURE rather than deleting it. See amendment_2_rationale."
+      }
+    ],
+    "conjunction": "ALL FOUR REQUIRED. C1 and C2 do independent work and neither implies the other."
+  },
+
+  "amendment_1_rationale": {
+    "coordinator_wording": "'pinned by commit AND sha in the current identity's supplemental_records'",
+    "gap": "Ambiguous between 'the fields are present' and 'the pin resolves'. An implementation reading it the first way makes the exemption self-certifying: a stale record could carry a pin naming a digest nobody ever checks.",
+    "fix": "The pin must resolve and match. Recompute; do not read the declared value."
+  },
+
+  "amendment_2_rationale": {
+    "the_cost_the_exemption_would_otherwise_impose": "The gate exists so a reader is never misled about which version a document depends on. Exempting the inline label removes that signal: someone opening the OI-3 record sees a reference to v1.2.0 with nothing indicating it is superseded.",
+    "the_resolution": "THE LABEL MOVES TO A SURFACE THAT CAN LEGALLY BE EDITED. The frozen record cannot be touched without breaking its pin; the registry in this artifact can be. Disclosure is preserved, relocated rather than dropped.",
+    "why_not_put_it_in_the_identity_artifact": "The natural home would be the supplemental_records entry itself. But editing scientific_config_identity.json changes its digest, which is embedded in the binding protocol, generation_settings, qwen_config_identity, the dose grid and the mixed-operation ruling -- a five-artifact cascade for a documentation line, days from the deadline. The registry achieves the same disclosure at zero cascade.",
+    "discoverability": "One greppable location answers 'why does this frozen record reference a superseded version'."
+  },
+
+  "clarifications": {
+    "no_transitivity": {
+      "rule": "Exemption is PER RECORD and is not inherited. A document that references an exempt record does NOT thereby become exempt; it must satisfy C1-C4 on its own.",
+      "why": "Otherwise an exemption chain forms and the gate's coverage decays from the leaves inward."
+    },
+    "self_maintaining": {
+      "rule": "The test reads the CURRENT identity artifact. If a future identity version drops a record from supplemental_records, C1 fails and the gate correctly fires again.",
+      "assessment": "This is desirable, not a defect. If the current authority no longer vouches for a record, that record IS stale and should be flagged."
+    },
+    "scope": {
+      "applies_to": "References to superseded versions of the identity artifact chain.",
+      "does_not_apply_to": "References to superseded versions of any other artifact, and any reference in a live, editable document.",
+      "extension": "If another chain develops the same pin-and-freeze pattern, it may request the same treatment by ruling. It is not inherited by analogy."
+    },
+    "gate_error_message": "When the gate fires on a record that LOOKS exempt but fails one condition, the message must name WHICH condition failed. 'Missing supersession label' would send someone to edit a frozen file, which is the wrong action in three of the four failure modes."
+  },
+
+  "exemption_registry": {
+    "$comment": "The disclosure surface. One entry per exempt record. Verified at ratification, not asserted.",
+    "entries": [
+      {
+        "record": "protocols/final_pairing/v1/oi3_release_weight_resolution.json",
+        "references_superseded_version": "final-pairing-config-identity/1.2.0",
+        "superseded_commit": "93450e5dbeaa30fcff8f212dc83f893b09208cb2",
+        "current_identity_version": "final-pairing-config-identity/1.3.0",
+        "why_the_reference_is_correct": "The record was written when v1.2.0 was current and correctly cites it. Its finding -- OI-3 verdict DIFFERENT -- is unaffected by the v1.2.0 to v1.3.0 change, which only supplied the PRIMARY params hash and closed the open items. No configuration, eligibility rule or threshold moved.",
+        "C1_pinned_commit": "80c073ee393610e0d8353ff21c7f561d370f7b19",
+        "C1_pinned_sha256": "sha256:ff83219800beb93d3ddb398f9225d8ae7e49db00366ebc588b83cf47e1451627",
+        "C3_pin_verified": true,
+        "C3_verification_note": "Recomputed digest of the record's bytes equals the pinned sha256.",
+        "C2_last_touching_commit": "80c073ee393610e0d8353ff21c7f561d370f7b19",
+        "C2_identity_last_touching_commit": "5a5175d36eac9802b45f76aeb5b52ff6b25220a8",
+        "C2_strict_ancestor": true,
+        "status": "EXEMPT"
+      }
+    ]
+  },
+
+  "unchanged": [
+    "The supersession gate itself, for every record that does not satisfy C1-C4.",
+    "scientific_config_identity.json v1.3.0 and every artifact whose digest references it.",
+    "oi3_release_weight_resolution.json -- NOT EDITED, which is the point.",
+    "Every threshold, grid, identity and prompt artifact."
+  ],
+
+  "hard_stops": [
+    "Granting exemption on fewer than all four conditions.",
+    "Accepting a pin whose sha256 is present but not recomputed and matched.",
+    "Editing a frozen record to satisfy the gate when it qualifies for exemption -- that falsifies the pin in the authoritative artifact.",
+    "Inheriting exemption transitively through a reference to an exempt record.",
+    "A gate error that says 'missing supersession label' without naming which condition failed."
+  ]
+}
