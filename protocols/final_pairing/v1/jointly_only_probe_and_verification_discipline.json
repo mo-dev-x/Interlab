@@ -1,0 +1,103 @@
+{
+  "$comment": "GATING FOR POST-RUN SCIENCE CLAIMS AND FOR DIGEST VERIFICATION. Answers the coordinator's bounded-probe question. AUTHORIZES NOTHING -- not a probe, not a lane, not an allocation, not a spend. Blocks nothing in the certified run or the submission.",
+  "protocol_version": "final-pairing-jointly-only-probe-and-verification-discipline/1.0.0",
+  "gating": {
+    "gpu_generation": false,
+    "submission": false,
+    "judging": false,
+    "post_run_science_claim": true,
+    "digest_verification": true
+  },
+  "supersedes": null,
+  "extends": {
+    "protocol": "protocols/final_pairing/v1/joint_intervention_lane.json",
+    "protocol_version": "final-pairing-joint-intervention-lane/1.0.0"
+  },
+
+  "RULING_1_would_a_null_shift_the_prior": {
+    "question_asked": "Would a null result shift your prior enough to be worth the cost? If not, the caveat is permanent by construction and the write-up should say so plainly.",
+    "verdict": "NO. A NULL FROM THIS PROBE WOULD NOT MOVE MY PRIOR MEASURABLY. THE CAVEAT IS PERMANENT BY CONSTRUCTION AND THE WRITE-UP MUST SAY SO PLAINLY.",
+    "the_power_arithmetic": {
+      "features_examined": "N=15 of 16384 = 0.09 percent of the dictionary",
+      "pairs_examined": "C(15,2) = 105 of C(16384,2) = 134,209,536 possible pairs = 0.00008 percent",
+      "concepts_examined": "1 of 14 = 7 percent",
+      "consequence": "P(null | jointly-only features exist but are rare) is approximately equal to P(null | they do not exist). The likelihood ratio is approximately 1. An observation with a likelihood ratio of 1 produces no belief update, whatever the prior."
+    },
+    "the_structural_argument_that_settles_it": "The coordinator already concedes a null does not license dropping the caveat. So the caveat SURVIVES IN BOTH BRANCHES. A probe whose two outcomes leave the same conclusion standing cannot be decision-support for that conclusion.",
+    "therefore": "The survivor-pool recall caveat is PERMANENT. It is not provisional, not pending evidence, and not 'to be revisited'. Any write-up that leaves it open invites a later reader to assume it was resolved.",
+    "and_the_prior_itself": "My prior that jointly-only features exist is already moderate on theoretical grounds -- superposition and composition are expected properties of an over-complete dictionary, not exotic ones. A near-zero-power null against a moderate prior is not a measurement, it is a formality."
+  },
+
+  "RULING_2_the_probe_is_not_worthless_it_informs_a_DIFFERENT_decision": {
+    "what_it_cannot_do": "Establish that the recall caveat is unnecessary. Ruled above; permanently.",
+    "what_it_CAN_do": "DISQUALIFY GREEDY PROPOSAL. A single pair reaching the G-D threshold while neither member does alone is decisive against greedy as a search strategy, because greedy provably cannot reach that pair.",
+    "the_real_decision_variable": "Not 'is the caveat needed' (permanent either way) but 'is greedy proposal admissible as the lane's search'. That is the question the probe actually answers, and only in the positive direction."
+  },
+
+  "RULING_3_THE_REFRAME_the_probe_IS_the_lane": {
+    "observation": "The probe as described -- unbiased pool, exhaustive pairs, joint intervention against the same paired same-seed control at the G-D threshold -- IS A SMALL INSTANCE OF THE UNBIASED LANE. It is not a cheap experiment about the lane; it is the lane, run on one concept.",
+    "consequence": "Framing it as decision-support is what makes its weak null feel like a waste. Framed as the lane's first concept, the null costs nothing extra, because that work was going to be done anyway.",
+    "VERDICT": "THE PROBE IS WORTH RUNNING IF AND ONLY IF THE A-9 LANE RUNS AT ALL, AND THEN ONLY AS ITS FIRST CONCEPT, IN UNBIASED-POOL MODE. It is NOT worth running as a standalone prior-shifting experiment, because its null has no power and its positive is recoverable from the lane's own first concept at no additional cost.",
+    "why_the_first_concept_specifically": "It is the only configuration that can detect the lane's own blind spot. Run one concept unbiased; if it surfaces a jointly-only pair, the cheap pooled mode is disqualified BEFORE it is used on the remaining thirteen. If it does not, the remaining concepts may use the cheaper pooled mode with the caveat intact and now explicitly load-bearing.",
+    "what_this_costs": "Nothing beyond the lane. One concept's search is exhaustive-at-k=2 instead of greedy. The asymmetry is paid once, not fourteen times.",
+    "STILL_AUTHORIZES_NOTHING": "This is a conditional specification. The condition -- that the A-9 lane runs -- has not been met, and authorizing it is not mine."
+  },
+
+  "RULING_4_the_null_interpretation_is_PRE_REGISTERED_HERE_AND_NOW": {
+    "why_now": "The coordinator stated the asymmetry BEFORE proposing the probe, which is exactly right. Freezing it now is what makes it binding. Stated after the result, the same sentence is a caveat nobody can distinguish from a rationalisation.",
+    "FROZEN_INTERPRETATION": {
+      "a_positive_result": "DECISIVE. Jointly-only features are real; the recall caveat is load-bearing and permanent; greedy proposal is DISQUALIFIED as a search strategy, not merely bounded.",
+      "a_null_result": "NOT EVIDENCE OF ABSENCE. It may NOT be cited to drop the caveat, to license greedy proposal, or to characterise jointly-only features as rare. It establishes only that none was found in 105 pairs on one concept."
+    },
+    "PROHIBITED_PHRASINGS": [
+      "we checked for jointly-only features and found none",
+      "no evidence of jointly-only features",
+      "the concern was investigated and not supported",
+      "any sentence in which a null from this probe appears without its 0.00008 percent coverage stated in the same sentence"
+    ],
+    "why_these_specifically": "Each reads as coverage. That is this sprint's single recurring defect -- a clean negative indistinguishable from a real absence -- and a probe designed to investigate a blind spot is the worst possible place to reproduce it."
+  },
+
+  "RULING_5_digest_verification_must_be_byte_exact_from_the_blob": {
+    "the_disclosed_defect": "The coordinator's first digest computation disagreed with both reported values and was one step from being reported as a mismatch. Cause: git show piped through PowerShell Out-File -Encoding utf8, which in Windows PowerShell 5.1 writes a BOM and can rewrite line endings. The instrument corrupted the artifact in the act of measuring it.",
+    "conduct_assessment": "Caught before reporting, diagnosed to the mechanism, recorded as their own. That is the correct handling and it is why the error cost nothing.",
+    "REQUIRED_METHOD": "git show <ref>:<path> | sha256sum -- blob to hash, no intermediate file.",
+    "PROHIBITED_METHODS": [
+      "any PowerShell redirect or Out-File between the blob and the hash",
+      "hashing a working-tree file to verify a committed blob without first confirming the two are identical",
+      "any method that writes an intermediate file with a text-mode writer"
+    ],
+    "why_this_is_gating": "In this project the digest IS the artifact's identity. A verification method that can alter bytes cannot verify bytes. This is not style; a false mismatch triggers an integrity investigation and a false match defeats one."
+  },
+
+  "RULING_6_the_CRLF_census_conclusion_is_right_and_the_observation_is_WRONG": {
+    "what_was_reported": "All sixteen protocol artifacts at the Architect's HEAD are CRLF, matching the .gitattributes convention. Reported as NO FINDING.",
+    "what_I_MEASURED": {
+      "method": "git show HEAD:<path> piped to a CR count, plus the same on the working-tree file, plus a blob-vs-worktree digest comparison across all sixteen",
+      "result": "ALL SIXTEEN ARE LF. blob CR count = 0. Working-tree CR count = 0. Files differing between blob and working tree = 0.",
+      "so": "The artifacts are not CRLF. They are uniformly LF and the working tree matches the committed blobs exactly."
+    },
+    "the_conclusion_still_stands": "NO FINDING remains correct, and for a stronger reason than the one given: .gitattributes sets * -text, which freezes whatever bytes were committed. Uniform LF, byte-identical between blob and worktree, is full compliance. Nothing needs doing and nobody should re-raise it.",
+    "THE_PART_THAT_MATTERS_MORE_THAN_THE_CORRECTION": {
+      "finding": "THE DISCLOSED INSTRUMENT DEFECT HAD A SECOND VICTIM IN THE SAME MESSAGE, AND IT WENT UNCAUGHT.",
+      "mechanism": "The same PowerShell text-mode path that injected a BOM into the digest computation is the most plausible source of the CRs observed in the census. It was caught in the digest check and missed in the census.",
+      "WHY_IT_WAS_MISSED": "The digest check produced a MISMATCH -- a finding -- so it was re-examined. The census produced NO FINDING, and nobody re-examines a clean negative. A corrupted instrument that reports a problem gets audited; a corrupted instrument that reports all-clear is invisible.",
+      "the_self_reference": "This is the sprint's recurring defect occurring inside the very check run to illustrate the sprint's recurring defect. It is the strongest available argument for RULING_5 being gating rather than advisory, and for RULING_4 pre-registering the null interpretation before any probe runs."
+    }
+  },
+
+  "lineage_independently_verified": {
+    "claim": "9b225d3 is parented on 7a365ea, sits on final-pairing-harness, and is not an ancestor of certified candidate 8ed2809; protocol members are 12 at the candidate and 16 on the Architect's branch.",
+    "verified": "ALL CONFIRMED. merge-base --is-ancestor 9b225d3 8ed2809 returns false; member counts are 12 and 16 exactly. The archive digest and Engineer 3's certification are unaffected by any Architect commit.",
+    "byte_exact_digests_reconfirmed": "981f3266... and 68a184c1... recomputed from the blobs by the required method and matching."
+  },
+
+  "hard_stops": [
+    "Citing a null from this probe as evidence that jointly-only features are absent or rare.",
+    "Dropping or softening the survivor-pool recall caveat on any evidence this probe could produce -- it is permanent.",
+    "Running the probe as a standalone prior-shifting experiment rather than as the A-9 lane's first concept.",
+    "Verifying any digest through a method that writes an intermediate file with a text-mode writer.",
+    "Re-raising the protocol-artifact line-ending question; it is measured, compliant, and closed.",
+    "Treating this ruling as authorization for a probe, a lane, an allocation, a mode change, or any spend."
+  ]
+}
