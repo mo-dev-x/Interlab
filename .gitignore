@@ -68,6 +68,17 @@ project_management/*
 # Scratch probe output (repo-root scratch dirs from manual test runs)
 tmp_r6c4_probe/
 
+# Scratch from audit and preflight runs (docs/repo_cleanup_plan.md Phase 1)
+.audit_extract_*/
+.tmp_codex_preflight*/
+.tmp_uv_cache/
+
+# Repo-relative fallback for cache/output paths that must never default to
+# a machine-specific absolute path (docs/repo_cleanup_plan.md Phase 3 P0,
+# scripts/final_pairing/final_pairing_judge_cli.py's default_cache_path/
+# default_output_root)
+.local/
+
 # OS
 .DS_Store
 *.swp

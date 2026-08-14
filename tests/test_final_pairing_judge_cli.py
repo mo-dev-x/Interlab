@@ -470,6 +470,47 @@ def test_cli_has_all_four_subcommands():
     }
 
 
+# ---------------------------------------------------------------------------
+# docs/repo_cleanup_plan.md Phase 3 P0: --cache-path/--output-dir must
+# never default to a machine-specific absolute path.
+# ---------------------------------------------------------------------------
+
+
+def test_cache_path_and_output_dir_defaults_are_repo_relative_not_machine_specific(monkeypatch):
+    monkeypatch.delenv("INTERPLAB_CACHE_DIR", raising=False)
+    monkeypatch.delenv("INTERPLAB_OUTPUT_ROOT", raising=False)
+    repo_root = str(Path(jc.__file__).resolve().parents[2])
+
+    assert jc.default_cache_path().startswith(repo_root)
+    assert jc.default_output_root().startswith(repo_root)
+    assert "D:/devcache" not in jc.default_cache_path().replace("\\", "/")
+    assert "D:/devcache" not in jc.default_output_root().replace("\\", "/")
+
+    parser = jc.build_arg_parser()
+    args = parser.parse_args([
+        "estimate-sweep", "--manifest", "m.json", "--concept-id", "cheese", "--pairing-id", "gemma-3-12b-it",
+        "--direction", "amplify", "--judge-model", "claude-sonnet-4-5-20250929", "--model-name", "x", "--out", "o.json",
+    ])
+    assert args.cache_path.replace("\\", "/").startswith(repo_root.replace("\\", "/"))
+    assert args.output_dir.replace("\\", "/").startswith(repo_root.replace("\\", "/"))
+
+
+def test_cache_path_and_output_dir_honor_environment_overrides(monkeypatch, tmp_path):
+    monkeypatch.setenv("INTERPLAB_CACHE_DIR", str(tmp_path / "cache-override"))
+    monkeypatch.setenv("INTERPLAB_OUTPUT_ROOT", str(tmp_path / "output-override"))
+
+    assert jc.default_cache_path() == str(tmp_path / "cache-override" / "final_pairing" / "cache.sqlite")
+    assert jc.default_output_root() == str(tmp_path / "output-override" / "final_pairing")
+
+    parser = jc.build_arg_parser()
+    args = parser.parse_args([
+        "estimate-sweep", "--manifest", "m.json", "--concept-id", "cheese", "--pairing-id", "gemma-3-12b-it",
+        "--direction", "amplify", "--judge-model", "claude-sonnet-4-5-20250929", "--model-name", "x", "--out", "o.json",
+    ])
+    assert args.cache_path == str(tmp_path / "cache-override" / "final_pairing" / "cache.sqlite")
+    assert args.output_dir == str(tmp_path / "output-override" / "final_pairing")
+
+
 def test_cli_judge_sweep_requires_budget_usd():
     parser = jc.build_arg_parser()
     with pytest.raises(SystemExit):

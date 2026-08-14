@@ -21,8 +21,12 @@ env var, else `D:/lodstar`) is inserted onto `sys.path` so the real,
 separately-installed Lodestar package is importable WITHOUT installing it
 into this repo's own (C:-hosted) `.venv` -- `ensure_lodestar_importable`
 below is the only place this happens, and it is idempotent. `--cache-path`
-and `--output-dir` both default to D:-based paths; nothing here writes to
-C: beyond this repository's own source tree.
+and `--output-dir` default to `INTERPLAB_CACHE_DIR`/`INTERPLAB_OUTPUT_ROOT`
+(`default_cache_path`/`default_output_root` below) if set, else this
+repo's own gitignored `./.local/` directory -- never a machine-specific
+absolute path, so a fresh clone on any machine gets a working default
+rather than a broken one (docs/repo_cleanup_plan.md Phase 3 P0). Nothing
+here writes to C: beyond this repository's own source tree.
 
 CREDENTIAL DISCIPLINE: the Anthropic API key is read ONLY from
 `ANTHROPIC_API_KEY` (`require_api_key`), is NEVER included in any
@@ -62,8 +66,33 @@ import final_pairing_causal_judge as causal_judge  # noqa: E402
 import final_pairing_one_allocation_generation as one_alloc  # noqa: E402
 
 DEFAULT_LODESTAR_SOURCE_ROOT = "D:/lodstar"
-DEFAULT_CACHE_PATH = "D:/devcache/lodestar_cache/final_pairing/cache.sqlite"
-DEFAULT_OUTPUT_ROOT = "D:/devcache/lodestar_runs/final_pairing"
+
+#: Repo-relative, gitignored fallback root for anything this CLI writes
+#: when neither INTERPLAB_CACHE_DIR nor INTERPLAB_OUTPUT_ROOT is set --
+#: see default_cache_path/default_output_root below. Never a
+#: machine-specific absolute path (docs/repo_cleanup_plan.md Phase 3 P0):
+#: a fresh clone on any machine gets a working default, not a broken one.
+_LOCAL_STATE_ROOT = _SCRIPT_DIR.parents[1] / ".local"
+
+
+def default_cache_path() -> str:
+    """`INTERPLAB_CACHE_DIR` (a directory) if set, else this repo's own
+    gitignored `./.local/cache/`. Resolved fresh on every call -- never
+    frozen into a module-level constant at import time -- so an override
+    set at run time (including by a test, via monkeypatch.setenv before
+    calling build_arg_parser()) is honored. This is what `--cache-path`
+    defaults to when the flag is omitted."""
+    base = os.environ.get("INTERPLAB_CACHE_DIR")
+    root = Path(base) if base else (_LOCAL_STATE_ROOT / "cache")
+    return str(root / "final_pairing" / "cache.sqlite")
+
+
+def default_output_root() -> str:
+    """Same resolution as `default_cache_path`, for
+    `INTERPLAB_OUTPUT_ROOT` / `--output-dir`."""
+    base = os.environ.get("INTERPLAB_OUTPUT_ROOT")
+    root = Path(base) if base else (_LOCAL_STATE_ROOT / "runs")
+    return str(root / "final_pairing")
 
 #: Mirrors lodestar.judges.mock.MockJudge.model_name -- never imported from
 #: there directly (this module must be importable without lodestar present).
@@ -718,8 +747,8 @@ def build_arg_parser():
         p.add_argument("--direction", required=True, choices=["amplify", "suppress"])
         p.add_argument("--judge-model", required=True, help="pinned Anthropic snapshot, e.g. claude-sonnet-4-5-20250929")
         p.add_argument("--model-name", required=True, help="the STEERED model that produced the generations")
-        p.add_argument("--cache-path", default=DEFAULT_CACHE_PATH)
-        p.add_argument("--output-dir", default=DEFAULT_OUTPUT_ROOT)
+        p.add_argument("--cache-path", default=default_cache_path())
+        p.add_argument("--output-dir", default=default_output_root())
 
     est = sub.add_parser("estimate-sweep", help="real, zero-cost pre-call estimate for the sweep, no API calls")
     common(est)
