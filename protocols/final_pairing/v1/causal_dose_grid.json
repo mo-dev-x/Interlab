@@ -1,0 +1,133 @@
+{
+  "$comment": "GATING. Freezes the five-point causal dose grid for both directions. Changes no existing protocol, identity, threshold or prompt artifact.",
+  "protocol_version": "final-pairing-causal-dose-grid/1.0.0",
+  "gating": true,
+  "supersedes": null,
+  "frozen_before": "any activation is computed",
+
+  "AMPLIFY": {
+    "operation": "CLAMP",
+    "count": 5,
+    "unit_field": "value_in_max_units",
+    "ordering": "ASCENDING by value_in_max_units. Grid index 1 is the smallest dose.",
+    "grid": [
+      {"index": 1, "dose_id": "A1", "value_in_max_units": 0.25},
+      {"index": 2, "dose_id": "A2", "value_in_max_units": 0.5},
+      {"index": 3, "dose_id": "A3", "value_in_max_units": 1.0},
+      {"index": 4, "dose_id": "A4", "value_in_max_units": 2.0},
+      {"index": 5, "dose_id": "A5", "value_in_max_units": 4.0}
+    ],
+    "values": [0.25, 0.5, 1.0, 2.0, 4.0],
+    "semantics": "Each dose CLAMPS the target feature to value_in_max_units x the pairing's own maximum-activation denominator. All five values are distinct and the grid is geometric, doubling at each step.",
+    "geometric_by_design": "The MEDIUM selection rule takes the dose nearest the GEOMETRIC midpoint of LOW and HIGH. A geometric grid makes that midpoint land on or beside a grid point rather than between two arbitrary ones."
+  },
+
+  "SUPPRESS": {
+    "count": 5,
+    "ordering": "STRICTLY DESCENDING by value_in_max_units for the four CLAMP points, then the categorical ABLATE point last. Grid index 1 is the weakest intervention.",
+    "grid": [
+      {"index": 1, "dose_id": "S1", "operation": "CLAMP", "value_in_max_units": 1.0},
+      {"index": 2, "dose_id": "S2", "operation": "CLAMP", "value_in_max_units": 0.5},
+      {"index": 3, "dose_id": "S3", "operation": "CLAMP", "value_in_max_units": 0.25},
+      {"index": 4, "dose_id": "S4", "operation": "CLAMP", "value_in_max_units": 0.1},
+      {"index": 5, "dose_id": "S5", "operation": "ABLATE", "value_in_max_units": null, "unit": null, "unit_source": null, "weight": 1.0}
+    ],
+    "clamp_values": [1.0, 0.5, 0.25, 0.1],
+    "terminal_point": "ABLATE",
+    "clamp_semantics": "Each CLAMP dose sets the target feature to value_in_max_units x the pairing's own maximum-activation denominator. Descending values are progressively stronger suppression.",
+    "ablate_semantics": {
+      "operation": "ABLATE",
+      "weight": 1.0,
+      "value_in_max_units": "PROHIBITED. ABLATE carries no numeric dose value.",
+      "unit": "PROHIBITED",
+      "unit_source": "PROHIBITED",
+      "authority": "The BundleEntry contract already rules that ABLATE carries no value, no unit and no unit_source, and that all weights under ABLATE are exactly 1.0. This grid instantiates that rule; it does not restate or amend it.",
+      "why_terminal": "Nothing is stronger than clamping to zero, so ABLATE is the end of the ladder by construction rather than by choice."
+    },
+    "top_of_ladder_is_a_near_null_anchor": {
+      "observation": "S1 clamps to 1.0 x the maximum-activation denominator. On prompts where the feature naturally fires BELOW that level, S1 raises the activation rather than lowering it.",
+      "consequence": "S1 is a near-null anchor at the top of the range, not a guaranteed weak suppression. That is acceptable -- the grid must SPAN the range, and G-E simply will not select a dose that fails the relevance-drop threshold.",
+      "prohibited_reading": "Do NOT report 'even at 1.0 suppression was weak'. S1 is not a strong intervention and was never intended as one."
+    }
+  },
+
+  "HIGH_is_not_defined_as_ABLATE": {
+    "clarification": "Earlier text describes the Suppress grid as 'descending CLAMP fractions plus ABLATE', and one line reads 'Suppress HIGH = ABLATE'. That is a DESCRIPTION of the grid's terminal point, not a mandate.",
+    "ruling": "LOW, MEDIUM and HIGH are selected from the judged sweep under the frozen selection rules. ABLATE is ELIGIBLE to be selected as HIGH and will often be, since it is the strongest available suppression -- but it is not HIGH by fiat.",
+    "consequence": "If ABLATE fails the coherence floor, HIGH is whichever weaker dose passes. A Suppress selection whose HIGH is S4 rather than S5 is valid and must not be rejected as malformed."
+  },
+
+  "dose_identifiers": {
+    "rule": "The manifest's dose field and every dose reference in a selection record use the canonical STRING dose_id. The numeric value_in_max_units travels alongside as data, never as the key.",
+    "why_this_matters": "The frozen partition check compares the selection record's dose set against the dose set derived from the manifest. Comparing floats invites 0.25 against 0.250 against 2.5e-1 -- a defect that would surface only when a partition silently fails to cover. String identifiers eliminate float equality from the check entirely.",
+    "filenames": "One file per dose is already required. Filenames encode the dose_id, not the numeric value, for the same reason.",
+    "identifiers": {
+      "AMPLIFY": ["A1", "A2", "A3", "A4", "A5"],
+      "SUPPRESS": ["S1", "S2", "S3", "S4", "S5"]
+    },
+    "S5_has_no_numeric_value": "S5 is ABLATE. Its dose_id is its only identifier, which is precisely why identifiers rather than values are canonical."
+  },
+
+  "NUMERICALLY_IDENTICAL_IS_NOT_COMPARABLE": {
+    "warning": "The same numerals appear on both pairings. THEY DO NOT MEAN THE SAME THING.",
+    "detail": "value_in_max_units multiplies each pairing's OWN maximum-activation denominator. On the Gemma arm that denominator is a Neuronpedia SAMPLE maximum; on the Qwen arm it is a characterize_lite CORPUS maximum over 1.7M positions. Different constructs, differently built. A dose of 2.0 on Gemma and a dose of 2.0 on Qwen are not the same intervention strength and are not two measurements of one quantity.",
+    "why_this_warning_is_here": "A grid whose numerals are literally identical across arms is far more inviting of cross-model comparison than one whose numerals differ. Someone will write 'both models responded at 2.0'. That sentence is prohibited.",
+    "prohibited_claims": [
+      "both pairings responded at the same dose",
+      "Gemma required a higher or lower dose than Qwen",
+      "any comparison, ratio or ordering of value_in_max_units across pairings",
+      "treating the shared grid as evidence of matched intervention strength"
+    ],
+    "permitted": "Reporting each pairing's selected doses separately, each carrying its own unit and unit_source.",
+    "standing_rule": "LOW/MEDIUM/HIGH are labels scoped to a single pairing x concept x direction. Unchanged."
+  },
+
+  "PROHIBITED_SUBSTITUTION": {
+    "rule": "The Suppress grid 4.0, 2.0, 1.0, 0.5 -- an earlier illustrative example -- IS PROHIBITED and must not be used, reinstated, or offered as an equivalent.",
+    "why_it_is_substantively_wrong_not_merely_superseded": "That sequence tops out at 4.0 x the maximum-activation denominator, which for most prompts is well ABOVE natural firing and is therefore an AMPLIFICATION, and it bottoms out at 0.5, which is barely a suppression at all. Running it would make the Suppress arm largely an amplification sweep under a suppression label, and G-E would be measuring the wrong intervention. The ratified grid 1.0, 0.5, 0.25, 0.1 is a genuine descending suppression ladder.",
+    "detection": "Any Suppress manifest whose CLAMP dose values are not exactly [1.0, 0.5, 0.25, 0.1] is rejected."
+  },
+
+  "NO_TUNING_AFTER_ACTIVATIONS": {
+    "rule": "Every value in this artifact is FROZEN. No dose may be added, removed, rescaled, reordered or reinterpreted after any activation is computed.",
+    "includes": [
+      "adding a sixth dose because the five bracket poorly",
+      "shifting the grid upward or downward after seeing a sweep",
+      "substituting a per-concept or per-pairing grid",
+      "reinterpreting a dose_id to point at a different value"
+    ],
+    "if_the_grid_brackets_poorly": "That is a RESULT, to be reported. For AMPLIFY, LOW > HIGH means the direction fails. For SUPPRESS, no dose clearing the relevance drop means the direction fails and the concept publishes Amplify-only. A failed direction is a finding, not a licence to re-grid.",
+    "authority": "Consistent with the standing prohibition on tuning thresholds after results exist."
+  },
+
+  "consistency_with_frozen_protocols": {
+    "five_dose_count": "Both arms carry exactly 5 doses, matching the one-allocation protocol's five-dose sweep and confirmation sets.",
+    "partition": "Exactly 3 doses are selected and 2 remain unselected per direction, matching the frozen partition check.",
+    "sealing": "The 2 unselected doses' outputs remain sealed and are listed in the selection record's unselected array.",
+    "manifest": "The manifest records all 5 doses as a pre-selection inventory and encodes no selection outcome."
+  },
+
+  "unchanged_artifacts": {
+    "$comment": "Verified byte-identical at the time this artifact was committed.",
+    "scientific_config_identity.json": "sha256:ac41a858b9e8a82159d2bd85c114dfcc8cec1b4d2b6f8a250c6482c18c915023",
+    "qwen_config_identity.json": "sha256:ad61dd463c4440ff87aecf742038adca51361f5844c2c1bd847a1213999849e4",
+    "backup_trigger.json": "sha256:4a234e59799089e634f00c59d5fed71c73d0f7466e30f0c20a7d72ef4c9d23d3",
+    "one_allocation_dose_generation.json": "sha256:bd1974b4c44802fa7a49fb7a4ed65df78a9ba66cdca78bb6fc0da69cf42252cf",
+    "discovery_document_generation_binding.json": "sha256:c33d069cbe3c29ba8cbd4a4965dbece3db42c2840be181dee897e8dfdf223844",
+    "generation_settings.json": "sha256:975e90e0271e750aea8f871f4776d2a3d0169ea4fe410e544081957907e613b1",
+    "manifest_immutability_correction.json": "sha256:4a2affcfa40c6d12a68f223eee6455d3d333cfcd2d2990f881efb64701946222",
+    "prompt_sets.jsonl": "sha256:b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f"
+  },
+
+  "hard_stops": [
+    "An AMPLIFY grid other than exactly [0.25, 0.5, 1.0, 2.0, 4.0].",
+    "A SUPPRESS CLAMP grid other than exactly [1.0, 0.5, 0.25, 0.1].",
+    "The prohibited Suppress sequence 4.0, 2.0, 1.0, 0.5 appearing anywhere.",
+    "A SUPPRESS grid without ABLATE as its terminal point.",
+    "ABLATE carrying a value_in_max_units, a unit, a unit_source, or a weight other than 1.0.",
+    "A dose referenced by numeric value rather than by canonical dose_id in a manifest or selection record.",
+    "Any dose added, removed, rescaled or reordered after an activation is computed.",
+    "Any cross-pairing comparison, ratio or ordering of value_in_max_units.",
+    "Rejecting a Suppress selection whose HIGH is not ABLATE."
+  ]
+}
