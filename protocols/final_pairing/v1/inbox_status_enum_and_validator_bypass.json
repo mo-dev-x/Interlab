@@ -1,0 +1,53 @@
+{
+  "$comment": "GATING FOR MAILBOX REPORTS ONLY. Second occurrence of a material LA-B report rendered invisible by a schema violation. Changes no scientific artifact, no gate, no threshold. Does not affect job 413287, which is submitted.",
+  "protocol_version": "final-pairing-inbox-status-enum-and-validator-bypass/1.0.0",
+  "gating": {"mailbox_report": true, "gpu_generation": false, "submission": false, "judging": false, "promotion": false},
+  "supersedes": null,
+
+  "THE_SITUATION": {
+    "la_b_inbox_seq_33": {
+      "event": "submitted_413287_pending",
+      "commit": "8ed280953bdcdd3007ca6196c817fe37ffade0a9",
+      "timestamp_utc": "2026-08-14T22:12:50Z",
+      "substance": "JOB 413287 IS SUBMITTED AND PENDING ON RESOURCES at the certified producer commit."
+    },
+    "why_the_coordinator_cannot_see_it": "status is the string 'submitted_pending', which is not in the closed STATUSES enum {blocked, complete, failed, ready, waiting}. validate_report raises, poll_mailbox reports la_b as WAIT: invalid report, and all_reports_valid goes false.",
+    "the_cost": "THE SINGLE MOST IMPORTANT STATE CHANGE IN THE RUN IS INVISIBLE TO THE COORDINATOR. Under fail-closed doctrine WAIT is correctly not-approval, but it is being read for the wrong reason -- a string value, not the submission."
+  },
+
+  "RULING_1_the_enum_stays_closed_and_the_value_maps_to_waiting": {
+    "verdict": "DO NOT WIDEN THE ENUM. status = 'waiting'.",
+    "why_waiting_is_correct_and_not_a_compromise": "The job is submitted and awaiting resources. That is precisely a wait state: no further lane action is possible and no outcome has occurred. 'waiting' is not a loss of information -- it is the accurate status.",
+    "where_the_information_actually_belongs": "The specificity is already carried correctly: event is 'submitted_413287_pending' and the message states the job id, the producer commit and the scheduler WorkDir. Nothing is lost by setting status to a legal value.",
+    "why_not_widen": "The closed schema is what makes every report machine-comparable across lanes. Widening it once for an accurate-but-unlisted value invites widening it again for an inaccurate one, and the enum's whole function is that a reader knows the five states without reading prose.",
+    "REQUIRED": "LA-B reposts at sequence 34 with status 'waiting', every other field byte-unchanged, VIA post_report.py."
+  },
+
+  "RULING_2_THE_REAL_DEFECT_IS_THAT_THE_VALIDATOR_WAS_BYPASSED": {
+    "the_inference_and_it_is_sound_rather_than_speculative": "post_report.py's main() calls validate_report BEFORE writing, and validate_report raises on a status outside STATUSES. THEREFORE AN INVALID REPORT CANNOT HAVE BEEN WRITTEN THROUGH post_report.py. Its presence in the inbox proves the validator was bypassed and the file written directly.",
+    "what_the_README_already_says": "'Writers must atomically replace the inbox file; use post_report.py rather than redirecting output into it.'",
+    "why_this_matters_more_than_the_status_value": "The status string is a one-line fix. The bypass defeats the only mechanism that keeps the mailbox parseable, and it does so SILENTLY -- the writer sees a successful write and has no signal that the coordinator will never read it. A validator that can be routed around is a validator only for those who choose to use it.",
+    "REQUIRED": "Every inbox write goes through post_report.py, without exception, including under time pressure and including when a lane believes its report is well-formed. A direct write is prohibited.",
+    "recommended_not_ruled": "post_report.py could be made the only writer by having poll_mailbox refuse an inbox file whose shape it cannot attribute to a validated write. That is an engineering choice for whoever owns the mailbox, not a ruling of mine."
+  },
+
+  "SECOND_OCCURRENCE_OF_THE_SAME_CLASS": {
+    "first": "sequence 30 carried an extra top-level key 'unblock_conditions' and was invisible for that reason.",
+    "second": "sequence 33 carries an out-of-enum status and is invisible for that reason.",
+    "the_pattern": "BOTH TIMES THE SUPPRESSED REPORT WAS THE MOST IMPORTANT ONE IN THE MAILBOX. That is not coincidence: the reports that strain the schema are the ones carrying unusual, material news, and unusual material news is exactly what a fail-closed coordinator most needs to see.",
+    "the_standing_lesson": "A closed schema is correct AND it concentrates its failures on the highest-value messages. The remedy is not to open the schema; it is to make the validator unavoidable, so a violation is caught at write time by the author rather than at read time by someone who cannot fix it."
+  },
+
+  "WHAT_THIS_DOES_NOT_TOUCH": [
+    "Job 413287 itself. It is submitted at the certified commit and this ruling neither delays nor authorizes anything about it.",
+    "Any scientific artifact, gate, threshold, grid or prompt set.",
+    "The certified configuration or Engineer 3's certification."
+  ],
+
+  "hard_stops": [
+    "Widening the STATUSES enum.",
+    "Writing an inbox file by any route other than post_report.py.",
+    "Reading la_b's WAIT state as evidence about the job rather than about the report.",
+    "Treating this ruling as bearing on the submission, which is LA-B's alone and already made."
+  ]
+}
