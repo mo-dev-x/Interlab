@@ -1,0 +1,88 @@
+{
+  "$comment": "CONDITIONAL RULING. Answers the persona-pair construction and the probe-placement question. AUTHORIZES NOTHING -- no prompt authoring, no lane, no allocation, no spend. Does not ratify any researcher decision and does not ease the C14 PI gate.",
+  "protocol_version": "final-pairing-persona-pair-construction-and-probe-placement/1.0.0",
+  "gating": {
+    "gpu_generation": false,
+    "submission": false,
+    "judging": false,
+    "prompt_set_v1": false,
+    "future_persona_prompt_authoring": true,
+    "probe_placement": true
+  },
+  "supersedes": null,
+  "extends": {
+    "protocol": "protocols/final_pairing/v1/jointly_only_probe_and_verification_discipline.json",
+    "protocol_version": "final-pairing-jointly-only-probe-and-verification-discipline/1.4.0"
+  },
+
+  "PROVENANCE_CAVEAT_READ_FIRST": {
+    "what_the_referral_states": "A-10a is answered by the researcher: two separate personas, switchable between; and the terminal goal is restated as a GROUP of features that means the concept rather than a single feature.",
+    "WHAT_I_CAN_VERIFY": "NOTHING OF IT. There is no researcher slot in this mailbox for me to read. The claim reaches me only as one lane's report of another party's decision.",
+    "MY_OWN_STANDING_RULE_APPLIES_TO_ME_HERE": "Sequence 3 established, and the coordinator adopted for all lanes, that a ruling reads the PRIMARY SLOT and never another lane's description of it. For a researcher decision there is no primary slot in this system. That is a structural gap, not a suspicion of the coordinator.",
+    "THEREFORE_THIS_RULING_IS_CONDITIONAL": "It rules on the CONSTRUCTION, which is a scientific question and mine. It does NOT ratify the persona decision, which is the researcher's and was never mine. If the reported decision is not real, every ruling below is inert rather than wrong.",
+    "AND_IT_EASES_NOTHING": "C14 political_framing remains pi_gated. The referral itself notes the axis is now geopolitical and the poles are two NAMED NATIONAL PERSONAS, which raises the public-label and viewpoint-removal questions rather than settling them. Nothing here may be read as PI sign-off, and the gate binds harder now than when it was frozen."
+  },
+
+  "RULING_1_the_reciprocal_near_miss_construction_is_VALID": {
+    "verdict": "VALID, AND ON STRONGER GROUNDS THAN THE REFERRAL ARGUED.",
+    "the_decisive_evidence_is_in_the_frozen_artifact_itself": {
+      "source": "prompts/final_pairing/v1/authoring/concepts_12_14.py",
+      "quoted": "C14's near-miss control is the OPPOSITE POLE of the same policy questions, matched domain for domain. That is the whole specificity test: a genuine framing feature separates the two poles, while a mere policy-topic feature fires on both and dies at gate G-C. THE SYMMETRY IS STRUCTURAL, NOT EDITORIAL.",
+      "why_that_settles_it": "If the symmetry is STRUCTURAL, the property cannot depend on whether the opposite pole carries a name. A second named concept and an unnamed control arm are the same object to gate G-C. The frozen artifact answers the question in its own words."
+    },
+    "an_argument_the_referral_did_not_make_and_should_have": "A RECIPROCAL NEAR-MISS IS THE STRONGEST SPECIFICITY CONTROL AVAILABLE, not merely an adequate one. The contrast set is a fully authored concept with its own positives, its own paraphrase families and its own domain coverage, rather than a thinner purpose-built control arm. Each persona is tested against the hardest available negative.",
+    "the_overlap_point_is_correct": "Whether the two feature groups share members becomes a MEASURED RESULT. Under one bipolar axis the question cannot be posed at all. That is a real gain and not a rationalisation."
+  },
+
+  "RULING_2_THREE_BINDING_CONDITIONS": {
+    "condition_1_A_NEW_PROMPT_SET_NOT_AN_EDIT": {
+      "measured": "prompt_sets.jsonl v1 holds 14 concepts with, per locale, 30 positive / 15 near_miss / 15 unrelated / 20 heldout_neutral / 20 heldout_eliciting.",
+      "the_arithmetic_problem": "If persona A's near-miss is persona B's positives, the near-miss slot receives 30 where the frozen structure expects 15. Subsampling to 15 silently discards half the domain matching that makes the control work.",
+      "RULE": "This is a NEW VERSIONED PROMPT SET, authored fresh. prompts/final_pairing/v1/ is BYTE-FROZEN at commit 880b48a7f50b8c716e64956b915857dd1fcde350, sha256 b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f, and is not edited, extended or renumbered.",
+      "why": "Editing a pre-registration to accommodate a later decision is the inversion of pre-registering. Already ruled three times this sprint -- metadata.json, the frozen operational_targets, and the exempted OI-3 record.",
+      "also_affected": "backup_trigger.json bounds concept counts at 0-14. A prompt set with a different concept count needs its own trigger arithmetic; it does not inherit v1's."
+    },
+
+    "condition_2_THE_COLLAPSE_SURFACES_ASYMMETRICALLY_AND_MUST_NOT_BE_MISREAD": {
+      "THE_FINDING_NEITHER_PARTY_RAISED": "The referral says a collapsed feature 'fails G-C in both directions and is excluded from both groups by the same gate'. THAT IS NOT THE ONLY OUTCOME AND PROBABLY NOT THE LIKELIEST ONE.",
+      "the_mechanism": "If the model represents geopolitical stance as ONE SIGNED AXIS, a single feature is high on A-positives and low on B-positives. Measured against A's near-miss (B's positives) it separates strongly and PASSES G-C for A. Measured against B's near-miss (A's positives) its separation runs the opposite way, and whether that passes depends entirely on whether G-C is scored as a directional AUROC or as a two-sided departure from 0.5.",
+      "consequence": "SINGLE-AXIS COLLAPSE MAY PRESENT AS 'pro_american YIELDS A FEATURE GROUP AND pro_chinese DOES NOT' rather than as both failing.",
+      "WHY_THIS_IS_THE_MOST_IMPORTANT_LINE_IN_THIS_ARTIFACT": "That result would be a GATE ARTIFACT and it would look exactly like a scientific finding about the model. Reported carelessly on two NAMED NATIONAL PERSONAS it becomes 'the model has a pro-American representation and no pro-Chinese one' -- a false, inflammatory claim produced by a scoring convention.",
+      "REQUIRED_BEFORE_ANY_AUTHORING": "The G-C direction convention -- directional AUROC versus two-sided -- must be PRE-REGISTERED. It is currently unstated for this construction and it decides the outcome.",
+      "REQUIRED_IN_REPORTING": "A one-sided result must be reported as POSSIBLE SINGLE-AXIS COLLAPSE, with the direction convention stated, and may NOT be reported as an asymmetry in the model's representation unless a test that can distinguish the two has been run and named."
+    },
+
+    "condition_3_the_overlap_interpretation_is_pre_registered_not_discovered": {
+      "rule": "Before authoring, freeze what a shared feature MEANS: disjoint groups, partial overlap, and full overlap each get their stated reading in advance.",
+      "why": "The referral correctly makes overlap a measured result. A measured result whose interpretation is chosen after seeing it is the same defect as selecting a dose after seeing its score."
+    }
+  },
+
+  "RULING_3_probe_placement_PERSONA_FIRST_ACCEPTED_AND_SHARPENED": {
+    "their_argument": "A persona is a stance distributed across register, hedging, framing, source-preference and topic salience, so the prior that any single feature clears AUROC 0.90 ALONE is much weaker than for a concept with a lexical core. The recall bias therefore binds harder, and the unbiased first pass has its best chance of detecting the lane's blind spot there.",
+    "verdict": "ACCEPTED. THE FIRST UNBIASED CONCEPT SHOULD BE A PERSONA, NOT A TOPIC.",
+    "the_sharper_form_of_their_own_argument": "The probe's only decisive outcome is POSITIVE -- a null has approximately zero power and cannot move the caveat, already ruled. So the probe must be placed where P(positive) is highest. Placing it on a topic concept does not merely waste value: IT MAKES AN ALREADY-POWERLESS NULL WEAKER STILL, AT IDENTICAL COST. That is the worst available placement of the one probe.",
+    "A_CONFOUND_NEITHER_PARTY_NAMED_AND_IT_CUTS_AGAINST_THE_PROPOSAL": {
+      "finding": "ON A PERSONA, A NULL BECOMES LESS INFORMATIVE FOR A SECOND AND INDEPENDENT REASON: ARITY.",
+      "mechanism": "The probe tests all N-choose-2 PAIRS. If a persona's true steering set is size 4 or 5 -- which is precisely what 'distributed across register, hedging, framing and salience' predicts -- then no pair reaches threshold even though jointly-only features are abundant. The property that makes the persona the best place to look also makes pairwise search most likely to miss it.",
+      "consequence": "The same reasoning that raises P(positive | pairs suffice) raises P(null | sets are larger than 2). These are not in tension with the ruling; they bound it.",
+      "REQUIRED_EXTENSION_TO_THE_PRE_REGISTERED_NULL_INTERPRETATION": "A null from a persona probe is confounded by ARITY as well as by coverage. The probe MUST report the maximum set size examined alongside any null, and a null obtained at an arity ceiling of 2 may NOT be stated as evidence that jointly-only features are absent, rare, or unlikely -- only that none was found among pairs."
+    }
+  },
+
+  "NOT_MINE_AND_NOT_DECIDED_HERE": [
+    "Whether two personas are the right product surface. Researcher.",
+    "PI sign-off on two named national personas, their public labels, and whether a Suppress direction on either reads as viewpoint removal. PI, and now more live than when C14 was frozen.",
+    "Whether the joint-intervention lane runs at all, and any allocation or spend for it.",
+    "A-10b artifact-invalidation cost, A-10c coherence as conjunct versus product criterion, A-10d credentialed-judging demonstration. Referred, unruled, unchanged."
+  ],
+
+  "hard_stops": [
+    "Reading this ruling as ratification of any researcher decision, or as PI sign-off on the persona pair.",
+    "Editing, extending or renumbering the frozen v1 prompt set to accommodate personas.",
+    "Authoring persona prompts before the G-C direction convention is pre-registered.",
+    "Reporting a one-sided persona result as an asymmetry in the model rather than as possible single-axis collapse.",
+    "Stating a persona-probe null as evidence of absence when the arity ceiling was 2.",
+    "Treating any of this as authorization for a lane, an allocation, prompt authoring, or spend."
+  ]
+}

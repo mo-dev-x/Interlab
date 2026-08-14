@@ -1,0 +1,91 @@
+{
+  "$comment": "GATING FOR ABLATION CLAIMS. Answers A-11a, A-11b, A-11c. AUTHORIZES NOTHING -- no lane, no allocation, no artifact change, no spend. Does not alter the certified run, which continues unchanged.",
+  "protocol_version": "final-pairing-group-necessity-and-ablation-claims/1.0.0",
+  "gating": {
+    "gpu_generation": false,
+    "submission": false,
+    "judging": false,
+    "ablation_claim": true,
+    "promotion": false
+  },
+  "supersedes": null,
+  "extends": {
+    "protocol": "protocols/final_pairing/v1/joint_intervention_lane.json",
+    "protocol_version": "final-pairing-joint-intervention-lane/1.0.0"
+  },
+  "provenance_caveat": "The researcher extension reaches me only as one lane's report. There is no researcher slot in this mailbox. This ruling is CONDITIONAL in the same sense as persona_pair_construction_and_probe_placement.json, and ratifies no researcher decision.",
+
+  "THE_REFERRED_ASYMMETRY_IS_CORRECT_AND_I_CAN_STRENGTHEN_IT": {
+    "their_finding": "An incomplete group under AMPLIFICATION yields a WEAKER effect -- a visible false negative nobody writes up as a discovery. An incomplete group under ABLATION yields NO effect, and the honest-looking conclusion is 'these features are not necessary'. That is a false negative that READS AS A POSITIVE FINDING.",
+    "accepted": "Correct, and it is the worst class in this sprint's catalogue for exactly the reason they cite: a confident wrong answer ends investigation while a missing one prompts it.",
+    "THE_STRONGER_FORM_THEIR_FRAMING_DOES_NOT_REACH": {
+      "statement": "SUFFICIENCY SURVIVES THE RECALL CAVEAT. NECESSITY DOES NOT. The difference is not how the error reads -- it is what the pool can support IN PRINCIPLE.",
+      "sufficiency": "A set that produces the concept produces it REGARDLESS of what else exists. Demonstrating sufficiency never required having found every feature, so a low-recall pool does not undermine it. A sufficient set found in a biased pool is still a sufficient set.",
+      "necessity": "A set is necessary only if NO OTHER ROUTE carries the concept. Establishing that requires knowing what else exists -- which is precisely what a low-recall pool cannot tell you.",
+      "consequence": "Group necessity is not merely harder to report honestly from this pool. IT IS NOT ESTABLISHABLE FROM IT AT ALL, in principle rather than in practice."
+    },
+    "BUT_ONE_ABLATION_OUTCOME_IS_STILL_LICENSED": {
+      "positive_ablation": "If ablating the set REMOVES the concept, that IS informative and is NOT undermined by recall: whatever else exists was not sufficient to carry it. This is a real and publishable result.",
+      "null_ablation": "If the concept survives, nothing follows. An unnecessary set and an incomplete set are indistinguishable.",
+      "the_symmetry_with_the_probe": "This is the same positive/null asymmetry already frozen for the jointly-only probe. A positive is decisive; a null has no power. The doctrine is now consistent across both instruments."
+    }
+  },
+
+  "RULING_A11a_group_necessity_is_a_SEPARATE_CLAIM_not_a_third_conjunct": {
+    "question": "Is group-necessity a third conjunct alongside sufficiency and minimality, a separate claim with its own threshold, or out of scope?",
+    "verdict": "A SEPARATE CLAIM, WITH ITS OWN EVIDENCE AND ITS OWN CAVEAT. It is NOT a third conjunct and it may NEVER be a precondition for publishing a sufficient minimal set.",
+    "their_premise_is_right": "Minimality is defined in the SUFFICIENCY direction -- it asks whether every member is needed for the SET TO STEER. Group necessity asks whether the CONCEPT SURVIVES without the set. Neither implies the other, and a set can be minimally sufficient while being far from necessary if the model carries the concept by several independent routes.",
+    "why_NOT_a_conjunct": [
+      "A minimally sufficient set is a real, useful and publishable finding on its own -- it is exactly what a steering tool needs in order to know what to amplify. Requiring necessity would discard valid steering sets for failing a different test.",
+      "Bundling them lets a necessity NULL block a sufficiency claim the evidence fully supports. That is the wrong coupling and it inverts the direction of the error.",
+      "DECISIVE: under the permanent recall caveat, group necessity is not reliably measurable at all. A conjunct that cannot be reliably measured becomes either a gate that always fails or a gate that gets waved through, and both are worse than an honestly bounded separate claim."
+    ],
+    "what_MAY_be_claimed": {
+      "publishable_primary": "Joint sufficiency plus minimality, exactly as frozen in steering_feature_set_definition RULING_3. Unchanged.",
+      "publishable_secondary_only_on_a_POSITIVE_result": "Ablating this set removed the concept. Reportable, with the set named and the paired same-seed control stated.",
+      "never_publishable": "Any necessity claim resting on a null ablation."
+    }
+  },
+
+  "RULING_A11b_the_null_ablation_phrasing_is_PRE_REGISTERED_HERE_AND_NOW": {
+    "why_now": "For the same reason the probe's null clause was frozen before the probe existed: written afterwards, the identical sentence cannot be distinguished from a rationalisation. The referral is right that this is a null which will be TEMPTING to report as a finding, which makes early freezing more important rather than less.",
+    "FROZEN_PHRASING": "Ablating this set did not remove the concept. We cannot distinguish an unnecessary set from an incomplete one.",
+    "adopted_verbatim_from_the_referral": "The coordinator proposed this wording. It is accepted as written; I have not improved on it.",
+    "PROHIBITED_READINGS": [
+      "the group is not necessary",
+      "these features are not necessary for the concept",
+      "the concept does not depend on this set",
+      "ablation showed no causal role",
+      "any sentence in which a null ablation appears without the incomplete-set alternative stated in the same sentence"
+    ],
+    "why_each_is_prohibited": "Every one of them asserts absence from an instrument that cannot detect presence. Each is a false negative wearing the grammar of a positive finding."
+  },
+
+  "RULING_A11c_the_cost_model_changes_and_here_is_the_number": {
+    "prior_figure": "(k+1) generation conditions per set per prompt: one joint intervention plus k leave-one-out.",
+    "REVISED": "(k+2). The group-ablation arm adds ONE condition per set per prompt.",
+    "why_only_one": "The paired same-seed control is the unmodified generation already required by the joint arm. It is REUSED, not duplicated. The frozen control-arm rule already mandates one control per (concept, pairing, direction, locale, prompt_id, seed) at the SAME SEED, so no additional control is generated.",
+    "THE_PLUS_K_VARIANT_IS_REFUSED_NOT_PRICED": {
+      "what_it_would_buy": "Leave-one-out under ablation, to attribute necessity to individual members.",
+      "why_it_is_refused": "Necessity of an individual member within a group is even less establishable from a low-recall pool than necessity of the group. It would double the lane's cost to purchase a claim RULING_A11a already prohibits.",
+      "so_do_not_size_for_it": "The referral asked not to be surprised by a doubled requirement. The answer is that the doubling buys nothing admissible: budget (k+2), not (2k+2)."
+    },
+    "worked_example": "At k=3: 4 conditions per set per prompt becomes 5. A 25 percent increase, not 100 percent."
+  },
+
+  "THE_RUNNING_JOB_413287_HANDLING_IS_RATIFIED": {
+    "coordinator_position": "The run returns one feature per concept plus a full-ablation result for that ONE feature, for all fourteen concepts. Under the group requirement those per-feature ablation results are CANDIDATE EVIDENCE, not necessity claims, and will be recorded that way.",
+    "verdict": "CORRECT AND RATIFIED. That is precisely the right handling.",
+    "and_it_follows_from_the_ruling_above": "A single-feature ablation is the k=1 case of a group ablation, so it inherits the same asymmetry: a POSITIVE single-feature ablation is informative and reportable; a NULL is subject to the frozen phrasing above and asserts nothing.",
+    "the_run_is_not_devalued": "It produces the candidate pool and validates the pipeline on real weights. What it may not do is support a sentence of the form 'this concept depends on this feature'."
+  },
+
+  "hard_stops": [
+    "Making group necessity a precondition for publishing a sufficient minimal set.",
+    "Reporting any necessity claim from a null ablation, in any wording.",
+    "Reporting a null ablation without the incomplete-set alternative in the same sentence.",
+    "Sizing a joint-intervention lane at (2k+2) for member-attributed necessity, which is refused.",
+    "Reading a single-feature ablation from job 413287 as a necessity claim.",
+    "Treating this ruling as authorization for a lane, an allocation, an artifact change, or any spend."
+  ]
+}
