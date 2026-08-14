@@ -281,6 +281,16 @@ def manifest_entries(manifest: dict[str, Any], *, direction: str, purpose: str, 
 
 @dataclass(frozen=True)
 class JudgeRunResult:
+    """`lodestar_commit`/`lodestar_dirty`/`lodestar_version` are the real
+    Lodestar engine identity at judge time (`causal_judge.
+    resolve_lodestar_identity`, see that function's docstring) --
+    recorded alongside `rubric_versions` for the same reason: knowing
+    WHICH judge code produced these judgments, not just which rubric it
+    was told to use. `lodestar_dirty=True` does not invalidate this
+    result and is never checked by `run_judging` itself -- it blocks
+    PROMOTION only; a downstream consumer deciding whether to publish
+    this result as attested evidence is where that gate belongs."""
+
     judge_model: str
     rubric_versions: dict[str, str]
     total_judgments: int
@@ -288,6 +298,9 @@ class JudgeRunResult:
     cache_misses: int
     actual_cost_usd: float
     judgments_path: str
+    lodestar_commit: str
+    lodestar_dirty: bool
+    lodestar_version: str
 
 
 def run_estimate(
@@ -379,7 +392,7 @@ def run_judging(
     estimate/budget/cache/persistence logic is exercised without a paid
     API call."""
     assert_judge_model_is_attestable(judge_model)
-    ensure_lodestar_importable()
+    lodestar_root = ensure_lodestar_importable()
     import asyncio
 
     from lodestar.judges.cache import JudgeCache
@@ -405,10 +418,16 @@ def run_judging(
         json.dumps([j.model_dump(mode="json") for j in judgments], indent=2, sort_keys=True, default=str),
         encoding="utf-8",
     )
+    # Real Lodestar engine identity at judge time -- recorded regardless of
+    # lodestar_dirty (never gates generation or judging; see JudgeRunResult's
+    # own docstring: a dirty tree blocks PROMOTION only, not this stage).
+    lodestar_identity = causal_judge.resolve_lodestar_identity(lodestar_root)
     return JudgeRunResult(
         judge_model=judge_model, rubric_versions={r.name: r.version for r in rubrics},
         total_judgments=len(judgments), cache_hits=cache_hits, cache_misses=len(judgments) - cache_hits,
         actual_cost_usd=actual_cost(judgments, judge_model), judgments_path=str(judgments_path),
+        lodestar_commit=lodestar_identity.lodestar_commit, lodestar_dirty=lodestar_identity.lodestar_dirty,
+        lodestar_version=lodestar_identity.lodestar_version,
     )
 
 

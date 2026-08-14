@@ -65,7 +65,9 @@ from __future__ import annotations
 
 import asyncio
 import statistics
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 LODESTAR_JUDGE_MODULE = "lodestar.judges.anthropic"
@@ -147,6 +149,52 @@ def load_steering_rubrics() -> tuple[Any, Any]:
             f"{CONCEPT_RELEVANCE_RUBRIC_VERSION!r}."
         )
     return coherence, concept_relevance
+
+
+@dataclass(frozen=True)
+class LodestarIdentity:
+    """WHAT CODE actually judged, recorded once per judge run alongside
+    the rubric identity above. `lodestar_commit` is the real identity: a
+    commit hash names the code only if the tree that produced it is
+    clean. `lodestar_dirty` is recorded for exactly that reason -- a hash
+    recorded against a dirty tree is a value that reads as provenance and
+    isn't, this project's own signature defect -- but it MUST NOT block
+    generation or judging (a dirty checkout is still a real, usable
+    Lodestar; `resolve_lodestar_identity` below never raises on it). It
+    blocks PROMOTION only, the same shape as this project's other
+    promotion gates: a downstream consumer deciding whether to publish a
+    judged result as attested evidence checks this field itself.
+    `lodestar_version` is `lodestar.__version__`, currently a hardcoded
+    "0.1.0" placeholder inside Lodestar (not bumped per release) -- recorded
+    for completeness, but `lodestar_commit` is the real identity; this
+    field alone is not sufficient to identify what code ran."""
+
+    lodestar_commit: str
+    lodestar_dirty: bool
+    lodestar_version: str
+
+
+def resolve_lodestar_identity(source_root: str | Path) -> LodestarIdentity:
+    """Real `git rev-parse HEAD` / `git status --porcelain` against the
+    resolved `LODESTAR_SOURCE_ROOT` checkout, plus `lodestar.__version__`
+    -- never cached across calls, since the checkout can change between
+    runs. Raises (via the same real `subprocess.run(..., check=True)`
+    failure path every other git call in this project uses) if
+    `source_root` is not a git repository, rather than silently returning
+    a placeholder identity for a checkout this function could not
+    actually inspect."""
+    root = Path(source_root)
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(root), capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=str(root), capture_output=True, text=True, check=True,
+    ).stdout
+    lodestar = _import_lodestar_submodule("lodestar")
+    version = getattr(lodestar, "__version__", "unknown")
+    return LodestarIdentity(
+        lodestar_commit=commit, lodestar_dirty=bool(status.strip()), lodestar_version=version,
+    )
 
 
 def run_judge_batch(judge: Any, items: list[tuple[Any, Any]], *, repeats: int = 1) -> list[Any]:
