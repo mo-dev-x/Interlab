@@ -167,25 +167,29 @@ class MatchedConfiguration:
     runtime, not merely been imprecise.
 
     This same fact is now separately, formally frozen at
-    `protocols/final_pairing/v1/scientific_config_identity.json`
-    (`final-pairing-config-identity/1.2.0`, commit 93450e5): BOTH releases
-    are FORCED (PRIMARY because layer 29 is off the canonical resid_post
-    grid; BACKUP because `resid_post_all` does not publish `l0_medium` at
-    layer 24 at all -- OI-1, closed) -- the split is NECESSARY, not
-    cosmetic, an earlier ("packaging, not a third family") premise that
-    protocol version explicitly WITHDRAWS. Per that same protocol: a
-    PRIMARY-to-BACKUP difference moves layer, sparsity tier, AND release/
-    training-artifact simultaneously in Gemma (and layer/k in Qwen) --
-    nothing in this file may attribute an observed PRIMARY-vs-BACKUP
-    outcome to any ONE of those dimensions; backup is a fallback
-    configuration, not a controlled ablation. Qwen TopK `k` and Gemma
-    observed L0 remain non-commensurable throughout this file: no ratio,
-    proportional-match, or "aligned/similar/matched sparsity" claim is
-    ever made between them anywhere in this codebase (verified by a
-    literal repo-wide search for those exact retracted phrasings during
-    the 1.2.0 integration pass) -- matching between the two models is by
-    transformer depth fraction ONLY (`qwen_depth_fraction`/
-    `assert_gemma_qwen_depth_matches`)."""
+    `protocols/final_pairing/v1/scientific_config_identity.json` --
+    CURRENTLY `final-pairing-config-identity/1.3.0`, commit
+    `5a5175d36eac9802b45f76aeb5b52ff6b25220a8` (see `IDENTITY_PROTOCOL_
+    COMMIT` below; v1.3.0 superseded the originating v1.2.0, commit
+    93450e5, by supplying PRIMARY's `params_expected_sha256`, which 1.2.0
+    left null/PENDING -- no configuration, layer, release, or threshold
+    changed between the two): BOTH releases are FORCED (PRIMARY because
+    layer 29 is off the canonical resid_post grid; BACKUP because
+    `resid_post_all` does not publish `l0_medium` at layer 24 at all --
+    OI-1, closed) -- the split is NECESSARY, not cosmetic, an earlier
+    ("packaging, not a third family") premise that protocol version
+    explicitly WITHDRAWS. Per that same protocol: a PRIMARY-to-BACKUP
+    difference moves layer, sparsity tier, AND release/training-artifact
+    simultaneously in Gemma (and layer/k in Qwen) -- nothing in this file
+    may attribute an observed PRIMARY-vs-BACKUP outcome to any ONE of
+    those dimensions; backup is a fallback configuration, not a
+    controlled ablation. Qwen TopK `k` and Gemma observed L0 remain
+    non-commensurable throughout this file: no ratio, proportional-match,
+    or "aligned/similar/matched sparsity" claim is ever made between them
+    anywhere in this codebase (verified by a literal repo-wide search for
+    those exact retracted phrasings during the 1.2.0 integration pass) --
+    matching between the two models is by transformer depth fraction ONLY
+    (`qwen_depth_fraction`/`assert_gemma_qwen_depth_matches`)."""
 
     name: Literal["primary", "backup"]
     qwen_layer: int
@@ -417,18 +421,24 @@ def assert_qwen_params_sha256_matches(layer_file_path: str | Path, *, expected_s
     return measured
 
 # The backup trigger's exact Boolean rule -- frozen at
-# protocols/final_pairing/v1/backup_trigger.json (commit 125b1d3), found
-# AFTER this module's docstring elsewhere was written to say no such rule
-# existed. It does exist. `evaluate_backup_trigger` below implements
-# EXACTLY its `trigger.boolean_expression`/`failure_expression`, no more.
-# What is NOT implemented here: computing `primary_shared_gabc_count`
-# itself requires a full 14-concept x 2-pairing x 3-gate x 3-family x
-# 2-locale grid (`primary_complete`'s own definition) with per-feature
-# G-A/B/C conjunction (`feature_survives_gabc`) -- this runner currently
-# discovers ONE concept per invocation and has no G-C (AUROC vs near_miss)
-# implementation at all yet. That aggregation is real, separate follow-up
-# work; `--run-backup`/`--trigger-inputs-json` in the matched-configuration
-# job remain the way that count reaches this formula until it exists.
+# protocols/final_pairing/v1/backup_trigger.json (commit 125b1d3).
+# `evaluate_backup_trigger` below implements EXACTLY its `trigger.
+# boolean_expression`/`failure_expression`, no more.
+#
+# SUPERSEDED DISCLOSURE (this comment used to say `primary_shared_gabc_
+# count` required manual computation because the full 14-concept grid and
+# G-C had no implementation yet -- both now exist and are wired
+# automatically): `run_grid_mode` computes the full 14-concept x 2-pairing
+# x 3-gate x 3-family x 2-locale grid, `compute_gate_c_per_family`
+# implements G-C, and `final_concept_discovery_matched_configuration_job.
+# compute_trigger_from_grid_outputs` reads both pairings' `grid.json`
+# files and derives `primary_shared_gabc_count`/`run_backup` automatically
+# via `feature_survives_gabc`'s same-feature G-A+G-B+G-C conjunction --
+# `run_matched_configuration_job`'s scheduled entry point calls it itself.
+# `--run-backup`/`--trigger-inputs-json` remain wired into the matched-
+# configuration job ONLY as a test-only override seam (there is no such
+# flag on the scheduled `main()` CLI at all); they are not how the trigger
+# reaches production.
 BACKUP_TRIGGER_PROTOCOL_PATH = "protocols/final_pairing/v1/backup_trigger.json"
 BACKUP_TRIGGER_PROTOCOL_SHA256 = "4a234e59799089e634f00c59d5fed71c73d0f7466e30f0c20a7d72ef4c9d23d3"
 BACKUP_TRIGGER_SHARED_COUNT_THRESHOLD = 3  # frozen; "may not be changed after any activation is computed"
@@ -888,19 +898,30 @@ def compute_gate_a_and_b_per_family(
     backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str, locale: str, feature_index: int,
     auroc_min: float | None = None, activation_floor_fraction: float | None = None, fire_rate_min: float | None = None,
 ) -> list[GateABResult]:
-    """G-A (separation AUROC, positive vs. unrelated) and G-B (activation
-    floor / fire rate) computed INDEPENDENTLY per paraphrase family, never
-    pooled -- per this artifact's own README ("pooling would hide a
-    feature that fires on only one phrasing"). Thresholds default to the
-    frozen artifact's own `metadata.json["thresholds"]` (never invented by
-    this file) but may be overridden explicitly by a caller who has a
-    reason to.
+    """G-A (separation AUROC, positive vs. POOLED controls: near_miss +
+    unrelated, within the same locale/family) and G-B (activation floor /
+    fire rate) computed INDEPENDENTLY per paraphrase family, never pooled
+    ACROSS families -- per this artifact's own README ("pooling [families]
+    would hide a feature that fires on only one phrasing"). Thresholds
+    default to the frozen artifact's own `metadata.json["thresholds"]`
+    (never invented by this file) but may be overridden explicitly by a
+    caller who has a reason to.
+
+    P0 FINAL DELTA correction: G-A's negative/control set is now the POOL
+    of `near_miss` + `unrelated` (previously `unrelated` alone). G-C
+    (`compute_gate_c_per_family` below) remains the SEPARATE, near_miss-
+    ONLY specificity test -- pooling near_miss into G-A does not make G-C
+    redundant: G-A asks "does this feature separate the concept from
+    background text in general, including its closest foils", while G-C
+    asks specifically "does it separate from just its closest foils".
+    Different denominators, different questions, both required.
 
     `unrelated` is the shared_substrate split (identical across all 14
     concepts by design) -- `rows_for_concept` is called once per family
     below but always returns the SAME `unrelated` rows regardless of
     `concept_id`, which is correct, not a bug (see that function's
-    docstring)."""
+    docstring). `near_miss` is concept-specific (each concept has its own
+    near-miss foils), same as `compute_gate_c_per_family` reads it."""
     thresholds = artifact.metadata["thresholds"]
     auroc_min = thresholds["G_A_separation_auroc_min"] if auroc_min is None else auroc_min
     floor_fraction = thresholds["G_B_activation_floor_fraction_of_observed_max"] if activation_floor_fraction is None else activation_floor_fraction
@@ -909,8 +930,18 @@ def compute_gate_a_and_b_per_family(
     unrelated_texts = [r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="unrelated")]
     if not unrelated_texts:
         raise ValueError(f"no 'unrelated' rows found for concept_id={concept_id!r} locale={locale!r}")
-    _, negative_scores_arr = _pooled_residual_and_feature(backend, unrelated_texts, feature_index)
-    negative_scores = negative_scores_arr.tolist()
+    _, unrelated_scores_arr = _pooled_residual_and_feature(backend, unrelated_texts, feature_index)
+    unrelated_scores = unrelated_scores_arr.tolist()
+
+    near_miss_texts = [r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="near_miss")]
+    if not near_miss_texts:
+        raise ValueError(f"no 'near_miss' rows found for concept_id={concept_id!r} locale={locale!r}")
+    _, near_miss_scores_arr = _pooled_residual_and_feature(backend, near_miss_texts, feature_index)
+    near_miss_scores = near_miss_scores_arr.tolist()
+
+    # POOLED control set for G-A only -- G-C (compute_gate_c_per_family)
+    # separately computes its own positive-vs-near_miss-ONLY AUROC.
+    negative_scores = [*unrelated_scores, *near_miss_scores]
 
     families = sorted({
         r["family"] for r in artifact.rows

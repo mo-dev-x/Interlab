@@ -1,13 +1,13 @@
-"""Assembles the `concept_bundle.discovery_input` document (schema v2.0)
+"""Assembles the `concept_bundle.discovery_input` document (schema v3.0)
 that `scripts/concept_bundle_publish.py` (Engineer 3, branch
-`eng3/concept-bundle`, currently at commit 2003406 -- "Consume the
-generation settings: sampling, controls, counts and order") accepts,
+`eng3/concept-bundle`, currently at commit ff2a565 -- "Manifest
+immutability: the struck field, the sole authority, schema 3.0") accepts,
 from this repository's own discovery-runner output (`final_pairing_
 concept_discovery.py`'s `run()` result and grid verdicts) plus a small
 set of caller-supplied identity facts that no file in this repository
 may invent by reading a clock or guessing a name.
 
-2003406 is NOT an ancestor of this branch (`final-pairing-harness`) --
+ff2a565 is NOT an ancestor of this branch (`final-pairing-harness`) --
 confirmed via `git merge-base --is-ancestor` in both directions, both
 fail. Every fact this file relies on about that commit was read directly
 out of `D:/devcache/wt/concept-bundle` (a real, separate worktree of
@@ -28,10 +28,33 @@ generation.py`, never embedded in the document itself -- gained the
 `chat_template_identity`, `locales_complete`, `generation_settings_path`/
 `_version`/`_sha256`, `causal_order_position`, `skipped_for_gate_
 failure`) verified directly against `concept_bundle_publish.py`'s own
-`MANIFEST_FIELDS`/`MANIFEST_FILE_FIELDS` tuples at 2003406 -- this
-document producer does not change shape for that extension since it
-only ever carries a `ManifestReference` (a path + a measured hash to the
-manifest file), never the manifest's own internal fields).
+`MANIFEST_FIELDS`/`MANIFEST_FILE_FIELDS` tuples at 2003406) -> ff2a565
+(schema v2.0 -> v3.0, the SECOND MAJOR bump, consuming the manifest-
+immutability correction, commit 2dc9e338c12db1c1f3939a9f709f8af816ad8272,
+sha256 4a2affcfa40c6d12a68f223eee6455d3d333cfcd2d2990f881efb64701946222,
+already applied to this repo's own manifest emitter/verifier at commit
+7d7985d: `generation_manifests.manifest_file_required` REMOVES
+`selection_status` (STRUCK, refused on sight), `generation_manifests.
+manifest_optional.inventory_stage` is new (const `PRE_SELECTION`), and
+`causal_validation.selection_records` gains a required CLOSED content
+schema (`content_required`: `manifest_sha256`/`outcome`/`selected`/
+`unselected`, `content_rules.additionalProperties: false`) for the FILE
+each `SelectionRecordReference.source_path` points at -- this document
+producer does not change shape for ANY of that: it only ever carries a
+`ManifestReference`/`SelectionRecordReference` (a path + a measured hash
+to the referenced file), never the manifest's or selection record's own
+internal fields, per this module's own "WHAT THIS FILE DOES NOT DO"
+section below. DISCLOSED, NOT SILENTLY FIXED: `final_pairing_judge_cli.
+write_selection_record`'s own selection-record FILE CONTENT shape
+(`{protocol_version, protocol_sha256, selections: [...]}`, each entry
+`{concept_id, pairing_id, direction, status, selected, unselected}`) does
+NOT match ff2a565's closed `content_required`/`content_rules` shape
+(`{manifest_sha256, outcome, selected, unselected}`, one object per
+file) -- that is Deliverable B (local judging), untouched per every
+prior dispatch's own instruction that it does not block GPU submission;
+this gap is real and will need closing before a selection record can
+actually promote under schema 3.0, but fixing it is out of this file's
+scope.
 
 `ac9ea40`/2003406 both: separate `pairing.params_sha256` (MEASURED,
 emitted here) from the identity artifact's own `params_expected_sha256`
@@ -82,14 +105,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-DISCOVERY_SCHEMA_VERSION = "2.0"  # verified equal to concept_bundle_publish.DISCOVERY_SCHEMA_VERSION at commit 2003406
+DISCOVERY_SCHEMA_VERSION = "3.0"  # verified equal to concept_bundle_publish.DISCOVERY_SCHEMA_VERSION at commit ff2a565
 
 #: All 14 root fields required per `protocols/final_pairing/v1/discovery_
 #: document_generation_binding.json` v1.1.0 (commit 40061b6) and confirmed
 #: verbatim against `conformance/concept_bundle/discovery_input_schema.json`
-#: schema 2.0's own `objects["<root>"]["required"]` at Engineer 3's real
-#: commit 2003406 (`D:/devcache/wt/concept-bundle`): `generation_manifests`
-#: is the field that bumped 1.3 -> 2.0 ("a new REQUIRED top-level object").
+#: schema 3.0's own `objects["<root>"]["required"]` at Engineer 3's real
+#: commit ff2a565 (`D:/devcache/wt/concept-bundle`) -- UNCHANGED from
+#: schema 2.0's root list (2.0 -> 3.0 changed fields WITHIN
+#: `generation_manifests`/`causal_validation.selection_records`, not the
+#: root): `generation_manifests` is the field that bumped 1.3 -> 2.0 ("a
+#: new REQUIRED top-level object").
 ROOT_REQUIRED_FIELDS: tuple[str, ...] = (
     "discovery_schema_version", "run", "pairing", "concept", "discovery",
     "validation", "subject", "calibration", "positions",
@@ -111,6 +137,22 @@ GENERATION_BINDING_PROTOCOL_COMMIT = "40061b65d02545dfe88775e3f8de2cc17bfc74c6"
 #: GPU-stage module merely for two string constants.
 _ONE_ALLOCATION_PROTOCOL_PATH = "protocols/final_pairing/v1/one_allocation_dose_generation.json"
 _ONE_ALLOCATION_PROTOCOL_SHA256 = "sha256:bd1974b4c44802fa7a49fb7a4ed65df78a9ba66cdca78bb6fc0da69cf42252cf"
+#: Mirrors `final_pairing_one_allocation_generation.MANIFEST_REQUIRED_FIELDS`/
+#: `MANIFEST_FILE_REQUIRED_FIELDS` (never imported, same reason as the two
+#: protocol constants above) -- purely for `producer_schema_declaration()`'s
+#: own documentation of the bound manifest FILE's shape (this module never
+#: constructs that file, only references it).
+_ONE_ALLOCATION_MANIFEST_REQUIRED_FIELDS: tuple[str, ...] = (
+    "run_id", "source_commit", "configuration", "concept_id", "pairing_id",
+    "model_revision", "sae_revision", "release", "loader_sae_id", "scientific_sae_id",
+    "params_measured_sha256", "direction", "files", "completeness", "protocol_path", "protocol_sha256",
+    "generation_kwargs", "chat_template_identity", "locales_complete",
+    "generation_settings_path", "generation_settings_version", "generation_settings_sha256",
+    "causal_order_position", "skipped_for_gate_failure", "inventory_stage",
+)
+_ONE_ALLOCATION_MANIFEST_FILE_REQUIRED_FIELDS: tuple[str, ...] = (
+    "dose", "purpose", "path", "sha256", "seed", "locale", "prompt_id", "control_ref", "truncated",
+)
 
 
 def _sha256_of_file(path: str | Path) -> str:
@@ -185,9 +227,9 @@ NOOP_JUDGE_MODELS: tuple[str, ...] = ("none", "noop", "no-op", "identity")
 #: A STATIC SNAPSHOT of Engineer 3's `accepted_input_schema()`, captured
 #: 2026-08-13 by running `python scripts/concept_bundle_publish.py
 #: emit-schema` FOR REAL inside a clean worktree of `eng3/concept-bundle`
-#: at commit 2003406 (schema v2.0, generation-settings-aware) --
-#: superseding the prior ac9ea40 snapshot, kept alongside (never deleted)
-#: as the historical record of what schema v1.3 required. NON-GATING,
+#: at commit ff2a565 (schema v3.0, manifest-immutability-aware) --
+#: superseding the prior 2003406 snapshot, kept alongside (never deleted)
+#: as the historical record of what schema v2.0 required. NON-GATING,
 #: defense-in-depth only: this snapshot never decides submission
 #: compatibility by itself. It exists so the standalone preflight (and
 #: anything else that must run OFFLINE, e.g. a Tamia compute node with no
@@ -195,8 +237,8 @@ NOOP_JUDGE_MODELS: tuple[str, ...] = ("none", "noop", "no-op", "identity")
 #: non-fabricated structural check without a live worktree. The GATING
 #: decision is `run_gating_report_with_eng3` below, run against a live
 #: worktree -- never this.
-STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT = "2003406c3237fc64f6601ca3971bf5d9c85fa7c8"
-STATIC_ENG3_SCHEMA_SNAPSHOT_PATH = "tests/fixtures/eng3_concept_bundle/accepted_input_schema_2003406.json"
+STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT = "ff2a565f83a228cb10a8adeb9dd6a2225662c273"
+STATIC_ENG3_SCHEMA_SNAPSHOT_PATH = "tests/fixtures/eng3_concept_bundle/accepted_input_schema_ff2a565.json"
 
 
 def reconcile_against_static_snapshot(repo_root: str | Path, produced_document: dict[str, Any]) -> dict[str, Any]:
@@ -532,10 +574,11 @@ def producer_schema_declaration() -> dict[str, Any]:
         "schema_version": DISCOVERY_SCHEMA_VERSION,
         "status": (
             "ENGINEER 1 PRODUCER DECLARATION -- schema+configuration+judge fields ratified against Engineer 3's "
-            "real consumer at commit 2003406 (schema v2.0, generation-settings-aware); generation_manifests/"
-            "selection_records per discovery_document_generation_binding.json v1.1.0 (commit 40061b6). "
+            "real consumer at commit ff2a565 (schema v3.0, manifest-immutability-aware); generation_manifests/"
+            "selection_records per discovery_document_generation_binding.json v1.1.0 (commit 40061b6), NORMATIVE "
+            "OVER by final-pairing-manifest-immutability/1.0.0 (commit 2dc9e338c12db1c1f3939a9f709f8af816ad8272). "
             "Reconciled via a real reconcile-schema/gating-report subprocess run against "
-            "D:/devcache/wt/concept-bundle at 2003406 -- see this module's docstring and the closing report."
+            "D:/devcache/wt/concept-bundle at ff2a565 -- see this module's docstring and the closing report."
         ),
         "objects": {
             "<root>": {"required": list(ROOT_REQUIRED_FIELDS)},
@@ -576,17 +619,36 @@ def producer_schema_declaration() -> dict[str, Any]:
                 "judge": {"required": ["model", "rubric_version", "prompt_version"]},
                 "spot_read": {"required": ["approved_by", "approved_at", "note", "sampled_generations"]},
                 # Mirrors the consumer's own field-naming convention EXACTLY (verified against
-                # `accepted_input_schema()`/`discovery_input_schema.json` at commit 2003406): "keys"
+                # `accepted_input_schema()`/`discovery_input_schema.json` at commit ff2a565): "keys"
                 # names the two per-direction slots, "required" names the REFERENCE OBJECT's own
                 # fields directly (no separately-named nested sub-object) -- a prior version of this
                 # declaration put ["amplify","suppress"] under "required" and nested the reference
                 # fields under a "SelectionRecordReference" key, which the consumer's own
                 # reconcile-schema/gating-report flattener reads structurally, not by convention
                 # inference, and therefore rejected as an incompatible shape.
+                #
+                # `content_required`/`content_rules`/`authority`/`partition`/`failed_never_promoted`
+                # below are copied VERBATIM (never translated) from ff2a565's own
+                # `discovery_input_schema.json` -- schema 3.0's manifest-immutability addition: the
+                # SELECTION RECORD FILE ITSELF (what `source_path` points at) is now a required,
+                # CLOSED shape this document producer never constructs (that is Deliverable B,
+                # `final_pairing_judge_cli.py`'s scope -- see this module's docstring for the
+                # disclosed gap between that file's current output and this content schema).
                 "selection_records": {
                     "keys": ["amplify", "suppress"],
                     "value": "SelectionRecordReference | null",
                     "required": ["source_path", "source_sha256", "selection_commit", "confirmation_judging_commit"],
+                    "authority": "The SOLE authoritative record of selection outcome. The bound manifest carries none.",
+                    "content_required": ["manifest_sha256", "outcome", "selected", "unselected"],
+                    "content_rules": {
+                        "additionalProperties": False,
+                        "manifest_sha256": "sha256:<64 hex>, and MUST equal the digest promotion RECOMPUTED from the bound manifest's bytes.",
+                        "outcome": "SELECTED | FAILED",
+                        "selected": "object {LOW, MEDIUM, HIGH}; REQUIRED iff outcome == SELECTED, PROHIBITED iff outcome == FAILED. The three must name three DISTINCT doses. No magnitude ordering is asserted: on the SUPPRESS arm HIGH is ABLATE, which carries no value, no unit and no unit_source.",
+                        "unselected": "array; every confirmation dose not selected, and ALL doses when outcome == FAILED.",
+                        "partition": "The dose set is DERIVED FROM THE MANIFEST -- the distinct doses across files[] where purpose == CONFIRMATION -- and is never asserted by the record. selected.values() UNION unselected must equal it exactly, each dose covered exactly once.",
+                        "failed_never_promoted": "A FAILED record may NEVER be referenced here. A failed direction is null in calibration.directions, generation_manifests and selection_records alike; the FAILED record stays in the run's immutable inventory beside its manifest, preserved and never deleted.",
+                    },
                 },
             },
             "dose_response": {"required": ["computed_at_commit", "observations"]},
@@ -596,12 +658,30 @@ def producer_schema_declaration() -> dict[str, Any]:
             },
             # Same convention fix as causal_validation.selection_records above: "keys" for the two
             # per-direction slots, "reference_required" (the consumer's own field name, NOT
-            # "required") for the ManifestReference's own fields.
+            # "required") for the ManifestReference's own fields. `manifest_required`/`manifest_
+            # optional`/`manifest_file_required`/`manifest_file_prohibited`/`immutability*` below
+            # describe the BOUND MANIFEST FILE's own shape (`final_pairing_one_allocation_
+            # generation.py`'s `MANIFEST_REQUIRED_FIELDS`/`MANIFEST_FILE_REQUIRED_FIELDS`, already
+            # matching this list at commit 7d7985d) -- copied verbatim from ff2a565, never
+            # translated, since this document producer never constructs the manifest itself, only
+            # references it.
             "generation_manifests": {
                 "keys": ["amplify", "suppress"],
                 "value": "ManifestReference | null",
                 "reference_required": ["source_path", "source_sha256", "computed_at_commit",
                                         "protocol_path", "protocol_sha256"],
+                "immutability": "The bound manifest is the run's IMMUTABLE PRE-SELECTION INVENTORY of what was generated. Written once, at transfer, and never rewritten, re-emitted or re-hashed. Promotion re-reads source_path at the selection and confirmation-judging commits and compares BYTES.",
+                "immutability_correction": "final-pairing-manifest-immutability/1.0.0",
+                "immutability_correction_commit": "2dc9e338c12db1c1f3939a9f709f8af816ad8272",
+                "derived_view_rejected": "Any file carrying NOT_FOR_PROMOTION in its bytes or derived: true in its structure is REJECTED ACTIVELY, not merely left unaccepted. stamp_manifest_with_selection produces a reading aid; it may not replace the bound manifest, appear here, satisfy promotion, or have its digest appear in any source_sha256.",
+                "manifest_required": list(_ONE_ALLOCATION_MANIFEST_REQUIRED_FIELDS),
+                "manifest_optional": {
+                    "inventory_stage": "const PRE_SELECTION. The ONLY permitted pre-selection marker, MANIFEST-LEVEL rather than per file: a per-entry flag that is always true carries no information and reads as a status that COULD vary. Optional -- the ancestry check already proves the ordering structurally.",
+                },
+                "manifest_file_required": list(_ONE_ALLOCATION_MANIFEST_FILE_REQUIRED_FIELDS),
+                "manifest_file_prohibited": {
+                    "selection_status": "STRUCK by final-pairing-manifest-immutability/1.0.0 and refused ON SIGHT whatever its value, including null. A record whose bytes are committed BEFORE an event cannot contain that event's outcome: stamping it would change the manifest's bytes and invalidate both source_sha256 and computed_at_commit, so the field was permanently unfillable. Any other field encoding a selection outcome is refused the same way, by the closed files[] schema.",
+                },
             },
         },
     }

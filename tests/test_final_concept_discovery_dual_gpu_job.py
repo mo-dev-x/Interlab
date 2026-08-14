@@ -344,9 +344,9 @@ def test_orchestrator_rejects_anything_other_than_exactly_gemma_and_qwen_lanes(t
 
 
 _PASSING_PREFLIGHT_REPORT = {
-    "schema_version": 1, "source_commit": "0" * 40, "expected_cases": 1, "executed_cases": 1, "passed_cases": 1,
-    "failed_cases": [], "cases": [{"name": "fake", "status": "pass", "detail": "", "elapsed_seconds": 0.0}],
-    "overall_passed": True, "proofs": {},
+    "schema_version": "2", "source_commit": "0" * 40, "expected_case_count": 1, "executed_case_count": 1,
+    "passed_case_count": 1, "failed_cases": [], "overall_passed": True,
+    "proofs": dict.fromkeys(job.LA_B_PROOF_KEYS, True),
 }
 
 
@@ -442,24 +442,34 @@ def test_a_failing_preflight_stops_both_lanes_before_prompt_artifact_validation_
     assert validator_called["n"] == 0
 
 
+def _scratch_report_path() -> Path:
+    """`default_preflight_runner`'s own fixed, OS-temp-rooted report
+    location -- tests that fake `subprocess.run` (never a real preflight
+    subprocess) must write their fake report bytes HERE, since the
+    rewritten runner reads `--report`'s FILE, never `proc.stdout`."""
+    import tempfile as _tempfile
+
+    return Path(_tempfile.gettempdir()) / "final_pairing_discovery_preflight_scratch" / "report.json"
+
+
 def test_default_preflight_runner_rejects_a_zero_exit_with_a_non_passing_case():
     """The independent re-validation this task requires: a subprocess that
-    exits 0 but whose OWN JSON report contains a non-passing case (or a
-    executed/expected mismatch) must still be treated as a failure -- the
-    exit code alone is not trusted."""
+    exits 0 but whose OWN JSON report contains a non-True proof (or an
+    executed/expected/passed mismatch) must still be treated as a
+    failure -- the exit code alone is not trusted."""
     import json as _json
     import types
 
     lying_report = {
-        "schema_version": 1, "source_commit": "0" * 40, "expected_cases": 2, "executed_cases": 2, "passed_cases": 1,
-        "failed_cases": [],  # deliberately lying: "b" failed but is not listed here either
-        "cases": [
-            {"name": "a", "status": "pass", "detail": "", "elapsed_seconds": 0.0},
-            {"name": "b", "status": "fail", "detail": "boom", "elapsed_seconds": 0.0},
-        ],
-        "overall_passed": True,  # deliberately lying about its own per-case results
-        "proofs": {},
+        "schema_version": "2", "source_commit": "0" * 40, "expected_case_count": 2, "executed_case_count": 2,
+        "passed_case_count": 1,
+        "failed_cases": [],  # deliberately lying: one proof is False but not listed here either
+        "overall_passed": True,  # deliberately lying about its own proofs
+        "proofs": {**dict.fromkeys(job.LA_B_PROOF_KEYS, True), "concept_complete_ordering": False},
     }
+    report_path = _scratch_report_path()
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(_json.dumps(lying_report), encoding="utf-8")
 
     def fake_run(*args, **kwargs):
         return types.SimpleNamespace(returncode=0, stdout=_json.dumps(lying_report), stderr="")
@@ -471,18 +481,26 @@ def test_default_preflight_runner_rejects_a_zero_exit_with_a_non_passing_case():
         try:
             job.default_preflight_runner(job.REPO_ROOT)
         except job.PreflightFailed as exc:
-            assert "did not report 'pass'" in str(exc) or "case(s) did not report" in str(exc)
+            assert "not literally True" in str(exc)
         else:
-            raise AssertionError("expected PreflightFailed for a report with a non-passing case")
+            raise AssertionError("expected PreflightFailed for a report with a non-True proof")
     finally:
         _subprocess.run = original
+        report_path.unlink(missing_ok=True)
 
 
-def test_default_preflight_runner_rejects_unparsable_output():
+def test_default_preflight_runner_rejects_a_missing_report_file():
+    """`--report` MUST be written even on failure (LA-B contract) -- if
+    the subprocess exits without ever producing the file at all, this is
+    refused with its own explicit message, never confused with an
+    unparsable-JSON failure."""
     import types
 
+    report_path = _scratch_report_path()
+    report_path.unlink(missing_ok=True)
+
     def fake_run(*args, **kwargs):
-        return types.SimpleNamespace(returncode=1, stdout="not json", stderr="traceback")
+        return types.SimpleNamespace(returncode=1, stdout="", stderr="traceback")
 
     import subprocess as _subprocess
     original = _subprocess.run
@@ -491,11 +509,70 @@ def test_default_preflight_runner_rejects_unparsable_output():
         try:
             job.default_preflight_runner(job.REPO_ROOT)
         except job.PreflightFailed as exc:
-            assert "non-JSON output" in str(exc)
+            assert "did not write --report" in str(exc)
         else:
-            raise AssertionError("expected PreflightFailed for unparsable output")
+            raise AssertionError("expected PreflightFailed for a missing --report file")
     finally:
         _subprocess.run = original
+
+
+def test_default_preflight_runner_rejects_unparsable_report_content():
+    import types
+
+    report_path = _scratch_report_path()
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("not json", encoding="utf-8")
+
+    def fake_run(*args, **kwargs):
+        return types.SimpleNamespace(returncode=1, stdout="", stderr="traceback")
+
+    import subprocess as _subprocess
+    original = _subprocess.run
+    _subprocess.run = fake_run
+    try:
+        try:
+            job.default_preflight_runner(job.REPO_ROOT)
+        except job.PreflightFailed as exc:
+            assert "not valid JSON" in str(exc)
+        else:
+            raise AssertionError("expected PreflightFailed for unparsable report content")
+    finally:
+        _subprocess.run = original
+        report_path.unlink(missing_ok=True)
+
+
+def test_default_preflight_runner_rejects_a_source_commit_disagreeing_with_this_extraction():
+    """`source_commit` must equal the extraction's OWN independently-
+    resolved commit, not merely be present -- a report claiming a
+    DIFFERENT (but well-formed) commit is refused."""
+    import json as _json
+    import types
+
+    wrong_commit_report = {
+        "schema_version": "2", "source_commit": "1" * 40, "expected_case_count": 1, "executed_case_count": 1,
+        "passed_case_count": 1, "failed_cases": [], "overall_passed": True,
+        "proofs": dict.fromkeys(job.LA_B_PROOF_KEYS, True),
+    }
+    report_path = _scratch_report_path()
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(_json.dumps(wrong_commit_report), encoding="utf-8")
+
+    def fake_run(*args, **kwargs):
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    import subprocess as _subprocess
+    original = _subprocess.run
+    _subprocess.run = fake_run
+    try:
+        try:
+            job.default_preflight_runner(job.REPO_ROOT)
+        except job.PreflightFailed as exc:
+            assert "independently-resolved" in str(exc)
+        else:
+            raise AssertionError("expected PreflightFailed for a source_commit disagreeing with this extraction")
+    finally:
+        _subprocess.run = original
+        report_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------

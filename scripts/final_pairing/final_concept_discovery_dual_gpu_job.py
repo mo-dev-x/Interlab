@@ -483,54 +483,157 @@ class PreflightFailed(RuntimeError):
     actually add up to a full pass."""
 
 
+#: The seven LA-B proof keys `discovery_preflight.py` must emit -- mirrored
+#: here (never imported from that script, which is deliberately pytest-
+#: free/import-light) so this independent re-validation can enumerate and
+#: check EVERY one by name, rather than trusting `overall_passed` alone.
+LA_B_PROOF_KEYS: tuple[str, ...] = (
+    "sweep_and_confirmation_seeds_disjoint",
+    "all_required_per_dose_per_purpose_files_exist",
+    "concept_complete_ordering",
+    "wall_time_refusal_before_incomplete_concept",
+    "confirmation_outputs_all_five_doses_generated_not_inspected",
+    "measured_sae_hashes_match_identity_v13",
+    "separate_scalar_direction_manifests_amplify_and_suppress",
+)
+LA_B_REPORT_REQUIRED_FIELDS: tuple[str, ...] = (
+    "schema_version", "source_commit", "expected_case_count", "executed_case_count",
+    "passed_case_count", "failed_cases", "overall_passed", "proofs",
+)
+
+
+def _resolve_expected_source_commit(repo_root: Path) -> str:
+    """The extraction's OWN transfer-manifest commit, independently
+    resolved here (not merely re-read from the preflight's self-report):
+    `transfer_manifest.json`'s recorded `source_commit` on a git-archive
+    extraction (Tamia), else a live `git rev-parse HEAD` on a dev
+    checkout that still has `.git`. Mirrors `discovery_preflight.
+    resolve_source_commit`'s own precedence, computed independently so a
+    bug in that function cannot silently launder its own wrong answer
+    past this check."""
+    import final_pairing_concept_discovery as discovery
+
+    transfer_manifest = discovery.load_transfer_manifest(repo_root)
+    if transfer_manifest is not None:
+        return transfer_manifest["source_commit"]
+    proc = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "HEAD"], capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise PreflightFailed(f"could not independently resolve the expected source_commit: {proc.stderr}")
+    return proc.stdout.strip()
+
+
 def default_preflight_runner(repo_root: Path) -> dict:
     """Runs `discovery_preflight.py` as a REAL SUBPROCESS (never imported
-    and called in-process for this purpose) and independently
-    re-validates its JSON report -- this driver does not trust the
-    subprocess's exit code alone, in case the preflight script itself has
-    a bug that exits 0 without every case actually having run and passed.
-    Raises `PreflightFailed` with the full report on any discrepancy.
+    and called in-process for this purpose) against the LA-B contract's
+    exact eight CLI flags, reads its `--report` file (the artifact the
+    contract requires to exist even on failure -- read in preference to
+    stdout, which this function does not trust as the authoritative
+    copy), and independently re-validates EVERY field: this driver does
+    not trust the subprocess's exit code, `overall_passed` alone, or the
+    preflight's own self-reported `source_commit` -- each of the eight
+    top-level fields and all seven named `proofs` are checked explicitly,
+    and `source_commit` is compared against a SEPARATELY, independently
+    resolved expected commit (`_resolve_expected_source_commit`), never
+    merely asserted non-empty. Raises `PreflightFailed` with the full
+    report on any discrepancy.
 
-    `--sentinel-dir` is REQUIRED by the preflight script itself (P0
-    STOP-LINE correction) -- a stable, OS-temp-rooted directory distinct
-    from the preflight's own per-run `tempfile.TemporaryDirectory`, so it
-    genuinely proves nothing was written outside that tmp_root, across
-    however many times this runner is invoked."""
-    import subprocess
-    import sys as _sys
+    The four explicit artifact paths (`--prompt-sets`/`--prompt-metadata`/
+    `--backup-trigger`/`--pairing-config`) are this repo's own frozen,
+    pinned relative locations under `repo_root` -- read from `final_
+    pairing_concept_discovery`'s own constants, never re-typed as a
+    second, driftable copy. `--gemma-output-root`/`--qwen-output-root`
+    and `--sentinel-dir` are stable, OS-temp-rooted scratch directories
+    distinct from the preflight's own per-run `tempfile.
+    TemporaryDirectory`, so repeated invocations of this runner (and the
+    sibling-tree-isolation proof inside the preflight itself) have a
+    consistent, externally-verifiable location to prove nothing leaked
+    outside its own tmp_root."""
     import tempfile as _tempfile
 
-    sentinel_dir = Path(_tempfile.gettempdir()) / "final_pairing_discovery_preflight_sentinel"
+    import final_pairing_concept_discovery as discovery
+
+    scratch_root = Path(_tempfile.gettempdir()) / "final_pairing_discovery_preflight_scratch"
+    report_path = scratch_root / "report.json"
     proc = subprocess.run(
-        [_sys.executable, str(PREFLIGHT_SCRIPT), "--sentinel-dir", str(sentinel_dir)],
+        [
+            sys.executable, str(PREFLIGHT_SCRIPT),
+            "--prompt-sets", str(repo_root / discovery.FROZEN_PROMPT_SET_DIR / "prompt_sets.jsonl"),
+            "--prompt-metadata", str(repo_root / discovery.FROZEN_PROMPT_SET_DIR / "metadata.json"),
+            "--backup-trigger", str(repo_root / discovery.BACKUP_TRIGGER_PROTOCOL_PATH),
+            "--pairing-config", str(repo_root / discovery.IDENTITY_PROTOCOL_PATH),
+            "--gemma-output-root", str(scratch_root / "gemma_output"),
+            "--qwen-output-root", str(scratch_root / "qwen_output"),
+            "--sentinel-dir", str(scratch_root / "sentinel"),
+            "--report", str(report_path),
+        ],
         cwd=str(repo_root), capture_output=True, text=True,
     )
+    if not report_path.is_file():
+        raise PreflightFailed(
+            f"discovery_preflight.py did not write --report at {report_path} (exit={proc.returncode}): "
+            f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
+        )
     try:
-        report = json.loads(proc.stdout)
+        report = json.loads(report_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise PreflightFailed(
-            f"discovery_preflight.py printed non-JSON output (exit={proc.returncode}): "
-            f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
+            f"discovery_preflight.py's --report file at {report_path} is not valid JSON (exit={proc.returncode}): "
+            f"stderr={proc.stderr!r}"
         ) from exc
 
-    non_passing = [c for c in report.get("cases", []) if c.get("status") != "pass"]
-    problems = []
+    problems: list[str] = []
     if proc.returncode != 0:
         problems.append(f"subprocess exit code {proc.returncode} != 0")
+
+    missing_fields = sorted(set(LA_B_REPORT_REQUIRED_FIELDS) - set(report))
+    if missing_fields:
+        problems.append(f"report is missing required top-level field(s): {missing_fields}")
+    unexpected_fields = sorted(set(report) - set(LA_B_REPORT_REQUIRED_FIELDS))
+    if unexpected_fields:
+        problems.append(f"report carries unexpected top-level field(s) not in the LA-B contract: {unexpected_fields}")
+
     if report.get("overall_passed") is not True:
         problems.append(f"report['overall_passed'] = {report.get('overall_passed')!r}, not True")
-    if report.get("executed_cases") != report.get("expected_cases"):
-        problems.append(f"executed_cases={report.get('executed_cases')} != expected_cases={report.get('expected_cases')}")
+    if report.get("executed_case_count") != report.get("expected_case_count"):
+        problems.append(
+            f"executed_case_count={report.get('executed_case_count')} != "
+            f"expected_case_count={report.get('expected_case_count')}"
+        )
+    if report.get("passed_case_count") != report.get("expected_case_count"):
+        problems.append(
+            f"passed_case_count={report.get('passed_case_count')} != expected_case_count={report.get('expected_case_count')}"
+        )
+    if not isinstance(report.get("expected_case_count"), int) or report.get("expected_case_count", 0) <= 0:
+        problems.append(f"expected_case_count must be a positive int, got {report.get('expected_case_count')!r}")
     if report.get("failed_cases"):
         problems.append(f"report['failed_cases'] is non-empty: {report.get('failed_cases')}")
-    if not report.get("source_commit"):
-        problems.append("report['source_commit'] is missing or empty")
-    if non_passing:
-        problems.append(f"{len(non_passing)} case(s) did not report 'pass': {[c['name'] for c in non_passing]}")
+
+    proofs = report.get("proofs") or {}
+    missing_proofs = sorted(set(LA_B_PROOF_KEYS) - set(proofs))
+    if missing_proofs:
+        problems.append(f"report['proofs'] is missing required key(s): {missing_proofs}")
+    unexpected_proofs = sorted(set(proofs) - set(LA_B_PROOF_KEYS))
+    if unexpected_proofs:
+        problems.append(f"report['proofs'] carries unexpected key(s) not in the LA-B contract: {unexpected_proofs}")
+    not_true_proofs = [key for key in LA_B_PROOF_KEYS if proofs.get(key) is not True]
+    if not_true_proofs:
+        problems.append(f"report['proofs'] key(s) not literally True: {not_true_proofs}")
+
+    source_commit = report.get("source_commit")
+    if not isinstance(source_commit, str) or len(source_commit) != 40 or any(c not in "0123456789abcdef" for c in source_commit.lower()):
+        problems.append(f"report['source_commit'] {source_commit!r} is not a full 40-character hex commit")
+    else:
+        expected_commit = _resolve_expected_source_commit(repo_root)
+        if source_commit != expected_commit:
+            problems.append(
+                f"report['source_commit']={source_commit!r} != this extraction's own independently-resolved "
+                f"commit {expected_commit!r}"
+            )
+
     if problems:
         raise PreflightFailed(
-            "discovery_preflight.py did not report a clean pass (checked independently of its exit "
-            f"code): {'; '.join(problems)}. Full report: {json.dumps(report)}"
+            "discovery_preflight.py did not report a clean pass under the LA-B contract (checked independently "
+            f"of its exit code and self-report): {'; '.join(problems)}. Full report: {json.dumps(report)}"
         )
     return report
 

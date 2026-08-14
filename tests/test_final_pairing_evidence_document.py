@@ -3,10 +3,10 @@
 No network, no eng3/concept-bundle checkout required for MOST of these
 tests -- `reconcile_against_static_snapshot` is checked against the
 committed static snapshot fixture (tests/fixtures/eng3_concept_bundle/
-accepted_input_schema_2003406.json, schema v2.0, generation-settings-
+accepted_input_schema_ff2a565.json, schema v3.0, manifest-immutability-
 aware), never a live worktree, and is explicitly NON-GATING. The prior
-ac9ea40 (schema v1.3) snapshot/report fixtures are kept alongside as the
-historical record, never deleted.
+ac9ea40 (schema v1.3)/2003406 (schema v2.0) snapshot/report fixtures are
+kept alongside as the historical record, never deleted.
 
 `test_real_runner_document_passes_live_gating_report_if_a_worktree_is_available`
 below DOES run the real, live `run_gating_report_with_eng3` subprocess --
@@ -14,18 +14,22 @@ but only if a checked-out `eng3/concept-bundle` worktree is present on
 this machine at `D:/devcache/wt/concept-bundle` (skipped, not failed,
 otherwise, since that path is this specific development machine's, not
 portable). A REAL, captured result of that exact run (at consumer commit
-2003406, the generation-settings-aware successor -- 2003406 is NOT an
+ff2a565, the manifest-immutability-aware successor -- ff2a565 is NOT an
 ancestor of this branch, confirmed via `git merge-base --is-ancestor` in
 both directions) is committed at tests/fixtures/eng3_concept_bundle/
-gating_report_result_2003406.json (`submission_may_proceed: true`,
-exit_code 0) -- see the closing report. Getting this to pass required
-fixing `producer_schema_declaration()`'s `causal_validation.selection_
-records`/`generation_manifests` blocks: the consumer's own field-
-flattening reconciler reads "keys" (the per-direction slot names) and
-"required"/"reference_required" (the referenced object's own fields) as
-structurally distinct keys, not inferred from a nested named sub-object
--- the producer's declaration now mirrors that convention exactly,
-verified against the real `accepted_input_schema()` output at 2003406.
+gating_report_result_ff2a565.json (`submission_may_proceed: true`,
+exit_code 0) -- see the closing report. Getting this to pass at 2003406
+required fixing `producer_schema_declaration()`'s `causal_validation.
+selection_records`/`generation_manifests` blocks (the consumer's own
+field-flattening reconciler reads "keys"/"required"/"reference_required"
+as structurally distinct keys, not inferred from a nested named
+sub-object); ff2a565's schema 3.0 bump required no further shape change
+to what this producer declares (verified live, both `reconcile-schema`
+and `gating-report` pass unmodified beyond the version bump itself) --
+only the manifest-immutability documentation additions (`content_
+required`/`content_rules`/`manifest_optional`/`manifest_file_prohibited`)
+were added, copied verbatim from the real `accepted_input_schema()`
+output at ff2a565.
 """
 
 from __future__ import annotations

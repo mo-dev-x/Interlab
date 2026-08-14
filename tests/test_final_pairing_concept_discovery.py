@@ -1176,6 +1176,86 @@ def test_compute_gate_a_and_b_per_family_honors_explicit_threshold_overrides():
     assert all(r.gate_b_passed for r in results)
 
 
+def _gate_a_synthetic_artifact(base_artifact, *, near_miss_texts: list[str]):
+    """A synthetic single-family ('f1') artifact for concept 'cheese'/locale
+    'en': 8 POSITIVE-triggering positive rows, 8 clean (non-triggering)
+    unrelated rows, and near_miss rows built from the caller's own
+    `near_miss_texts` -- everything else held fixed so any change in
+    `compute_gate_a_and_b_per_family`'s G-A verdict between two calls can
+    only be attributed to the near_miss content."""
+    import dataclasses
+
+    other_rows = [
+        r for r in base_artifact.rows
+        if not (r["concept_id"] == "cheese" and r["locale"] == "en" and r["split"] in ("positive", "unrelated", "near_miss"))
+    ]
+    positive_rows = [
+        {"concept_id": "cheese", "locale": "en", "split": "positive", "family": "f1", "text": f"POSITIVE example {i}"}
+        for i in range(8)
+    ]
+    unrelated_rows = [
+        {"concept_id": "cheese", "locale": "en", "split": "unrelated", "text": f"neutral filler {i}", "shared_substrate": True}
+        for i in range(8)
+    ]
+    near_miss_rows = [
+        {"concept_id": "cheese", "locale": "en", "split": "near_miss", "text": text}
+        for text in near_miss_texts
+    ]
+    return dataclasses.replace(base_artifact, rows=[*other_rows, *positive_rows, *unrelated_rows, *near_miss_rows])
+
+
+def test_compute_gate_a_and_b_per_family_pools_near_miss_into_the_negative_set():
+    """P0 FINAL DELTA correction: G-A's negative/control set is the POOL of
+    near_miss + unrelated (previously unrelated alone). Proven by holding
+    EVERYTHING constant (backend, feature, positive texts, unrelated
+    texts) and varying ONLY the near_miss split's content between two
+    synthetic artifacts: 'hard' near_miss foils that read exactly like the
+    POSITIVE-triggering pattern (indistinguishable from positive under
+    this fake backend) flip gate_a_passed from True to False relative to
+    'easy' near_miss foils that read like clean background noise -- if
+    near_miss were NOT actually pooled into G-A's negative set, swapping
+    its content could never change the verdict (G-C, the separate
+    positive-vs-near_miss-only specificity test, is untouched by this
+    change and is exercised independently below)."""
+    backend = make_fake_gemma_backend()
+    base_artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+
+    hard_artifact = _gate_a_synthetic_artifact(base_artifact, near_miss_texts=[f"POSITIVE foil {i}" for i in range(8)])
+    easy_artifact = _gate_a_synthetic_artifact(base_artifact, near_miss_texts=[f"neutral foil {i}" for i in range(8)])
+
+    hard = next(
+        r for r in d.compute_gate_a_and_b_per_family(
+            backend, hard_artifact, concept_id="cheese", locale="en", feature_index=CONCEPT_FEATURE, auroc_min=0.9,
+        ) if r.family == "f1"
+    )
+    easy = next(
+        r for r in d.compute_gate_a_and_b_per_family(
+            backend, easy_artifact, concept_id="cheese", locale="en", feature_index=CONCEPT_FEATURE, auroc_min=0.9,
+        ) if r.family == "f1"
+    )
+    assert easy.gate_a_passed is True
+    assert hard.gate_a_passed is False
+    assert hard.separation_auroc < easy.separation_auroc
+
+
+def test_compute_gate_c_per_family_is_unaffected_by_the_g_a_pooling_change():
+    """G-C (compute_gate_c_per_family) remains the SEPARATE positive-vs-
+    near_miss-ONLY specificity test -- it must report the SAME (low) AUROC
+    against the 'hard' near_miss foils above regardless of G-A's pooling
+    change, since G-C never reads 'unrelated' at all."""
+    backend = make_fake_gemma_backend()
+    base_artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    hard_artifact = _gate_a_synthetic_artifact(base_artifact, near_miss_texts=[f"POSITIVE foil {i}" for i in range(8)])
+
+    result = next(
+        r for r in d.compute_gate_c_per_family(
+            backend, hard_artifact, concept_id="cheese", locale="en", feature_index=CONCEPT_FEATURE, auroc_min=0.9,
+        ) if r.family == "f1"
+    )
+    assert result.gate_c_passed is False
+    assert result.near_miss_auroc < 0.9
+
+
 # ---------------------------------------------------------------------------
 # Gemma hook preflight (dynamic hook resolution assertions)
 # ---------------------------------------------------------------------------

@@ -14,12 +14,14 @@ live-judge reachability; this file is that claim's actual home, still
 without spending money.
 
 Emits strict JSON: `{"expected_cases", "executed_cases", "passed_cases",
-"cases": [...], "overall": "pass"|"fail"}`, matching `discovery_
-preflight.py`'s own contract exactly (same `Runner`/`CaseResult` shape,
-independently re-derived here rather than importing that module's private
-internals, since this preflight is meant to be runnable standalone on a
-DIFFERENT machine that may not have this repository's GPU-side
-dependencies installed at all).
+"cases": [...], "overall": "pass"|"fail"}` -- this file's OWN contract,
+for the SEPARATE judge-stage machine; it does not track `discovery_
+preflight.py`'s own (LA-B) contract, which is a different shape for a
+different machine (`discovery_preflight.py` is the GPU-side preflight).
+`Runner`/`CaseResult` are independently re-derived here rather than
+importing that module's internals, since this preflight is meant to be
+runnable standalone on a DIFFERENT machine that may not have this
+repository's GPU-side dependencies installed at all.
 """
 
 from __future__ import annotations

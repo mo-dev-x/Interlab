@@ -770,6 +770,80 @@ def test_stamp_manifest_with_selection_never_touches_sweep_entries(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# GPU-closure proof (manifest immutability, item 5): stamp_manifest_with_
+# selection may exist ONLY as the explicitly non-promotable derived reading
+# aid the manifest-immutability correction (commit 2dc9e338) permits --
+# it must have ZERO callers reachable from any real GPU entry point. Built
+# from a real AST call graph (never executed, and never a raw substring
+# scan -- this file's own docstrings/tests NAME the function, which a
+# substring search would false-positive on), unioning every function every
+# GPU-side production module defines with the set of names it calls,
+# then walking the transitive closure. A conservative OVER-approximation
+# (any `foo(...)`/`x.foo(...)` records an edge to callee-name "foo",
+# whether or not it actually resolves to a same-module function) -- if the
+# target name is unreachable in this over-approximated union graph, it is
+# unreachable in every real, per-module call graph too.
+# ---------------------------------------------------------------------------
+
+_GPU_ENTRY_POINT_MODULE_PATHS: tuple[str, ...] = (
+    "final_pairing_concept_discovery.py",
+    "final_pairing_one_allocation_generation.py",
+    "final_concept_discovery_dual_gpu_job.py",
+    "final_concept_discovery_matched_configuration_job.py",
+    "discovery_preflight.py",
+)
+
+
+def _call_graph_for_source(source: str) -> dict[str, set[str]]:
+    import ast
+
+    tree = ast.parse(source)
+    graph: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            called: set[str] = set()
+            for sub in ast.walk(node):
+                if not isinstance(sub, ast.Call):
+                    continue
+                func = sub.func
+                if isinstance(func, ast.Name):
+                    called.add(func.id)
+                elif isinstance(func, ast.Attribute):
+                    called.add(func.attr)
+            graph.setdefault(node.name, set()).update(called)
+    return graph
+
+
+def _reachable_from(graph: dict[str, set[str]], start: str) -> set[str]:
+    seen: set[str] = set()
+    frontier = [start]
+    while frontier:
+        name = frontier.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        frontier.extend(callee for callee in graph.get(name, ()) if callee not in seen)
+    return seen
+
+
+def test_stamp_manifest_with_selection_is_unreachable_from_any_gpu_entry_point():
+    combined: dict[str, set[str]] = {}
+    for filename in _GPU_ENTRY_POINT_MODULE_PATHS:
+        source = (REPO_ROOT / "scripts" / "final_pairing" / filename).read_text(encoding="utf-8")
+        for name, calls in _call_graph_for_source(source).items():
+            combined.setdefault(name, set()).update(calls)
+
+    entry_points = ("main", "run_dual_gpu_job", "run_dual_gpu_job_for_lanes", "run_matched_configuration_job", "run_generation_mode", "run_all_cases")
+    for entry in entry_points:
+        reachable = _reachable_from(combined, entry)
+        assert "stamp_manifest_with_selection" not in reachable, (
+            f"{entry}()'s call graph reaches stamp_manifest_with_selection -- the manifest-immutability "
+            f"correction (2dc9e338) requires this function be reachable from NO GPU entry point; it may "
+            f"be called only as an explicitly non-promotable, offline reading aid"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Production generation CLI (P0 CONTINUE blocker 2): the real scheduled
 # entry point, exercised END TO END against a REAL grid.json and the REAL
 # frozen prompt artifact (not stage-by-stage unit calls) -- proves

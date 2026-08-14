@@ -6,18 +6,64 @@ dual-GPU driver BEFORE either child loads real weights (see
 calls this module's `run_all_cases` first and independently re-validates
 the returned report rather than trusting only this process's exit code).
 
-Emits strict JSON (LA-B schema): `{"schema_version", "source_commit",
-"expected_cases", "executed_cases", "passed_cases", "failed_cases":
-[...names...], "cases": [...], "overall_passed": bool, "proofs":
-{...named booleans...}}`. `source_commit` is resolved WITHOUT requiring
-`.git` (`resolve_source_commit`: `transfer_manifest.json` on Tamia, live
-`git rev-parse HEAD` on a dev checkout). Exit 0 ONLY when EVERY case
-executes and reports `"pass"` AND `executed_cases == expected_cases` --
-there is no "skipped" status. A missing optional dependency is recorded
-as `"setup_failure"` (still causing a nonzero exit), never silently
-treated as a pass or omitted from the count. `--sentinel-dir` optionally
-proves the entire call graph never wrote outside its own tmp_root, even
-into an externally-nominated sibling tree.
+LA-B PREFLIGHT CONTRACT (P0 FINAL DELTA, verbatim, no approximation): the
+CLI accepts EXACTLY `--prompt-sets`, `--prompt-metadata`, `--backup-
+trigger`, `--pairing-config`, `--gemma-output-root`, `--qwen-output-root`,
+`--sentinel-dir`, `--report` -- eight flags, all required, no defaults.
+`--report` is ALWAYS written, pass or fail: a setup-level exception (a bad
+path, a hash mismatch in one of the four frozen artifacts) is caught in
+`main()` and turned into a failure-shaped report rather than an
+uncaught traceback with no JSON output at all.
+
+The four explicit input paths (`--prompt-sets`/`--prompt-metadata`/
+`--backup-trigger`/`--pairing-config`) exist so this script does not
+assume its OWN file's location (`Path(__file__).resolve().parents[2]`)
+still describes the real repository root after a `git archive` transfer
+to a different directory layout -- `resolve_and_validate_repo_root`
+derives the one true `repo_root` from `--prompt-sets` and then asserts
+the other three resolve under that SAME root at their own frozen
+relative locations, failing closed on any of the four pointing somewhere
+inconsistent. DISCLOSED CHOICE: `--pairing-config` names `protocols/
+final_pairing/v1/scientific_config_identity.json` (`IDENTITY_PROTOCOL_
+PATH`, the frozen identity artifact this file's own module docstring
+calls "v1.3.0, commit 5a5175d") -- the ONLY identity artifact this
+contract's eight flags name a path for; the Qwen-specific supplemental
+(`qwen_config_identity.json`) is still hash-validated internally (via
+`repo_root`, derived from the four explicit paths), just not given its
+own top-level CLI flag, since the contract lists exactly eight.
+
+`--gemma-output-root`/`--qwen-output-root` are where this preflight
+proves job-id-rooted output writing for each pairing (see `case_exact_
+job_roots` below) -- the same directories the real scheduled job writes
+`grid.json`/generation manifests under.
+
+Emits EXACTLY this JSON (LA-B schema, `SCHEMA_VERSION` below): `{
+"schema_version": <string>, "source_commit": <40-hex string>,
+"expected_case_count": <int > 0>, "executed_case_count": <int>,
+"passed_case_count": <int>, "failed_cases": [...names...],
+"overall_passed": <bool>, "proofs": {...seven named booleans...}}` --
+NO OTHER TOP-LEVEL FIELD, no "cases" array, no generic proof-key
+vocabulary. `proofs` carries EXACTLY: `sweep_and_confirmation_seeds_
+disjoint`, `all_required_per_dose_per_purpose_files_exist`, `concept_
+complete_ordering`, `wall_time_refusal_before_incomplete_concept`,
+`confirmation_outputs_all_five_doses_generated_not_inspected`,
+`measured_sae_hashes_match_identity_v13`, `separate_scalar_direction_
+manifests_amplify_and_suppress` -- seven keys, no more, no fewer, none
+renamed. `source_commit` is resolved WITHOUT requiring `.git`
+(`resolve_source_commit`: `transfer_manifest.json` on Tamia, live
+`git rev-parse HEAD` on a dev checkout) and MUST equal the extraction's
+own transfer-manifest commit when one is present -- `default_
+preflight_runner` (in `final_concept_discovery_dual_gpu_job.py`)
+independently re-checks this equality rather than trusting this
+process's own report.
+
+Internally this still runs MANY more real, pytest-free cases than the
+seven named proofs alone (grid creation, gate logic, checkpoint resume,
+schema reconciliation, staggered load, and more) -- `executed_case_count`
+counts ALL of them, and `overall_passed` requires every one to pass, not
+merely the seven that get their own named proof. `EXPECTED_CASE_COUNT`
+is the actual number of `case()` calls in `run_all_cases`, never a
+hand-typed guess that could silently drift from what the script runs.
 
 WHY PYTEST-FREE: this script is meant to run as part of the SCHEDULED
 Tamia job, where the sanctioned environment is deliberately minimal (see
@@ -38,7 +84,11 @@ fully offline, always capable of passing -- and does NOT gate on whether
 process: that is a precondition of a different machine's preflight
 (the judge stage's own), not this one's. Gating this script on lodestar's
 presence would make it permanently unable to pass on the exact machine
-it exists to run on.
+it exists to run on. `final_pairing_judge_cli.py` (stages 4-5) is never
+imported here either, for the same reason: the "all five confirmation
+doses generated, only the selected three ever inspected" proof below is
+built entirely from this module's/`final_pairing_one_allocation_
+generation.py`'s own manifest vocabulary, not the judge stage's.
 """
 
 from __future__ import annotations
@@ -51,7 +101,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -61,24 +111,42 @@ LEGACY_SCRIPT_DIR = SCRIPT_DIR.parent / "legacy"
 sys.path.insert(0, str(LEGACY_SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR))  # inserted LAST -> searched FIRST, so this file's own name never resolves to a scripts/legacy/ compatibility stub of the same name
 
-SCHEMA_VERSION = 1
+#: LA-B schema, STRING now (was int 1) -- bumped for the P0 FINAL DELTA
+#: contract rewrite (explicit CLI paths, the eight-field/seven-proof
+#: report shape below), which is not backward-compatible with the prior
+#: `expected_cases`/`executed_cases`/`passed_cases`/`cases` shape.
+SCHEMA_VERSION = "2"
 NONCANONICAL_SIBLING_EXAMPLE = "run_20260813_la_c"  # named directly in the 2026-08-13 staging-facts addendum
 CONCEPT_FEATURE = 3  # matches final_pairing_fakes.CONCEPT_FEATURE -- the fake SAE's real concept-carrying feature
-#: The 17 required items from the original module docstring map onto 13
-#: case() calls (three calls each cover more than one item: 2+3, 10+12+13,
-#: 16+17); the P0-CONTINUE blocker-4 proof areas (causal-order generation,
-#: manifests, controls, prompt IDs, explicit kwargs, readiness) add 4 more
-#: case() calls (18-21). This is the actual count of case() calls in
-#: run_all_cases, not a hand-typed constant -- it cannot silently drift
-#: from what the script runs.
-EXPECTED_CASE_COUNT = 17
+#: The actual number of `case()` calls in `run_all_cases` -- never a
+#: hand-typed guess, and asserted equal to `len(runner.results)` at the
+#: end of that function so it cannot silently drift.
+EXPECTED_CASE_COUNT = 23
+
+#: The SEVEN literal proof keys the LA-B contract requires, exactly as
+#: named -- used both to build a passing report's `proofs` dict and to
+#: build an all-False `proofs` dict for the setup-failure path (case 1
+#: below), so the failure shape can never accidentally carry a DIFFERENT
+#: key set than the success shape.
+PROOF_KEYS: tuple[str, ...] = (
+    "sweep_and_confirmation_seeds_disjoint",
+    "all_required_per_dose_per_purpose_files_exist",
+    "concept_complete_ordering",
+    "wall_time_refusal_before_incomplete_concept",
+    "confirmation_outputs_all_five_doses_generated_not_inspected",
+    "measured_sae_hashes_match_identity_v13",
+    "separate_scalar_direction_manifests_amplify_and_suppress",
+)
 
 
 class SetupFailure(RuntimeError):
     """A case raises this to report a missing optional dependency or
     environment precondition it cannot proceed without -- distinct from a
     genuine logic defect (`status='fail'`). Still causes a nonzero exit;
-    never treated as a skip."""
+    never treated as a skip. Also raised by `resolve_and_validate_repo_
+    root`/CLI-level setup problems that occur BEFORE `run_all_cases` is
+    ever called -- `main()` catches this (and any other exception) at
+    that outer level and still writes `--report`."""
 
 
 @dataclass
@@ -122,11 +190,30 @@ def _numpy_bootstrap_ci(values, *, seed=42, confidence=0.95, n_resamples=300):
     return float(np.quantile(estimates, tail)), float(np.quantile(estimates, 1 - tail))
 
 
-def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
+def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, qwen_output_root: Path) -> dict[str, Any]:
     """Runs every required case and returns the strict JSON report as a
     dict (never prints or exits -- that is `main`'s job, so
     `final_concept_discovery_dual_gpu_job.py` can call this in-process and
-    inspect the report directly)."""
+    inspect the report directly). `repo_root` is the LA-B-resolved root
+    (from the four explicit `--prompt-sets`/etc. paths, never `REPO_ROOT`
+    directly); `gemma_output_root`/`qwen_output_root` are where the
+    job-id-rootedness proof writes real grid results."""
+    # Re-assert SCRIPT_DIR at sys.path[0] before importing the two
+    # non-legacy orchestration modules below: `final_pairing_harness.py`
+    # (scripts/legacy/, imported transitively by `final_pairing_concept_
+    # discovery` -- and, via `resolve_and_validate_repo_root`, possibly
+    # already imported by the time this function runs) does its OWN
+    # `sys.path.insert(0, str(Path(__file__).resolve().parent))` for ITS
+    # OWN sibling-module needs (`gemma3_tool.py`) -- since ITS `__file__`
+    # lives in scripts/legacy/, that push lands scripts/legacy ahead of
+    # scripts/final_pairing globally. If that already happened, the FIRST
+    # (i.e. cache-populating) import of `final_concept_discovery_dual_gpu_
+    # job`/`final_concept_discovery_matched_configuration_job` below would
+    # otherwise resolve to scripts/legacy's own thin `runpy`-forwarding
+    # stubs of the SAME name (real, committed compatibility shims for the
+    # old CLI path, never meant to be imported as a library) instead of
+    # the real modules -- reproduced and root-caused during this rewrite.
+    sys.path.insert(0, str(SCRIPT_DIR))
     import final_concept_discovery_dual_gpu_job as dual_gpu
     import final_concept_discovery_matched_configuration_job as matched
     import final_pairing_causal_judge as judge_mod
@@ -142,10 +229,11 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     # 1. Frozen prompt and protocol hash validation.
     # -----------------------------------------------------------------
     def case_frozen_hashes() -> str:
-        d.run_prompt_set_validator(REPO_ROOT)
-        artifact = d.load_frozen_prompt_artifact(REPO_ROOT, allow_pi_gated=True)
-        d.validate_backup_trigger_protocol_hash(REPO_ROOT)
-        d.validate_scientific_config_identity_hash(REPO_ROOT)
+        d.run_prompt_set_validator(repo_root)
+        artifact = d.load_frozen_prompt_artifact(repo_root, allow_pi_gated=True)
+        d.validate_backup_trigger_protocol_hash(repo_root)
+        d.validate_scientific_config_identity_hash(repo_root)
+        d.validate_qwen_config_identity_protocol_hash(repo_root)
         return (
             f"prompt_set_commit={artifact.commit[:12]} prompt_sha256={artifact.prompt_sets_sha256[:12]} "
             f"rows={len(artifact.rows)} backup_trigger_sha256_verified=True identity_v1.3_sha256_verified=True"
@@ -154,12 +242,12 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("frozen_prompt_and_protocol_hash_validation", case_frozen_hashes)
 
     # -----------------------------------------------------------------
-    # 2 + 3. Complete 14x2x3x3x2 grid, explicit PASS/FAIL/ERROR verdicts.
+    # 2. Complete 14x2x3x3x2 grid, explicit PASS/FAIL/ERROR verdicts.
     # -----------------------------------------------------------------
     artifact_holder: dict[str, Any] = {}
 
     def case_complete_grid() -> str:
-        artifact = d.load_frozen_prompt_artifact(REPO_ROOT, allow_pi_gated=True)
+        artifact = d.load_frozen_prompt_artifact(repo_root, allow_pi_gated=True)
         artifact_holder["artifact"] = artifact
         concept_ids = sorted({r["concept_id"] for r in artifact.rows})
         if len(concept_ids) != 14:
@@ -201,7 +289,7 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("complete_14x2x3x3x2_grid_with_explicit_pass_fail_error_verdicts", case_complete_grid)
 
     # -----------------------------------------------------------------
-    # 4. Same-feature G-A/B/C conjunction.
+    # 3. Same-feature G-A/B/C conjunction.
     # -----------------------------------------------------------------
     def case_same_feature_conjunction() -> str:
         ab = [d.GateABResult(concept_id="c", locale="en", family="f1", feature_index=3, separation_auroc=0.95, gate_a_passed=True, fire_rate=0.8, activation_floor_fraction=0.2, gate_b_passed=True)]
@@ -220,7 +308,7 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("same_feature_gabc_conjunction_never_combines_different_features", case_same_feature_conjunction)
 
     # -----------------------------------------------------------------
-    # 5. Incomplete-primary FAIL_RUN.
+    # 4. Incomplete-primary FAIL_RUN.
     # -----------------------------------------------------------------
     def case_incomplete_primary_fail_run() -> str:
         result = d.evaluate_backup_trigger(primary_complete=False, primary_shared_gabc_count=None)
@@ -231,7 +319,7 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("incomplete_primary_reports_fail_run", case_incomplete_primary_fail_run)
 
     # -----------------------------------------------------------------
-    # 6. Automatic primary_shared_gabc_count and backup decision.
+    # 5. Automatic primary_shared_gabc_count and backup decision.
     # -----------------------------------------------------------------
     def case_automatic_trigger() -> str:
         concept_ids = [f"synthetic-c{i}" for i in range(5)]
@@ -254,7 +342,7 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("automatic_shared_gabc_count_and_backup_decision", case_automatic_trigger)
 
     # -----------------------------------------------------------------
-    # 7. Both-or-neither matched backup execution.
+    # 6. Both-or-neither matched backup execution.
     # -----------------------------------------------------------------
     def case_both_or_neither_backup() -> str:
         class _FakeProcess:
@@ -321,7 +409,11 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
         # run_matched_configuration_job's SEQUENCING only, never a real
         # recursive preflight spawn.
         def fake_run_preflight(repo_root):
-            return {"overall_passed": True, "executed_cases": 0, "expected_cases": 0, "failed_cases": [], "cases": []}
+            return {
+                "schema_version": SCHEMA_VERSION, "source_commit": "0" * 40,
+                "expected_case_count": 0, "executed_case_count": 0, "passed_case_count": 0,
+                "failed_cases": [], "overall_passed": True, "proofs": dict.fromkeys(PROOF_KEYS, True),
+            }
 
         def fake_validate_prompt_artifact(repo_root):
             return None
@@ -346,7 +438,7 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("both_or_neither_matched_backup_execution", case_both_or_neither_backup)
 
     # -----------------------------------------------------------------
-    # 8. G-D/G-E gate logic (pure arithmetic; see module docstring for why
+    # 7. G-D/G-E gate logic (pure arithmetic; see module docstring for why
     #    live-judge reachability is NOT part of this preflight).
     # -----------------------------------------------------------------
     def case_gate_d_e_logic() -> str:
@@ -374,7 +466,7 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("g_d_g_e_gate_logic_pass_and_null_on_automated_failure", case_gate_d_e_logic)
 
     # -----------------------------------------------------------------
-    # 9. Suppress spot-read acceptance and refusal.
+    # 8. Suppress spot-read acceptance and refusal.
     # -----------------------------------------------------------------
     def case_spot_read_lifecycle() -> str:
         steered = {f"p{i}": [1.0] for i in range(10)}
@@ -406,14 +498,14 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("suppress_spot_read_acceptance_and_refusal", case_spot_read_lifecycle)
 
     # -----------------------------------------------------------------
-    # 10 + 12 + 13. Assembled discovery document: amplify-only after
-    # failed suppress, ALL + GENERATED_ONLY diagnostic separation, four
-    # binding records plus a separate feature_certificate.
+    # 9. Assembled discovery document: amplify-only after failed suppress,
+    #    ALL + GENERATED_ONLY diagnostic separation, four binding records
+    #    plus a separate feature_certificate.
     # -----------------------------------------------------------------
     document_holder: dict[str, Any] = {}
 
     def case_document_shape() -> str:
-        head = _git_head()
+        head = _git_head(repo_root)
         synthetic_manifest_path = tmp_root / "generation_manifest_amplify_synthetic.json"
         synthetic_manifest_path.write_text(json.dumps({"synthetic": "preflight manifest, not a real run"}), encoding="utf-8")
         synthetic_selection_path = tmp_root / "selection_record_amplify_synthetic.json"
@@ -475,18 +567,12 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
         )
         document_holder["document"] = document
 
-        # 10: Amplify-only after failed/absent Suppress.
         if document["calibration"]["directions"]["suppress"] is not None:
             raise AssertionError("expected calibration.directions.suppress to be None (null Suppress)")
         if document["calibration"]["directions"]["amplify"] is None:
             raise AssertionError("expected calibration.directions.amplify to be present")
-
-        # 12: publishable positions=ALL; a generated_only diagnostic (if present) never substitutes.
         if document["positions"] != "all" or document["causal_validation"]["positions"] != "all":
             raise AssertionError("expected positions='all' for the publishable calibration and its backing gates")
-
-        # 13: four binding records (prompt_set, discovery-implied-by-pairing/concept/discovery,
-        # causal_validation, dose_response) plus a SEPARATE feature_certificate (validation).
         for key in ("prompt_set", "pairing", "concept", "discovery", "causal_validation", "dose_response", "validation"):
             if key not in document:
                 raise AssertionError(f"assembled document is missing required block {key!r}")
@@ -497,7 +583,7 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("document_amplify_only_all_positions_four_binding_records", case_document_shape)
 
     # -----------------------------------------------------------------
-    # 11. Dose curve and LOW/MEDIUM/HIGH derivation.
+    # 10. Dose curve and LOW/MEDIUM/HIGH derivation.
     # -----------------------------------------------------------------
     def case_dose_and_calibration() -> str:
         outcomes = [
@@ -517,10 +603,10 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("dose_curve_low_medium_high_derivation", case_dose_and_calibration)
 
     # -----------------------------------------------------------------
-    # 14. Checkpoint interruption and exact-cell resume.
+    # 11. Checkpoint interruption and exact-cell resume.
     # -----------------------------------------------------------------
     def case_checkpoint_resume() -> str:
-        artifact = artifact_holder.get("artifact") or d.load_frozen_prompt_artifact(REPO_ROOT, allow_pi_gated=True)
+        artifact = artifact_holder.get("artifact") or d.load_frozen_prompt_artifact(repo_root, allow_pi_gated=True)
         concept_ids = sorted({r["concept_id"] for r in artifact.rows})[:3]
         backend = fakes.make_fake_gemma_backend()
         progress_path = tmp_root / "resume_progress.jsonl"
@@ -529,8 +615,6 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
         if len(first) != 3:
             raise AssertionError(f"expected 3 verdicts on the first (uninterrupted) pass, got {len(first)}")
 
-        # Resume: a FRESH ProgressLog instance reading the SAME file must
-        # recognize all 3 cells as already done and never recompute them.
         resumed_progress = d.ProgressLog(progress_path)
         calls = {"n": 0}
         original = d.evaluate_concept_on_pairing
@@ -553,7 +637,7 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("checkpoint_interruption_and_exact_cell_resume", case_checkpoint_resume)
 
     # -----------------------------------------------------------------
-    # 15. Producer/consumer schema compatibility -- OFFLINE, NON-GATING
+    # 12. Producer/consumer schema compatibility -- OFFLINE, NON-GATING
     # defense-in-depth only (this Tamia compute node has no eng3/
     # concept-bundle checkout and no internet; the actual submission gate
     # is `run_gating_report_with_eng3`, run separately against a live
@@ -563,7 +647,7 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
         document = document_holder.get("document")
         if document is None:
             raise SetupFailure("document_amplify_only_all_positions_four_binding_records did not run first")
-        result = ed.reconcile_against_static_snapshot(REPO_ROOT, document)
+        result = ed.reconcile_against_static_snapshot(repo_root, document)
         if result["gating"]:
             raise AssertionError("reconcile_against_static_snapshot must never report itself as gating")
         if not result["compatible"]:
@@ -573,36 +657,42 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("producer_consumer_schema_compatibility_offline_nongating", case_schema_reconciliation)
 
     # -----------------------------------------------------------------
-    # 16 + 17. Exact $SLURM_JOB_ID roots; noncanonical sibling ignored.
+    # 13. Exact $SLURM_JOB_ID roots (BOTH pairings' own output roots);
+    #     noncanonical sibling ignored.
     # -----------------------------------------------------------------
-    def case_exact_job_root() -> str:
+    def case_exact_job_roots() -> str:
         job_id = os.environ.get("SLURM_JOB_ID", "preflight-synthetic-job-id")
-        job_root = tmp_root / "concept_discovery" / "gemma" / job_id
-        sibling_root = tmp_root / "concept_discovery" / "gemma" / NONCANONICAL_SIBLING_EXAMPLE
+        details = []
+        for pairing_target, output_root in (
+            (targets.GEMMA_3_12B_IT_TARGET, gemma_output_root), (targets.QWEN_3_5_27B_TARGET, qwen_output_root),
+        ):
+            job_root = output_root / job_id
+            sibling_root = output_root / NONCANONICAL_SIBLING_EXAMPLE
 
-        correct_verdicts = [d.ConceptPairingVerdict(concept_id="c0", pairing=targets.GEMMA_3_12B_IT_TARGET.name, status="pass", surviving_feature_index=3, candidates_evaluated=[], error=None)]
-        wrong_verdicts = [d.ConceptPairingVerdict(concept_id="c0", pairing=targets.GEMMA_3_12B_IT_TARGET.name, status="error", surviving_feature_index=None, candidates_evaluated=[], error="planted in the noncanonical sibling")]
-        d.write_grid_result(job_root, targets.GEMMA_3_12B_IT_TARGET.name, correct_verdicts)
-        d.write_grid_result(sibling_root, targets.GEMMA_3_12B_IT_TARGET.name, wrong_verdicts)
+            correct_verdicts = [d.ConceptPairingVerdict(concept_id="c0", pairing=pairing_target.name, status="pass", surviving_feature_index=3, candidates_evaluated=[], error=None)]
+            wrong_verdicts = [d.ConceptPairingVerdict(concept_id="c0", pairing=pairing_target.name, status="error", surviving_feature_index=None, candidates_evaluated=[], error="planted in the noncanonical sibling")]
+            d.write_grid_result(job_root, pairing_target.name, correct_verdicts)
+            d.write_grid_result(sibling_root, pairing_target.name, wrong_verdicts)
 
-        read_back = d.read_grid_result(job_root / "grid.json")
-        if read_back[0].status != "pass":
-            raise AssertionError(f"expected the EXACT job-root grid to be read, got status={read_back[0].status!r} (sibling contamination?)")
+            read_back = d.read_grid_result(job_root / "grid.json")
+            if read_back[0].status != "pass":
+                raise AssertionError(f"expected the EXACT job-root grid to be read for {pairing_target.name}, got status={read_back[0].status!r} (sibling contamination?)")
 
-        try:
-            d.read_grid_result(tmp_root / "concept_discovery" / "gemma" / "grid.json")
-        except FileNotFoundError:
-            pass
-        else:
-            raise AssertionError("expected read_grid_result to refuse a parent-directory path with no exact grid.json")
-        return f"job_root={job_root} sibling={sibling_root.name} exact-path read verified; parent-path read refused"
+            try:
+                d.read_grid_result(output_root / "grid.json")
+            except FileNotFoundError:
+                pass
+            else:
+                raise AssertionError(f"expected read_grid_result to refuse a parent-directory path with no exact grid.json for {pairing_target.name}")
+            details.append(f"{pairing_target.name}: job_root={job_root} sibling={sibling_root.name}")
+        return "; ".join(details) + " -- exact-path reads verified, parent-path reads refused, for both pairings"
 
-    runner.case("exact_slurm_job_id_root_and_noncanonical_sibling_ignored", case_exact_job_root)
+    runner.case("exact_slurm_job_id_root_and_noncanonical_sibling_ignored", case_exact_job_roots)
 
     # -----------------------------------------------------------------
-    # 18. Causal generation order: FIXED, G-A/B/C-independent,
+    # 14. Causal generation order: FIXED, G-A/B/C-independent,
     #     political_framing always last (generation_settings.json
-    #     section 4).
+    #     section 4). Feeds the "concept_complete_ordering" proof.
     # -----------------------------------------------------------------
     def case_causal_generation_order() -> str:
         ordered = one_alloc.order_concepts_for_causal_generation(
@@ -615,7 +705,7 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     runner.case("causal_generation_order_is_fixed_and_political_framing_last", case_causal_generation_order)
 
     # -----------------------------------------------------------------
-    # 19. One-allocation dose/control files carry REAL frozen prompt_ids
+    # 15. One-allocation dose/control files carry REAL frozen prompt_ids
     #     (never synthetic), a resolvable control_ref, and the frozen
     #     EXPLICIT generation kwargs -- exercised through the real
     #     scheduled functions against a fake backend, never a stub.
@@ -653,17 +743,15 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
         first_generation = payload["generations"][0]
         if first_generation["prompt_id"] != rows[0]["prompt_id"]:
             raise AssertionError(f"expected a real frozen prompt_id inside the physical file, got {first_generation['prompt_id']!r}")
-        # explicit kwargs are proven via the manifest case below (generation_kwargs is a
-        # manifest-level field, verbatim from what was actually passed to generate_dose_file).
         return f"prompt_ids={dose_record.prompt_ids} control_ref_resolves=True generation_kwargs_passed=True"
 
     runner.case("one_allocation_dose_and_control_files_carry_real_prompt_ids_and_explicit_kwargs", case_prompt_ids_controls_and_explicit_kwargs)
 
     # -----------------------------------------------------------------
-    # 20. Generation manifest: schema-2.0 required fields, one entry per
+    # 16. Generation manifest: schema-required fields, one entry per
     #     generation (not per physical file), real transfer verification.
     # -----------------------------------------------------------------
-    def case_generation_manifest_schema_2() -> str:
+    def case_generation_manifest_schema_required_fields() -> str:
         backend = fakes.make_fake_gemma_backend()
         corpus_max = d.corpus_max_per_feature(backend, ["background text"])
         rows = [
@@ -693,10 +781,6 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
             model_revision="0" * 40, sae_revision="0" * 40, release="gemma-scope-2-12b-it-res-all",
             loader_sae_id="layer_29_width_16k_l0_big", scientific_sae_id="resid_post_all/layer_29_width_16k_l0_big",
             measured_params_sha256="1" * 64,
-            # Engineer 3 delta (commit 9a32246): the FULL resolved kwargs (all
-            # 10 frozen values, including max_new_tokens), never the bare
-            # 9-key GENERATION_SETTINGS constant -- matching run_generation_
-            # mode's own real call shape exactly.
             generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS),
             chat_template_identity="gemma-it-v1", locales_complete=["en"], causal_order_position=2,
             skipped_for_gate_failure=["formal_register"],  # position 1, strictly before "cheese" (position 2)
@@ -704,18 +788,18 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
         verified = one_alloc.verify_generation_manifest(manifest_path)
         missing = sorted(set(one_alloc.MANIFEST_REQUIRED_FIELDS) - set(verified))
         if missing:
-            raise AssertionError(f"schema-2.0 manifest missing required field(s): {missing}")
+            raise AssertionError(f"manifest missing required field(s): {missing}")
         if len(verified["files"]) != 4:  # 2 control generations + 2 dose generations
             raise AssertionError(f"expected 4 per-generation manifest entries, got {len(verified['files'])}")
         if not all(set(one_alloc.MANIFEST_FILE_REQUIRED_FIELDS) - {"dose", "control_ref"} <= set(e) for e in verified["files"]):
             raise AssertionError("a files[] entry is missing a required field beyond the CONTROL-only exclusions")
-        return f"files={len(verified['files'])} causal_order_position={verified['causal_order_position']} generation_settings_sha256_present={bool(verified.get('generation_settings_sha256'))}"
+        return f"files={len(verified['files'])} causal_order_position={verified['causal_order_position']} inventory_stage={verified.get('inventory_stage')}"
 
-    runner.case("generation_manifest_schema_2_required_fields_round_trip", case_generation_manifest_schema_2)
+    runner.case("generation_manifest_schema_required_fields_round_trip", case_generation_manifest_schema_required_fields)
 
     # -----------------------------------------------------------------
-    # 21. Concept-generation wall-time readiness gate, fed a REAL
-    #     measured (not guessed) per-generation timing sample.
+    # 17. Concept-generation wall-time readiness gate (pure arithmetic),
+    #     fed a REAL measured (not guessed) per-generation timing sample.
     # -----------------------------------------------------------------
     def case_readiness_and_measured_timing() -> str:
         backend = fakes.make_fake_gemma_backend()
@@ -757,14 +841,347 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
 
     runner.case("concept_generation_readiness_gate_and_measured_per_generation_timing", case_readiness_and_measured_timing)
 
-    # 17 cases cover the required items listed in the module docstring
-    # PLUS the P0-CONTINUE blocker-4 proof areas (causal-order generation,
-    # manifests, controls, prompt IDs, explicit kwargs, readiness); several
-    # cases each cover more than one item -- see each case's own name/
-    # detail for which. EXPECTED_CASE_COUNT is the actual number of
-    # case() calls above, checked literally (not a hand-typed constant) so
-    # this can never silently drift from what the script actually runs.
+    # -----------------------------------------------------------------
+    # 18. LA-B proof: sweep_and_confirmation_seeds_disjoint.
+    # -----------------------------------------------------------------
+    def case_seeds_disjoint() -> str:
+        sweep_seeds = one_alloc.derive_seeds(
+            namespace="sweep", concept_id="cheese", pairing_id="google/gemma-3-12b-it", direction="amplify",
+            locale="en", n_prompts=one_alloc.SWEEP_PROMPTS_PER_DIRECTION, n_repeats=one_alloc.SWEEP_REPEATS,
+        )
+        confirmation_seeds = one_alloc.derive_seeds(
+            namespace="confirmation", concept_id="cheese", pairing_id="google/gemma-3-12b-it", direction="amplify",
+            locale="en", n_prompts=one_alloc.CONFIRMATION_PROMPTS_PER_DIRECTION, n_repeats=one_alloc.CONFIRMATION_REPEATS,
+        )
+        one_alloc.assert_seed_sets_disjoint(sweep_seeds, confirmation_seeds)  # must NOT raise
+        overlap = set(sweep_seeds) & set(confirmation_seeds)
+        if overlap:
+            raise AssertionError(f"sweep/confirmation seed sets are not actually disjoint: {overlap}")
+        # Prove the check is REAL (not vacuously true): identical namespaces collide.
+        same_namespace_seeds = one_alloc.derive_seeds(
+            namespace="sweep", concept_id="cheese", pairing_id="google/gemma-3-12b-it", direction="amplify",
+            locale="en", n_prompts=one_alloc.SWEEP_PROMPTS_PER_DIRECTION, n_repeats=one_alloc.SWEEP_REPEATS,
+        )
+        try:
+            one_alloc.assert_seed_sets_disjoint(sweep_seeds, same_namespace_seeds)
+        except one_alloc.SeedCollisionError:
+            pass
+        else:
+            raise AssertionError("expected assert_seed_sets_disjoint to refuse two identical (same-namespace) seed sets")
+        return f"S_sweep ({len(sweep_seeds)}) and S_conf ({len(confirmation_seeds)}) disjoint; identical-namespace collision correctly refused"
+
+    runner.case("sweep_and_confirmation_seeds_disjoint", case_seeds_disjoint)
+
+    # -----------------------------------------------------------------
+    # 19. LA-B proof: all_required_per_dose_per_purpose_files_exist --
+    #     the full 5-point amplify grid, both sweep and confirmation
+    #     purposes, every required (purpose, dose) combination present.
+    # -----------------------------------------------------------------
+    def case_all_required_per_dose_per_purpose_files_exist() -> str:
+        backend = fakes.make_fake_gemma_backend()
+        corpus_max = d.corpus_max_per_feature(backend, ["background text"])
+        rows = [
+            {"prompt_id": f"p{i}", "text": f"prompt {i}", "locale": "en", "split": "heldout_neutral", "ordinal": i + 1}
+            for i in range(2)
+        ]
+        amplify_grid = one_alloc.build_amplify_dose_grid((0.25, 0.5, 1.0, 2.0, 4.0))
+        if len(amplify_grid) != one_alloc.DOSES_PER_DIRECTION:
+            raise AssertionError(f"expected {one_alloc.DOSES_PER_DIRECTION} amplify grid points, got {len(amplify_grid)}")
+
+        records = []
+        for purpose in ("sweep", "confirmation"):
+            seeds = one_alloc.derive_seeds(
+                namespace=purpose, concept_id="cheese", pairing_id=backend.pairing, direction="amplify",
+                locale="en", n_prompts=2, n_repeats=1,
+            )
+            control = one_alloc.generate_control_file(
+                backend, corpus_max=corpus_max, positions="all", prompts=rows, purpose=purpose, n_repeats=1,
+                seeds=seeds, max_new_tokens=1, out_dir=tmp_root / "per_dose_purpose_proof", concept_id="cheese",
+                pairing_id=backend.pairing, direction="amplify", locale="en", generation_kwargs=d.GENERATION_SETTINGS,
+            )
+            records.append(control)
+            for dose in amplify_grid:
+                records.append(one_alloc.generate_dose_file(
+                    backend, [CONCEPT_FEATURE], dose=dose, corpus_max=corpus_max, positions="all", prompts=rows,
+                    purpose=purpose, n_repeats=1, seeds=seeds, max_new_tokens=1,
+                    out_dir=tmp_root / "per_dose_purpose_proof", concept_id="cheese", pairing_id=backend.pairing,
+                    direction="amplify", locale="en", control_ref=control.path, generation_kwargs=d.GENERATION_SETTINGS,
+                ))
+        manifest_path = tmp_root / "per_dose_purpose_proof" / "generation_manifest_amplify.json"
+        one_alloc.write_generation_manifest(
+            records, manifest_path,
+            run_id="r-preflight-0001", source_commit="0" * 40, configuration_name="primary",
+            concept_id="cheese", pairing_id="google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
+            model_revision="0" * 40, sae_revision="0" * 40, release="gemma-scope-2-12b-it-res-all",
+            loader_sae_id="layer_29_width_16k_l0_big", scientific_sae_id="resid_post_all/layer_29_width_16k_l0_big",
+            measured_params_sha256="1" * 64,
+            generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS),
+            chat_template_identity="gemma-it-v1", locales_complete=["en"], causal_order_position=1,
+            skipped_for_gate_failure=[],
+        )
+        verified = one_alloc.verify_generation_manifest(manifest_path)
+        dose_labels = [one_alloc._dose_label(dose) for dose in amplify_grid]
+        required = {(purpose.upper(), label) for purpose in ("sweep", "confirmation") for label in dose_labels}
+        present = {(e["purpose"], e.get("dose")) for e in verified["files"] if e["purpose"] != "CONTROL"}
+        missing = required - present
+        if missing:
+            raise AssertionError(f"manifest is missing required (purpose, dose) file(s): {sorted(missing)}")
+        control_present = any(e["purpose"] == "CONTROL" for e in verified["files"])
+        if not control_present:
+            raise AssertionError("manifest is missing its required CONTROL entries")
+        return f"all {len(required)} required (purpose, dose) combinations present across the full {one_alloc.DOSES_PER_DIRECTION}-point amplify grid, both purposes"
+
+    runner.case("all_required_per_dose_per_purpose_files_exist", case_all_required_per_dose_per_purpose_files_exist)
+
+    # -----------------------------------------------------------------
+    # 20. LA-B proof: confirmation_outputs_all_five_doses_generated_
+    #     not_inspected -- all five CONFIRMATION doses are generated (real
+    #     files, in the manifest); a 3-of-5 selection touches only the
+    #     three selected doses' physical files, never the other two
+    #     (ADDITION_3: one physical file per dose).
+    # -----------------------------------------------------------------
+    def case_confirmation_all_five_doses_generated_not_inspected() -> str:
+        backend = fakes.make_fake_gemma_backend()
+        corpus_max = d.corpus_max_per_feature(backend, ["background text"])
+        rows = [
+            {"prompt_id": f"p{i}", "text": f"prompt {i}", "locale": "en", "split": "heldout_eliciting", "ordinal": i + 1}
+            for i in range(2)
+        ]
+        suppress_grid = one_alloc.build_suppress_dose_grid((1.0, 0.5, 0.25, 0.1))
+        if len(suppress_grid) != one_alloc.DOSES_PER_DIRECTION:
+            raise AssertionError(f"expected {one_alloc.DOSES_PER_DIRECTION} suppress grid points, got {len(suppress_grid)}")
+
+        seeds = one_alloc.derive_seeds(
+            namespace="confirmation", concept_id="cheese", pairing_id=backend.pairing, direction="suppress",
+            locale="en", n_prompts=2, n_repeats=1,
+        )
+        control = one_alloc.generate_control_file(
+            backend, corpus_max=corpus_max, positions="all", prompts=rows, purpose="confirmation", n_repeats=1,
+            seeds=seeds, max_new_tokens=1, out_dir=tmp_root / "five_dose_proof", concept_id="cheese",
+            pairing_id=backend.pairing, direction="suppress", locale="en", generation_kwargs=d.GENERATION_SETTINGS,
+        )
+        dose_records = [
+            one_alloc.generate_dose_file(
+                backend, [CONCEPT_FEATURE], dose=dose, corpus_max=corpus_max, positions="all", prompts=rows,
+                purpose="confirmation", n_repeats=1, seeds=seeds, max_new_tokens=1,
+                out_dir=tmp_root / "five_dose_proof", concept_id="cheese", pairing_id=backend.pairing,
+                direction="suppress", locale="en", control_ref=control.path, generation_kwargs=d.GENERATION_SETTINGS,
+            )
+            for dose in suppress_grid
+        ]
+        manifest_path = tmp_root / "five_dose_proof" / "generation_manifest_suppress.json"
+        one_alloc.write_generation_manifest(
+            [control, *dose_records], manifest_path,
+            run_id="r-preflight-0001", source_commit="0" * 40, configuration_name="primary",
+            concept_id="cheese", pairing_id="google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
+            model_revision="0" * 40, sae_revision="0" * 40, release="gemma-scope-2-12b-it-res-all",
+            loader_sae_id="layer_29_width_16k_l0_big", scientific_sae_id="resid_post_all/layer_29_width_16k_l0_big",
+            measured_params_sha256="1" * 64,
+            generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS),
+            chat_template_identity="gemma-it-v1", locales_complete=["en"], causal_order_position=1,
+            skipped_for_gate_failure=[],
+        )
+        verified = one_alloc.verify_generation_manifest(manifest_path)
+        confirmation_doses = sorted({e["dose"] for e in verified["files"] if e["purpose"] == "CONFIRMATION"})
+        if len(confirmation_doses) != one_alloc.DOSES_PER_DIRECTION:
+            raise AssertionError(f"expected {one_alloc.DOSES_PER_DIRECTION} distinct CONFIRMATION doses generated, got {confirmation_doses}")
+
+        selected, unselected = confirmation_doses[:3], confirmation_doses[3:]
+        inspected_paths = {e["path"] for e in verified["files"] if e["purpose"] == "CONFIRMATION" and e["dose"] in selected}
+        unselected_paths = {e["path"] for e in verified["files"] if e["purpose"] == "CONFIRMATION" and e["dose"] in unselected}
+        if inspected_paths & unselected_paths:
+            raise AssertionError("selected and unselected confirmation doses must never share a physical file (ADDITION_3: one file per dose)")
+        return (
+            f"generated {len(confirmation_doses)} confirmation doses={confirmation_doses}; a 3-of-5 selection "
+            f"touches {len(inspected_paths)} file(s), disjoint from the {len(unselected_paths)} unselected file(s)"
+        )
+
+    runner.case("confirmation_outputs_all_five_doses_generated_not_inspected", case_confirmation_all_five_doses_generated_not_inspected)
+
+    # -----------------------------------------------------------------
+    # 21. LA-B proof: measured_sae_hashes_match_identity_v13 -- the v1.3.0
+    #     identity artifact's own hash pin, and the measured-vs-expected
+    #     mechanism (Gemma AND Qwen) accepting a real match and refusing a
+    #     mismatch, never trusted by construction alone.
+    # -----------------------------------------------------------------
+    def case_measured_sae_hashes_match_identity_v13() -> str:
+        d.validate_scientific_config_identity_hash(repo_root)
+        if d.IDENTITY_PROTOCOL_COMMIT != "5a5175d36eac9802b45f76aeb5b52ff6b25220a8":
+            raise AssertionError(f"expected identity artifact commit 5a5175d... (v1.3.0), got {d.IDENTITY_PROTOCOL_COMMIT!r}")
+
+        measured_hash_dir = tmp_root / "measured_hash_proof"
+        measured_hash_dir.mkdir(parents=True, exist_ok=True)
+        gemma_params = measured_hash_dir / "params.safetensors"
+        gemma_params.write_bytes(b"synthetic gemma params bytes for hash-measurement proof")
+        gemma_measured = d.compute_file_sha256(gemma_params)
+        d.assert_params_sha256_matches([str(gemma_params)], expected_sha256=gemma_measured)  # must NOT raise
+        try:
+            d.assert_params_sha256_matches([str(gemma_params)], expected_sha256="0" * 64)
+        except targets.TargetIdentityMismatch:
+            pass
+        else:
+            raise AssertionError("expected assert_params_sha256_matches to refuse a measured/expected mismatch")
+
+        qwen_layer_file = measured_hash_dir / "layer38.sae.pt"
+        qwen_layer_file.write_bytes(b"synthetic qwen layer bytes for hash-measurement proof")
+        qwen_measured = d.compute_file_sha256(qwen_layer_file)
+        d.assert_qwen_params_sha256_matches(str(qwen_layer_file), expected_sha256=qwen_measured)  # must NOT raise
+        try:
+            d.assert_qwen_params_sha256_matches(str(qwen_layer_file), expected_sha256="0" * 64)
+        except targets.TargetIdentityMismatch:
+            pass
+        else:
+            raise AssertionError("expected assert_qwen_params_sha256_matches to refuse a measured/expected mismatch")
+
+        return (
+            f"identity artifact {d.IDENTITY_PROTOCOL_COMMIT[:12]} (v1.3.0) hash-pinned; Gemma and Qwen "
+            f"measured-vs-expected mechanisms each accept a real match and refuse a mismatch"
+        )
+
+    runner.case("measured_sae_hashes_match_identity_v13", case_measured_sae_hashes_match_identity_v13)
+
+    # -----------------------------------------------------------------
+    # 22. LA-B proof: separate_scalar_direction_manifests_amplify_and_
+    #     suppress -- amplify and suppress each get their OWN, physically
+    #     separate manifest, and each manifest's own "direction" field is
+    #     a SCALAR (never a list) naming exactly that one direction.
+    # -----------------------------------------------------------------
+    def case_separate_scalar_direction_manifests() -> str:
+        backend = fakes.make_fake_gemma_backend()
+        corpus_max = d.corpus_max_per_feature(backend, ["background text"])
+        rows = [{"prompt_id": "p0", "text": "prompt 0", "locale": "en", "split": "heldout_neutral", "ordinal": 1}]
+
+        manifests: dict[str, dict] = {}
+        for direction in ("amplify", "suppress"):
+            seeds = one_alloc.derive_seeds(
+                namespace="sweep", concept_id="cheese", pairing_id=backend.pairing, direction=direction,
+                locale="en", n_prompts=1, n_repeats=1,
+            )
+            control = one_alloc.generate_control_file(
+                backend, corpus_max=corpus_max, positions="all", prompts=rows, purpose="sweep", n_repeats=1,
+                seeds=seeds, max_new_tokens=1, out_dir=tmp_root / "direction_proof" / direction, concept_id="cheese",
+                pairing_id=backend.pairing, direction=direction, locale="en", generation_kwargs=d.GENERATION_SETTINGS,
+            )
+            dose = one_alloc.DoseSpec(kind="ablate") if direction == "suppress" else one_alloc.DoseSpec(kind="clamp", value_in_max_units=1.0)
+            dose_record = one_alloc.generate_dose_file(
+                backend, [CONCEPT_FEATURE], dose=dose, corpus_max=corpus_max, positions="all", prompts=rows,
+                purpose="sweep", n_repeats=1, seeds=seeds, max_new_tokens=1,
+                out_dir=tmp_root / "direction_proof" / direction, concept_id="cheese", pairing_id=backend.pairing,
+                direction=direction, locale="en", control_ref=control.path, generation_kwargs=d.GENERATION_SETTINGS,
+            )
+            manifest_path = tmp_root / "direction_proof" / f"generation_manifest_{direction}.json"
+            one_alloc.write_generation_manifest(
+                [control, dose_record], manifest_path,
+                run_id="r-preflight-0001", source_commit="0" * 40, configuration_name="primary",
+                concept_id="cheese", pairing_id="google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
+                model_revision="0" * 40, sae_revision="0" * 40, release="gemma-scope-2-12b-it-res-all",
+                loader_sae_id="layer_29_width_16k_l0_big", scientific_sae_id="resid_post_all/layer_29_width_16k_l0_big",
+                measured_params_sha256="1" * 64,
+                generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS),
+                chat_template_identity="gemma-it-v1", locales_complete=["en"], causal_order_position=1,
+                skipped_for_gate_failure=[],
+            )
+            manifests[direction] = one_alloc.verify_generation_manifest(manifest_path)
+
+        for direction, manifest in manifests.items():
+            if not isinstance(manifest["direction"], str):
+                raise AssertionError(f"{direction} manifest's own 'direction' field must be a SCALAR string, got {type(manifest['direction'])}")
+            if manifest["direction"].lower() != direction:
+                raise AssertionError(f"expected {direction} manifest's direction field to read {direction!r}, got {manifest['direction']!r}")
+        amplify_path = tmp_root / "direction_proof" / "generation_manifest_amplify.json"
+        suppress_path = tmp_root / "direction_proof" / "generation_manifest_suppress.json"
+        if amplify_path == suppress_path:
+            raise AssertionError("amplify and suppress must never resolve to the same manifest path")
+        if d.compute_file_sha256(amplify_path) == d.compute_file_sha256(suppress_path):
+            raise AssertionError("amplify and suppress manifests must never be byte-identical")
+        return (
+            f"amplify manifest direction={manifests['amplify']['direction']!r}, suppress manifest "
+            f"direction={manifests['suppress']['direction']!r} -- two separate physical files, two separate scalars"
+        )
+
+    runner.case("separate_scalar_direction_manifests_amplify_and_suppress", case_separate_scalar_direction_manifests)
+
+    # -----------------------------------------------------------------
+    # 23. LA-B proof: wall_time_refusal_before_incomplete_concept -- the
+    #     first concept the wall-time readiness gate refuses BREAKS the
+    #     causal-order loop; every concept after it is recorded NOT_
+    #     ATTEMPTED without ever calling generate_concept_complete for it
+    #     (P0 STOP-LINE correction, "after the first concept cannot fit,
+    #     BREAK; do not continue probing"), exercised end to end through
+    #     the real scheduled run_generation_mode entry point.
+    # -----------------------------------------------------------------
+    def case_wall_time_refusal_before_incomplete_concept() -> str:
+        backend = fakes.make_fake_gemma_backend()
+        real_load_backend, real_max_new_tokens = d.load_backend, d.ONE_ALLOCATION_MAX_NEW_TOKENS
+        real_readiness = one_alloc.assess_concept_generation_readiness
+        real_generate_concept_complete = one_alloc.generate_concept_complete
+        d.load_backend = lambda **_kwargs: backend
+        d.ONE_ALLOCATION_MAX_NEW_TOKENS = 1
+
+        call_count = {"n": 0}
+
+        def fake_readiness(*, remaining_wall_time_seconds, seconds_per_generation):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return one_alloc.ConceptGenerationReadiness(attempt=True, detail="first concept fits")
+            return one_alloc.ConceptGenerationReadiness(attempt=False, detail="does not fit -- preflight proof")
+
+        generate_calls: list[str] = []
+
+        def spy_generate_concept_complete(*args, **kwargs):
+            generate_calls.append(kwargs.get("concept_id"))
+            return real_generate_concept_complete(*args, **kwargs)
+
+        one_alloc.assess_concept_generation_readiness = fake_readiness
+        one_alloc.generate_concept_complete = spy_generate_concept_complete
+        try:
+            grid_dir = tmp_root / "wall_time_refusal_grid"
+            d.write_grid_result(
+                grid_dir, backend.pairing,
+                [
+                    d.ConceptPairingVerdict(concept_id="formal_register", pairing=backend.pairing, status="pass", surviving_feature_index=CONCEPT_FEATURE, candidates_evaluated=[], error=None),
+                    d.ConceptPairingVerdict(concept_id="cheese", pairing=backend.pairing, status="pass", surviving_feature_index=CONCEPT_FEATURE, candidates_evaluated=[], error=None),
+                ],
+            )
+            args = one_alloc.parse_args([
+                "--pairing", backend.pairing, "--model-path", "unused", "--sae-path", "unused", "--layer", "29",
+                "--configuration-name", "primary", "--grid-path", str(grid_dir / "grid.json"),
+                "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
+                "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "1.0,0.5,0.25,0.1",
+                "--run-id", "r-preflight-0001", "--source-commit", "0" * 40,
+                "--job-deadline-epoch-seconds", str(time.time() + 100_000),
+                "--out-dir", str(tmp_root / "wall_time_refusal_out"), "--state-dir", str(tmp_root / "wall_time_refusal_state"),
+            ])
+            result = one_alloc.run_generation_mode(args)
+        finally:
+            d.load_backend = real_load_backend
+            d.ONE_ALLOCATION_MAX_NEW_TOKENS = real_max_new_tokens
+            one_alloc.assess_concept_generation_readiness = real_readiness
+            one_alloc.generate_concept_complete = real_generate_concept_complete
+
+        if result["attempted_concepts"] != ["formal_register"]:
+            raise AssertionError(f"expected only formal_register to be attempted, got {result['attempted_concepts']}")
+        if [x["concept_id"] for x in result["not_attempted"]] != ["cheese"]:
+            raise AssertionError(f"expected cheese to be recorded NOT_ATTEMPTED, got {result['not_attempted']}")
+        if call_count["n"] != 2:
+            raise AssertionError(f"expected readiness checked exactly once per concept (2 total), got {call_count['n']}")
+        if generate_calls != ["formal_register"]:
+            raise AssertionError(f"expected cheese's generation to never even start, got generate_calls={generate_calls}")
+        if result["status"] != "partial_wall_time_cutoff":
+            raise AssertionError(f"expected status='partial_wall_time_cutoff', got {result['status']!r}")
+        return (
+            f"attempted={result['attempted_concepts']} not_attempted={[x['concept_id'] for x in result['not_attempted']]} "
+            f"readiness_checks={call_count['n']} generate_calls={generate_calls} status={result['status']!r}"
+        )
+
+    runner.case("wall_time_refusal_before_incomplete_concept", case_wall_time_refusal_before_incomplete_concept)
+
     executed_cases = len(runner.results)
+    if executed_cases != EXPECTED_CASE_COUNT:
+        raise AssertionError(
+            f"EXPECTED_CASE_COUNT ({EXPECTED_CASE_COUNT}) disagrees with the actual number of case() calls "
+            f"({executed_cases}) -- update the constant to match, never the other way around."
+        )
     passed_cases = sum(1 for r in runner.results if r.status == "pass")
     failed_cases = [r.name for r in runner.results if r.status != "pass"]
     overall_passed = passed_cases == executed_cases == EXPECTED_CASE_COUNT
@@ -773,25 +1190,23 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
         return any(r.name == name and r.status == "pass" for r in runner.results)
 
     proofs = {
-        "grid_creation": _case_passed("complete_14x2x3x3x2_grid_with_explicit_pass_fail_error_verdicts"),
-        "causal_order_generation": _case_passed("causal_generation_order_is_fixed_and_political_framing_last"),
-        "manifests": _case_passed("generation_manifest_schema_2_required_fields_round_trip"),
-        "controls": _case_passed("one_allocation_dose_and_control_files_carry_real_prompt_ids_and_explicit_kwargs"),
-        "prompt_ids": _case_passed("one_allocation_dose_and_control_files_carry_real_prompt_ids_and_explicit_kwargs"),
-        "explicit_kwargs": _case_passed("one_allocation_dose_and_control_files_carry_real_prompt_ids_and_explicit_kwargs"),
-        "staggered_load": _case_passed("both_or_neither_matched_backup_execution"),
-        "readiness": _case_passed("concept_generation_readiness_gate_and_measured_per_generation_timing"),
-        "sibling_tree_isolation": _case_passed("exact_slurm_job_id_root_and_noncanonical_sibling_ignored"),
+        "sweep_and_confirmation_seeds_disjoint": _case_passed("sweep_and_confirmation_seeds_disjoint"),
+        "all_required_per_dose_per_purpose_files_exist": _case_passed("all_required_per_dose_per_purpose_files_exist"),
+        "concept_complete_ordering": _case_passed("causal_generation_order_is_fixed_and_political_framing_last"),
+        "wall_time_refusal_before_incomplete_concept": _case_passed("wall_time_refusal_before_incomplete_concept"),
+        "confirmation_outputs_all_five_doses_generated_not_inspected": _case_passed("confirmation_outputs_all_five_doses_generated_not_inspected"),
+        "measured_sae_hashes_match_identity_v13": _case_passed("measured_sae_hashes_match_identity_v13"),
+        "separate_scalar_direction_manifests_amplify_and_suppress": _case_passed("separate_scalar_direction_manifests_amplify_and_suppress"),
     }
+    assert set(proofs) == set(PROOF_KEYS)  # structural guarantee, never allowed to drift
 
     return {
         "schema_version": SCHEMA_VERSION,
-        "source_commit": resolve_source_commit(REPO_ROOT),
-        "expected_cases": EXPECTED_CASE_COUNT,
-        "executed_cases": executed_cases,
-        "passed_cases": passed_cases,
+        "source_commit": resolve_source_commit(repo_root),
+        "expected_case_count": EXPECTED_CASE_COUNT,
+        "executed_case_count": executed_cases,
+        "passed_case_count": passed_cases,
         "failed_cases": failed_cases,
-        "cases": [asdict(r) for r in runner.results],
         "overall_passed": overall_passed,
         "proofs": proofs,
     }
@@ -808,10 +1223,10 @@ class _FakeSignalModule:
         return None
 
 
-def _git_head() -> str:
+def _git_head(repo_root: Path) -> str:
     import subprocess
 
-    proc = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True)
+    proc = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "HEAD"], capture_output=True, text=True)
     if proc.returncode != 0:
         raise SetupFailure(f"could not resolve the current git HEAD: {proc.stderr}")
     return proc.stdout.strip()
@@ -824,18 +1239,23 @@ def resolve_source_commit(repo_root: Path) -> str:
     manifest.json`'s own recorded `source_commit` is authoritative;
     on a Windows/dev checkout that still has `.git`, falls back to a
     live `git rev-parse HEAD`. Raises `SetupFailure` (never fabricates a
-    commit) if neither is available."""
+    commit) if neither is available, or if what was resolved is not a
+    full 40-character hex commit (the LA-B contract's own requirement)."""
     import final_pairing_concept_discovery as d
 
     transfer_manifest = d.load_transfer_manifest(repo_root)
     if transfer_manifest is not None:
-        return transfer_manifest["source_commit"]
-    if d._has_git_directory(repo_root):
-        return _git_head()
-    raise SetupFailure(
-        f"{repo_root} has neither {d.TRANSFER_MANIFEST_FILENAME} nor a .git directory -- cannot resolve "
-        f"source_commit for the preflight report."
-    )
+        commit = transfer_manifest["source_commit"]
+    elif d._has_git_directory(repo_root):
+        commit = _git_head(repo_root)
+    else:
+        raise SetupFailure(
+            f"{repo_root} has neither {d.TRANSFER_MANIFEST_FILENAME} nor a .git directory -- cannot resolve "
+            f"source_commit for the preflight report."
+        )
+    if len(commit) != 40 or any(c not in "0123456789abcdef" for c in commit.lower()):
+        raise SetupFailure(f"resolved source_commit {commit!r} is not a full 40-character hex commit")
+    return commit
 
 
 def d_module_frozen_sha() -> str:
@@ -854,10 +1274,7 @@ def d_module_frozen_commit() -> str:
 #: preflight creates (if absent) in a caller-nominated directory OUTSIDE
 #: its own `tmp_root`, then re-hashes after every case has run. Proves
 #: the entire scheduled call graph never writes into a sibling tree it
-#: was not explicitly given as its own output directory -- a STRONGER,
-#: externally-verifiable claim than case 16+17's in-tmp_root sibling
-#: check alone (that one only proves isolation BETWEEN two directories
-#: this script itself created).
+#: was not explicitly given as its own output directory.
 SENTINEL_FILENAME = "sentinel.txt"
 SENTINEL_CONTENT = "LA-B sibling-tree isolation sentinel -- must not be modified by discovery_preflight.py\n"
 
@@ -893,33 +1310,126 @@ def verify_sentinel_untouched(sentinel_dir: Path, before: dict[str, str]) -> Non
         )
 
 
+def resolve_and_validate_repo_root(
+    *, prompt_sets: str | Path, prompt_metadata: str | Path, backup_trigger: str | Path, pairing_config: str | Path,
+) -> Path:
+    """Derives the ONE TRUE `repo_root` from `--prompt-sets` (its frozen
+    relative location, `prompts/final_pairing/v1/prompt_sets.jsonl`, is
+    exactly 4 path components below the root) and asserts the other
+    three explicit paths resolve under that SAME root at their own
+    frozen relative locations -- failing closed rather than silently
+    trusting `Path(__file__).resolve().parents[2]`, which would be wrong
+    the moment this script runs from a directory layout that does not
+    match this repository's own (e.g. a `git archive` extraction rooted
+    somewhere else). Never fabricates a repo_root from any ONE of the
+    four alone; all four must agree."""
+    import final_pairing_concept_discovery as d
+
+    prompt_sets_path = Path(prompt_sets).resolve()
+    repo_root = prompt_sets_path.parents[3]
+    expected = {
+        "--prompt-sets": repo_root / d.FROZEN_PROMPT_SET_DIR / "prompt_sets.jsonl",
+        "--prompt-metadata": repo_root / d.FROZEN_PROMPT_SET_DIR / "metadata.json",
+        "--backup-trigger": repo_root / d.BACKUP_TRIGGER_PROTOCOL_PATH,
+        "--pairing-config": repo_root / d.IDENTITY_PROTOCOL_PATH,
+    }
+    given = {
+        "--prompt-sets": prompt_sets_path,
+        "--prompt-metadata": Path(prompt_metadata).resolve(),
+        "--backup-trigger": Path(backup_trigger).resolve(),
+        "--pairing-config": Path(pairing_config).resolve(),
+    }
+    mismatched = {
+        flag: (given[flag], expected[flag].resolve())
+        for flag in expected if given[flag] != expected[flag].resolve()
+    }
+    if mismatched:
+        details = "; ".join(f"{flag} given {g} but expected {e}" for flag, (g, e) in mismatched.items())
+        raise SetupFailure(
+            f"explicit preflight input path(s) do not resolve under one consistent repo root "
+            f"(derived as {repo_root} from --prompt-sets): {details}"
+        )
+    return repo_root
+
+
 def parse_args(argv: list[str] | None = None) -> Any:
     import argparse
 
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--prompt-sets", required=True, help="path to prompts/final_pairing/v1/prompt_sets.jsonl")
+    p.add_argument("--prompt-metadata", required=True, help="path to prompts/final_pairing/v1/metadata.json")
+    p.add_argument("--backup-trigger", required=True, help="path to protocols/final_pairing/v1/backup_trigger.json")
+    p.add_argument("--pairing-config", required=True, help="path to protocols/final_pairing/v1/scientific_config_identity.json")
+    p.add_argument("--gemma-output-root", required=True, help="root this preflight proves job-id-rooted writes under, for the Gemma pairing")
+    p.add_argument("--qwen-output-root", required=True, help="root this preflight proves job-id-rooted writes under, for the Qwen pairing")
     p.add_argument(
         "--sentinel-dir", required=True,
         help=(
-            "REQUIRED (P0 STOP-LINE correction): a directory (created if absent) that must remain "
-            "byte-identical across this entire preflight run -- proves the scheduled call graph never "
-            "writes outside its own tmp_root, even into a sibling tree."
+            "a directory (created if absent) that must remain byte-identical across this entire preflight "
+            "run -- proves the scheduled call graph never writes outside its own tmp_root, even into a "
+            "sibling tree."
         ),
     )
+    p.add_argument("--report", required=True, help="path this preflight ALWAYS writes its JSON report to, pass or fail")
     return p.parse_args(argv)
+
+
+def _failure_report(exc: Exception, *, repo_root: Path | None) -> dict[str, Any]:
+    """Built when an exception occurs OUTSIDE `run_all_cases`'s own per-
+    case try/except (a bad explicit path, a hash mismatch in one of the
+    four frozen artifacts, a sentinel-tampering detection) -- `main()`
+    still writes `--report` with this shape rather than letting the
+    process crash with no JSON output at all. Carries the SAME eight
+    top-level fields and the SAME seven proof keys (all False) as a real
+    run's report -- never a structurally different shape for the failure
+    path."""
+    import contextlib
+
+    source_commit = "0" * 40
+    if repo_root is not None:
+        with contextlib.suppress(Exception):
+            source_commit = resolve_source_commit(repo_root)
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "source_commit": source_commit,
+        "expected_case_count": EXPECTED_CASE_COUNT,
+        "executed_case_count": 0,
+        "passed_case_count": 0,
+        "failed_cases": [f"setup: {type(exc).__name__}: {exc}"],
+        "overall_passed": False,
+        "proofs": dict.fromkeys(PROOF_KEYS, False),
+    }
+
+
+def write_report(report_path: str | Path, report: dict[str, Any]) -> None:
+    path = Path(report_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    sentinel_dir = Path(args.sentinel_dir)
-    ensure_sentinel(sentinel_dir)
-    sentinel_before = _sentinel_snapshot(sentinel_dir)
+    repo_root: Path | None = None
+    try:
+        repo_root = resolve_and_validate_repo_root(
+            prompt_sets=args.prompt_sets, prompt_metadata=args.prompt_metadata,
+            backup_trigger=args.backup_trigger, pairing_config=args.pairing_config,
+        )
+        sentinel_dir = Path(args.sentinel_dir)
+        ensure_sentinel(sentinel_dir)
+        sentinel_before = _sentinel_snapshot(sentinel_dir)
 
-    with tempfile.TemporaryDirectory(prefix="discovery-preflight-") as tmp:
-        report = run_all_cases(tmp_root=Path(tmp))
+        with tempfile.TemporaryDirectory(prefix="discovery-preflight-") as tmp:
+            report = run_all_cases(
+                tmp_root=Path(tmp), repo_root=repo_root,
+                gemma_output_root=Path(args.gemma_output_root), qwen_output_root=Path(args.qwen_output_root),
+            )
 
-    verify_sentinel_untouched(sentinel_dir, sentinel_before)
-    report["proofs"]["sibling_tree_isolation_sentinel_dir"] = str(sentinel_dir)
+        verify_sentinel_untouched(sentinel_dir, sentinel_before)
+    except Exception as exc:  # `--report` must be written EVEN on a setup-level failure
+        report = _failure_report(exc, repo_root=repo_root)
 
+    write_report(args.report, report)
     print(json.dumps(report, indent=2))
     return 0 if report["overall_passed"] else 1
 
