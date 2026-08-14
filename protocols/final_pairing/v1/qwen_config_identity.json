@@ -1,0 +1,170 @@
+{
+  "$comment": "GATING SUPPLEMENTAL. Records the already-ratified Qwen scientific configurations. Changes NO scientific choice. Does not supersede or alter Gemma identity v1.3.0.",
+  "protocol_version": "final-pairing-qwen-config-identity/1.0.0",
+  "gating": true,
+  "supersedes": null,
+
+  "relationship_to_gemma_identity": {
+    "gemma_identity_path": "protocols/final_pairing/v1/scientific_config_identity.json",
+    "gemma_identity_version": "final-pairing-config-identity/1.3.0",
+    "gemma_identity_sha256": "sha256:ac41a858b9e8a82159d2bd85c114dfcc8cec1b4d2b6f8a250c6482c18c915023",
+    "status": "ACTIVE AND UNCHANGED. This artifact neither supersedes nor amends it.",
+    "division_of_authority": "The Gemma identity artifact is authoritative for the Gemma arm. This artifact is authoritative for the Qwen arm. Cross-arm rulings -- depth-fraction matching, sparsity incommensurability, the primary-to-backup interpretive limit, matched-pair eligibility -- live in the Gemma artifact and are BINDING HERE WITHOUT RESTATEMENT."
+  },
+
+  "references": {
+    "trigger_protocol": {"path": "protocols/final_pairing/v1/backup_trigger.json", "sha256": "sha256:4a234e59799089e634f00c59d5fed71c73d0f7466e30f0c20a7d72ef4c9d23d3", "status": "UNCHANGED"},
+    "one_allocation_protocol": {"path": "protocols/final_pairing/v1/one_allocation_dose_generation.json", "sha256": "sha256:bd1974b4c44802fa7a49fb7a4ed65df78a9ba66cdca78bb6fc0da69cf42252cf", "status": "UNCHANGED"},
+    "binding_protocol": {"path": "protocols/final_pairing/v1/discovery_document_generation_binding.json", "sha256": "sha256:c33d069cbe3c29ba8cbd4a4965dbece3db42c2840be181dee897e8dfdf223844", "status": "UNCHANGED"},
+    "generation_settings": {"path": "protocols/final_pairing/v1/generation_settings.json", "sha256": "sha256:975e90e0271e750aea8f871f4776d2a3d0169ea4fe410e544081957907e613b1", "status": "UNCHANGED"}
+  },
+
+  "model": {
+    "repository_id": "Qwen/Qwen3.5-27B",
+    "revision": "fc05daec18b0a78c049392ed2e771dde82bdf654",
+    "n_layers": 64,
+    "d_model": 5120
+  },
+
+  "configurations": {
+    "PRIMARY": {
+      "sae_repository_id": "Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_100",
+      "sae_revision": "82852e98c9b33d02194e92dd514b12fafd09ed25",
+      "params_file": "layer38.sae.pt",
+      "params_expected_sha256": "sha256:78b94bf19d4c120e70ba2767734b6d904468d127537e5d16c2a76cbc0963aeb0",
+      "layer": 38,
+      "depth_fraction": 0.59375,
+      "mechanism": "topk",
+      "k": 100,
+      "d_model": 5120,
+      "d_sae": 81920,
+      "hook": "resid_post",
+      "dtype": "float32"
+    },
+    "BACKUP": {
+      "sae_repository_id": "Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50",
+      "sae_revision": "13d4221569f7ca5d3c1e605e3e3dc95117e4807c",
+      "params_file": "layer32.sae.pt",
+      "params_expected_sha256": "sha256:fbbae7cf93c1e385c68213ae871ede349ac666f3a8c4e6a75ef959db2b6612ab",
+      "layer": 32,
+      "depth_fraction": 0.5,
+      "mechanism": "topk",
+      "k": 50,
+      "d_model": 5120,
+      "d_sae": 81920,
+      "hook": "resid_post",
+      "dtype": "float32"
+    }
+  },
+
+  "consistency_verified_against_gemma_identity_v1_3_0": {
+    "PRIMARY": {"qwen_depth_fraction_here": 0.59375, "recorded_in_gemma_identity": 0.59375, "agree": true},
+    "BACKUP": {"qwen_depth_fraction_here": 0.5, "recorded_in_gemma_identity": 0.5, "agree": true},
+    "statement": "Both depth fractions recomputed as layer / 64 and confirmed equal to the values already recorded in the Gemma identity artifact's depth_fraction_matching block. No matched-pair verdict changes."
+  },
+
+  "resolved_placeholders": {
+    "$comment": "Two values previously carried as descriptive strings are now numeric. Recorded here; the Gemma artifact is NOT edited.",
+    "width": {
+      "was": "'W80K per repository identifier' in Gemma identity v1.3.0 sparsity_metadata",
+      "now": "d_sae = 81920, i.e. 80 x 1024. 'W80K' is binary-K.",
+      "expansion_ratio": "81920 / 5120 = 16.0x, a WITHIN-QWEN fact. No cross-model expansion or width comparison is licensed -- matched_pair_eligibility explicitly excludes width correspondence."
+    },
+    "density_demonstration": {
+      "note": "The Gemma artifact's incommensurability demonstration used ~80K and reported the density ratio as 'near 5.9'. With the exact 81920 it is 100/81920 = 0.00122 against 120/16384 = 0.00732, a ratio of 6.0.",
+      "effect_on_the_argument": "NONE. The demonstration's point is that raw-count and density readings of the same two numbers disagree by roughly a factor of five, against a raw ratio of 1.2. 5.9 or 6.0 changes nothing. The Gemma artifact anticipated this insensitivity and requires no edit."
+    },
+    "l0_naming": {
+      "statement": "L0_100 pairs with k = 100 and L0_50 with k = 50, confirming LA-D's finding that L0_N in these identifiers denotes TopK sparsity and not a layer index.",
+      "now_demonstrated_numerically": true
+    }
+  },
+
+  "sparsity_metadata_qwen_arm": {
+    "quantity_type": "FIXED ARCHITECTURAL CONSTRAINT",
+    "semantics": "k is exact and enforced by construction: exactly k features are active on every token. A hyperparameter, not a measurement. No variance, no corpus dependence.",
+    "PRIMARY_k": 100,
+    "BACKUP_k": 50,
+    "binding_prohibition": "Every cross-model sparsity claim remains PROHIBITED. Qwen k and Gemma observed L0 are not commensurable and their ratio has no referent. See Gemma identity v1.3.0 prohibited_sparsity_claims, seven enumerated forms, binding here without restatement.",
+    "within_model_only": "k 100 -> 50 is a halving of a single commensurable quantity WITHIN Qwen. It licenses no statement relating the Qwen change to the Gemma change."
+  },
+
+  "primary_to_backup_moves_on_the_qwen_arm": {
+    "$comment": "A REFINEMENT of Gemma identity v1.3.0, not a contradiction of it. That artifact recorded 'Within Qwen: layer 38 -> 32 and k 100 -> 50' before the Qwen repository identities were frozen.",
+    "dimensions": [
+      "layer 38 -> 32",
+      "k 100 -> 50",
+      "SAE REPOSITORY -W80K-L0_100 -> -W80K-L0_50",
+      "SAE REVISION 82852e98 -> 13d42215"
+    ],
+    "count": 4,
+    "note": "Unlike the Gemma arm, where PRIMARY and BACKUP share one repository at one revision and differ by release namespace, the Qwen arm draws its two configurations from TWO SEPARATE REPOSITORIES at two separate revisions. They are distinct published artifacts by construction; no hash comparison is needed to establish it.",
+    "effect_on_the_standing_prohibition": "STRENGTHENS IT. The prohibition is that NO primary-to-backup difference may be attributed to any single variable. Enumerating four confounded dimensions instead of two makes that ruling hold a fortiori. Gemma identity v1.3.0 therefore requires no correction: its understatement supports a weaker version of a conclusion that remains correct.",
+    "prohibited_claims_extended_to_the_qwen_arm": [
+      "the shallower Qwen layer worked better",
+      "k=50 improved or degraded separation relative to k=100",
+      "one Qwen SAE repository is a better instrument than the other",
+      "any attribution of a Qwen primary-to-backup difference to one of the four changed variables"
+    ],
+    "unaffected": "The confound lives ENTIRELY in the primary-to-backup contrast. PRIMARY-PRIMARY and BACKUP-BACKUP matched cross-model comparisons remain internally clean, and the primary-primary / backup-backup rule in backup_trigger.json is unchanged."
+  },
+
+  "engineering_only_designations": {
+    "statement": "The combination L0_50 / layer 0 / feature 4096 was a LOADING-PATH SMOKE TEST and carries no scientific standing.",
+    "layer_0": "NOT a scientific candidate under any reading. At 0 percent depth the residual stream is barely past the embedding, so features there are token identity rather than concepts. Its appearance originated in the L0_ naming misparse that LA-D resolved.",
+    "feature_4096": "A smoke-test index. It was not selected by any gate and must not be treated as a candidate, cited in any record, or carried into a bundle.",
+    "DISAMBIGUATION_READ_THIS": {
+      "warning": "Do NOT read the above as 'L0_50 is engineering-only'.",
+      "correct_reading": "L0_50 as a CHECKPOINT is the ratified scientific BACKUP configuration, recorded in configurations.BACKUP of this artifact. What is engineering-only is the specific COMBINATION with layer 0 and feature 4096. Discarding the L0_50 checkpoint on the strength of this paragraph would delete the backup arm."
+    }
+  },
+
+  "runtime_loading": {
+    "mode": "PINNED_LOCAL_ONLY",
+    "rationale": "Identical to the Gemma arm. Tamia compute nodes have no outbound internet; a recorded revision is trusted only where a hash check enforces it.",
+    "procedure": [
+      "Materialise on the login node at the pinned SAE revision for the active configuration.",
+      "Verify the params file hashes to params_expected_sha256. Mismatch is a HARD STOP, not a warning.",
+      "At runtime load from the local path only, with HF_HUB_OFFLINE=1.",
+      "Re-verify the hash at every load. The revision attests what was fetched, never what is on disk now."
+    ],
+    "pickle_safety": {
+      "observation": "The Qwen params files are .sae.pt -- PyTorch pickles, not safetensors as on the Gemma arm.",
+      "requirement": "Load with torch.load(..., weights_only=True).",
+      "why": "Unrestricted torch.load deserialises arbitrary Python and executes it. weights_only=True restricts loading to tensors and plain containers. The hash check establishes that the file is the expected one; it does not make executing it safe, and the two controls are independent.",
+      "note": "This is a loader difference between the arms, not a scientific difference."
+    },
+    "dtype_note": {
+      "observation": "SAE parameters are float32 while the model runs in its own dtype.",
+      "requirement": "Cast explicitly at the hook boundary and record the cast in the run card. Do not rely on implicit promotion.",
+      "classification": "Runtime detail. Not a scientific choice."
+    }
+  },
+
+  "validation_rules": [
+    "Both params files must hash to their params_expected_sha256; mismatch on either is a hard stop.",
+    "PRIMARY and BACKUP must never be loaded from the same repository or revision -- they are distinct repositories by construction, and a record showing them equal is malformed.",
+    "sae_repository_id and sae_revision are persisted together; neither alone identifies a checkpoint.",
+    "depth_fraction is recomputed as layer / 64 at load and asserted equal to the recorded value.",
+    "k must equal the L0_N value in the repository identifier; disagreement is a hard stop.",
+    "No identity field may be null, pending or provisional.",
+    "Layer 0 and feature 4096 must not appear in any scientific record, candidate list, or bundle."
+  ],
+
+  "unresolved_fields": {
+    "count": 0,
+    "statement": "No field in this artifact is null, pending, provisional or awaiting a value."
+  },
+
+  "changes_no_scientific_choice": {
+    "statement": "This artifact RECORDS the already-ratified Qwen configurations. It selects nothing, alters no threshold, and changes no matched-pair verdict.",
+    "confirmed_unchanged": [
+      "backup_trigger.json",
+      "scientific_config_identity.json v1.3.0",
+      "one_allocation_dose_generation.json",
+      "discovery_document_generation_binding.json v1.1.0",
+      "generation_settings.json",
+      "the frozen prompt artifact"
+    ]
+  }
+}
