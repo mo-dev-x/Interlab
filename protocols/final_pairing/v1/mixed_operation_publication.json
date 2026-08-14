@@ -1,92 +1,104 @@
 {
-  "$comment": "GATING FOR PROMOTION, NON-BLOCKING FOR GENERATION. Resolves how a selected Suppress triple containing both CLAMP doses and ABLATE encodes into a published BundleEntry. Changes no frozen grid, protocol, identity, threshold or prompt artifact.",
-  "protocol_version": "final-pairing-mixed-operation-publication/1.0.0",
+  "$comment": "GATING FOR PROMOTION, NON-BLOCKING FOR GENERATION. Rules how a Suppress selection containing ABLATE reaches publication. Changes no frozen grid, protocol, identity, threshold or prompt artifact.",
+  "protocol_version": "final-pairing-mixed-operation-publication/1.1.0",
   "gating": {
     "gpu_generation": false,
     "selection_record_implementation": true,
     "judging": true,
     "promotion": true
   },
-  "supersedes": null,
-
-  "generate_all_five_regardless": {
-    "rule": "All five Suppress doses S1..S5 are generated in the GPU allocation. This ruling does not touch generation.",
-    "why": "Generation precedes selection, and selection precedes any question of encodability. Withholding S5 would pre-empt a selection that has not happened and would make ABLATE unselectable by omission -- which is exactly the tuning-before-results this protocol chain forbids."
+  "supersedes": {
+    "protocol_version": "final-pairing-mixed-operation-publication/1.0.0",
+    "commit": "cddd9a59aa4d0c21ab5a8df2b322425aaf72a022",
+    "sha256": "cf5409dea47be83f2a6a0613f18df5dd5c5365eb1414e50655491a4a216f4c69",
+    "reason": "v1.0.0's central claim was FALSE. It asserted that operation lives on a per-strength Spec, that a mixed CLAMP+ABLATE triple therefore already encodes, and that no schema change is required. The accepted input schema does not have that shape. v1.0.0 was written from the reconciliation ruling's prose without opening the accepted schema fixture; the dispatch's description was correct and was contradicted on a false basis.",
+    "withdrawn_instruction": "v1.0.0 directed Engineer 3 to move operation from DirectionRecord back onto Spec. THAT INSTRUCTION IS WITHDRAWN. It would have been a substantial rewrite of a schema that has passed gating three times, justified by a premise that was wrong."
   },
 
-  "THE_SEAM": {
-    "reported": "The BundleEntry calibration direction is implemented with ONE operation per direction: clamp requires strengths, ablate prohibits strengths. A selected triple mixing CLAMP doses with S5/ABLATE cannot be encoded under that shape.",
-    "finding": "THE CONTRACT DOES NOT HAVE THAT SHAPE. operation lives on the Spec, and Spec is PER STRENGTH.",
-    "contract_as_ratified": {
-      "DirectionRecord": {"targets": "[Target], minItems 1 -- membership fixed per direction", "strengths": "{ LOW: Spec, MEDIUM: Spec, HIGH: Spec }"},
-      "Spec": {"operation": "enum { CLAMP, ABLATE }", "value": "required iff CLAMP, prohibited iff ABLATE", "unit": "same", "unit_source": "same"},
-      "resolution_mapping": "spec = rec.strengths[strength]; then branch on spec.operation per target. The branch is evaluated PER STRENGTH, which is only meaningful if operation varies by strength."
+  "accepted_schema_as_it_actually_is": {
+    "source": "tests/fixtures/eng3_concept_bundle/accepted_input_schema_2003406.json",
+    "also_present_at": ["accepted_input_schema_ac9ea40.json", "accepted_input_schema_ff2a565.json"],
+    "consistency": "All three accepted revisions carry the identical calibration shape. This is a settled design, not drift.",
+    "calibration_direction_shape": {
+      "required": ["operation", "targets"],
+      "operation": "ONE per direction, enum [clamp, ablate]",
+      "clamp_required": ["unit", "unit_source", "strengths"],
+      "ablate_prohibited": ["unit", "unit_source", "strengths"],
+      "strengths": "{low, medium, high}, each a BARE NUMBER > 0 -- not an object, not a per-strength Spec",
+      "targets": "array of {feature_idx, weight}; ablate_weight must be exactly 1.0"
     },
-    "verdict": "NO CONTRACT OR SCHEMA CHANGE IS REQUIRED. LOW=CLAMP, MEDIUM=CLAMP, HIGH=ABLATE is already a legal DirectionRecord. The implementation hoisted operation from Spec to DirectionRecord.",
-    "MY_WORDING_INVITED_IT": {
-      "clause": "Validation rule 3 of the reconciliation ruling reads: 'All weights in a DirectionRecord == 1.0 when that direction's Spec is ABLATE.'",
-      "problem": "'that direction's Spec', singular, reads as one Spec per direction. Every other part of the ruling places operation per strength, but that one clause is the one an implementer would encode against, because it is the clause with an enforceable condition in it.",
-      "disposition": "Restated below in per-strength form. The defect was in my wording, not in the implementation's reading of it."
+    "consequence": "A mixed CLAMP+ABLATE triple is GENUINELY UNENCODABLE. An ablate direction has no strengths at all -- the schema prohibits the key. There is no place for a per-strength operation to live.",
+    "the_design_is_coherent": "The schema expresses a real semantic distinction rather than an oversight: suppression is EITHER a graded clamp with three magnitudes OR a single full ablation. ABLATE is a switch, not the top of a dial, and the schema declines to present it as one."
+  },
+
+  "RULING_publication_candidate_set": {
+    "rule": "S5 / ABLATE IS NOT ELIGIBLE FOR THE PUBLISHED LOW/MEDIUM/HIGH TRIPLE. The published Suppress direction is operation=clamp with three CLAMP strengths drawn from S1..S4.",
+    "PRE_REGISTERED_BEFORE_SELECTION": {
+      "requirement": "The restriction binds at SELECTION time, not at publication time. The candidate set for the PUBLISHED triple is S1..S4 from the outset.",
+      "why_this_matters_more_than_anything_else_here": "Restricting the candidate set BEFORE selection is not substitution. Selecting S5 and then publishing something else WOULD BE. The whole difference between a legitimate constraint and post-hoc dose substitution is whether the constraint existed before the judged scores did. It does now, and no scores exist yet."
+    },
+    "S5_remains_fully_scientific": [
+      "generated in the allocation, all five doses, unchanged",
+      "judged with the sweep and with confirmation if selected scientifically",
+      "recorded in the selection record and the manifest",
+      "reported as the strongest suppression achieved",
+      "eligible to satisfy G-E for the purpose of the scientific finding"
+    ],
+    "what_S5_may_not_do": "Occupy low, medium or high in a published calibration direction.",
+    "if_no_three_CLAMP_doses_clear_G_E": {
+      "outcome": "Suppress does not publish. suppress = null in both generation_manifests and selection_records, per the standing nullity rule.",
+      "the_finding_is_still_real": "'Only full ablation suppressed this concept' is an honest and interesting result, reported from the validation evidence. A direction that fails to publish is not a direction that failed to produce knowledge.",
+      "already_ruled": "This is the existing Amplify-only publication path. Nothing new is required to support it."
     }
   },
 
-  "RULING_1_encoding": {
-    "mixed_triple_encodes_directly": {
-      "example": {
-        "strengths": {
-          "LOW": {"operation": "CLAMP", "value": 0.5, "unit": "<pairing unit>", "unit_source": "<pairing source>"},
-          "MEDIUM": {"operation": "CLAMP", "value": 0.25, "unit": "<pairing unit>", "unit_source": "<pairing source>"},
-          "HIGH": {"operation": "ABLATE"}
-        }
-      },
-      "field_presence": "Each Spec independently satisfies one of the three legal shapes already frozen: CLAMP with a relative unit carries value+unit+unit_source; CLAMP with ABSOLUTE_ACTIVATION carries value+unit; ABLATE carries none of the three. Mixing shapes ACROSS strengths was always permitted; only mixing them WITHIN one Spec is not.",
-      "any_strength_may_be_ABLATE": "Nothing restricts ABLATE to HIGH. If the judged sweep selected S5 as MEDIUM, that encodes too. The grid ruling already established that ABLATE is eligible rather than mandated."
-    },
-    "required_implementation_change": "Move operation from DirectionRecord back to Spec, per the ratified contract. This is a correction to the implementation, not an amendment to the contract."
+  "supersedes_one_line_of_the_grid_ruling": {
+    "grid_ruling": "protocols/final_pairing/v1/causal_dose_grid.json, HIGH_is_not_defined_as_ABLATE",
+    "text_affected": "'ABLATE is ELIGIBLE to be selected as HIGH and will often be'",
+    "correction": "That remains true for the SCIENTIFIC selection recorded in the selection record. It is NOT true for the PUBLISHED triple, whose candidate set is S1..S4.",
+    "unchanged_and_still_binding": "A published Suppress triple whose HIGH is S4 is valid and must not be rejected as malformed. That was the grid ruling's actual point and it survives intact -- indeed it is now the normal case.",
+    "grid_artifact_not_edited": "causal_dose_grid.json is unmodified. This artifact is normative over that one clause."
   },
 
-  "RULING_2_weights": {
-    "restated_per_strength": "If ANY Spec in a DirectionRecord has operation ABLATE, then every Target weight in that DirectionRecord must be exactly 1.0.",
-    "why_the_constraint_spans_the_whole_direction": "Targets and their weights are per-direction and shared by all three strengths, while operation is per-strength. A weight cannot be 0.6 for the CLAMP strengths and 1.0 for the ABLATE strength, because there is only one weight. The purpose of the original rule stands: weight is inert under ABLATE, and a record showing weight 0.6 beside an ABLATE strength reads as partial ablation, which is not a thing.",
-    "practical_scope": {
-      "single_target_bundles": "UNAFFECTED. Weight is 1.0 by construction, so every mixed triple encodes.",
-      "multi_target_uniform_weights": "UNAFFECTED.",
-      "multi_target_non_uniform_weights": "The only case where ABLATE at any strength is unencodable.",
-      "assessment": "EMPTY IN PRACTICE TODAY. No calibration procedure in this protocol chain produces a non-1.0 weight. The weight ruling permits any finite positive multiplier and defaults to 1.0, but nothing derives another value, and a second target must independently clear G-A/B/C and add >= +1.0 relevance -- a bar reached by adding the target, not by re-weighting it. The restriction is real in the schema and vacuous in the data."
-    },
-    "pre_selection_consequence": "Because every Suppress dose grid contains S5=ABLATE, ABLATE may be selected in any Suppress direction. Therefore SUPPRESS DirectionRecords carry uniform weights of exactly 1.0, decided at authoring time, before selection. This removes the failure mode rather than handling it."
-  },
-
-  "RULING_3_S5_is_publishable": {
-    "question": "May S5 be validation evidence but excluded from the public calibration mapping?",
-    "answer": "NO EXCLUSION. S5 is both validation evidence and publishable. The encoding works, so there is nothing to exclude.",
-    "why_exclusion_was_the_wrong_fix": "Excluding S5 from publication one turn after ruling that ABLATE is eligible for selection would make the grid's fifth point selectable but unpublishable -- a selection the system invites and then refuses to honour. It would also discard the strongest suppression result, which is the most informative point on the arm.",
-    "advanced_mode": "The operation change at HIGH is visible in Advanced mode alongside the resolved clamp values, per the standing rule that Advanced displays the resolved state of the public controls.",
-    "public_wording_unchanged": "The standing rule that Suppress must promise observation rather than erasure governs the LABEL and is untouched by the operation underneath it."
-  },
-
-  "RULING_4_never_substitute": {
-    "rule": "If a selected triple cannot be encoded, THE DIRECTION DOES NOT PUBLISH. It is recorded as validated-but-unpublishable with the reason.",
-    "explicitly_prohibited": "Falling back to the strongest passing CLAMP dose in place of a selected ABLATE. That publishes a calibration different from the one the judged sweep selected, which is post-hoc dose substitution -- the exact failure the selection record exists to prevent.",
-    "selection_record_is_untouched": "The selection record remains authoritative and unedited. It says HIGH=S5. An encoding failure is a publication outcome, never a reason to rewrite the selection.",
-    "expected_frequency": "Zero, given RULING_2's pre-selection uniform-weight requirement. This clause exists so that if it ever fires, the answer is already fixed."
-  },
-
-  "RULING_5_evidence_producer_text": {
-    "defect": "The evidence producer states 'Suppress HIGH is ABLATE'.",
-    "correction": "HIGH is whichever dose the judged sweep selected under the frozen selection rules. ABLATE is the terminal grid point and is ELIGIBLE for any strength; it is not HIGH by definition.",
-    "consequences_of_leaving_it": [
-      "A Suppress selection with HIGH=S4 would be rejected as malformed, which the grid ruling explicitly forbids.",
-      "A published bundle could assert ABLATE at HIGH when the selection record says otherwise, putting the evidence producer in contradiction with the authoritative record."
+  "no_schema_change": {
+    "verdict": "NO CHANGE to the accepted input schema.",
+    "reasoning": [
+      "The schema has passed gating at three successive commits and has fixtures, a validator and gating reports built on it.",
+      "The only shape it cannot express is one the publication candidate set now excludes.",
+      "Zero concepts have been published, so the restriction costs nothing already banked.",
+      "Changing the core calibration shape days from the deadline, for a case now ruled out of scope, is not a trade worth making."
     ],
-    "also_correct": "Any text implying the Suppress grid is a continuous magnitude ramp. S1..S4 are CLAMP magnitudes and S5 is a different operation; Low/Medium/High are labels over a selected triple, not points on a continuum."
+    "weights_already_correct": "The schema's targets.ablate_weight = 'must be exactly 1.0' already matches the standing weight ruling. v1.0.0's weight analysis was consistent with the schema even though its operation analysis was not."
+  },
+
+  "ablate_only_direction_is_expressible": {
+    "observation": "The schema DOES support a whole direction with operation=ablate, no strengths, weights 1.0.",
+    "what_it_would_mean": "A Suppress direction that is only full ablation, with no Low/Medium/High dial.",
+    "status": "AVAILABLE, NOT SELECTED.",
+    "researcher_question": "Whether the public tool should ever expose an ablate-only Suppress direction -- a switch rather than a dial -- is a product decision about the demo surface, not a scientific one. I am not deciding it. If it is wanted, it needs its own UI treatment, because the public control is currently Low/Medium/High and an ablate-only direction has no such positions."
+  },
+
+  "RETAINED_FROM_v1_0_0": {
+    "never_substitute": {
+      "rule": "The selection record is authoritative and unedited. Publishing a dose other than one the selection procedure selected is prohibited.",
+      "how_this_ruling_stays_consistent_with_it": "By restricting the candidate set BEFORE selection rather than diverging from the result afterwards. Nothing selected is ever replaced."
+    },
+    "generate_all_five": {
+      "rule": "All five Suppress doses S1..S5 are generated in the GPU allocation. Unchanged.",
+      "why": "Generation precedes selection. Withholding S5 would remove the evidence for the strongest suppression the arm can produce, which is scientifically the most informative point even though it is not publishable as a triple member."
+    },
+    "evidence_producer_text": {
+      "defect": "The evidence producer states 'Suppress HIGH is ABLATE'.",
+      "correction": "FALSE, and now doubly so. HIGH is a CLAMP dose from S1..S4 selected by the judged sweep. ABLATE is never a published triple member.",
+      "also_correct": "Any text implying S1..S5 is a continuous magnitude ramp. S1..S4 are CLAMP magnitudes; S5 is a different operation and is not on the same scale."
+    }
   },
 
   "sequencing": {
-    "generation": "PROCEED NOW. All five doses, both directions, unchanged.",
-    "before_selection_record_implementation": "Apply RULING_2's uniform-weight requirement for Suppress DirectionRecords.",
+    "generation": "PROCEED NOW, unchanged, all five doses both directions.",
+    "before_selection_record_implementation": "Implement the S1..S4 candidate restriction for the PUBLISHED triple. The selection record still records the full scientific picture including S5.",
     "before_judging": "No dependency.",
-    "before_promotion": "Apply RULING_1 (operation back onto Spec) and RULING_5 (evidence producer text). Promotion cannot verify a mixed triple until operation is per-strength."
+    "before_promotion": "Evidence-producer text corrected. No schema change."
   },
 
   "unchanged_artifacts": {
@@ -103,12 +115,12 @@
   },
 
   "hard_stops": [
-    "operation stored on DirectionRecord rather than on Spec.",
-    "Rejecting a DirectionRecord whose strengths mix CLAMP and ABLATE.",
-    "A DirectionRecord containing an ABLATE Spec with any Target weight other than exactly 1.0.",
-    "An ABLATE Spec carrying value, unit, or unit_source.",
-    "Publishing a dose other than the one the selection record selected.",
-    "Any assertion that Suppress HIGH is ABLATE by definition.",
-    "Withholding S5 from generation."
+    "S5 or ABLATE occupying low, medium or high in a published calibration direction.",
+    "Restricting the published candidate set AFTER any judged score exists -- the restriction is pre-registered or it is substitution.",
+    "Publishing a dose other than one the selection procedure selected.",
+    "Withholding S5 from generation or from judging.",
+    "Rejecting a published Suppress triple whose HIGH is S4.",
+    "Any assertion that Suppress HIGH is ABLATE.",
+    "Editing the accepted input schema on the strength of superseded ruling v1.0.0."
   ]
 }
