@@ -592,8 +592,10 @@ python scripts/final_pairing/local_judge_preflight.py   # no paid call; verifies
 python scripts/final_pairing/final_pairing_judge_cli.py judge-sweep \
   --manifest /path/to/generation_manifest_amplify.json --concept-id cheese --pairing-id gemma-3-12b-it \
   --direction amplify --judge-model claude-sonnet-4-5-20250929 --model-name google/gemma-3-12b-it \
-  --budget-usd 25.00 --cache-path D:/devcache/lodestar_cache/final_pairing/cache.sqlite \
-  --output-dir D:/devcache/lodestar_runs/final_pairing/cheese_amplify
+  --budget-usd 25.00
+  # --cache-path/--output-dir omitted: they default to INTERPLAB_CACHE_DIR/
+  # INTERPLAB_OUTPUT_ROOT if set, else this repo's own gitignored ./.local/ --
+  # no machine-specific path is assumed. Pass either flag explicitly to override.
 
 python scripts/final_pairing/final_pairing_judge_cli.py write-selection \
   --concept-id cheese --pairing-id gemma-3-12b-it --direction amplify \
@@ -611,9 +613,13 @@ The generation manifest is written PER DIRECTION (never one manifest spanning bo
 
 Engineer 3's real `dose-check --manifest <stamped manifest> --selection-record <selection record>` command (commit ac9ea40) verifies the whole graph: seed disjointness, one file per dose, five doses per COMPLETE concept, the confirmation shape parsed from the protocol itself, the sealed stamp, and the git ancestry -- proven against a real manifest/selection-record pair this project's own test suite generates (see the closing report for the captured passing run).
 
-`--lodestar-source-root` (default: `LODESTAR_SOURCE_ROOT` env var, else
-`D:/lodstar`) is inserted onto `sys.path` explicitly -- Lodestar is never
-installed into this repository's own `.venv`. `ANTHROPIC_API_KEY` is read
+There is no `--lodestar-source-root` CLI flag: the real Lodestar checkout is
+inserted onto `sys.path` explicitly via `ensure_lodestar_importable`, which
+requires the `LODESTAR_SOURCE_ROOT` environment variable (no fallback of any
+kind -- a machine-specific default would only ever be right on the one
+machine it was written for) or, for programmatic callers only, an explicit
+`source_root=` argument; Lodestar is never installed into this repository's
+own `.venv`. `ANTHROPIC_API_KEY` is read
 from the environment only, never logged, printed, or accepted on the
 command line. `MockJudge`/`NoOpJudge` model identities are refused by
 name (`assert_judge_model_is_attestable`) from ever reaching a function

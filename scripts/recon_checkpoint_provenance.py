@@ -7,8 +7,9 @@ Recovers whatever facts about the four Interlab campaign checkpoints
 from checkpoint directories, the HF model cache, and WandB offline logs.
 
 Hard rules this script follows:
-  - Never writes to registry/. Never writes anywhere except its own report
-    file, which is written next to this script, not into the repo.
+  - Never writes to registry/. Writes exactly one report file, at the
+    repository root (REPORT_PATH, gitignored as /provenance_recon_*.json
+    -- see .gitignore), and nowhere else.
   - Never guesses. Every field is either read directly from a source file
     (a "recovered" fact, with the exact path it came from) or reported as
     a labelled list of untried candidates for a human to resolve. Nothing
