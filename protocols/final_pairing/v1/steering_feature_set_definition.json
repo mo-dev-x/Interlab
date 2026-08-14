@@ -1,6 +1,16 @@
 {
   "$comment": "GATING FOR POST-RUN SCIENCE CLAIMS ONLY. Resolves referral A-7. Does NOT block or alter the certified submission, changes no threshold, grid, identity or prompt artifact, and adds no gate to the pending run.",
-  "protocol_version": "final-pairing-steering-feature-set-definition/1.0.0",
+  "protocol_version": "final-pairing-steering-feature-set-definition/1.1.0",
+
+  "AMENDMENT_1_1_0_correcting_an_unfair_implication": {
+    "what_v1_0_0_said": "Line 35: 'anyone carrying 1/3/5 forward is carrying a number that no artifact states.' Hard stop: 'Carrying the string 1/3/5 forward as if a frozen artifact stated it.'",
+    "what_was_true": "The literal finding. No frozen artifact contains that string. That search was correct and its conclusion stands unchanged.",
+    "what_was_WRONG": "The framing. Stated as a HARD STOP it reads as an accusation that a lane fabricated a number. It did not. 'A number no artifact states' is not 'a number nobody stated', and v1.0.0 elided the two.",
+    "the_provenance_that_was_missing": "1/3/5 is recorded as coming from the PM/PI science ruling of 2026-08-13 -- one shared validated concept minimum, three operational, five stretch -- held outside the repository. The coordinator raised this against my own frozen artifact, and I VERIFIED IT INDEPENDENTLY: the Architect's own cross-session memory record carries the same targets and the same caution. Two independent stores agree.",
+    "what_is_still_NOT_established": "Neither store can produce the PM's original wording. Two agreeing records are corroboration, not proof, and the targets are NOT promoted to gates by this amendment. See operational_target_correspondence.json.",
+    "corrected_hard_stop": "The prohibition is now on CONFLATION, not on the number. Carrying 1/3/5 forward is legitimate as a recorded PM target; presenting it as a frozen artifact's operational_targets is not.",
+    "why_this_amendment_rather_than_a_quiet_edit": "A frozen artifact that reads as an accusation is a durable harm to whichever lane reads it next. Correcting it silently would leave no record that the accusation was withdrawn."
+  },
   "gating": {
     "gpu_generation": false,
     "submission": false,
@@ -32,7 +42,7 @@
       "line_174": "general_cross_model_comparison_claim_requires: shared_validated_count 2",
       "line_175": "backup_triggered_below: primary_shared_gabc_count 3"
     },
-    "the_actual_frozen_triple_is_1_2_3_not_1_3_5": "Demo floor 1, claim floor 2, backup trigger 3. Anyone carrying '1/3/5' forward is carrying a number that no artifact states.",
+    "the_actual_frozen_triple_is_1_2_3_not_1_3_5": "Demo floor 1, claim floor 2, backup trigger 3. AMENDED IN 1.1.0: '1/3/5' is a recorded PM target from the 2026-08-13 science ruling, held outside the repository and corroborated by two independent memory stores. It is NOT a frozen artifact's operational_targets and the two must never be presented as the same thing. The defect is conflation, not the number. See operational_target_correspondence.json.",
     "READING_2_is_not_merely_unsupported": "It conflicts with the gate definition. backup_trigger.json line 41: 'A SINGLE feature f survives G-A/B/C for concept c on pairing p in configuration k iff THAT SAME FEATURE passes all three gates.' Survival is defined per individual feature. There is no frozen gate that evaluates a SET of features jointly."
   },
 
@@ -84,6 +94,6 @@
     "Pre-registering a target feature-set cardinality and reporting it as a measured result.",
     "Claiming a set is 'needed' without a minimality test.",
     "Treating this ruling as authorization for, or a block on, the pending submission.",
-    "Carrying the string '1/3/5' forward as if a frozen artifact stated it."
+    "AMENDED IN 1.1.0 -- presenting the recorded PM targets 1/3/5 as if they were a frozen artifact's operational_targets, or the frozen operational_targets as if they were the PM's ruling. Carrying 1/3/5 forward as a recorded PM target is legitimate and is NOT prohibited; the v1.0.0 wording implied a lane fabricated it and that implication is withdrawn."
   ]
 }
