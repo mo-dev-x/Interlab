@@ -135,6 +135,53 @@ A tool other people use wants the first. The second contains work-order history,
 
 ---
 
+## Phase 5 — Transient files that should not ship
+
+Added after Phase 1. A tool repo should not carry the work orders that built it.
+
+**Verified before listing.** `results/final_pairing/job_406092/fp_accept.sbatch.before` and
+`.sbatch.diff` look like scratch and are **not**. That job's `README.md` records that the
+wrapper diff was independently reproduced (`diff -u fp_accept.sbatch.before fp_accept.sbatch`)
+and is byte-identical to the stored `.diff`, proving the disclosed edit was exactly one added
+`PYTHONPATH` line. **Deleting them destroys the evidence for that claim. They stay.** Recorded
+here so a later sweep does not mistake them for leftovers.
+
+### 5a — Delete or relocate
+
+| Path | Action | Why |
+|---|---|---|
+| `docs/repo_cleanup_plan.md` | **Delete** as the last commit of Phase 2 | This file. It is the operative document until then, and git history retains it. |
+| `recon_checkpoint_provenance.py` | **Move to `scripts/`** | One-off T0.0 evidence-recovery script sitting loose at repo root. No inbound reference from anywhere. It is a real tool in the wrong place — relocating removes the root-level smell without destroying a method. |
+
+**`docs/execution_roadmap.md` — DO NOT DELETE.** My first draft listed it as dead because it
+is dated "Final 3 Days (Fri Jul 24 → Sun Jul 26, 2026)" and superseded by the PI directive.
+Checking the inbound references showed it is **cited evidence**:
+
+- `reports/internship_report.md:253` cites it as the record that Eurovision was **pre-flagged
+  as weak before the result was known** — the roadmap is the proof that decision was
+  pre-registered rather than post-hoc.
+- `reports/internship_report.md:699-700` cites it for two absent-evidence items.
+- `reports/evidence_inventory.md:18, 282, 353` cites it for checkpoint provenance and methodology.
+
+A superseded *plan* is not a deletable *record*. Deleting it would break exactly the kind of
+pre-registration chain the rest of this project exists to protect.
+
+### 5b — Conditional on the Phase 4 governance decision
+
+Delete from the public repo if governance stays private; keep if it ships:
+
+`docs/final_pairing_tamia_packet.md` · `docs/final_pairing_concept_discovery_packet.md` (both are Lab-Assistant command packets — dispatches, not documentation) · `docs/pi_directive_plan_2026_08.md` (dated sprint plan opening with an operational `HF_HOME` warning) · `docs/implementation_log.md` (running internal log)
+
+Do not delete these piecemeal. They are the same decision as `project_management/`.
+
+### 5c — Rename
+
+`docs/pipline.md` → `docs/pipeline.md`. It is the authoritative pipeline reference and the
+filename is misspelled. Cheap now, and a typo in the most-linked doc of a public tool is the
+kind of thing that gets noticed first. Update inbound references in the same commit.
+
+---
+
 ## Sequence
 
 ```
