@@ -1,6 +1,42 @@
 {
   "$comment": "GATING FOR POST-RUN SCIENCE CLAIMS AND FOR DIGEST VERIFICATION. Answers the coordinator's bounded-probe question. AUTHORIZES NOTHING -- not a probe, not a lane, not an allocation, not a spend. Blocks nothing in the certified run or the submission.",
-  "protocol_version": "final-pairing-jointly-only-probe-and-verification-discipline/1.0.0",
+  "protocol_version": "final-pairing-jointly-only-probe-and-verification-discipline/1.1.0",
+
+  "AMENDMENT_1_1_0": {
+    "trigger": "The coordinator corrected the mechanism I attributed in v1.0.0 RULING_6, and requested the gating rule be widened. Both accepted.",
+
+    "MY_ATTRIBUTION_WAS_WRONG": {
+      "what_v1_0_0_said": "The CRs observed in the census were 'most plausibly' produced by the same PowerShell text-mode path as the disclosed digest defect.",
+      "what_is_actually_true": "That census ran in bash 5.2.26 and never touched PowerShell. The defect was `$'\\r'` reaching grep as an EMPTY PATTERN in that execution context, so `grep -c ''` matched every line and returned the line count.",
+      "I_VERIFIED_THIS_RATHER_THAN_ACCEPTING_IT": "Positive control, three lines, exactly two CR bytes: `tr -cd '\\r' | wc -c` returns 2 and an od cross-check confirms 2. `grep -c $'\\r'` returns 0 IN MY CONTEXT and returned 3, the line count, in theirs.",
+      "A_FINDING_NEITHER_OF_US_HAD": "THE SAME IDIOM FAILS IN OPPOSITE DIRECTIONS IN TWO BASH CONTEXTS. Theirs over-reported every line; mine under-reports to zero. An instrument that can silently return either the maximum or the minimum, depending on context, is not a weak instrument -- it is not an instrument.",
+      "consequence_for_my_own_census": "My v1.0.0 census used `tr -cd`, which the positive control confirms is sound and which od independently corroborates. The LF finding stands, and now stands on a controlled instrument rather than on an uncontrolled one that happened to be right."
+    },
+
+    "AND_MY_ERROR_WAS_THE_CLASS_I_WAS_RULING_AGAINST": {
+      "what_I_did": "I had a REAL, disclosed PowerShell defect in hand. I used it to explain a second, unrelated observation without measuring that observation.",
+      "why_it_felt_sound": "Because the corroborating artifact was genuine. The PowerShell defect was real, it was disclosed by its own author, and it produces exactly the class of symptom I was explaining.",
+      "assessment": "That is the same failure I named in the tool's Qwen pin and the coordinator named in their own census. THREE INSTANCES IN ONE EXCHANGE, AND THE THIRD IS MINE -- committed in the artifact that names the pattern."
+    },
+
+    "THE_PATTERN_NAMED": {
+      "designation": "CORROBORATED WRONG READING.",
+      "definition": "A false observation is explained by a REAL artifact. The explanation is coherent, the corroborating artifact is genuine, and the reader stops. The corroboration is not fake, which is precisely why this class survives verification.",
+      "instances_this_sprint": [
+        "The tool pins Qwen L0_50. Wrong for the certified primary, but L0_50 is the RATIFIED BACKUP -- so a reader who checks it finds it present, ratified and coherent, and stops.",
+        "The coordinator's census read all sixteen artifacts as CRLF. False, but .gitattributes `* -text` is real and its byte-freezing rationale explains why uniform CRLF would be acceptable -- so the anomaly was reasoned away rather than re-measured.",
+        "The Architect attributed those CRs to the PowerShell defect. False, but that defect is real and disclosed -- so the attribution was asserted rather than tested."
+      ],
+      "THE_RULE": "WHEN A SURPRISING OBSERVATION IS EXPLAINED BY A REAL ARTIFACT, THE EXPLANATION MAY NOT SUBSTITUTE FOR RE-MEASURING THE OBSERVATION. A genuine artifact establishes that the observation WOULD be acceptable if true. It never establishes that it IS true.",
+      "why_it_is_the_hardest_class": "Every other defect in this sprint's catalogue is caught by checking the corroboration. Here the corroboration checks out. The only thing that catches it is re-measuring the original observation with a controlled instrument."
+    },
+
+    "THE_TELL_THE_COORDINATOR_IDENTIFIED": {
+      "observation": "crlf_lines EXACTLY EQUALLED lines for all sixteen files.",
+      "rule": "An instrument whose output equals a trivially predictable quantity -- the line count, the byte size, the member count, the input cardinality -- has probably measured nothing. Sixteen-for-sixteen agreement with such a quantity is a TELL, not a result.",
+      "how_to_use_it": "Before reporting, ask what the output would be if the detector never fired and if it always fired. If the observed value equals either, the instrument is unproven."
+    }
+  },
   "gating": {
     "gpu_generation": false,
     "submission": false,
@@ -67,7 +103,16 @@
       "hashing a working-tree file to verify a committed blob without first confirming the two are identical",
       "any method that writes an intermediate file with a text-mode writer"
     ],
-    "why_this_is_gating": "In this project the digest IS the artifact's identity. A verification method that can alter bytes cannot verify bytes. This is not style; a false mismatch triggers an integrity investigation and a false match defeats one."
+    "why_this_is_gating": "In this project the digest IS the artifact's identity. A verification method that can alter bytes cannot verify bytes. This is not style; a false mismatch triggers an integrity investigation and a false match defeats one.",
+
+    "WIDENED_IN_1_1_0_POSITIVE_CONTROL_REQUIRED": {
+      "why_the_v1_0_0_rule_was_too_narrow": "It named a PowerShell pipeline and a hash. The census defect was bash and was not a hash, so it would have passed this rule untouched. Naming a mechanism catches that mechanism; naming a discipline catches the class.",
+      "THE_GENERAL_RULE": "ANY INSTRUMENT REPORTING ON BYTES OR COUNTS REQUIRES A POSITIVE CONTROL: a case KNOWN to contain the thing being detected, run IN THE SAME INVOCATION as the measurement, whose detection is ASSERTED before the measurement is reported.",
+      "REFINEMENT_THE_REQUEST_DID_NOT_HAVE": "THE ASSERTION MUST BE ON THE EXACT EXPECTED VALUE, NOT MERELY ON NON-ZERO. A control asserting 'detected > 0' would have PASSED the broken census instrument, which returned 3 where the truth was 2 -- both are greater than zero. Only an exact-value assertion separates 'the detector fired' from 'the detector fired correctly'.",
+      "WHY_SAME_INVOCATION_IS_LOAD_BEARING": "The defect is context-dependent. VERIFIED: `grep -c $'\\r'` returned 3 in one bash context and 0 in another, against a true value of 2. A control run once and trusted thereafter proves nothing about the invocation that produced the reported number.",
+      "provenance_of_this_discipline": "It is exactly what LA-B applied to every gate they built this sprint -- mutants and negative controls -- and what the coordinator required of them repeatedly while applying it to no check of their own. The rule is not new to this project; it was simply never turned inward.",
+      "scope": "Line-ending censuses, digest comparisons, file and member counts, contamination and leakage scans, gate-coverage checks, and any report of the form 'I searched and found N'."
+    }
   },
 
   "RULING_6_the_CRLF_census_conclusion_is_right_and_the_observation_is_WRONG": {
@@ -79,9 +124,9 @@
     },
     "the_conclusion_still_stands": "NO FINDING remains correct, and for a stronger reason than the one given: .gitattributes sets * -text, which freezes whatever bytes were committed. Uniform LF, byte-identical between blob and worktree, is full compliance. Nothing needs doing and nobody should re-raise it.",
     "THE_PART_THAT_MATTERS_MORE_THAN_THE_CORRECTION": {
-      "finding": "THE DISCLOSED INSTRUMENT DEFECT HAD A SECOND VICTIM IN THE SAME MESSAGE, AND IT WENT UNCAUGHT.",
-      "mechanism": "The same PowerShell text-mode path that injected a BOM into the digest computation is the most plausible source of the CRs observed in the census. It was caught in the digest check and missed in the census.",
-      "WHY_IT_WAS_MISSED": "The digest check produced a MISMATCH -- a finding -- so it was re-examined. The census produced NO FINDING, and nobody re-examines a clean negative. A corrupted instrument that reports a problem gets audited; a corrupted instrument that reports all-clear is invisible.",
+      "finding": "A SECOND INSTRUMENT DEFECT IN THE SAME MESSAGE WENT UNCAUGHT.",
+      "mechanism_CORRECTED_IN_1_1_0": "v1.0.0 attributed this to the same PowerShell text-mode path. THAT WAS WRONG -- see AMENDMENT_1_1_0. The census ran in bash and never touched PowerShell; the defect was `$'\\r'` reaching grep as an empty pattern. The two defects are unrelated in mechanism and identical in class.",
+      "WHY_IT_WAS_MISSED_CORRECTED_IN_1_1_0": "v1.0.0 said a clean negative is never re-examined. The coordinator's correction makes this WORSE rather than weaker: the instrument did NOT report a clean negative. It reported a loud, uniform, obviously suspicious positive -- all sixteen files CRLF. The author then FOUND the real .gitattributes policy, read its byte-freezing rationale, and used it to explain the anomaly into a NO FINDING. Having the anomaly in hand and reasoning it away with a genuine artifact is worse than never seeing it. This is the CORROBORATED WRONG READING class, and the general form is recorded in AMENDMENT_1_1_0.",
       "the_self_reference": "This is the sprint's recurring defect occurring inside the very check run to illustrate the sprint's recurring defect. It is the strongest available argument for RULING_5 being gating rather than advisory, and for RULING_4 pre-registering the null interpretation before any probe runs."
     }
   },
