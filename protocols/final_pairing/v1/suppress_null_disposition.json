@@ -1,0 +1,105 @@
+{
+  "$comment": "GATING FOR PROMOTION ONLY. Narrow clarification: how an S5-only G-E result is encoded when suppress publishes null. Blocks nothing in generation or Section 7.",
+  "protocol_version": "final-pairing-suppress-null-disposition/1.0.0",
+  "gating": {
+    "gpu_generation": false,
+    "section_7": false,
+    "judging": false,
+    "promotion": true
+  },
+  "supersedes": null,
+  "extends": {
+    "protocol": "protocols/final_pairing/v1/mixed_operation_publication.json",
+    "protocol_version": "final-pairing-mixed-operation-publication/1.1.0",
+    "sha256": "sha256:548aadcaf79d7374bb300335aaef6f4e4c7524809b5c4db9bc519549d2ccb14d"
+  },
+
+  "question": "S5 satisfies G-E scientifically while fewer than three S1..S4 qualify, so suppress = null. Does the promoted discovery document carry a G-E gate?",
+
+  "RULING": {
+    "verdict": "OPTION A. The S5 result remains in non-promoted validation and run evidence. NO G-E GATE appears in the promoted document.",
+    "engineer_3_gate_is_unchanged": "The existing enforcement -- a G-E gate attached to a null Suppress direction blocks promotion -- is CORRECT and stays exactly as implemented. No gate change, no relaxation, no exception.",
+    "reasoning": {
+      "a_gate_is_a_claim_about_the_published_artifact": "Gates in the promoted document describe what the published thing does. With suppress = null, nothing about suppression is published, so a G-E gate would attest a capability the published artifact does not have.",
+      "the_specific_failure_it_prevents": "A G-E PASS sitting beside suppress = null reads as 'suppression validated' to anyone scanning or tabulating the document. Someone builds a summary, sees G-E PASS, and reports the concept as bidirectionally validated when the tool only amplifies. That is the same reads-as-provenance-but-isn't pattern that has already cost this project a stub-judge certificate, a machine-local path, and a FAKE bundle passing a not-UNKNOWN gate.",
+      "option_B_was_the_wrong_trade": "Relaxing the gate would let a passing G-E coexist with an unpublished direction in every future document, permanently, to accommodate a case that is already fully recorded elsewhere."
+    }
+  },
+
+  "the_science_is_not_orphaned": {
+    "statement": "Option A does not lose the S5 finding. It is already bound by existing machinery.",
+    "where_it_lives": [
+      "causal_validation_record -- one of the four content-addressed binding evidence records the promoted document already references. S5's judged G-E result is inside it.",
+      "the generation manifest -- S5's outputs, hashes and seeds, as immutable pre-selection inventory.",
+      "the selection record -- S5 listed among unselected, with the direction's outcome."
+    ],
+    "consequence": "The finding 'only full ablation suppressed this concept' is hash-bound, retained and reportable. What it is not is a gate on a published capability.",
+    "nothing_new_required": "No additional evidence artifact, no fifth evidence_ref."
+  },
+
+  "REQUIRED_ENCODING": {
+    "object": "suppress_disposition",
+    "location": "promoted discovery document, top level",
+    "required_iff": "calibration.directions.suppress is null",
+    "prohibited_iff": "calibration.directions.suppress is non-null",
+    "gating": false,
+    "fields": {
+      "reason": {
+        "type": "string",
+        "enum": ["NOT_ATTEMPTED", "NO_DOSE_CLEARED", "INSUFFICIENT_CLAMP_DOSES"],
+        "semantics": {
+          "NOT_ATTEMPTED": "No Suppress generation was performed for this concept and pairing.",
+          "NO_DOSE_CLEARED": "Generated and judged; no dose, including S5, cleared G-E.",
+          "INSUFFICIENT_CLAMP_DOSES": "Fewer than three of S1..S4 cleared G-E, so no publishable clamp triple exists. S5 may or may not have cleared -- see ablation_cleared_ge."
+        }
+      },
+      "ablation_cleared_ge": {
+        "type": "boolean | null",
+        "null_iff": "reason == NOT_ATTEMPTED",
+        "semantics": "Whether S5 / ABLATE cleared G-E. This is the field that carries the 'only full ablation suppressed this concept' finding into the promoted document as a FACT, never as a gate."
+      },
+      "additionalProperties": false
+    },
+    "why_two_fields_not_one_enum": "Ablation clearing and clamp-triple sufficiency are independent, so enumerating their combinations produces a state list that grows and gets miscoded. A reason plus a boolean is unambiguous and cannot drift out of sync with itself.",
+    "why_required_rather_than_optional": "An optional field that is sometimes absent reintroduces the ambiguity it exists to remove: a reader could not distinguish 'suppress was never attempted' from 'the field was omitted'. Nullity discipline here mirrors the standing rule for generation_manifests and selection_records."
+  },
+
+  "NOT_A_GATE": {
+    "rule": "PROMOTION NEITHER PASSES NOR FAILS ON suppress_disposition. It is descriptive metadata.",
+    "enforcement": [
+      "suppress_disposition is validated for shape only: presence, enum membership, and the null_iff rule.",
+      "No value of reason and no value of ablation_cleared_ge may cause promotion to succeed or fail.",
+      "ablation_cleared_ge = true must never be rendered, summarised, tabulated or exported as a G-E PASS."
+    ],
+    "why_this_needs_stating": "A boolean named ablation_cleared_ge sitting in a promoted document is one careless summary table away from becoming a de facto gate. Naming it non-gating in the schema is cheaper than discovering it in a report."
+  },
+
+  "public_reporting": {
+    "permitted": "This concept publishes Amplify only. Suppression was attempted; only full ablation reduced concept relevance, and no graded suppression triple qualified for publication.",
+    "prohibited": [
+      "reporting the concept as bidirectionally validated",
+      "showing a G-E PASS for this concept in any promoted-document summary",
+      "implying the public tool can suppress this concept",
+      "counting the concept toward any bidirectional or Suppress-validated tally"
+    ],
+    "tool_surface": "The public Suppress control is absent or disabled for this concept, per the standing null-direction rule. Unchanged."
+  },
+
+  "unchanged": [
+    "Engineer 3's G-E-gate-with-null-suppress enforcement.",
+    "The accepted input schema. No change.",
+    "Every threshold, including G-E at -3.0 with coherence >= 6.0.",
+    "The four binding evidence records plus separate feature_certificate.",
+    "The causal dose grid, all five doses generated and judged.",
+    "The S1..S4 publication candidate restriction from mixed-operation v1.1.0.",
+    "Nullity mirroring across calibration.directions, generation_manifests and selection_records."
+  ],
+
+  "hard_stops": [
+    "A G-E gate present in a promoted document whose suppress direction is null.",
+    "suppress_disposition absent when suppress is null, or present when suppress is non-null.",
+    "Promotion outcome depending on any suppress_disposition value.",
+    "ablation_cleared_ge rendered or exported as a G-E PASS.",
+    "Counting an Amplify-only concept toward a Suppress-validated or bidirectional tally."
+  ]
+}
