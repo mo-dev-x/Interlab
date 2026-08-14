@@ -3,33 +3,30 @@
 No network, no eng3/concept-bundle checkout required for MOST of these
 tests -- `reconcile_against_static_snapshot` is checked against the
 committed static snapshot fixture (tests/fixtures/eng3_concept_bundle/
-accepted_input_schema_ff2a565.json, schema v3.0, manifest-immutability-
-aware), never a live worktree, and is explicitly NON-GATING. The prior
-ac9ea40 (schema v1.3)/2003406 (schema v2.0) snapshot/report fixtures are
-kept alongside as the historical record, never deleted.
+accepted_input_schema_3aff107.json, schema v5.0, dose-grid + suppress-
+disposition), never a live worktree, and is explicitly NON-GATING. The
+prior ff2a565 (schema v3.0)/2003406 (schema v2.0)/ac9ea40 (schema v1.3)
+snapshot/report fixtures are kept alongside as the historical record,
+never deleted.
 
 `test_real_runner_document_passes_live_gating_report_if_a_worktree_is_available`
 below DOES run the real, live `run_gating_report_with_eng3` subprocess --
 but only if a checked-out `eng3/concept-bundle` worktree is present on
 this machine at `D:/devcache/wt/concept-bundle` (skipped, not failed,
 otherwise, since that path is this specific development machine's, not
-portable). A REAL, captured result of that exact run (at consumer commit
-ff2a565, the manifest-immutability-aware successor -- ff2a565 is NOT an
-ancestor of this branch, confirmed via `git merge-base --is-ancestor` in
-both directions) is committed at tests/fixtures/eng3_concept_bundle/
-gating_report_result_ff2a565.json (`submission_may_proceed: true`,
-exit_code 0) -- see the closing report. Getting this to pass at 2003406
-required fixing `producer_schema_declaration()`'s `causal_validation.
-selection_records`/`generation_manifests` blocks (the consumer's own
-field-flattening reconciler reads "keys"/"required"/"reference_required"
-as structurally distinct keys, not inferred from a nested named
-sub-object); ff2a565's schema 3.0 bump required no further shape change
-to what this producer declares (verified live, both `reconcile-schema`
-and `gating-report` pass unmodified beyond the version bump itself) --
-only the manifest-immutability documentation additions (`content_
-required`/`content_rules`/`manifest_optional`/`manifest_file_prohibited`)
-were added, copied verbatim from the real `accepted_input_schema()`
-output at ff2a565.
+portable). Neither ff2a565 nor 3aff107 is an ancestor of this branch,
+confirmed via `git merge-base --is-ancestor` in both directions for both
+commits. Getting this to pass at 2003406 required fixing `producer_
+schema_declaration()`'s `causal_validation.selection_records`/
+`generation_manifests` blocks (the consumer's own field-flattening
+reconciler reads "keys"/"required"/"reference_required" as structurally
+distinct keys, not inferred from a nested named sub-object); ff2a565's
+schema 3.0 bump required no further shape change beyond the version bump
+itself. 3aff107 (schema v3.0 -> v5.0) DOES require further shape change,
+implemented here: `generation_manifests.manifest_required` gains
+`dose_grid`/`causal_dose_grid_path`/`_version`/`_sha256`, and the root
+gains the conditional `suppress_disposition` object -- see this module's
+own new test section below.
 """
 
 from __future__ import annotations
@@ -138,6 +135,7 @@ def _sample_document(head: str = "0" * 40, **overrides) -> dict:
         },
         configuration_name="primary", configuration_completeness="COMPLETE",
         configuration_model_n_layers=48, configuration_grid_cells_expected=1, configuration_grid_cells_recorded=1,
+        suppress_disposition=ed.build_suppress_disposition(reason="NOT_ATTEMPTED", ablation_cleared_ge=None),
     )
     kwargs.update(overrides)
     return ed.assemble_discovery_document(**kwargs)
@@ -145,7 +143,9 @@ def _sample_document(head: str = "0" * 40, **overrides) -> dict:
 
 def test_assemble_discovery_document_emits_all_fourteen_root_fields():
     document = _sample_document()
-    assert set(document) == set(ed.ROOT_REQUIRED_FIELDS)
+    # suppress_disposition is a schema-5.0 CONDITIONAL root field -- present
+    # here because the sample document's suppress direction is null.
+    assert set(document) == set(ed.ROOT_REQUIRED_FIELDS) | {ed.SUPPRESS_DISPOSITION_FIELD}
 
 
 def test_assemble_discovery_document_rejects_a_noop_judge_model():
@@ -296,6 +296,7 @@ def _real_runner_document(head: str = "0" * 40) -> dict:
         },
         configuration_name="primary", configuration_completeness="PARTIAL",
         configuration_model_n_layers=48, configuration_grid_cells_expected=28, configuration_grid_cells_recorded=1,
+        suppress_disposition=ed.build_suppress_disposition(reason="NOT_ATTEMPTED", ablation_cleared_ge=None),
     )
 
 
@@ -383,6 +384,7 @@ def _production_run_kwargs(**overrides) -> dict:
         selection_record_paths={"amplify": _SAMPLE_BINDING_DIR / "selection_record_amplify.json", "suppress": None},
         selection_commits={"amplify": "0" * 40, "suppress": None},
         confirmation_judging_commits={"amplify": "0" * 40, "suppress": None},
+        suppress_disposition=ed.build_suppress_disposition(reason="NOT_ATTEMPTED", ablation_cleared_ge=None),
     )
     kwargs.update(overrides)
     return kwargs
@@ -390,7 +392,7 @@ def _production_run_kwargs(**overrides) -> dict:
 
 def test_build_discovery_document_from_production_run_reads_identity_from_real_provenance():
     document = ed.build_discovery_document_from_production_run(**_production_run_kwargs())
-    assert set(document) == set(ed.ROOT_REQUIRED_FIELDS)
+    assert set(document) == set(ed.ROOT_REQUIRED_FIELDS) | {ed.SUPPRESS_DISPOSITION_FIELD}
     assert document["pairing"]["model_revision"] == "deadbeef" * 5
     assert document["pairing"]["sae_repo_revision"] == "4c419f1ba0be8b7754d4151d4f26c23b92a9029e"
     assert document["pairing"]["release"] == "gemma-scope-2-12b-it-res-all"
@@ -479,3 +481,91 @@ def test_assemble_discovery_document_refuses_selection_record_nullity_mismatched
     _generation_manifests, selection_records = _sample_generation_binding("0" * 40)
     with pytest.raises(ValueError, match="nullity"):
         _sample_document(selection_records={"amplify": None, "suppress": selection_records["amplify"]})
+
+
+# ---------------------------------------------------------------------------
+# schema 5.0 (commit 3aff107): suppress_disposition -- required iff
+# calibration.directions.suppress is null, prohibited iff it is not, closed
+# to {reason, ablation_cleared_ge}, NEVER a gate.
+# ---------------------------------------------------------------------------
+
+
+def test_static_snapshot_points_at_the_schema_5_0_commit():
+    assert ed.STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT == "3aff107fee5d4b0871f64a16abe8717009a892ef"
+    assert ed.DISCOVERY_SCHEMA_VERSION == "5.0"
+
+
+def test_build_suppress_disposition_not_attempted_requires_a_null_ablation_cleared_ge():
+    disposition = ed.build_suppress_disposition(reason="NOT_ATTEMPTED", ablation_cleared_ge=None)
+    assert disposition == {"reason": "NOT_ATTEMPTED", "ablation_cleared_ge": None}
+
+
+def test_build_suppress_disposition_not_attempted_rejects_a_non_null_ablation_cleared_ge():
+    with pytest.raises(ValueError, match="must be None when reason is NOT_ATTEMPTED"):
+        ed.build_suppress_disposition(reason="NOT_ATTEMPTED", ablation_cleared_ge=False)
+
+
+@pytest.mark.parametrize("reason", ["NO_DOSE_CLEARED", "INSUFFICIENT_CLAMP_DOSES"])
+def test_build_suppress_disposition_other_reasons_require_a_literal_bool(reason):
+    with pytest.raises(ValueError, match="must be a literal bool"):
+        ed.build_suppress_disposition(reason=reason, ablation_cleared_ge=None)
+    disposition = ed.build_suppress_disposition(reason=reason, ablation_cleared_ge=True)
+    assert disposition == {"reason": reason, "ablation_cleared_ge": True}
+
+
+def test_build_suppress_disposition_rejects_an_unknown_reason():
+    with pytest.raises(ValueError, match="reason must be one of"):
+        ed.build_suppress_disposition(reason="MAYBE_LATER", ablation_cleared_ge=None)
+
+
+def test_assemble_discovery_document_requires_suppress_disposition_when_suppress_is_null():
+    with pytest.raises(ValueError, match="suppress_disposition is required"):
+        _sample_document(suppress_disposition=None)
+
+
+def test_assemble_discovery_document_prohibits_suppress_disposition_when_suppress_is_published():
+    directions = {
+        "amplify": ed.build_direction_block(
+            operation="clamp", feature_indices=[3], unit="corpus_max_multiple",
+            unit_source="background corpus max activation", strengths={"low": 0.5, "medium": 1.0, "high": 2.0},
+        ),
+        "suppress": ed.build_direction_block(operation="ablate", feature_indices=[3]),
+    }
+    generation_manifests, selection_records = _sample_generation_binding("0" * 40)
+    generation_manifests["suppress"] = generation_manifests["amplify"]
+    selection_records["suppress"] = selection_records["amplify"]
+    with pytest.raises(ValueError, match="PROHIBITED"):
+        _sample_document(
+            directions=directions, generation_manifests=generation_manifests, selection_records=selection_records,
+            suppress_disposition=ed.build_suppress_disposition(reason="NOT_ATTEMPTED", ablation_cleared_ge=None),
+        )
+
+
+def test_validate_suppress_disposition_refuses_an_unknown_field():
+    with pytest.raises(ValueError, match="unknown"):
+        ed._validate_suppress_disposition({"reason": "NOT_ATTEMPTED", "ablation_cleared_ge": None, "extra": 1})
+
+
+def test_validate_suppress_disposition_refuses_a_missing_field():
+    with pytest.raises(ValueError, match="missing"):
+        ed._validate_suppress_disposition({"reason": "NOT_ATTEMPTED"})
+
+
+def test_validate_no_ge_gate_when_suppress_null_refuses_a_ge_gate():
+    directions = {"amplify": {"operation": "clamp"}, "suppress": None}
+    gates = [{"gate": "G-D", "status": "pass", "direction": "amplify", "evidence": "test"},
+             {"gate": "G-E", "status": "pass", "direction": "suppress", "evidence": "test"}]
+    with pytest.raises(ValueError, match="G-E entry while calibration"):
+        ed._validate_no_ge_gate_when_suppress_null(directions, gates)
+
+
+def test_validate_no_ge_gate_when_suppress_null_allows_a_ge_gate_when_suppress_is_published():
+    directions = {"amplify": None, "suppress": {"operation": "clamp"}}
+    gates = [{"gate": "G-E", "status": "pass", "direction": "suppress", "evidence": "test"}]
+    ed._validate_no_ge_gate_when_suppress_null(directions, gates)  # must not raise
+
+
+def test_producer_schema_declaration_root_conditional_names_suppress_disposition():
+    declared = ed.producer_schema_declaration()["objects"]["<root>"]
+    assert declared["conditional"] == ["suppress_disposition"]
+    assert "suppress_disposition" in ed.producer_schema_declaration()["objects"]

@@ -1,16 +1,18 @@
-"""Assembles the `concept_bundle.discovery_input` document (schema v3.0)
+"""Assembles the `concept_bundle.discovery_input` document (schema v5.0)
 that `scripts/concept_bundle_publish.py` (Engineer 3, branch
-`eng3/concept-bundle`, currently at commit ff2a565 -- "Manifest
-immutability: the struck field, the sole authority, schema 3.0") accepts,
-from this repository's own discovery-runner output (`final_pairing_
-concept_discovery.py`'s `run()` result and grid verdicts) plus a small
-set of caller-supplied identity facts that no file in this repository
-may invent by reading a clock or guessing a name.
+`eng3/concept-bundle`, currently at commit 3aff107 -- "Canonical dose
+IDs, the published candidate set, suppress disposition: schema 5.0")
+accepts, from this repository's own discovery-runner output
+(`final_pairing_concept_discovery.py`'s `run()` result and grid
+verdicts) plus a small set of caller-supplied identity facts that no
+file in this repository may invent by reading a clock or guessing a
+name.
 
-ff2a565 is NOT an ancestor of this branch (`final-pairing-harness`) --
-confirmed via `git merge-base --is-ancestor` in both directions, both
-fail. Every fact this file relies on about that commit was read directly
-out of `D:/devcache/wt/concept-bundle` (a real, separate worktree of
+Neither ff2a565 nor 3aff107 is an ancestor of this branch
+(`final-pairing-harness`) -- confirmed via `git merge-base --is-
+ancestor` in both directions, both fail, for both commits. Every fact
+this file relies on about 3aff107 was read directly out of
+`D:/devcache/wt/concept-bundle` (a real, separate worktree of
 `eng3/concept-bundle` checked out AT that commit), never assumed from an
 older commit's shape or copied from a stale excerpt fixture.
 
@@ -48,40 +50,46 @@ section below. DISCLOSED, NOT SILENTLY FIXED: `final_pairing_judge_cli.
 write_selection_record`'s own selection-record FILE CONTENT shape
 (`{protocol_version, protocol_sha256, selections: [...]}`, each entry
 `{concept_id, pairing_id, direction, status, selected, unselected}`) does
-NOT match ff2a565's closed `content_required`/`content_rules` shape
-(`{manifest_sha256, outcome, selected, unselected}`, one object per
-file) -- that is Deliverable B (local judging), untouched per every
-prior dispatch's own instruction that it does not block GPU submission;
-this gap is real and will need closing before a selection record can
-actually promote under schema 3.0, but fixing it is out of this file's
-scope.
+NOT match ff2a565's (UNCHANGED at 3aff107) closed `content_required`/
+`content_rules` shape (`{manifest_sha256, outcome, selected, unselected}`,
+one object per file) -- that is Deliverable B (local judging), untouched
+per every prior dispatch's own instruction that it does not block GPU
+submission; this gap is real and will need closing before a selection
+record can actually promote under schema 5.0, but fixing it is out of
+this file's scope.
 
 `ac9ea40`/2003406 both: separate `pairing.params_sha256` (MEASURED,
 emitted here) from the identity artifact's own `params_expected_sha256`
 (never emitted by a producer -- refused by name if it is).
 
+-> 3aff107 (schema v3.0 -> v5.0, consuming THREE frozen artifacts in one
+pass -- causal_dose_grid.json v1.0.0/commit c43a976, mixed_operation_
+publication.json v1.1.0/commit 6e3f4be, suppress_null_disposition.json
+v1.0.0/commit cb0aca8): `generation_manifests.manifest_required` gains
+`dose_grid` (manifest-level, five closed point objects) and
+`causal_dose_grid_path`/`_version`/`_sha256`; the root gains a
+CONDITIONAL `suppress_disposition` field, required iff `calibration.
+directions.suppress` is null and prohibited iff it is not. See this
+module's "CAUSAL_DOSE_GRID.JSON"/"SUPPRESS_NULL_DISPOSITION.JSON"
+paragraphs below for the full detail of each.
+
 CAUSAL_DOSE_GRID.JSON (protocols/final_pairing/v1/causal_dose_grid.json,
 commit c43a976): freezes canonical dose_ids ("A1".."A5"/"S1".."S5")
 replacing the prior float-derived `files[].dose` labels ("0.5x", "ABLATE")
 in the generation manifest `final_pairing_one_allocation_generation.py`
-produces. CHECKED DIRECTLY against ff2a565's real validator
-(`scripts/concept_bundle_publish.py`, `D:/devcache/wt/concept-bundle`):
-`dose` is validated as `isinstance(..., (str, int, float))` with no
-enum/pattern constraint, so this value-format change requires no
-consumer-side update to be accepted. Also checked directly: neither
-`manifest_required` nor `manifest_optional` (schema v3.0) names any
-causal-dose-grid path/version/hash binding field, on the manifest or on
-this document -- there is currently NO schema-required (or even
-schema-optional) site to bind `causal_dose_grid.json`'s identity into,
-verified by inspection rather than assumed absent. This file therefore
-adds no new field: the artifact's own hash-pin enforcement lives at the
-producer's runtime layer (`final_pairing_one_allocation_generation.
-validate_causal_dose_grid_protocol_hash`, called before any generation),
-the same relationship every other frozen protocol not itself bound into
-a manifest field already has (e.g. `backup_trigger.json`,
-`scientific_config_identity.json`). If Engineer 3's schema later adds a
-binding requirement, that requirement -- not this paragraph's absence of
-one -- is the thing to implement against.
+produces. CORRECTED (was: "there is currently NO schema-required site to
+bind causal_dose_grid.json's identity into" -- true at ff2a565/schema
+3.0, no longer true): schema 5.0 (commit 3aff107) adds a manifest-level
+`dose_grid` (five closed point objects) plus `causal_dose_grid_path`/
+`_version`/`_sha256` to `generation_manifests.manifest_required` --
+`final_pairing_one_allocation_generation.write_generation_manifest` now
+emits all four (`_dose_grid_manifest_points`, `CAUSAL_DOSE_GRID_
+PROTOCOL_PATH`/`_VERSION`/`_SHA256`), checked point-by-point against the
+SAME frozen artifact `validate_causal_dose_grid_protocol_hash` already
+hash-pins. This document producer never constructs the manifest itself
+(only references it via `build_manifest_reference`), so this file's own
+change is confined to what `producer_schema_declaration()` documents
+about that bound file's shape.
 
 MIXED_OPERATION_PUBLICATION.JSON (protocols/final_pairing/v1/mixed_
 operation_publication.json, v1.1.0, commit 6e3f4be, supersedes v1.0.0/
@@ -97,19 +105,41 @@ makes a mixed CLAMP+ABLATE triple unrepresentable regardless.
 
 SUPPRESS_NULL_DISPOSITION.JSON (protocols/final_pairing/v1/suppress_
 null_disposition.json, v1.0.0, commit cb0aca8, extends mixed_operation_
-publication v1.1.0): PENDING, NOT YET IMPLEMENTED HERE, per explicit
-instruction -- rules that when Suppress publishes `null` (fewer than
-three of S1..S4 clear G-E, whether or not S5/ABLATE did), the promoted
-document must carry a top-level `suppress_disposition` object
-(`{reason, ablation_cleared_ge}`, required iff `suppress` is null,
-prohibited iff non-null) and NO G-E gate -- `ablation_cleared_ge` is
-descriptive metadata, never a gate. This producer does not yet emit
-`suppress_disposition` or any G-E gate entry (this file currently builds
-only G-A/G-B/G-C gate entries, via `_gate_entries_from_grid_ab_c`) --
-implementation is explicitly deferred until Engineer 3 publishes the
-schema commit adding the conditional field and returns a target to
-reconcile against; this module's ff2a565/schema-3.0 declaration is
-therefore NOT to be treated as final pending that target.
+publication v1.1.0): IMPLEMENTED (schema 5.0, commit 3aff107,
+D:/devcache/wt/concept-bundle -- the schema commit this ruling was
+pending on has now landed). When Suppress publishes `null` (fewer than
+three of S1..S4 clear G-E, whether or not S5/ABLATE did), the document
+must carry a root-level `suppress_disposition` object (`{reason,
+ablation_cleared_ge}`, required iff `calibration.directions.suppress` is
+null, PROHIBITED iff non-null) and NO G-E gate -- `ablation_cleared_ge`
+is descriptive metadata, never a gate. `build_suppress_disposition`
+builds the object; `assemble_discovery_document` enforces the required-
+iff/prohibited-iff nullity (`_validate_suppress_disposition_nullity`),
+re-validates its shape defensively even if the caller already used the
+builder (`_validate_suppress_disposition`), and refuses any `gates`
+entry naming `"G-E"` when suppress is null (`_validate_no_ge_gate_when_
+suppress_null`) -- with suppress null nothing about suppression is
+published, so a G-E gate has nothing to attach to.
+
+SCHEMA 3.0 -> 5.0 (commit ff2a565 -> commit 3aff107, D:/devcache/wt/
+concept-bundle): ff2a565 is still NOT an ancestor of this branch; 3aff107
+likewise is not (git merge-base --is-ancestor fails in both directions
+for both commits) -- every fact this file relies on about 3aff107 was
+read directly out of that worktree, checked out AT that commit, never
+assumed from ff2a565's shape or copied from a stale excerpt. The bump
+carries TWO changes, both consumed here: (1) dose-grid canonicalization
+at the MANIFEST level -- `generation_manifests.manifest_required` gains
+`dose_grid` (a five-point array, `final_pairing_one_allocation_
+generation._dose_grid_manifest_points`) plus `causal_dose_grid_path`/
+`_version`/`_sha256` binding the manifest to the exact frozen artifact
+identity; this document producer never constructs the manifest itself
+(only references it), so this file changes only in what `producer_
+schema_declaration()` documents about that bound file's shape, never in
+what THIS document's own root carries. (2) the root-level `suppress_
+disposition` conditional field described above. `STATIC_ENG3_SCHEMA_
+SNAPSHOT_COMMIT`/`_PATH` now point at 3aff107's real, captured
+`discovery_input_schema.json` (kept alongside the ff2a565/2003406/
+ac9ea40 snapshots, never deleted, as the historical record).
 
 WHY A SEPARATE FILE. `interplab/concept_bundle/` (the package
 `concept_bundle_publish.py` imports) does not exist on this branch -- it
@@ -156,7 +186,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-DISCOVERY_SCHEMA_VERSION = "3.0"  # verified equal to concept_bundle_publish.DISCOVERY_SCHEMA_VERSION at commit ff2a565
+DISCOVERY_SCHEMA_VERSION = "5.0"  # verified equal to concept_bundle_publish.DISCOVERY_SCHEMA_VERSION at commit 3aff107
 
 #: All 14 root fields required per `protocols/final_pairing/v1/discovery_
 #: document_generation_binding.json` v1.1.0 (commit 40061b6) and confirmed
@@ -200,6 +230,7 @@ _ONE_ALLOCATION_MANIFEST_REQUIRED_FIELDS: tuple[str, ...] = (
     "generation_kwargs", "chat_template_identity", "locales_complete",
     "generation_settings_path", "generation_settings_version", "generation_settings_sha256",
     "causal_order_position", "skipped_for_gate_failure", "inventory_stage",
+    "dose_grid", "causal_dose_grid_path", "causal_dose_grid_version", "causal_dose_grid_sha256",
 )
 _ONE_ALLOCATION_MANIFEST_FILE_REQUIRED_FIELDS: tuple[str, ...] = (
     "dose", "purpose", "path", "sha256", "seed", "locale", "prompt_id", "control_ref", "truncated",
@@ -276,20 +307,20 @@ def _validate_generation_binding_nullity(
 NOOP_JUDGE_MODELS: tuple[str, ...] = ("none", "noop", "no-op", "identity")
 
 #: A STATIC SNAPSHOT of Engineer 3's `accepted_input_schema()`, captured
-#: 2026-08-13 by running `python scripts/concept_bundle_publish.py
-#: emit-schema` FOR REAL inside a clean worktree of `eng3/concept-bundle`
-#: at commit ff2a565 (schema v3.0, manifest-immutability-aware) --
-#: superseding the prior 2003406 snapshot, kept alongside (never deleted)
-#: as the historical record of what schema v2.0 required. NON-GATING,
-#: defense-in-depth only: this snapshot never decides submission
-#: compatibility by itself. It exists so the standalone preflight (and
-#: anything else that must run OFFLINE, e.g. a Tamia compute node with no
-#: internet and no eng3/concept-bundle checkout) can still do a real,
-#: non-fabricated structural check without a live worktree. The GATING
-#: decision is `run_gating_report_with_eng3` below, run against a live
-#: worktree -- never this.
-STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT = "ff2a565f83a228cb10a8adeb9dd6a2225662c273"
-STATIC_ENG3_SCHEMA_SNAPSHOT_PATH = "tests/fixtures/eng3_concept_bundle/accepted_input_schema_ff2a565.json"
+#: 2026-08-14 by reading `conformance/concept_bundle/discovery_input_
+#: schema.json` FOR REAL inside a clean worktree of `eng3/concept-bundle`
+#: at commit 3aff107 (schema v5.0, dose-grid + suppress-disposition) --
+#: superseding the prior ff2a565 snapshot, kept alongside (never deleted)
+#: as the historical record of what schema v3.0 required (as are 2003406
+#: and ac9ea40 before it). NON-GATING, defense-in-depth only: this
+#: snapshot never decides submission compatibility by itself. It exists
+#: so the standalone preflight (and anything else that must run OFFLINE,
+#: e.g. a Tamia compute node with no internet and no eng3/concept-bundle
+#: checkout) can still do a real, non-fabricated structural check without
+#: a live worktree. The GATING decision is `run_gating_report_with_eng3`
+#: below, run against a live worktree -- never this.
+STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT = "3aff107fee5d4b0871f64a16abe8717009a892ef"
+STATIC_ENG3_SCHEMA_SNAPSHOT_PATH = "tests/fixtures/eng3_concept_bundle/accepted_input_schema_3aff107.json"
 
 
 def reconcile_against_static_snapshot(repo_root: str | Path, produced_document: dict[str, Any]) -> dict[str, Any]:
@@ -379,6 +410,148 @@ def build_direction_block(
     }
 
 
+#: protocols/final_pairing/v1/suppress_null_disposition.json, v1.0.0,
+#: commit cb0aca8 -- consumed here for real at schema 5.0 (conformance/
+#: concept_bundle/discovery_input_schema.json, commit 3aff107,
+#: D:/devcache/wt/concept-bundle): a root-level `suppress_disposition`
+#: object, REQUIRED iff `calibration.directions.suppress` is null and
+#: PROHIBITED iff it is not -- mirrored here (never imported) from
+#: `concept_bundle_publish.SUPPRESS_DISPOSITION_FIELD`/`_FIELDS`/
+#: `_REASONS`/`_NULL_REASON`.
+SUPPRESS_NULL_DISPOSITION_PROTOCOL_PATH = "protocols/final_pairing/v1/suppress_null_disposition.json"
+SUPPRESS_NULL_DISPOSITION_PROTOCOL_VERSION = "final-pairing-suppress-null-disposition/1.0.0"
+SUPPRESS_NULL_DISPOSITION_PROTOCOL_COMMIT = "cb0aca8e27bc0cb133ae5c0862af70a52c738e4a"
+#: Mirrors `final_pairing_one_allocation_generation.CAUSAL_DOSE_GRID_
+#: PROTOCOL_VERSION`/`_COMMIT` (never imported, same reason as the other
+#: mirrored protocol constants above) -- purely for `producer_schema_
+#: declaration()`'s own informational binding strings.
+CAUSAL_DOSE_GRID_INFORMATIONAL_VERSION = "final-pairing-causal-dose-grid/1.0.0"
+CAUSAL_DOSE_GRID_INFORMATIONAL_COMMIT = "c43a976785a3a7e2e0fa4c8a9a78e1a33a88d37e"
+SUPPRESS_DISPOSITION_FIELD = "suppress_disposition"
+#: Closed shape (`additionalProperties: false`): exactly these two keys,
+#: never more, never fewer.
+SUPPRESS_DISPOSITION_FIELDS: tuple[str, ...] = ("reason", "ablation_cleared_ge")
+SUPPRESS_DISPOSITION_REASONS: tuple[str, ...] = ("NOT_ATTEMPTED", "NO_DOSE_CLEARED", "INSUFFICIENT_CLAMP_DOSES")
+#: `ablation_cleared_ge` is null IFF `reason` is this value -- a run that
+#: generated nothing cannot report whether ablation cleared G-E; under
+#: any other reason the run was attempted, so it is a literal bool.
+SUPPRESS_DISPOSITION_NULL_REASON = "NOT_ATTEMPTED"
+
+
+def build_suppress_disposition(*, reason: str, ablation_cleared_ge: bool | None) -> dict[str, Any]:
+    """Builds the root-level `suppress_disposition` object -- NOT A GATE:
+    "reason"/"ablation_cleared_ge" are descriptive scientific metadata
+    (suppress_null_disposition.json v1.0.0, commit cb0aca8): they record
+    that a null Suppress direction happened and why, and (when attempted)
+    whether full ablation alone cleared G-E, as a FACT, never something
+    promotion passes or fails on. `ablation_cleared_ge` is `None` iff
+    `reason == "NOT_ATTEMPTED"` (a run that generated nothing cannot
+    report whether ablation cleared G-E) and a LITERAL bool otherwise --
+    enforced here rather than trusted from the caller, same discipline as
+    `build_direction_block`'s ablate/clamp shape check above. Called by
+    `assemble_discovery_document`'s caller when `directions["suppress"]`
+    is `None`; `assemble_discovery_document` itself re-validates this
+    shape defensively (see `_validate_suppress_disposition` below), so a
+    caller that hand-built this dict instead of calling this function is
+    still caught."""
+    if reason not in SUPPRESS_DISPOSITION_REASONS:
+        raise ValueError(f"reason must be one of {SUPPRESS_DISPOSITION_REASONS}, got {reason!r}")
+    if reason == SUPPRESS_DISPOSITION_NULL_REASON:
+        if ablation_cleared_ge is not None:
+            raise ValueError(
+                f"ablation_cleared_ge must be None when reason is {SUPPRESS_DISPOSITION_NULL_REASON} -- a run "
+                f"that generated nothing cannot report whether ablation cleared G-E"
+            )
+    elif not isinstance(ablation_cleared_ge, bool):
+        raise ValueError(
+            f"ablation_cleared_ge must be a literal bool when reason is {reason!r}, got {ablation_cleared_ge!r}"
+        )
+    return {"reason": reason, "ablation_cleared_ge": ablation_cleared_ge}
+
+
+def _validate_suppress_disposition(suppress_disposition: dict[str, Any]) -> None:
+    """SHAPE ONLY -- presence, closure, enum membership, and the
+    `ablation_cleared_ge` null_iff rule -- mirroring `concept_bundle_
+    publish._validate_suppress_disposition`'s own checks. Never reads a
+    well-formed object for a verdict: `suppress_disposition` is
+    descriptive metadata, and promotion neither passes nor fails on any
+    value here (`SUPPRESS_DISPOSITION_IS_GATING = False` in the real
+    consumer)."""
+    if not isinstance(suppress_disposition, dict):
+        raise ValueError(f"suppress_disposition must be an object, got {type(suppress_disposition).__name__}")
+    unknown = sorted(set(suppress_disposition) - set(SUPPRESS_DISPOSITION_FIELDS))
+    missing = sorted(set(SUPPRESS_DISPOSITION_FIELDS) - set(suppress_disposition))
+    if unknown or missing:
+        raise ValueError(
+            f"suppress_disposition must have exactly the keys {SUPPRESS_DISPOSITION_FIELDS} -- "
+            f"unknown={unknown}, missing={missing}"
+        )
+    reason = suppress_disposition["reason"]
+    if reason not in SUPPRESS_DISPOSITION_REASONS:
+        raise ValueError(f"suppress_disposition.reason must be one of {SUPPRESS_DISPOSITION_REASONS}, got {reason!r}")
+    cleared = suppress_disposition["ablation_cleared_ge"]
+    if reason == SUPPRESS_DISPOSITION_NULL_REASON:
+        if cleared is not None:
+            raise ValueError(
+                f"suppress_disposition.ablation_cleared_ge must be None when reason is "
+                f"{SUPPRESS_DISPOSITION_NULL_REASON}, got {cleared!r}"
+            )
+    elif not isinstance(cleared, bool):
+        raise ValueError(
+            f"suppress_disposition.ablation_cleared_ge must be a literal bool when reason is {reason!r}, "
+            f"got {cleared!r}"
+        )
+
+
+def _validate_suppress_disposition_nullity(
+    directions: dict[str, Any], suppress_disposition: dict[str, Any] | None,
+) -> None:
+    """required IFF `calibration.directions.suppress` is null, PROHIBITED
+    iff it is not (suppress_null_disposition.json v1.0.0, commit
+    cb0aca8) -- a sometimes-absent field would reintroduce the ambiguity
+    it exists to remove: 'suppress was never attempted' could not be
+    told from 'the field was omitted'."""
+    suppress_published = directions.get("suppress") is not None
+    if suppress_published:
+        if suppress_disposition is not None:
+            raise ValueError(
+                "suppress_disposition is present while calibration.directions.suppress is NON-NULL -- it is "
+                "required iff suppress is null and PROHIBITED iff it is not (suppress_null_disposition.json "
+                "v1.0.0, commit cb0aca8): a disposition beside a published direction would describe a null "
+                "that does not exist"
+            )
+        return
+    if suppress_disposition is None:
+        raise ValueError(
+            "suppress_disposition is required when calibration.directions.suppress is null "
+            "(suppress_null_disposition.json v1.0.0, commit cb0aca8) -- a sometimes-absent field would "
+            "reintroduce the ambiguity it exists to remove"
+        )
+    _validate_suppress_disposition(suppress_disposition)
+
+
+def _validate_no_ge_gate_when_suppress_null(directions: dict[str, Any], gates: list[dict[str, Any]]) -> None:
+    """With `suppress` null, nothing about suppression is published, so
+    there is nothing for a G-E gate to attach to -- the S5-only finding
+    (if any) stays hash-bound in `causal_validation`/the generation
+    manifest/the selection record's own `unselected` list, never
+    promoted to a gate here (suppress_null_disposition.json v1.0.0,
+    commit cb0aca8: "no G-E gate may be emitted when suppress is
+    null"). The real consumer's own promotion still blocks on a G-E
+    gate attached to a null direction if one somehow appears (THE_G_E_
+    GATE_IS_UNCHANGED) -- this producer-side check simply never emits
+    one in the first place."""
+    if directions.get("suppress") is not None:
+        return
+    ge_gates = [g for g in gates if g.get("gate") == "G-E"]
+    if ge_gates:
+        raise ValueError(
+            "gates carries a G-E entry while calibration.directions.suppress is null -- with suppress null "
+            "nothing about suppression is published, so there is nothing for a G-E gate to attach to "
+            "(suppress_null_disposition.json v1.0.0, commit cb0aca8)"
+        )
+
+
 def _gate_entries_from_grid_ab_c(
     gate_ab_results: list[dict], gate_c_results: list[dict],
 ) -> list[dict[str, Any]]:
@@ -436,6 +609,7 @@ def assemble_discovery_document(
     configuration_grid_cells_expected: int, configuration_grid_cells_recorded: int,
     generation_manifests: dict[str, dict[str, Any] | None],
     selection_records: dict[str, dict[str, Any] | None],
+    suppress_disposition: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Builds the exact `concept_bundle.discovery_input` document (schema
     v1.3, plus the `generation_manifests`/`causal_validation.selection_
@@ -451,7 +625,17 @@ def assemble_discovery_document(
     plain `KeyError`/`TypeError`/`ValueError` on a caller mistake; the real
     acceptance check is Engineer 3's own `validate_discovery`/`dose-check`,
     run as a separate step (`run_gating_report_with_eng3` below), not
-    re-implemented here."""
+    re-implemented here.
+
+    `suppress_disposition` (schema 5.0, commit 3aff107): build with
+    `build_suppress_disposition` above; REQUIRED when `directions["suppress"]`
+    is `None`, PROHIBITED otherwise (enforced below, re-validated defensively
+    even if the caller already used the builder). Emitted as the document's
+    root-level `suppress_disposition` field only in the null-suppress case --
+    never a gate, never read by promotion for a verdict. Also enforced here:
+    no `gates` entry may name `"G-E"` when `directions["suppress"]` is `None`
+    -- with suppress null nothing about suppression is published, so a G-E
+    gate has nothing to attach to."""
     if judge_model.strip().lower() in NOOP_JUDGE_MODELS:
         raise ValueError(
             f"judge_model {judge_model!r} is a no-op judge identity ({NOOP_JUDGE_MODELS}) -- G-D/G-E "
@@ -459,6 +643,8 @@ def assemble_discovery_document(
             f"than shipped as a judged result"
         )
     _validate_generation_binding_nullity(directions, generation_manifests, selection_records)
+    _validate_suppress_disposition_nullity(directions, suppress_disposition)
+    _validate_no_ge_gate_when_suppress_null(directions, gates)
     document: dict[str, Any] = {
         "discovery_schema_version": DISCOVERY_SCHEMA_VERSION,
         "run": {
@@ -521,6 +707,8 @@ def assemble_discovery_document(
         document["discovery"]["engineering_index_rediscovery_note"] = engineering_index_rediscovery_note
     if spot_read is not None:
         document["causal_validation"]["spot_read"] = dict(spot_read)
+    if suppress_disposition is not None:
+        document[SUPPRESS_DISPOSITION_FIELD] = dict(suppress_disposition)
     return document
 
 
@@ -546,6 +734,7 @@ def build_discovery_document_from_production_run(
     generation_manifest_commits: dict[str, str | None],
     selection_record_paths: dict[str, str | Path | None],
     selection_commits: dict[str, str | None], confirmation_judging_commits: dict[str, str | None],
+    suppress_disposition: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """A COMPLETE document assembled from REAL PRODUCTION OBJECTS, not a
     test/synthetic assembler: `model_provenance`/`sae_provenance` are
@@ -581,7 +770,13 @@ def build_discovery_document_from_production_run(
     argument -- this project's own no-clock, no-invented-identity
     discipline applies here exactly as it does in `assemble_discovery_
     document` itself, which this function delegates to for the actual
-    document assembly (never duplicating its validation)."""
+    document assembly (never duplicating its validation).
+
+    `suppress_disposition` (build with `build_suppress_disposition` above)
+    passes straight through to `assemble_discovery_document`, which enforces
+    its required-iff/prohibited-iff nullity against `directions["suppress"]`
+    -- this function invents no default and performs no disposition logic
+    of its own."""
     generation_manifests: dict[str, dict[str, Any] | None] = {}
     selection_records: dict[str, dict[str, Any] | None] = {}
     for direction in ("amplify", "suppress"):
@@ -625,6 +820,7 @@ def build_discovery_document_from_production_run(
         configuration_grid_cells_expected=configuration_grid_cells_expected,
         configuration_grid_cells_recorded=configuration_grid_cells_recorded,
         generation_manifests=generation_manifests, selection_records=selection_records,
+        suppress_disposition=suppress_disposition,
     )
 
 
@@ -644,14 +840,16 @@ def producer_schema_declaration() -> dict[str, Any]:
         "schema_version": DISCOVERY_SCHEMA_VERSION,
         "status": (
             "ENGINEER 1 PRODUCER DECLARATION -- schema+configuration+judge fields ratified against Engineer 3's "
-            "real consumer at commit ff2a565 (schema v3.0, manifest-immutability-aware); generation_manifests/"
-            "selection_records per discovery_document_generation_binding.json v1.1.0 (commit 40061b6), NORMATIVE "
-            "OVER by final-pairing-manifest-immutability/1.0.0 (commit 2dc9e338c12db1c1f3939a9f709f8af816ad8272). "
-            "Reconciled via a real reconcile-schema/gating-report subprocess run against "
-            "D:/devcache/wt/concept-bundle at ff2a565 -- see this module's docstring and the closing report."
+            "real consumer at commit 3aff107 (schema v5.0: canonical dose IDs, the published candidate set, "
+            "suppress disposition); generation_manifests/selection_records per discovery_document_generation_"
+            "binding.json v1.1.0 (commit 40061b6), NORMATIVE OVER by final-pairing-manifest-immutability/1.0.0 "
+            "(commit 2dc9e338c12db1c1f3939a9f709f8af816ad8272); dose_grid/causal_dose_grid_* per causal_dose_"
+            "grid.json v1.0.0 (commit c43a976); suppress_disposition per suppress_null_disposition.json v1.0.0 "
+            "(commit cb0aca8). Reconciled via a real reconcile-schema/gating-report subprocess run against "
+            "D:/devcache/wt/concept-bundle at 3aff107 -- see this module's docstring and the closing report."
         ),
         "objects": {
-            "<root>": {"required": list(ROOT_REQUIRED_FIELDS)},
+            "<root>": {"required": list(ROOT_REQUIRED_FIELDS), "conditional": [SUPPRESS_DISPOSITION_FIELD]},
             "run": {"required": ["run_id", "code_commit", "entrypoint", "host", "created_at"]},
             "pairing": {
                 "required": ["model_id", "model_revision", "sae_repo_id", "sae_repo_revision", "sae_id",
@@ -718,6 +916,10 @@ def producer_schema_declaration() -> dict[str, Any]:
                         "unselected": "array; every confirmation dose not selected, and ALL doses when outcome == FAILED.",
                         "partition": "The dose set is DERIVED FROM THE MANIFEST -- the distinct doses across files[] where purpose == CONFIRMATION -- and is never asserted by the record. selected.values() UNION unselected must equal it exactly, each dose covered exactly once.",
                         "failed_never_promoted": "A FAILED record may NEVER be referenced here. A failed direction is null in calibration.directions, generation_manifests and selection_records alike; the FAILED record stays in the run's immutable inventory beside its manifest, preserved and never deleted.",
+                        # Copied verbatim from 3aff107's own discovery_input_schema.json (schema
+                        # 5.0) -- the CLAMP points only, S1..S4 on Suppress; the ABLATE point has
+                        # no numeric strength to be, so it is never eligible for a published triple.
+                        "published_candidate_set": {"AMPLIFY": ["A1", "A2", "A3", "A4", "A5"], "SUPPRESS": ["S1", "S2", "S3", "S4"]},
                     },
                 },
             },
@@ -752,6 +954,51 @@ def producer_schema_declaration() -> dict[str, Any]:
                 "manifest_file_prohibited": {
                     "selection_status": "STRUCK by final-pairing-manifest-immutability/1.0.0 and refused ON SIGHT whatever its value, including null. A record whose bytes are committed BEFORE an event cannot contain that event's outcome: stamping it would change the manifest's bytes and invalidate both source_sha256 and computed_at_commit, so the field was permanently unfillable. Any other field encoding a selection outcome is refused the same way, by the closed files[] schema.",
                 },
+                # Schema 5.0 addition (commit 3aff107), copied verbatim: dose_grid is
+                # MANIFEST-LEVEL (operation/value are properties of the grid, not of a
+                # generation) -- `final_pairing_one_allocation_generation._dose_grid_
+                # manifest_points` builds exactly this shape from the same frozen artifact
+                # `causal_dose_grid_path`/`_version`/`_sha256` bind below.
+                "causal_dose_grid": CAUSAL_DOSE_GRID_INFORMATIONAL_VERSION,
+                "causal_dose_grid_commit": CAUSAL_DOSE_GRID_INFORMATIONAL_COMMIT,
+                "dose_encoding": "files[].dose is the canonical STRING dose_id and nothing else. The numeric value travels alongside it in the manifest-level dose_grid, never as the key. A value-derived label such as '1.0x', and the operation name 'ABLATE', are refused as identifiers. The file's PATH must contain its dose_id as a token.",
+                "dose_identifiers": {"AMPLIFY": ["A1", "A2", "A3", "A4", "A5"], "SUPPRESS": ["S1", "S2", "S3", "S4", "S5"]},
+                "cross_pairing_dose_comparison": "PROHIBITED. value_in_max_units multiplies each pairing's OWN maximum-activation denominator -- no comparison, ratio or ordering of value_in_max_units across pairings is permitted.",
+                "dose_grid_encoding": {
+                    "location": "MANIFEST LEVEL, one array of five points",
+                    "additionalProperties": False,
+                    "clamp_point": ["index", "dose_id", "operation", "value_in_max_units", "unit", "unit_source"],
+                    "ablate_point": ["index", "dose_id", "operation", "value_in_max_units", "unit", "unit_source", "weight"],
+                    "ablate_prohibited": ["value_in_max_units", "unit", "unit_source"],
+                    "ablate_weight": 1.0,
+                    "checked_against": "the frozen artifact point by point -- index, dose_id, operation and value -- because a manifest declaring A3 while meaning 2.0 would pass every identifier check and still have run the wrong dose.",
+                    "why_not_per_file": "operation and value are properties of the GRID, not of a generation. Repeating them on 900 entries is the per-file encoding the immutability correction rejected for the same reason.",
+                },
+            },
+            # Schema 5.0 addition (commit 3aff107), copied verbatim from 3aff107's own
+            # discovery_input_schema.json: a root-level CLOSED object, required iff
+            # calibration.directions.suppress is null and prohibited iff it is not.
+            # `build_suppress_disposition`/`_validate_suppress_disposition_nullity` above
+            # implement exactly this shape.
+            SUPPRESS_DISPOSITION_FIELD: {
+                "additionalProperties": False,
+                "required": list(SUPPRESS_DISPOSITION_FIELDS),
+                "reason": list(SUPPRESS_DISPOSITION_REASONS),
+                "ablation_cleared_ge": "boolean | null; null IFF reason == NOT_ATTEMPTED, otherwise a LITERAL boolean. It carries the finding 'only full ablation suppressed this concept' into the promoted document as a FACT.",
+                "required_iff": "calibration.directions.suppress is null",
+                "prohibited_iff": "calibration.directions.suppress is non-null",
+                "gating": False,
+                "ruling": SUPPRESS_NULL_DISPOSITION_PROTOCOL_VERSION,
+                "ruling_commit": SUPPRESS_NULL_DISPOSITION_PROTOCOL_COMMIT,
+                "NOT_A_GATE": "PROMOTION NEITHER PASSES NOR FAILS ON ANY VALUE HERE. ablation_cleared_ge = true may never be rendered, summarised, tabulated or exported as a G-E PASS.",
+                "the_G_E_gate_is_UNCHANGED": "A G-E gate attached to a null Suppress direction still BLOCKS promotion. No relaxation and no exception.",
+                "the_science_is_not_orphaned": "The S5 result stays hash-bound in the causal_validation record, the generation manifest and the selection record's unselected list. No additional evidence artifact and no fifth evidence_ref.",
+                "prohibited_reporting": [
+                    "reporting the concept as bidirectionally validated",
+                    "showing a G-E PASS for this concept in any promoted-document summary",
+                    "implying the public tool can suppress this concept",
+                    "counting the concept toward any bidirectional or Suppress-validated tally",
+                ],
             },
         },
     }

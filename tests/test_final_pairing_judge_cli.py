@@ -160,6 +160,7 @@ _MANIFEST_KWARGS = dict(
     measured_params_sha256="6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e",
     generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS), chat_template_identity="gemma-it-v1",
     locales_complete=["en", "fr"], causal_order_position=2, skipped_for_gate_failure=["formal_register"],
+    dose_grid=one_alloc.load_causal_dose_grid(REPO_ROOT)[0],
 )
 
 
@@ -226,7 +227,8 @@ def _tiny_suppress_manifest(tmp_path):
             control_ref=control.path,
         ))
     manifest_path = tmp_path / "generation_manifest_suppress.json"
-    one_alloc.write_generation_manifest(records, manifest_path, **_MANIFEST_KWARGS)
+    suppress_kwargs = {**_MANIFEST_KWARGS, "dose_grid": one_alloc.load_causal_dose_grid(REPO_ROOT)[1]}
+    one_alloc.write_generation_manifest(records, manifest_path, **suppress_kwargs)
     return manifest_path, backend.pairing
 
 

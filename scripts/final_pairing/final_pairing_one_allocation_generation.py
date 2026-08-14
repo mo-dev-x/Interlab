@@ -122,6 +122,29 @@ added, removed, rescaled, reordered, or reinterpreted). Suppress HIGH is
 NOT defined as ABLATE/S5 by fiat: a selection whose HIGH is "S4" is
 valid, since LOW/MEDIUM/HIGH are chosen from the judged sweep under the
 frozen selection rules, not assigned by dose-grid position.
+
+MANIFEST-LEVEL `dose_grid` (schema 5.0, `conformance/concept_bundle/
+discovery_input_schema.json` at commit 3aff107, `D:/devcache/wt/
+concept-bundle`): the real consumer's validator (`concept_bundle_
+publish.dose_grid_problems`) now requires each direction's OWN generation
+manifest to carry its full five-point grid, MANIFEST LEVEL (one array,
+never repeated per file) -- `operation` and `value_in_max_units` are
+properties of the GRID, not of a generation. `_dose_grid_manifest_points`
+below builds this array from the SAME `DoseSpec` list `load_causal_dose_
+grid` returns, translating `DoseSpec.kind` ("clamp"/"ablate", this
+module's own lowercase convention) to the frozen artifact's own UPPERCASE
+`operation` values ("CLAMP"/"ABLATE") -- `dose_grid_problems` checks
+`operation` against `causal_dose_grid.json`'s own per-point value
+verbatim, and that artifact spells it uppercase. `unit`/`unit_source` are
+non-empty descriptive strings the consumer validates only for
+non-emptiness (never compared against a fixed vocabulary); this module
+reuses the same `"corpus_max_multiple"`/`"background corpus max
+activation"` pair already established for `calibration.directions.
+<direction>` in `final_pairing_evidence_document.build_direction_block`'s
+callers, rather than inventing a second naming convention for the same
+denominator. `causal_dose_grid_path`/`_version`/`_sha256` bind the
+manifest to the exact frozen artifact identity, mirroring this module's
+own `CAUSAL_DOSE_GRID_PROTOCOL_*` constants.
 """
 
 from __future__ import annotations
@@ -427,6 +450,54 @@ def load_causal_dose_grid(repo_root: str | Path) -> tuple[list[DoseSpec], list[D
     return amplify_grid, suppress_grid
 
 
+#: `generation_manifests.dose_grid_encoding` (schema 5.0, commit 3aff107):
+#: every CLAMP point names the denominator `value_in_max_units` multiplies
+#: -- a non-empty string, validated for non-emptiness only, never compared
+#: against a fixed vocabulary. Reuses the SAME pair `final_pairing_
+#: evidence_document.build_direction_block`'s own callers already use for
+#: `calibration.directions.<direction>.unit`/`unit_source`, rather than
+#: inventing a second name for the same background-corpus-max
+#: denominator.
+DOSE_GRID_UNIT = "corpus_max_multiple"
+DOSE_GRID_UNIT_SOURCE = "background corpus max activation"
+
+
+def _dose_grid_manifest_points(dose_grid: list[DoseSpec]) -> list[dict[str, Any]]:
+    """Builds ONE direction's manifest-level `dose_grid` array (schema 5.0's
+    `dose_grid_encoding`: MANIFEST LEVEL, one array of five points,
+    `additionalProperties: false` per point) from the SAME ordered
+    `DoseSpec` list `load_causal_dose_grid` returns -- `index` is this
+    list's own 1-based position, which matches the frozen artifact's own
+    `index` field exactly because `load_causal_dose_grid` sorts by that
+    same field before building. `operation` is emitted UPPERCASE
+    ("CLAMP"/"ABLATE"), translating `DoseSpec.kind`'s lowercase
+    convention to match `causal_dose_grid.json`'s own spelling, which
+    `dose_grid_problems` checks byte-for-byte. The ABLATE point's
+    `value_in_max_units`/`unit`/`unit_source` are explicit `None`
+    (JSON `null`), mirroring the frozen artifact's own S5 point shape
+    verbatim, rather than omitted keys -- either is accepted by the
+    consumer's own prohibition check (`row.get(field) is not None`), but
+    matching the artifact's own shape is clearer to a reader diffing the
+    two side by side. A CLAMP point carries no `weight` key at all (the
+    consumer's per-point encoding is closed and does not permit one
+    there)."""
+    points: list[dict[str, Any]] = []
+    for index, dose in enumerate(dose_grid, start=1):
+        if dose.kind == "ablate":
+            points.append({
+                "index": index, "dose_id": dose.dose_id, "operation": "ABLATE",
+                "value_in_max_units": None, "unit": None, "unit_source": None,
+                "weight": 1.0,
+            })
+        else:
+            points.append({
+                "index": index, "dose_id": dose.dose_id, "operation": "CLAMP",
+                "value_in_max_units": dose.value_in_max_units,
+                "unit": DOSE_GRID_UNIT, "unit_source": DOSE_GRID_UNIT_SOURCE,
+            })
+    return points
+
+
 @dataclass(frozen=True)
 class ConceptGenerationReadiness:
     attempt: bool
@@ -502,6 +573,10 @@ INVENTORY_STAGE_PRE_SELECTION = "PRE_SELECTION"
 #: `inventory_stage` is the manifest-immutability correction's own addition
 #: (commit 2dc9e338), replacing the per-file `selection_status` this list
 #: used to require indirectly via `MANIFEST_FILE_REQUIRED_FIELDS`.
+#: `dose_grid`/`causal_dose_grid_path`/`_version`/`_sha256` are schema
+#: 5.0's own addition (commit 3aff107, D:/devcache/wt/concept-bundle) --
+#: the manifest-level five-point dose grid and its binding to the frozen
+#: `causal_dose_grid.json` artifact, checked point-by-point against it.
 MANIFEST_REQUIRED_FIELDS: tuple[str, ...] = (
     "run_id", "source_commit", "configuration", "concept_id", "pairing_id",
     "model_revision", "sae_revision", "release", "loader_sae_id", "scientific_sae_id",
@@ -509,6 +584,7 @@ MANIFEST_REQUIRED_FIELDS: tuple[str, ...] = (
     "generation_kwargs", "chat_template_identity", "locales_complete",
     "generation_settings_path", "generation_settings_version", "generation_settings_sha256",
     "causal_order_position", "skipped_for_gate_failure", "inventory_stage",
+    "dose_grid", "causal_dose_grid_path", "causal_dose_grid_version", "causal_dose_grid_sha256",
 )
 
 #: The ratified `generation_manifests.manifest_file_required` list from
@@ -986,7 +1062,7 @@ def write_generation_manifest(
     concept_id: str, pairing_id: str, model_revision: str, sae_revision: str,
     release: str, loader_sae_id: str, scientific_sae_id: str, measured_params_sha256: str | None,
     generation_kwargs: dict[str, Any], chat_template_identity: str, locales_complete: list[str],
-    causal_order_position: int, skipped_for_gate_failure: list[str],
+    causal_order_position: int, skipped_for_gate_failure: list[str], dose_grid: list[DoseSpec],
     completeness: Literal["COMPLETE", "PARTIAL", "NOT_ATTEMPTED"] = "COMPLETE",
 ) -> dict:
     """Writes ONE manifest -- ONE PHYSICAL MANIFEST PER (run_id,
@@ -1020,6 +1096,16 @@ def write_generation_manifest(
     settings.json`'s manifest-level additions -- ALL REQUIRED now (the
     schema-2.0 declaration lists them unconditionally in `manifest_
     required`), written verbatim/as given.
+
+    `dose_grid` is THIS DIRECTION'S OWN five-point frozen grid (schema
+    5.0, commit 3aff107) -- callers pass the exact `amplify_grid`/
+    `suppress_grid` list `load_causal_dose_grid` returned for this
+    direction, never a hand-built substitute; `_dose_grid_manifest_
+    points` translates it into the manifest's own closed per-point shape,
+    and `causal_dose_grid_path`/`_version`/`_sha256` bind the manifest to
+    the exact frozen artifact identity this module already hash-pins via
+    `validate_causal_dose_grid_protocol_hash`. Raises if `dose_grid` is
+    not exactly `DOSES_PER_DIRECTION` points long.
 
     `generation_kwargs` must be the FULL resolved kwargs (Engineer 3
     delta, commit 9a32246: `concept_bundle_publish.frozen_generation_
@@ -1063,6 +1149,8 @@ def write_generation_manifest(
         raise ValueError(f"configuration_name must be 'primary' or 'backup', got {configuration_name!r}")
     if completeness not in COMPLETENESS_VALUES:
         raise ValueError(f"completeness must be one of {COMPLETENESS_VALUES}, got {completeness!r}")
+    if len(dose_grid) != DOSES_PER_DIRECTION:
+        raise ValueError(f"dose_grid must have exactly {DOSES_PER_DIRECTION} points, got {len(dose_grid)}")
     concept_position = causal_order_position_for(concept_id)
     for name in skipped_for_gate_failure:
         if name not in CAUSAL_GENERATION_ORDER:
@@ -1108,6 +1196,10 @@ def write_generation_manifest(
         "causal_order_position": causal_order_position,
         "skipped_for_gate_failure": list(skipped_for_gate_failure),
         "inventory_stage": INVENTORY_STAGE_PRE_SELECTION,
+        "dose_grid": _dose_grid_manifest_points(dose_grid),
+        "causal_dose_grid_path": CAUSAL_DOSE_GRID_PROTOCOL_PATH,
+        "causal_dose_grid_version": CAUSAL_DOSE_GRID_PROTOCOL_VERSION,
+        "causal_dose_grid_sha256": _prefixed_sha256(CAUSAL_DOSE_GRID_PROTOCOL_SHA256),
     }
 
     Path(manifest_path).write_text(_canonical_manifest_json(body), encoding="utf-8")
@@ -1547,6 +1639,7 @@ def run_generation_mode(args: argparse.Namespace) -> dict:
                 chat_template_identity=chat_template_identity,
                 locales_complete=list(LOCALES), causal_order_position=position,
                 skipped_for_gate_failure=skipped_for_gate_failure,
+                dose_grid=amplify_grid if direction == "amplify" else suppress_grid,
             )
             direction_manifest_paths[direction] = str(manifest_path)
         manifest_paths[concept_id] = direction_manifest_paths

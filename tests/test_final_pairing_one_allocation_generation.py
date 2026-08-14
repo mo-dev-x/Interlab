@@ -600,6 +600,7 @@ _MANIFEST_KWARGS = dict(
     measured_params_sha256="6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e",
     generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS), chat_template_identity="gemma-it-v1",
     locales_complete=["en", "fr"], causal_order_position=2, skipped_for_gate_failure=["formal_register"],
+    dose_grid=one.build_amplify_dose_grid(AMPLIFY_DOSES),
 )
 
 
@@ -623,6 +624,52 @@ def test_write_and_verify_generation_manifest_round_trips(tmp_path):
     assert verified["generation_settings_sha256"] == f"sha256:{one.GENERATION_SETTINGS_PROTOCOL_SHA256}"
     assert "model" not in verified and "sae" not in verified and "concepts" not in verified
     assert "manifest_sha256" not in verified
+
+
+# ---------------------------------------------------------------------------
+# schema 5.0 (conformance/concept_bundle/discovery_input_schema.json, commit
+# 3aff107): the manifest-level dose_grid + causal_dose_grid_path/_version/
+# _sha256 binding.
+# ---------------------------------------------------------------------------
+
+
+def test_write_generation_manifest_carries_the_manifest_level_dose_grid(tmp_path):
+    records = _tiny_records(tmp_path)
+    manifest = one.write_generation_manifest(records, tmp_path / "m.json", **_MANIFEST_KWARGS)
+    assert manifest["causal_dose_grid_path"] == one.CAUSAL_DOSE_GRID_PROTOCOL_PATH
+    assert manifest["causal_dose_grid_version"] == one.CAUSAL_DOSE_GRID_PROTOCOL_VERSION
+    assert manifest["causal_dose_grid_sha256"] == f"sha256:{one.CAUSAL_DOSE_GRID_PROTOCOL_SHA256}"
+    dose_grid = manifest["dose_grid"]
+    assert [pt["dose_id"] for pt in dose_grid] == ["A1", "A2", "A3", "A4", "A5"]
+    assert [pt["index"] for pt in dose_grid] == [1, 2, 3, 4, 5]
+    assert all(pt["operation"] == "CLAMP" for pt in dose_grid)
+    assert [pt["value_in_max_units"] for pt in dose_grid] == [0.25, 0.5, 1.0, 2.0, 4.0]
+    assert all(pt["unit"] == "corpus_max_multiple" and pt["unit_source"] for pt in dose_grid)
+    assert all("weight" not in pt for pt in dose_grid)  # CLAMP points carry no weight key
+
+
+def test_write_generation_manifest_dose_grid_ablate_point_has_no_value_unit_or_unit_source(tmp_path):
+    """A Suppress direction's dose_grid: S5's clamp-shaped fields are
+    explicit `None` (mirroring causal_dose_grid.json's own S5 point
+    verbatim) and `weight` is exactly 1.0 -- never omitted, never a
+    truthy value other than 1.0."""
+    _amplify_grid, suppress_grid = one.load_causal_dose_grid(REPO_ROOT)
+    points = one._dose_grid_manifest_points(suppress_grid)
+    assert [pt["dose_id"] for pt in points] == ["S1", "S2", "S3", "S4", "S5"]
+    ablate_point = points[-1]
+    assert ablate_point["operation"] == "ABLATE"
+    assert ablate_point["value_in_max_units"] is None
+    assert ablate_point["unit"] is None
+    assert ablate_point["unit_source"] is None
+    assert ablate_point["weight"] == 1.0
+    assert all(pt["operation"] == "CLAMP" and "weight" not in pt for pt in points[:4])
+
+
+def test_write_generation_manifest_rejects_a_dose_grid_of_the_wrong_length(tmp_path):
+    records = _tiny_records(tmp_path)
+    kwargs = {**_MANIFEST_KWARGS, "dose_grid": one.build_amplify_dose_grid(AMPLIFY_DOSES)[:4]}
+    with pytest.raises(ValueError, match="dose_grid must have exactly"):
+        one.write_generation_manifest(records, tmp_path / "m.json", **kwargs)
 
 
 def test_write_generation_manifest_file_entries_carry_the_ruled_flat_fields(tmp_path):

@@ -564,6 +564,13 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
                 ),
                 "suppress": None,
             },
+            # schema 5.0 (commit 3aff107): suppress publishes null here because
+            # G-E failed in case_spot_read_lifecycle's automated-failure analogue
+            # above -- suppress was genuinely attempted, so NOT_ATTEMPTED would
+            # misreport it; NO_DOSE_CLEARED records that none of the four CLAMP
+            # doses cleared G-E (this synthetic fixture attempted no ABLATE-only
+            # clearance either).
+            suppress_disposition=ed.build_suppress_disposition(reason="NO_DOSE_CLEARED", ablation_cleared_ge=False),
         )
         document_holder["document"] = document
 
@@ -784,6 +791,7 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
             generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS),
             chat_template_identity="gemma-it-v1", locales_complete=["en"], causal_order_position=2,
             skipped_for_gate_failure=["formal_register"],  # position 1, strictly before "cheese" (position 2)
+            dose_grid=one_alloc.load_causal_dose_grid(repo_root)[0],
         )
         verified = one_alloc.verify_generation_manifest(manifest_path)
         missing = sorted(set(one_alloc.MANIFEST_REQUIRED_FIELDS) - set(verified))
@@ -917,7 +925,7 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
             measured_params_sha256="1" * 64,
             generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS),
             chat_template_identity="gemma-it-v1", locales_complete=["en"], causal_order_position=1,
-            skipped_for_gate_failure=[],
+            skipped_for_gate_failure=[], dose_grid=amplify_grid,
         )
         verified = one_alloc.verify_generation_manifest(manifest_path)
         dose_ids = [dose.dose_id for dose in amplify_grid]
@@ -979,7 +987,7 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
             measured_params_sha256="1" * 64,
             generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS),
             chat_template_identity="gemma-it-v1", locales_complete=["en"], causal_order_position=1,
-            skipped_for_gate_failure=[],
+            skipped_for_gate_failure=[], dose_grid=suppress_grid,
         )
         verified = one_alloc.verify_generation_manifest(manifest_path)
         confirmation_doses = sorted({e["dose"] for e in verified["files"] if e["purpose"] == "CONFIRMATION"})
@@ -1083,6 +1091,7 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
                 generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS),
                 chat_template_identity="gemma-it-v1", locales_complete=["en"], causal_order_position=1,
                 skipped_for_gate_failure=[],
+                dose_grid=one_alloc.load_causal_dose_grid(repo_root)[0 if direction == "amplify" else 1],
             )
             manifests[direction] = one_alloc.verify_generation_manifest(manifest_path)
 
