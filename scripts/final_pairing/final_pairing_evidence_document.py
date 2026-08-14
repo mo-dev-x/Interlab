@@ -1,17 +1,17 @@
 """Assembles the `concept_bundle.discovery_input` document (schema v5.0)
 that `scripts/concept_bundle_publish.py` (Engineer 3, branch
-`eng3/concept-bundle`, currently at commit 3aff107 -- "Canonical dose
-IDs, the published candidate set, suppress disposition: schema 5.0")
+`eng3/concept-bundle`, currently at commit 047fe17 -- "Represent both
+frozen Qwen configurations end to end", schema 5.0)
 accepts, from this repository's own discovery-runner output
 (`final_pairing_concept_discovery.py`'s `run()` result and grid
 verdicts) plus a small set of caller-supplied identity facts that no
 file in this repository may invent by reading a clock or guessing a
 name.
 
-Neither ff2a565 nor 3aff107 is an ancestor of this branch
+Neither ff2a565, 3aff107, nor 047fe17 is an ancestor of this branch
 (`final-pairing-harness`) -- confirmed via `git merge-base --is-
 ancestor` in both directions, both fail, for both commits. Every fact
-this file relies on about 3aff107 was read directly out of
+this file relies on about the current 047fe17 consumer was read directly out of
 `D:/devcache/wt/concept-bundle` (a real, separate worktree of
 `eng3/concept-bundle` checked out AT that commit), never assumed from an
 older commit's shape or copied from a stale excerpt fixture.
@@ -186,7 +186,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-DISCOVERY_SCHEMA_VERSION = "5.0"  # verified equal to concept_bundle_publish.DISCOVERY_SCHEMA_VERSION at commit 3aff107
+DISCOVERY_SCHEMA_VERSION = "5.0"  # verified equal to concept_bundle_publish.DISCOVERY_SCHEMA_VERSION at commit 047fe17
 
 #: All 14 root fields required per `protocols/final_pairing/v1/discovery_
 #: document_generation_binding.json` v1.1.0 (commit 40061b6) and confirmed
@@ -309,8 +309,9 @@ NOOP_JUDGE_MODELS: tuple[str, ...] = ("none", "noop", "no-op", "identity")
 #: A STATIC SNAPSHOT of Engineer 3's `accepted_input_schema()`, captured
 #: 2026-08-14 by reading `conformance/concept_bundle/discovery_input_
 #: schema.json` FOR REAL inside a clean worktree of `eng3/concept-bundle`
-#: at commit 3aff107 (schema v5.0, dose-grid + suppress-disposition) --
-#: superseding the prior ff2a565 snapshot, kept alongside (never deleted)
+#: at commit 047fe17 (schema v5.0, configuration-specific Qwen PRIMARY/
+#: BACKUP pairing ids and non-null measured hashes) -- superseding the prior
+#: 3aff107 and ff2a565 snapshots, kept alongside (never deleted)
 #: as the historical record of what schema v3.0 required (as are 2003406
 #: and ac9ea40 before it). NON-GATING, defense-in-depth only: this
 #: snapshot never decides submission compatibility by itself. It exists
@@ -319,8 +320,8 @@ NOOP_JUDGE_MODELS: tuple[str, ...] = ("none", "noop", "no-op", "identity")
 #: checkout) can still do a real, non-fabricated structural check without
 #: a live worktree. The GATING decision is `run_gating_report_with_eng3`
 #: below, run against a live worktree -- never this.
-STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT = "3aff107fee5d4b0871f64a16abe8717009a892ef"
-STATIC_ENG3_SCHEMA_SNAPSHOT_PATH = "tests/fixtures/eng3_concept_bundle/accepted_input_schema_3aff107.json"
+STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT = "047fe17e8f771ddc790b1f8369e9dea113d3a513"
+STATIC_ENG3_SCHEMA_SNAPSHOT_PATH = "tests/fixtures/eng3_concept_bundle/accepted_input_schema_047fe17.json"
 
 
 def reconcile_against_static_snapshot(repo_root: str | Path, produced_document: dict[str, Any]) -> dict[str, Any]:
@@ -848,13 +849,14 @@ def producer_schema_declaration() -> dict[str, Any]:
         "schema_version": DISCOVERY_SCHEMA_VERSION,
         "status": (
             "ENGINEER 1 PRODUCER DECLARATION -- schema+configuration+judge fields ratified against Engineer 3's "
-            "real consumer at commit 3aff107 (schema v5.0: canonical dose IDs, the published candidate set, "
-            "suppress disposition); generation_manifests/selection_records per discovery_document_generation_"
+            "real consumer at commit 047fe17 (schema v5.0: canonical dose IDs, suppress disposition, and "
+            "configuration-specific Qwen PRIMARY/BACKUP identities); generation_manifests/selection_records per "
+            "discovery_document_generation_"
             "binding.json v1.1.0 (commit 40061b6), NORMATIVE OVER by final-pairing-manifest-immutability/1.0.0 "
             "(commit 2dc9e338c12db1c1f3939a9f709f8af816ad8272); dose_grid/causal_dose_grid_* per causal_dose_"
             "grid.json v1.0.0 (commit c43a976); suppress_disposition per suppress_null_disposition.json v1.0.0 "
             "(commit cb0aca8). Reconciled via a real reconcile-schema/gating-report subprocess run against "
-            "D:/devcache/wt/concept-bundle at 3aff107 -- see this module's docstring and the closing report."
+            "D:/devcache/wt/concept-bundle at 047fe17 -- see this module's docstring and the closing report."
         ),
         "objects": {
             "<root>": {"required": list(ROOT_REQUIRED_FIELDS), "conditional": [SUPPRESS_DISPOSITION_FIELD]},

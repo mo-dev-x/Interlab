@@ -3,8 +3,8 @@
 No network, no eng3/concept-bundle checkout required for MOST of these
 tests -- `reconcile_against_static_snapshot` is checked against the
 committed static snapshot fixture (tests/fixtures/eng3_concept_bundle/
-accepted_input_schema_3aff107.json, schema v5.0, dose-grid + suppress-
-disposition), never a live worktree, and is explicitly NON-GATING. The
+accepted_input_schema_047fe17.json, schema v5.0, including both frozen
+Qwen repositories), never a live worktree, and is explicitly NON-GATING. The
 prior ff2a565 (schema v3.0)/2003406 (schema v2.0)/ac9ea40 (schema v1.3)
 snapshot/report fixtures are kept alongside as the historical record,
 never deleted.
@@ -477,8 +477,8 @@ def test_assemble_discovery_document_refuses_selection_record_nullity_mismatched
 # ---------------------------------------------------------------------------
 
 
-def test_static_snapshot_points_at_the_schema_5_0_commit():
-    assert ed.STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT == "3aff107fee5d4b0871f64a16abe8717009a892ef"
+def test_static_snapshot_points_at_the_current_schema_5_0_consumer():
+    assert ed.STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT == "047fe17e8f771ddc790b1f8369e9dea113d3a513"
     assert ed.DISCOVERY_SCHEMA_VERSION == "5.0"
 
 

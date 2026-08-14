@@ -1,0 +1,534 @@
+{
+  "determinism": "every timestamp and run identifier is supplied here; the tool reads no clock",
+  "note": "The final discovery runner has no committed output schema in this repository as of 2026-08-13. This is the shape scripts/concept_bundle_publish.py accepts. Every object is closed: unknown fields are refused so that a rename cannot silently drop a value. Amend this file and the validator together.",
+  "objects": {
+    "<root>": {
+      "conditional": [
+        "suppress_disposition"
+      ],
+      "required": [
+        "discovery_schema_version",
+        "run",
+        "pairing",
+        "concept",
+        "discovery",
+        "validation",
+        "subject",
+        "calibration",
+        "positions",
+        "prompt_set",
+        "causal_validation",
+        "dose_response",
+        "configuration",
+        "generation_manifests"
+      ]
+    },
+    "calibration": {
+      "<direction>": {
+        "ablate_prohibited": [
+          "unit",
+          "unit_source",
+          "strengths"
+        ],
+        "clamp_required": [
+          "unit",
+          "unit_source",
+          "strengths"
+        ],
+        "operation": [
+          "clamp",
+          "ablate"
+        ],
+        "required": [
+          "operation",
+          "targets"
+        ],
+        "strengths": {
+          "required": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "value": "number > 0"
+        },
+        "targets": {
+          "ablate_weight": "must be exactly 1.0",
+          "note": "sae_id and layer come from `pairing`, so every target is on one SAE at one layer by construction",
+          "type": "array of {feature_idx, weight}"
+        }
+      },
+      "directions": {
+        "note": "one calibrated direction is sufficient; do not manufacture suppress if only amplify validates",
+        "required": [
+          "amplify",
+          "suppress"
+        ],
+        "value": "null, or a direction object"
+      },
+      "required": [
+        "protocol",
+        "calibrated_by",
+        "calibrated_at",
+        "directions"
+      ]
+    },
+    "causal_validation": {
+      "computed_at_commit": "strict descendant; an equal commit fails",
+      "gates": {
+        "gate": [
+          "G-A",
+          "G-B",
+          "G-C",
+          "G-D",
+          "G-E"
+        ],
+        "note": "the gate identifiers and their MEANINGS are the Architect's and are defined nowhere in this repository. This tool requires each to be present, named, 'pass' and evidenced; it does not define or compute what any of them measures.",
+        "per_direction": {
+          "amplify": "G-D",
+          "suppress": "G-E"
+        },
+        "per_family": [
+          "G-A",
+          "G-B",
+          "G-C"
+        ],
+        "type": "array of {gate, status, evidence, family_id?, direction?, statistic?}"
+      },
+      "judge": {
+        "note": "G-D and G-E are judged gates. A no-op identity records that no judge ran, which is not a judged result, so it is refused rather than accepted as one.",
+        "refused": [
+          "none",
+          "noop",
+          "no-op",
+          "identity"
+        ],
+        "required": [
+          "model",
+          "rubric_version",
+          "prompt_version"
+        ]
+      },
+      "optional": [
+        "spot_read",
+        "generated_only_diagnostic"
+      ],
+      "prompt_set_commit": "must equal prompt_set.source_commit",
+      "required": [
+        "prompt_set_commit",
+        "computed_at_commit",
+        "positions",
+        "gates",
+        "judge",
+        "selection_records"
+      ],
+      "sealed_as": "causal_validation_record",
+      "selection_records": {
+        "authority": "The SOLE authoritative record of selection outcome. The bound manifest carries none.",
+        "content_required": [
+          "manifest_sha256",
+          "outcome",
+          "selected",
+          "unselected"
+        ],
+        "content_rules": {
+          "SUPPRESS_HIGH_IS_NOT_ABLATE": "The published triple is drawn from the CLAMP points S1..S4. A published Suppress triple whose HIGH is S4 is VALID, is the NORMAL case, and must not be rejected as malformed. S5 is generated, judged, recorded in the manifest and in this record's unselected list, and reported as the strongest suppression achieved -- it simply may not occupy low, medium or high. The restriction is PRE-REGISTERED, binding at SELECTION time before any judged score exists, which is what makes it a constraint rather than post-hoc substitution. If fewer than three CLAMP doses clear G-E the record is FAILED, suppress publishes null, all five outputs are retained, and no dose is substituted.",
+          "additionalProperties": false,
+          "dose_identifiers": "Every dose in selected and unselected is a canonical string dose_id for this direction. The partition operates on identifiers EXCLUSIVELY, so float equality never enters it.",
+          "failed_never_promoted": "A FAILED record may NEVER be referenced here. A failed direction is null in calibration.directions, generation_manifests and selection_records alike; the FAILED record stays in the run's immutable inventory beside its manifest, preserved and never deleted.",
+          "manifest_sha256": "sha256:<64 hex>, and MUST equal the digest promotion RECOMPUTED from the bound manifest's bytes.",
+          "outcome": "SELECTED | FAILED",
+          "partition": "The dose set is DERIVED FROM THE MANIFEST -- the distinct doses across files[] where purpose == CONFIRMATION -- and is never asserted by the record. selected.values() UNION unselected must equal it exactly, each dose covered exactly once.",
+          "published_candidate_set": {
+            "AMPLIFY": [
+              "A1",
+              "A2",
+              "A3",
+              "A4",
+              "A5"
+            ],
+            "SUPPRESS": [
+              "S1",
+              "S2",
+              "S3",
+              "S4"
+            ]
+          },
+          "selected": "object {LOW, MEDIUM, HIGH}; REQUIRED iff outcome == SELECTED, PROHIBITED iff outcome == FAILED. The three must name three DISTINCT doses. No magnitude ordering is asserted: S1..S5 is NOT a continuous magnitude ramp, since the terminal point is a different operation and is not on the clamp scale.",
+          "unselected": "array; every confirmation dose not selected, and ALL doses when outcome == FAILED."
+        },
+        "keys": [
+          "amplify",
+          "suppress"
+        ],
+        "nullity": "mirrors generation_manifests exactly",
+        "required": [
+          "source_path",
+          "source_sha256",
+          "selection_commit",
+          "confirmation_judging_commit"
+        ],
+        "value": "SelectionRecordReference | null"
+      },
+      "spot_read": {
+        "required": [
+          "approved_by",
+          "approved_at",
+          "note",
+          "sampled_generations"
+        ],
+        "required_when": "a suppress direction is calibrated"
+      }
+    },
+    "concept": {
+      "concept_id": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "hypothesis_source": "free text. A legacy concept NAME may be reused as a hypothesis; nothing else legacy may be reused.",
+      "required": [
+        "concept_id",
+        "hypothesis_source"
+      ]
+    },
+    "configuration": {
+      "claim_eligible": "COMPLETE",
+      "completeness": [
+        "COMPLETE",
+        "PARTIAL",
+        "NOT_ATTEMPTED"
+      ],
+      "grid_cells_recorded": "must equal grid_cells_expected when completeness is COMPLETE: the absence of an exception is not completeness",
+      "layer": "must equal the frozen configuration's layer for this pairing; a third layer is prohibited",
+      "model_n_layers": "the loaded model's real layer count. depth = layer / model_n_layers is recomputed and must match the configuration's depth_fraction",
+      "name": [
+        "primary",
+        "backup"
+      ],
+      "namespace": "bundles are written to <out-dir>/<name>/<concept>__<pairing>.json, so primary and backup can never resolve to one file",
+      "required": [
+        "name",
+        "completeness",
+        "model_n_layers",
+        "grid_cells_expected",
+        "grid_cells_recorded"
+      ],
+      "source": "protocols/final_pairing/v1/backup_trigger.json, frozen at 125b1d3 (sha256 4a234e59799089e634f00c59d5fed71c73d0f7466e30f0c20a7d72ef4c9d23d3)"
+    },
+    "discovery": {
+      "engineering_index_rediscovery_note": "REQUIRED when (layer, feature_idx) matches a known mechanical-acceptance input: gemma: ((31, 250),); qwen: ((0, 4096),)",
+      "inherited_from_legacy": "must be false",
+      "optional": [
+        "candidate_rank",
+        "engineering_index_rediscovery_note"
+      ],
+      "rediscovered_in_this_run": "must be true",
+      "required": [
+        "rediscovered_in_this_run",
+        "search_scope",
+        "inherited_from_legacy"
+      ]
+    },
+    "dose_response": {
+      "ablate_prohibited": [
+        "unit_source",
+        "strength_mapping"
+      ],
+      "clamp_required": [
+        "unit",
+        "measured_maximum",
+        "strength_mapping"
+      ],
+      "keys": "exactly the calibrated direction names",
+      "observations": "every dose that was run, including ones the calibration did not select",
+      "required": [
+        "computed_at_commit",
+        "observations"
+      ],
+      "sealed_as": "dose_response_record, one per calibrated direction",
+      "strength_mapping": "must EQUAL calibration.directions.<d>.strengths; the dose that ships must be the dose that was measured"
+    },
+    "generation_manifests": {
+      "binding_protocol": "final-pairing-discovery-generation-binding/1.1.0",
+      "binding_protocol_commit": "40061b65d02545dfe88775e3f8de2cc17bfc74c6",
+      "both_null": "invalid -- not promotable",
+      "causal_dose_grid": "final-pairing-causal-dose-grid/1.0.0",
+      "causal_dose_grid_commit": "c43a976785a3a7e2e0fa4c8a9a78e1a33a88d37e",
+      "cross_pairing_dose_comparison": "PROHIBITED. The same numerals appear on both pairings and do not mean the same thing: value_in_max_units multiplies each pairing's OWN maximum-activation denominator, a Neuronpedia sample maximum on one arm and a characterize_lite corpus maximum on the other. No comparison, ratio or ordering of value_in_max_units across pairings is permitted, and two pairings declaring one unit_source are refused.",
+      "derived_view_rejected": "Any file carrying NOT_FOR_PROMOTION in its bytes or derived: true in its structure is REJECTED ACTIVELY, not merely left unaccepted. stamp_manifest_with_selection produces a reading aid; it may not replace the bound manifest, appear here, satisfy promotion, or have its digest appear in any source_sha256.",
+      "digest_encoding": "every digest in a manifest or reference is sha256:<64 hex>, per the binding protocol. pairing.params_sha256 in THIS document is bare 64 hex, per the identity artifact it is checked against. Each slot takes one form only; neither is normalised into the other.",
+      "dose_encoding": "files[].dose is the canonical STRING dose_id and nothing else. The numeric value travels alongside it in the manifest-level dose_grid, never as the key: comparing floats invites 0.25 against 0.250 against 2.5e-1, a defect that would surface only when the partition silently failed to cover. A value-derived label such as '1.0x', and the operation name 'ABLATE', are refused as identifiers. The file's PATH must contain its dose_id as a token.",
+      "dose_grid_encoding": {
+        "ablate_point": [
+          "index",
+          "dose_id",
+          "operation",
+          "value_in_max_units",
+          "unit",
+          "unit_source",
+          "weight"
+        ],
+        "ablate_prohibited": [
+          "value_in_max_units",
+          "unit",
+          "unit_source"
+        ],
+        "ablate_weight": 1.0,
+        "additionalProperties": false,
+        "checked_against": "the frozen artifact point by point -- index, dose_id, operation and value -- because a manifest declaring A3 while meaning 2.0 would pass every identifier check and still have run the wrong dose.",
+        "clamp_point": [
+          "index",
+          "dose_id",
+          "operation",
+          "value_in_max_units",
+          "unit",
+          "unit_source"
+        ],
+        "location": "MANIFEST LEVEL, one array of five points",
+        "why_not_per_file": "operation and value are properties of the GRID, not of a generation. Repeating them on 900 entries is the per-file encoding the immutability correction rejected for the same reason: a field that cannot vary should not be written where it looks as though it could."
+      },
+      "dose_identifiers": {
+        "AMPLIFY": [
+          "A1",
+          "A2",
+          "A3",
+          "A4",
+          "A5"
+        ],
+        "SUPPRESS": [
+          "S1",
+          "S2",
+          "S3",
+          "S4",
+          "S5"
+        ]
+      },
+      "immutability": "The bound manifest is the run's IMMUTABLE PRE-SELECTION INVENTORY of what was generated. Written once, at transfer, and never rewritten, re-emitted or re-hashed. Promotion re-reads source_path at the selection and confirmation-judging commits and compares BYTES.",
+      "immutability_correction": "final-pairing-manifest-immutability/1.0.0",
+      "immutability_correction_commit": "2dc9e338c12db1c1f3939a9f709f8af816ad8272",
+      "keys": [
+        "amplify",
+        "suppress"
+      ],
+      "manifest_file_prohibited": {
+        "selection_status": "STRUCK by final-pairing-manifest-immutability/1.0.0 and refused ON SIGHT whatever its value, including null. A record whose bytes are committed BEFORE an event cannot contain that event's outcome: stamping it would change the manifest's bytes and invalidate both source_sha256 and computed_at_commit, so the field was permanently unfillable. Any other field encoding a selection outcome is refused the same way, by the closed files[] schema."
+      },
+      "manifest_file_required": [
+        "dose",
+        "purpose",
+        "path",
+        "sha256",
+        "seed",
+        "locale",
+        "prompt_id",
+        "control_ref",
+        "truncated"
+      ],
+      "manifest_identity_checked_against_document": {
+        "concept_id": "concept.concept_id",
+        "configuration": "configuration.name",
+        "loader_sae_id": "pairing.loader_sae_id",
+        "model_revision": "pairing.model_revision",
+        "pairing_id": "derived from pairing.model_id and pairing.sae_repo_id",
+        "release": "pairing.release",
+        "run_id": "run.run_id",
+        "sae_revision": "pairing.sae_repo_revision",
+        "scientific_sae_id": "pairing.sae_id",
+        "source_commit": "run.code_commit"
+      },
+      "manifest_optional": {
+        "inventory_stage": "const PRE_SELECTION. The ONLY permitted pre-selection marker, MANIFEST-LEVEL rather than per file: a per-entry flag that is always true carries no information and reads as a status that COULD vary. Optional -- the ancestry check already proves the ordering structurally."
+      },
+      "manifest_required": [
+        "run_id",
+        "source_commit",
+        "configuration",
+        "concept_id",
+        "pairing_id",
+        "model_revision",
+        "sae_revision",
+        "release",
+        "loader_sae_id",
+        "scientific_sae_id",
+        "params_measured_sha256",
+        "direction",
+        "files",
+        "completeness",
+        "protocol_path",
+        "protocol_sha256",
+        "generation_kwargs",
+        "chat_template_identity",
+        "locales_complete",
+        "generation_settings_path",
+        "generation_settings_version",
+        "generation_settings_sha256",
+        "causal_order_position",
+        "skipped_for_gate_failure",
+        "dose_grid",
+        "causal_dose_grid_path",
+        "causal_dose_grid_version",
+        "causal_dose_grid_sha256"
+      ],
+      "mixed_operation_publication": "final-pairing-mixed-operation-publication/1.1.0",
+      "mixed_operation_publication_commit": "6e3f4be6e15a5908b6f9cb1166200ad68c54f164",
+      "nullity": "mirrors calibration.directions EXACTLY, and is fixed before any promotion attempt begins. Promotion never rewrites it: a document may publish one direction, and it may never DEGRADE to one because the other failed verification.",
+      "reference_required": [
+        "source_path",
+        "source_sha256",
+        "computed_at_commit",
+        "protocol_path",
+        "protocol_sha256"
+      ],
+      "value": "ManifestReference | null"
+    },
+    "pairing": {
+      "layer_selection": {
+        "required": [
+          "selected_by",
+          "rationale",
+          "recorded_in"
+        ],
+        "required_when": "the pairing has no ruled sae_id (Qwen)"
+      },
+      "model_id": [
+        "google/gemma-3-12b-it",
+        "Qwen/Qwen3.5-27B"
+      ],
+      "optional": [
+        "layer_selection"
+      ],
+      "params_expected_sha256": "REFUSED in this document. The expected digest is read from the identity artifact; a producer emitting it would hand back a copy of the value it is meant to be checked against, and the comparison would pass against itself",
+      "params_sha256": "the MEASURED SHA-256, hashed from the params file the run actually loaded. It must equal the AUTHORITATIVE EXPECTED digest frozen as params_expected_sha256 in that arm's identity artifact; mismatch is a hard stop. Required and non-null on both Gemma and Qwen: Gemma identity v1.3.0 freezes both configurations, and qwen_config_identity.json separately freezes PRIMARY L0_100 and BACKUP L0_50",
+      "refused": [
+        "context_size",
+        "dataset_path",
+        "params_expected_sha256"
+      ],
+      "release_hook_prefix": {
+        "gemma-scope-2-12b-it-res": "resid_post/",
+        "gemma-scope-2-12b-it-res-all": "resid_post_all/"
+      },
+      "required": [
+        "model_id",
+        "model_revision",
+        "sae_repo_id",
+        "sae_repo_revision",
+        "sae_id",
+        "layer",
+        "release",
+        "loader_sae_id",
+        "params_sha256"
+      ],
+      "sae_identity_note": "Availability is decided by all five together. repository_id is sae_repo_id, revision is sae_repo_revision, and scientific_sae_id is sae_id -- the contract's frozen name for it. release and loader_sae_id are recorded alongside because a flat loader key is meaningful only inside its release namespace: the same string can exist in two releases and resolve to different weights.",
+      "sae_identity_tuple": [
+        "repository_id",
+        "revision",
+        "release",
+        "loader_sae_id",
+        "scientific_sae_id"
+      ],
+      "sae_repo_id": [
+        "Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_100",
+        "Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50",
+        "google/gemma-scope-2-12b-it"
+      ]
+    },
+    "positions": {
+      "disclosure": "GENERATED_ONLY masks prefill and leaves the first generated token unaffected.",
+      "enum": [
+        "all",
+        "generated_only"
+      ],
+      "generated_only": "Advanced diagnostic exposure only",
+      "public_default": "all",
+      "publishable_calibration_requires": "all"
+    },
+    "prompt_set": {
+      "paraphrase_families": {
+        "note": "G-A/G-B/G-C are asserted per family",
+        "type": "array of {family_id, prompts}"
+      },
+      "required": [
+        "prompt_set_id",
+        "source_path",
+        "source_sha256",
+        "source_commit",
+        "paraphrase_families"
+      ],
+      "sealed_as": "prompt_set_record",
+      "source_commit": "40 hex; must be a STRICT git ancestor of causal_validation.computed_at_commit",
+      "source_path": "repo-relative, tracked and CLEAN; a dirty working copy fails",
+      "source_sha256": "sha256 of the file's bytes AS COMMITTED at source_commit; checked against the blob"
+    },
+    "run": {
+      "code_commit": "7-to-40 lowercase hex",
+      "created_at": "ISO-8601, offset-qualified or trailing Z",
+      "required": [
+        "run_id",
+        "code_commit",
+        "entrypoint",
+        "host",
+        "created_at"
+      ]
+    },
+    "subject": {
+      "content_hash": "^sha256:[0-9a-f]{64}$",
+      "local_refs": "a local:registry/... ref must resolve and content-verify",
+      "location": "^(tamia|local|hf|wandb):.+$",
+      "type": "array of {content_hash, location, role}"
+    },
+    "suppress_disposition": {
+      "NOT_A_GATE": "PROMOTION NEITHER PASSES NOR FAILS ON ANY VALUE HERE. The object is validated for SHAPE ONLY -- presence, enum membership and the null_iff rule. No value of reason and no value of ablation_cleared_ge may cause promotion to succeed or fail, and ablation_cleared_ge = true may never be rendered, summarised, tabulated or exported as a G-E PASS. A boolean with that name in a promoted document is one careless summary table away from becoming a de facto gate, which is why it is excluded structurally rather than by intention.",
+      "ablation_cleared_ge": "boolean | null; null IFF reason == NOT_ATTEMPTED, otherwise a LITERAL boolean. It carries the finding 'only full ablation suppressed this concept' into the promoted document as a FACT.",
+      "additionalProperties": false,
+      "gating": false,
+      "prohibited_iff": "calibration.directions.suppress is non-null",
+      "prohibited_reporting": [
+        "reporting the concept as bidirectionally validated",
+        "showing a G-E PASS for this concept in any promoted-document summary",
+        "implying the public tool can suppress this concept",
+        "counting the concept toward any bidirectional or Suppress-validated tally"
+      ],
+      "reason": [
+        "NOT_ATTEMPTED",
+        "NO_DOSE_CLEARED",
+        "INSUFFICIENT_CLAMP_DOSES"
+      ],
+      "required": [
+        "reason",
+        "ablation_cleared_ge"
+      ],
+      "required_iff": "calibration.directions.suppress is null",
+      "ruling": "final-pairing-suppress-null-disposition/1.0.0",
+      "ruling_commit": "cb0aca8e27bc0cb133ae5c0862af70a52c738e4a",
+      "the_G_E_gate_is_UNCHANGED": "A G-E gate attached to a null Suppress direction still BLOCKS promotion. No relaxation and no exception: a gate in the promoted document describes what the PUBLISHED thing does, and with suppress null nothing about suppression is published. A G-E PASS beside suppress = null reads as 'suppression validated' to anyone scanning the document.",
+      "the_science_is_not_orphaned": "The S5 result stays hash-bound in the causal_validation record, the generation manifest and the selection record's unselected list. No additional evidence artifact and no fifth evidence_ref."
+    },
+    "validation": {
+      "note": "copied verbatim into feature_certificate.payload and validated against schemas/feature_certificate/v1.schema.json by interplab.registry.put",
+      "required": [
+        "feature_index",
+        "concept_id",
+        "specificity",
+        "sensitivity",
+        "cross_lingual_firing",
+        "selectivity",
+        "probe",
+        "verdict",
+        "verdict_basis"
+      ]
+    }
+  },
+  "schema_id": "concept_bundle.discovery_input",
+  "schema_version": "5.0",
+  "sealed_artifacts": {
+    "additional": {
+      "feature_certificate": "the concept-validation instruments and the green/amber/red verdict (specificity, sensitivity, selectivity, probe). Retained alongside the four because 'we probed it and it holds up' is a different claim from 'we searched and this surfaced' and from 'intervening on it did something', and the publication gate reads its verdict"
+    },
+    "binding": {
+      "causal_validation_record": "the protocol gates G-A..G-E asserted against the sealed prompt set, bound to it by both its digest and its commit",
+      "discovery_record": "how the candidate was FOUND on this pairing: scope, ranking, the explicit rediscovery declaration, the layer selection",
+      "dose_response_record": "the measured dose-response the Low/Medium/High mapping was read off, one record per calibrated direction",
+      "prompt_set_record": "the prompts, fixed and committed BEFORE any activation was computed; the chronology anchor every other record is ordered against"
+    },
+    "note": "four separate artifact_types, not one composite: no claim may be read off a record that did not make it"
+  },
+  "status": "DECLARED BY ENGINEER 3, AWAITING ENGINEER 1 RATIFICATION",
+  "strictness": "all objects closed; no field has a default; null is never a substitute for a value"
+}
