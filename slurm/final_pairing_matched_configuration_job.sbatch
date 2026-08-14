@@ -7,11 +7,23 @@
 # Submit from the extracted repo root on Tamia scratch (a git-archive
 # extraction, no .git -- see discovery_preflight.py's own module docstring
 # for why REPO_ROOT is derived from --prompt-sets etc. rather than __file__
-# at that layer; this script derives it from its OWN location instead,
-# which is valid here since it is never git-archived to a different
-# relative layout on its own):
+# at that layer):
 #
 #   sbatch slurm/final_pairing_matched_configuration_job.sbatch
+#
+# REPO_ROOT below comes from SLURM_SUBMIT_DIR, NOT from this script's own
+# location: Slurm COPIES a script submitted directly to sbatch (as this one
+# is -- no --wrap) into /var/spool/... and executes the copy, so
+# BASH_SOURCE[0] there resolves to a spool path with no repo beneath it.
+# This project already hit that in job 398628 and already carries both the
+# fix and its reason in slurm/legacy/gemma3_sweep_payload.sh,
+# gemma3_necessity_payload.sh and gemma3_tool_payload.sh; job 411954 was a
+# recurrence of it here, because this launcher inherited neither. The
+# `cd ... && pwd -P` is load-bearing on top of that: SLURM_SUBMIT_DIR is
+# not symlink-resolved, and GENERATION_SCRIPT_PATH (below) must match a
+# `Path(__file__).resolve()`-derived constant by exact string equality, so
+# a logical path here would silently skip that check rather than fail
+# loudly -- see the render() block.
 #
 # Real precedent for account/time/resources/HF-cache layout: this
 # project's own prior successful Tamia jobs against these exact two
@@ -48,7 +60,7 @@ export HF_HUB_CACHE=/scratch/y/yazid/hf_cache/hub
 export HF_HUB_OFFLINE=1
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
-REPO_ROOT="${SLURM_SUBMIT_DIR:-}"
+REPO_ROOT="$(cd "${SLURM_SUBMIT_DIR:-}" 2>/dev/null && pwd -P)"
 if [ -z "$REPO_ROOT" ] || [ ! -f "$REPO_ROOT/scripts/final_pairing/discovery_preflight.py" ]; then
   echo "REPO_ROOT (SLURM_SUBMIT_DIR='$REPO_ROOT') does not contain scripts/final_pairing/discovery_preflight.py -- refusing to proceed. Submit this job with 'sbatch slurm/final_pairing_matched_configuration_job.sbatch' from the repository root." >&2
   exit 1
