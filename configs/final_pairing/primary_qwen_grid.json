@@ -1,0 +1,19 @@
+{
+  "$comment": "Section 7 lane config -- PRIMARY Qwen grid-discovery lane. Templated by slurm/final_pairing_matched_configuration_job.sbatch: every @@TOKEN@@ is substituted with a real runtime value (SLURM_JOB_ID is not known until the allocation starts) before this file is read by final_concept_discovery_dual_gpu_job.load_lane_spec. Every other field is a concrete, frozen, ratified value -- no engineering placeholder.",
+  "out_dir": "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/primary/qwen/grid/out",
+  "state_dir": "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/primary/qwen/grid/state",
+  "tmp_dir": "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/primary/qwen/grid/tmp",
+  "log_path": "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/logs/primary_qwen_grid.log",
+  "argv": [
+    "--mode", "grid",
+    "--pairing", "qwen-3.5-27b",
+    "--model-path", "/scratch/y/yazid/hf_cache/hub/models--Qwen--Qwen3.5-27B/snapshots/fc05daec18b0a78c049392ed2e771dde82bdf654",
+    "--sae-path", "/scratch/y/yazid/hf_cache/hub/models--Qwen--SAE-Res-Qwen3.5-27B-W80K-L0_100/snapshots/82852e98c9b33d02194e92dd514b12fafd09ed25/layer38.sae.pt",
+    "--layer", "38",
+    "--qwen-sae-family", "L0_100",
+    "--qwen-sparsity", "100",
+    "--expected-model-revision", "fc05daec18b0a78c049392ed2e771dde82bdf654",
+    "--expected-sae-revision", "82852e98c9b33d02194e92dd514b12fafd09ed25",
+    "--shortlist-size", "20"
+  ]
+}

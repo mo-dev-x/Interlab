@@ -730,7 +730,7 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
         if control.prompt_ids != [r["prompt_id"] for r in rows]:
             raise AssertionError(f"expected the control's own prompt_ids to be the real frozen ids, got {control.prompt_ids}")
         dose_record = one_alloc.generate_dose_file(
-            backend, [CONCEPT_FEATURE], dose=one_alloc.DoseSpec(kind="clamp", value_in_max_units=1.0),
+            backend, [CONCEPT_FEATURE], dose=one_alloc.DoseSpec(dose_id="A3", kind="clamp", value_in_max_units=1.0),
             corpus_max=corpus_max, positions="all", prompts=rows, purpose="sweep", n_repeats=1, seeds=seeds,
             max_new_tokens=1, out_dir=tmp_root / "prompt_id_proof", concept_id="cheese", pairing_id=backend.pairing,
             direction="amplify", locale="en", control_ref=control.path, generation_kwargs=d.GENERATION_SETTINGS,
@@ -768,7 +768,7 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
             pairing_id=backend.pairing, direction="amplify", locale="en", generation_kwargs=d.GENERATION_SETTINGS,
         )
         dose_record = one_alloc.generate_dose_file(
-            backend, [CONCEPT_FEATURE], dose=one_alloc.DoseSpec(kind="clamp", value_in_max_units=1.0),
+            backend, [CONCEPT_FEATURE], dose=one_alloc.DoseSpec(dose_id="A3", kind="clamp", value_in_max_units=1.0),
             corpus_max=corpus_max, positions="all", prompts=rows, purpose="sweep", n_repeats=1, seeds=seeds,
             max_new_tokens=1, out_dir=tmp_root / "manifest_proof", concept_id="cheese", pairing_id=backend.pairing,
             direction="amplify", locale="en", control_ref=control.path, generation_kwargs=d.GENERATION_SETTINGS,
@@ -884,7 +884,7 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
             {"prompt_id": f"p{i}", "text": f"prompt {i}", "locale": "en", "split": "heldout_neutral", "ordinal": i + 1}
             for i in range(2)
         ]
-        amplify_grid = one_alloc.build_amplify_dose_grid((0.25, 0.5, 1.0, 2.0, 4.0))
+        amplify_grid, _suppress_grid_unused = one_alloc.load_causal_dose_grid(repo_root)
         if len(amplify_grid) != one_alloc.DOSES_PER_DIRECTION:
             raise AssertionError(f"expected {one_alloc.DOSES_PER_DIRECTION} amplify grid points, got {len(amplify_grid)}")
 
@@ -920,8 +920,8 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
             skipped_for_gate_failure=[],
         )
         verified = one_alloc.verify_generation_manifest(manifest_path)
-        dose_labels = [one_alloc._dose_label(dose) for dose in amplify_grid]
-        required = {(purpose.upper(), label) for purpose in ("sweep", "confirmation") for label in dose_labels}
+        dose_ids = [dose.dose_id for dose in amplify_grid]
+        required = {(purpose.upper(), dose_id) for purpose in ("sweep", "confirmation") for dose_id in dose_ids}
         present = {(e["purpose"], e.get("dose")) for e in verified["files"] if e["purpose"] != "CONTROL"}
         missing = required - present
         if missing:
@@ -947,7 +947,7 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
             {"prompt_id": f"p{i}", "text": f"prompt {i}", "locale": "en", "split": "heldout_eliciting", "ordinal": i + 1}
             for i in range(2)
         ]
-        suppress_grid = one_alloc.build_suppress_dose_grid((1.0, 0.5, 0.25, 0.1))
+        _amplify_grid_unused, suppress_grid = one_alloc.load_causal_dose_grid(repo_root)
         if len(suppress_grid) != one_alloc.DOSES_PER_DIRECTION:
             raise AssertionError(f"expected {one_alloc.DOSES_PER_DIRECTION} suppress grid points, got {len(suppress_grid)}")
 
@@ -1062,7 +1062,10 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
                 seeds=seeds, max_new_tokens=1, out_dir=tmp_root / "direction_proof" / direction, concept_id="cheese",
                 pairing_id=backend.pairing, direction=direction, locale="en", generation_kwargs=d.GENERATION_SETTINGS,
             )
-            dose = one_alloc.DoseSpec(kind="ablate") if direction == "suppress" else one_alloc.DoseSpec(kind="clamp", value_in_max_units=1.0)
+            dose = (
+                one_alloc.DoseSpec(dose_id="S5", kind="ablate") if direction == "suppress"
+                else one_alloc.DoseSpec(dose_id="A3", kind="clamp", value_in_max_units=1.0)
+            )
             dose_record = one_alloc.generate_dose_file(
                 backend, [CONCEPT_FEATURE], dose=dose, corpus_max=corpus_max, positions="all", prompts=rows,
                 purpose="sweep", n_repeats=1, seeds=seeds, max_new_tokens=1,
@@ -1147,7 +1150,6 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
                 "--pairing", backend.pairing, "--model-path", "unused", "--sae-path", "unused", "--layer", "29",
                 "--configuration-name", "primary", "--grid-path", str(grid_dir / "grid.json"),
                 "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
-                "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "1.0,0.5,0.25,0.1",
                 "--run-id", "r-preflight-0001", "--source-commit", resolve_source_commit(repo_root),
                 "--job-deadline-epoch-seconds", str(time.time() + 100_000),
                 "--out-dir", str(tmp_root / "wall_time_refusal_out"), "--state-dir", str(tmp_root / "wall_time_refusal_state"),

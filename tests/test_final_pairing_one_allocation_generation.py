@@ -163,53 +163,103 @@ def test_assert_seed_sets_disjoint_raises_on_an_explicit_collision():
 # ---------------------------------------------------------------------------
 
 
-def test_build_amplify_dose_grid_accepts_five_distinct_values():
-    grid = one.build_amplify_dose_grid((0.25, 0.5, 1.0, 2.0, 4.0))
+AMPLIFY_DOSES = (("A1", 0.25), ("A2", 0.5), ("A3", 1.0), ("A4", 2.0), ("A5", 4.0))
+SUPPRESS_CLAMP_DOSES = (("S1", 1.0), ("S2", 0.5), ("S3", 0.25), ("S4", 0.1))
+#: The illustrative-but-PROHIBITED Suppress sequence (causal_dose_grid.json
+#: PROHIBITED_SUBSTITUTION): tops out as an amplification, bottoms out as
+#: barely a suppression -- rejected even though it is also strictly
+#: descending, so a plain "is it descending" check would wrongly accept it.
+PROHIBITED_SUPPRESS_CLAMP_DOSES = (("S1", 4.0), ("S2", 2.0), ("S3", 1.0), ("S4", 0.5))
+
+
+def test_build_amplify_dose_grid_accepts_the_frozen_five_point_grid():
+    grid = one.build_amplify_dose_grid(AMPLIFY_DOSES)
     assert len(grid) == 5
     assert all(spec.kind == "clamp" for spec in grid)
+    assert [spec.dose_id for spec in grid] == ["A1", "A2", "A3", "A4", "A5"]
 
 
 def test_build_amplify_dose_grid_rejects_wrong_count():
     with pytest.raises(ValueError, match="exactly 5 points"):
-        one.build_amplify_dose_grid((0.5, 1.0))
+        one.build_amplify_dose_grid((("A1", 0.5), ("A2", 1.0)))
 
 
-def test_build_amplify_dose_grid_rejects_duplicate_values():
-    with pytest.raises(ValueError, match="must be distinct"):
-        one.build_amplify_dose_grid((0.5, 0.5, 1.0, 2.0, 4.0))
+def test_build_amplify_dose_grid_rejects_duplicate_dose_ids():
+    with pytest.raises(ValueError, match="dose_ids must be distinct"):
+        one.build_amplify_dose_grid((("A1", 0.25), ("A1", 0.5), ("A3", 1.0), ("A4", 2.0), ("A5", 4.0)))
+
+
+def test_build_amplify_dose_grid_rejects_any_values_other_than_the_frozen_grid():
+    with pytest.raises(ValueError, match="must be exactly"):
+        one.build_amplify_dose_grid((("A1", 0.5), ("A2", 0.5), ("A3", 1.0), ("A4", 2.0), ("A5", 4.0)))
 
 
 def test_build_suppress_dose_grid_appends_ablate_as_the_fifth_point():
-    grid = one.build_suppress_dose_grid((4.0, 2.0, 1.0, 0.5))
+    grid = one.build_suppress_dose_grid(SUPPRESS_CLAMP_DOSES, ablate_dose_id="S5")
     assert len(grid) == 5
     assert [spec.kind for spec in grid] == ["clamp", "clamp", "clamp", "clamp", "ablate"]
     assert grid[-1].value_in_max_units is None
+    assert [spec.dose_id for spec in grid] == ["S1", "S2", "S3", "S4", "S5"]
 
 
-def test_build_suppress_dose_grid_rejects_non_descending_fractions():
-    with pytest.raises(ValueError, match="strictly descending"):
-        one.build_suppress_dose_grid((1.0, 2.0, 0.5, 0.25))
+def test_build_suppress_dose_grid_rejects_the_prohibited_substitution_sequence():
+    """causal_dose_grid.json's own named hard stop: 4.0, 2.0, 1.0, 0.5 is
+    strictly descending (like the frozen grid) but is NOT the frozen grid,
+    and must fail even though a naive "is it descending" check would pass
+    it."""
+    with pytest.raises(ValueError, match="must be exactly"):
+        one.build_suppress_dose_grid(PROHIBITED_SUPPRESS_CLAMP_DOSES, ablate_dose_id="S5")
 
 
 def test_build_suppress_dose_grid_rejects_wrong_count():
     with pytest.raises(ValueError, match="exactly 4 points"):
-        one.build_suppress_dose_grid((1.0, 0.5))
+        one.build_suppress_dose_grid((("S1", 1.0), ("S2", 0.5)), ablate_dose_id="S5")
 
 
 def test_dose_spec_rejects_a_value_on_an_ablate_dose():
     with pytest.raises(ValueError, match="carries no value_in_max_units"):
-        one.DoseSpec(kind="ablate", value_in_max_units=1.0)
+        one.DoseSpec(dose_id="S5", kind="ablate", value_in_max_units=1.0)
 
 
 def test_dose_spec_requires_a_value_on_a_clamp_dose():
     with pytest.raises(ValueError, match="requires value_in_max_units"):
-        one.DoseSpec(kind="clamp")
+        one.DoseSpec(dose_id="A1", kind="clamp")
 
 
-def test_dose_label_uses_ablate_and_x_suffixed_values():
-    assert one._dose_label(one.DoseSpec(kind="ablate")) == "ABLATE"
-    assert one._dose_label(one.DoseSpec(kind="clamp", value_in_max_units=1.0)) == "1.0x"
-    assert one._dose_label(one.DoseSpec(kind="clamp", value_in_max_units=0.5)) == "0.5x"
+def test_load_causal_dose_grid_reads_the_real_frozen_artifact():
+    """The frozen artifact IS the only source of dose values -- this
+    proves the real committed causal_dose_grid.json round-trips through
+    load_causal_dose_grid/build_amplify_dose_grid/build_suppress_dose_grid
+    into exactly the canonical A1..A5/S1..S5 ids and frozen values."""
+    amplify_grid, suppress_grid = one.load_causal_dose_grid(REPO_ROOT)
+    assert [(s.dose_id, s.value_in_max_units) for s in amplify_grid] == list(AMPLIFY_DOSES)
+    assert [(s.dose_id, s.value_in_max_units) for s in suppress_grid[:4]] == list(SUPPRESS_CLAMP_DOSES)
+    assert suppress_grid[4].dose_id == "S5"
+    assert suppress_grid[4].kind == "ablate"
+    assert suppress_grid[4].value_in_max_units is None
+
+
+def test_validate_causal_dose_grid_protocol_hash_passes_against_the_real_frozen_artifact():
+    digest = one.validate_causal_dose_grid_protocol_hash(REPO_ROOT)
+    assert digest == one.CAUSAL_DOSE_GRID_PROTOCOL_SHA256
+
+
+def test_validate_causal_dose_grid_protocol_hash_refuses_a_tampered_copy(tmp_path):
+    tampered_path = tmp_path / "protocols" / "final_pairing" / "v1" / "causal_dose_grid.json"
+    tampered_path.parent.mkdir(parents=True)
+    tampered_path.write_text('{"protocol_version": "tampered"}', encoding="utf-8")
+    with pytest.raises(one.TransferVerificationFailed, match="altered or unpinned"):
+        one.validate_causal_dose_grid_protocol_hash(tmp_path)
+
+
+def test_a_selection_whose_high_is_s4_rather_than_ablate_is_a_valid_dose_id():
+    """No ordering/magnitude assumption anywhere: S4 (a CLAMP dose, not
+    ABLATE) is exactly as valid a `high` selection as S5 would be -- the
+    dose-grid position never decides eligibility."""
+    grid = one.build_suppress_dose_grid(SUPPRESS_CLAMP_DOSES, ablate_dose_id="S5")
+    high_candidate = next(spec for spec in grid if spec.dose_id == "S4")
+    assert high_candidate.kind == "clamp"
+    assert high_candidate.dose_id == "S4"
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +337,7 @@ def test_order_concepts_for_causal_generation_rejects_an_unknown_concept_id():
 def test_generate_dose_file_writes_exactly_one_file_covering_every_prompt_and_repeat(tmp_path):
     backend = fakes.make_fake_gemma_backend()
     corpus_max = d.corpus_max_per_feature(backend, ["some background text about cheese and other foods"])
-    dose = one.DoseSpec(kind="clamp", value_in_max_units=1.0)
+    dose = one.DoseSpec(dose_id="A3", kind="clamp", value_in_max_units=1.0)
     prompts = [_row(f"p{i}", f"prompt {i}", ordinal=i + 1) for i in range(3)]
     seeds = one.derive_seeds(
         namespace="sweep", concept_id="cheese", pairing_id=backend.pairing, direction="amplify",
@@ -308,7 +358,8 @@ def test_generate_dose_file_writes_exactly_one_file_covering_every_prompt_and_re
     assert len(record.seeds) == 6  # 3 prompts x 2 repeats
     assert record.seeds == seeds
     assert record.prompt_ids == ["p0", "p0", "p1", "p1", "p2", "p2"]
-    assert record.dose_label in Path(record.path).name
+    assert record.dose_id == "A3"
+    assert record.dose_id in Path(record.path).name
     assert record.control_ref == "control/sweep_en.json"
 
 
@@ -317,7 +368,7 @@ def test_generate_dose_file_rejects_a_seed_list_of_the_wrong_length(tmp_path):
     corpus_max = d.corpus_max_per_feature(backend, ["background"])
     with pytest.raises(ValueError, match="exactly one seed per"):
         one.generate_dose_file(
-            backend, [CONCEPT_FEATURE], dose=one.DoseSpec(kind="clamp", value_in_max_units=1.0),
+            backend, [CONCEPT_FEATURE], dose=one.DoseSpec(dose_id="A3", kind="clamp", value_in_max_units=1.0),
             corpus_max=corpus_max, positions="all", prompts=[_row("a", "a"), _row("b", "b", ordinal=2)],
             purpose="sweep", n_repeats=1,
             seeds=[1], max_new_tokens=1, out_dir=tmp_path, concept_id="cheese", pairing_id=backend.pairing,
@@ -339,7 +390,7 @@ def test_generate_control_file_writes_one_file_with_no_dose_and_no_control_ref(t
         direction="amplify", locale="en",
     )
     assert record.purpose == "control"
-    assert record.dose_label is None
+    assert record.dose_id is None
     assert record.dose_kind is None
     assert record.control_ref is None
     assert record.seeds == seeds
@@ -367,7 +418,7 @@ def test_generate_control_file_uses_the_same_seed_as_a_matching_dose_file(tmp_pa
         pairing_id=backend.pairing, direction="suppress", locale="fr",
     )
     dose_record = one.generate_dose_file(
-        backend, [CONCEPT_FEATURE], dose=one.DoseSpec(kind="clamp", value_in_max_units=2.0),
+        backend, [CONCEPT_FEATURE], dose=one.DoseSpec(dose_id="A4", kind="clamp", value_in_max_units=2.0),
         corpus_max=corpus_max, positions="all", prompts=prompts, purpose="confirmation", n_repeats=1,
         seeds=seeds, max_new_tokens=2, out_dir=tmp_path / "doses", concept_id="cheese",
         pairing_id=backend.pairing, direction="suppress", locale="fr", control_ref=control.path,
@@ -410,8 +461,8 @@ def _generate_complete_concept(tmp_path, **overrides):
     amplify_sweep, amplify_conf, suppress_sweep, suppress_conf = _amplify_and_suppress_prompts()
     kwargs = dict(
         concept_id="cheese", pairing_id=backend.pairing, corpus_max=corpus_max, positions="all", out_dir=tmp_path,
-        amplify_dose_grid=one.build_amplify_dose_grid((0.25, 0.5, 1.0, 2.0, 4.0)),
-        suppress_dose_grid=one.build_suppress_dose_grid((4.0, 2.0, 1.0, 0.5)),
+        amplify_dose_grid=one.build_amplify_dose_grid(AMPLIFY_DOSES),
+        suppress_dose_grid=one.build_suppress_dose_grid(SUPPRESS_CLAMP_DOSES, ablate_dose_id="S5"),
         amplify_sweep_prompts=amplify_sweep, amplify_confirmation_prompts=amplify_conf,
         suppress_sweep_prompts=suppress_sweep, suppress_confirmation_prompts=suppress_conf,
         max_new_tokens=1,
@@ -457,8 +508,8 @@ def test_generate_concept_complete_rejects_a_locale_missing_from_the_prompt_dict
         one.generate_concept_complete(
             backend, [CONCEPT_FEATURE], concept_id="cheese", pairing_id=backend.pairing,
             corpus_max=corpus_max, positions="all", out_dir=tmp_path,
-            amplify_dose_grid=one.build_amplify_dose_grid((0.25, 0.5, 1.0, 2.0, 4.0)),
-            suppress_dose_grid=one.build_suppress_dose_grid((4.0, 2.0, 1.0, 0.5)),
+            amplify_dose_grid=one.build_amplify_dose_grid(AMPLIFY_DOSES),
+            suppress_dose_grid=one.build_suppress_dose_grid(SUPPRESS_CLAMP_DOSES, ablate_dose_id="S5"),
             amplify_sweep_prompts=amplify_sweep, amplify_confirmation_prompts=amplify_conf,
             suppress_sweep_prompts=suppress_sweep, suppress_confirmation_prompts=suppress_conf, max_new_tokens=1,
         )
@@ -471,8 +522,8 @@ def test_generate_concept_complete_resumes_without_recomputing_completed_cells(t
     progress_path = tmp_path / "progress.jsonl"
     kwargs = dict(
         concept_id="cheese", pairing_id=backend.pairing, corpus_max=corpus_max, positions="all", out_dir=tmp_path,
-        amplify_dose_grid=one.build_amplify_dose_grid((0.25, 0.5, 1.0, 2.0, 4.0)),
-        suppress_dose_grid=one.build_suppress_dose_grid((4.0, 2.0, 1.0, 0.5)),
+        amplify_dose_grid=one.build_amplify_dose_grid(AMPLIFY_DOSES),
+        suppress_dose_grid=one.build_suppress_dose_grid(SUPPRESS_CLAMP_DOSES, ablate_dose_id="S5"),
         amplify_sweep_prompts=amplify_sweep, amplify_confirmation_prompts=amplify_conf,
         suppress_sweep_prompts=suppress_sweep, suppress_confirmation_prompts=suppress_conf, max_new_tokens=1,
     )
@@ -526,8 +577,8 @@ def _tiny_records(tmp_path, *, direction="amplify", purpose="confirmation"):
         concept_id="cheese", pairing_id=backend.pairing, direction=direction, locale="en",
     )
     records.append(control)
-    for value in (1.0, 2.0, 3.0):
-        dose = one.DoseSpec(kind="clamp", value_in_max_units=value)
+    for index, value in enumerate((1.0, 2.0, 3.0)):
+        dose = one.DoseSpec(dose_id=f"A{index + 1}", kind="clamp", value_in_max_units=value)
         records.append(one.generate_dose_file(
             backend, [CONCEPT_FEATURE], dose=dose, corpus_max=corpus_max, positions="all",
             prompts=tiny_prompts, purpose=purpose, n_repeats=1, seeds=control_seeds,
@@ -741,10 +792,10 @@ def test_verify_generation_manifest_raises_when_required_fields_are_absent(tmp_p
 
 
 def test_stamp_manifest_with_selection_selects_the_named_doses_and_leaves_control_and_sweep_untouched(tmp_path):
-    records = _tiny_records(tmp_path)  # 1 control + 3 confirmation doses: 1.0x, 2.0x, 3.0x
+    records = _tiny_records(tmp_path)  # 1 control + 3 confirmation doses: A1, A2, A3
     manifest_path = tmp_path / "generation_manifest.json"
     manifest = one.write_generation_manifest(records, manifest_path, **_MANIFEST_KWARGS)
-    stamped = one.stamp_manifest_with_selection(manifest, unselected_doses=["3.0x"])
+    stamped = one.stamp_manifest_with_selection(manifest, unselected_doses=["A3"])
     # manifest-immutability correction (commit 2dc9e338): stamp_manifest_
     # with_selection's output is a DERIVED reading aid only, never the
     # bound manifest -- marked so verify_generation_manifest/LA-B's gate
@@ -752,9 +803,9 @@ def test_stamp_manifest_with_selection_selects_the_named_doses_and_leaves_contro
     assert stamped["derived"] is True
     assert stamped["not_for_promotion"] is True
     by_key = {(entry["purpose"], entry.get("dose")): entry for entry in stamped["files"]}
-    assert by_key[("CONFIRMATION", "1.0x")]["selection_status"] == one.SELECTED_STATUS
-    assert by_key[("CONFIRMATION", "2.0x")]["selection_status"] == one.SELECTED_STATUS
-    assert by_key[("CONFIRMATION", "3.0x")]["selection_status"] == one.UNUSED_STATUS
+    assert by_key[("CONFIRMATION", "A1")]["selection_status"] == one.SELECTED_STATUS
+    assert by_key[("CONFIRMATION", "A2")]["selection_status"] == one.SELECTED_STATUS
+    assert by_key[("CONFIRMATION", "A3")]["selection_status"] == one.UNUSED_STATUS
     assert by_key[("CONTROL", None)]["selection_status"] == one.UNUSED_STATUS
     # the original (bound) manifest is untouched -- it never carried
     # selection_status at all, and still doesn't.
@@ -765,7 +816,7 @@ def test_stamp_manifest_with_selection_selects_the_named_doses_and_leaves_contro
 def test_stamp_manifest_with_selection_never_touches_sweep_entries(tmp_path):
     records = _tiny_records(tmp_path, purpose="sweep")
     manifest = one.write_generation_manifest(records, tmp_path / "m.json", **_MANIFEST_KWARGS)
-    stamped = one.stamp_manifest_with_selection(manifest, unselected_doses=["3.0x"])
+    stamped = one.stamp_manifest_with_selection(manifest, unselected_doses=["A3"])
     assert all(entry["selection_status"] == one.UNUSED_STATUS for entry in stamped["files"] if entry["purpose"] == "SWEEP")
 
 
@@ -891,7 +942,6 @@ def test_run_generation_mode_end_to_end_for_one_concept(tmp_path, monkeypatch):
         "--pairing", backend.pairing, "--model-path", "unused", "--sae-path", "unused", "--layer", "29",
         "--configuration-name", "primary", "--grid-path", str(grid_dir / "grid.json"),
         "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
-        "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "1.0,0.5,0.25,0.1",
         "--run-id", "r-test-0001", "--source-commit", "0" * 40,
         "--job-deadline-epoch-seconds", str(__import__("time").time() + 100_000),
         "--out-dir", str(tmp_path / "out"), "--state-dir", str(tmp_path / "state"),
@@ -975,7 +1025,6 @@ def test_run_generation_mode_breaks_after_the_first_concept_that_cannot_fit(tmp_
         "--pairing", backend.pairing, "--model-path", "unused", "--sae-path", "unused", "--layer", "29",
         "--configuration-name", "primary", "--grid-path", str(grid_dir / "grid.json"),
         "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
-        "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "1.0,0.5,0.25,0.1",
         "--run-id", "r-test-0001", "--source-commit", "0" * 40,
         "--job-deadline-epoch-seconds", str(__import__("time").time() + 100_000),
         "--out-dir", str(tmp_path / "out"), "--state-dir", str(tmp_path / "state"),
@@ -1020,7 +1069,6 @@ def test_run_generation_mode_rejects_a_source_commit_disagreeing_with_the_transf
         "--pairing", backend.pairing, "--model-path", "unused", "--sae-path", "unused", "--layer", "29",
         "--configuration-name", "primary", "--grid-path", str(grid_dir / "grid.json"),
         "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
-        "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "1.0,0.5,0.25,0.1",
         "--run-id", "r-test-0001", "--source-commit", "0" * 40,
         "--job-deadline-epoch-seconds", str(__import__("time").time() + 100_000),
         "--out-dir", str(tmp_path / "out"), "--state-dir", str(tmp_path / "state"),

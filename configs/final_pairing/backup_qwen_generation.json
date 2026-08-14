@@ -1,0 +1,24 @@
+{
+  "$comment": "Section 7 lane config -- BACKUP Qwen causal-generation lane (target_script=final_pairing_one_allocation_generation.py). Templated by slurm/final_pairing_matched_configuration_job.sbatch: every @@TOKEN@@ is a runtime-only value (job id, resolved transfer-manifest source commit, absolute wall-clock deadline) substituted before this file is read. --grid-path names the EXACT grid.json this same configuration/pairing's own grid lane wrote (configs/final_pairing/backup_qwen_grid.json's out_dir), never globbed. Only ACTUALLY LAUNCHED if the automatic backup trigger runs backup and backup's own grid reaches complete_pass -- required upfront regardless, so the packet never depends on which branch a live run happens to take. Dose values are NOT a CLI flag here at all: run_generation_mode reads them ONLY from the frozen protocols/final_pairing/v1/causal_dose_grid.json via load_causal_dose_grid.",
+  "out_dir": "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/backup/qwen/generation/out",
+  "state_dir": "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/backup/qwen/generation/state",
+  "tmp_dir": "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/backup/qwen/generation/tmp",
+  "log_path": "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/logs/backup_qwen_generation.log",
+  "target_script": "@@GENERATION_SCRIPT_PATH@@",
+  "argv": [
+    "--pairing", "qwen-3.5-27b",
+    "--model-path", "/scratch/y/yazid/hf_cache/hub/models--Qwen--Qwen3.5-27B/snapshots/fc05daec18b0a78c049392ed2e771dde82bdf654",
+    "--sae-path", "/scratch/y/yazid/hf_cache/hub/models--Qwen--SAE-Res-Qwen3.5-27B-W80K-L0_50/snapshots/13d4221569f7ca5d3c1e605e3e3dc95117e4807c/layer32.sae.pt",
+    "--layer", "32",
+    "--qwen-sae-family", "L0_50",
+    "--qwen-sparsity", "50",
+    "--expected-model-revision", "fc05daec18b0a78c049392ed2e771dde82bdf654",
+    "--expected-sae-revision", "13d4221569f7ca5d3c1e605e3e3dc95117e4807c",
+    "--configuration-name", "backup",
+    "--grid-path", "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/backup/qwen/grid/out/grid.json",
+    "--pairing-id", "Qwen/Qwen3.5-27B+Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50",
+    "--run-id", "run-@@SLURM_JOB_ID@@-backup-qwen",
+    "--source-commit", "@@SOURCE_COMMIT@@",
+    "--job-deadline-epoch-seconds", "@@JOB_DEADLINE_EPOCH_SECONDS@@"
+  ]
+}

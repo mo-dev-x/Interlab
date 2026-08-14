@@ -699,7 +699,6 @@ def _write_generation_lane_json(tmp_path: Path, tag: str) -> Path:
             "--pairing", pairing, "--model-path", "/fake/model", "--sae-path", "/fake/sae",
             "--layer", "29", "--configuration-name", "primary", "--grid-path", str(tmp_path / tag / "grid.json"),
             "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
-            "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "1.0,0.5,0.25,0.1",
             "--run-id", "r-test-0001", "--source-commit", "0" * 40,
             "--job-deadline-epoch-seconds", "9999999999",
         ],

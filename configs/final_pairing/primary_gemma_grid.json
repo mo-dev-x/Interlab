@@ -1,0 +1,17 @@
+{
+  "$comment": "Section 7 lane config -- PRIMARY Gemma grid-discovery lane. Templated by slurm/final_pairing_matched_configuration_job.sbatch: every @@TOKEN@@ is substituted with a real runtime value (SLURM_JOB_ID is not known until the allocation starts) before this file is read by final_concept_discovery_dual_gpu_job.load_lane_spec. Every other field is a concrete, frozen, ratified value -- no engineering placeholder.",
+  "out_dir": "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/primary/gemma/grid/out",
+  "state_dir": "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/primary/gemma/grid/state",
+  "tmp_dir": "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/primary/gemma/grid/tmp",
+  "log_path": "/scratch/y/yazid/final_pairing/@@SLURM_JOB_ID@@/logs/primary_gemma_grid.log",
+  "argv": [
+    "--mode", "grid",
+    "--pairing", "gemma-3-12b-it",
+    "--model-path", "/scratch/y/yazid/hf_cache/hub/models--google--gemma-3-12b-it/snapshots/96b6f1eccf38110c56df3a15bffe176da04bfd80",
+    "--sae-path", "/scratch/y/yazid/hf_cache/hub/models--google--gemma-scope-2-12b-it/snapshots/4c419f1ba0be8b7754d4151d4f26c23b92a9029e",
+    "--layer", "29",
+    "--expected-model-revision", "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+    "--expected-sae-revision", "4c419f1ba0be8b7754d4151d4f26c23b92a9029e",
+    "--shortlist-size", "20"
+  ]
+}

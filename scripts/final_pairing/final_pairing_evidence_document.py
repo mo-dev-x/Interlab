@@ -60,6 +60,57 @@ scope.
 emitted here) from the identity artifact's own `params_expected_sha256`
 (never emitted by a producer -- refused by name if it is).
 
+CAUSAL_DOSE_GRID.JSON (protocols/final_pairing/v1/causal_dose_grid.json,
+commit c43a976): freezes canonical dose_ids ("A1".."A5"/"S1".."S5")
+replacing the prior float-derived `files[].dose` labels ("0.5x", "ABLATE")
+in the generation manifest `final_pairing_one_allocation_generation.py`
+produces. CHECKED DIRECTLY against ff2a565's real validator
+(`scripts/concept_bundle_publish.py`, `D:/devcache/wt/concept-bundle`):
+`dose` is validated as `isinstance(..., (str, int, float))` with no
+enum/pattern constraint, so this value-format change requires no
+consumer-side update to be accepted. Also checked directly: neither
+`manifest_required` nor `manifest_optional` (schema v3.0) names any
+causal-dose-grid path/version/hash binding field, on the manifest or on
+this document -- there is currently NO schema-required (or even
+schema-optional) site to bind `causal_dose_grid.json`'s identity into,
+verified by inspection rather than assumed absent. This file therefore
+adds no new field: the artifact's own hash-pin enforcement lives at the
+producer's runtime layer (`final_pairing_one_allocation_generation.
+validate_causal_dose_grid_protocol_hash`, called before any generation),
+the same relationship every other frozen protocol not itself bound into
+a manifest field already has (e.g. `backup_trigger.json`,
+`scientific_config_identity.json`). If Engineer 3's schema later adds a
+binding requirement, that requirement -- not this paragraph's absence of
+one -- is the thing to implement against.
+
+MIXED_OPERATION_PUBLICATION.JSON (protocols/final_pairing/v1/mixed_
+operation_publication.json, v1.1.0, commit 6e3f4be, supersedes v1.0.0/
+cddd9a5): S5/ABLATE is never eligible to occupy low/medium/high in a
+PUBLISHED Suppress direction (`build_direction_block`'s docstring above
+has the full correction of this file's own former false "Suppress HIGH
+is ABLATE" claim); enforced upstream, at selection time, in
+`final_pairing_judge_cli.build_selected_record` -- by the time a
+SELECTED record reaches this producer, its `selected` dict structurally
+cannot name the ablate dose_id. This file performs no additional check
+of its own, since `build_direction_block`'s ablate/clamp split already
+makes a mixed CLAMP+ABLATE triple unrepresentable regardless.
+
+SUPPRESS_NULL_DISPOSITION.JSON (protocols/final_pairing/v1/suppress_
+null_disposition.json, v1.0.0, commit cb0aca8, extends mixed_operation_
+publication v1.1.0): PENDING, NOT YET IMPLEMENTED HERE, per explicit
+instruction -- rules that when Suppress publishes `null` (fewer than
+three of S1..S4 clear G-E, whether or not S5/ABLATE did), the promoted
+document must carry a top-level `suppress_disposition` object
+(`{reason, ablation_cleared_ge}`, required iff `suppress` is null,
+prohibited iff non-null) and NO G-E gate -- `ablation_cleared_ge` is
+descriptive metadata, never a gate. This producer does not yet emit
+`suppress_disposition` or any G-E gate entry (this file currently builds
+only G-A/G-B/G-C gate entries, via `_gate_entries_from_grid_ab_c`) --
+implementation is explicitly deferred until Engineer 3 publishes the
+schema commit adding the conditional field and returns a target to
+reconcile against; this module's ff2a565/schema-3.0 declaration is
+therefore NOT to be treated as final pending that target.
+
 WHY A SEPARATE FILE. `interplab/concept_bundle/` (the package
 `concept_bundle_publish.py` imports) does not exist on this branch -- it
 was authored on the sibling branch `eng3/concept-bundle` (confirmed:
@@ -279,13 +330,32 @@ def build_direction_block(
     strengths: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Builds one `calibration.directions.<name>` block, ENFORCING the
-    ablate/clamp shape rule rather than trusting the caller: ablate
-    (Suppress's operation) carries no `unit`/`unit_source`/`strengths` and
-    every target's weight is exactly 1.0 ("Suppress HIGH is ABLATE with no
-    magnitude, unit, or unit_source and weights exactly 1.0"); clamp
-    requires all three. Raises on a caller attempting the wrong shape for
-    the given operation, rather than silently dropping or defaulting
-    anything."""
+    ablate/clamp shape rule rather than trusting the caller: an ablate
+    direction carries no `unit`/`unit_source`/`strengths` (every target's
+    weight is exactly 1.0) and no low/medium/high dial at all; a clamp
+    direction requires `unit`/`unit_source`/`strengths` (three bare-number
+    magnitudes), all three. `operation` is ONE value per direction (never
+    per-strength) -- this matches the accepted schema exactly as it is,
+    at 2003406/ac9ea40/ff2a565 alike (`mixed_operation_publication.json`
+    v1.1.0, commit 6e3f4be, WITHDRAWS the earlier, false v1.0.0 instruction
+    to move `operation` onto a per-strength Spec).
+
+    CORRECTED (was: "Suppress HIGH is ABLATE with no magnitude, unit, or
+    unit_source"): that claim is FALSE and is a hard stop to assert. A
+    published Suppress direction is `operation='clamp'` with three CLAMP
+    magnitudes drawn from the confirmation doses the selection procedure
+    actually chose (normally S1..S4 -- S5/ABLATE is never eligible to
+    occupy low/medium/high in a PUBLISHED direction, restricted at
+    selection time per `mixed_operation_publication.json`, enforced in
+    `final_pairing_judge_cli.build_selected_record`). S1..S4 (CLAMP) and
+    S5 (ABLATE) are NOT one continuous magnitude ramp -- S5 is a
+    different operation with no magnitude at all, not a further point on
+    the same scale. This function's own ablate/clamp split already makes
+    a mixed CLAMP+ABLATE triple structurally unrepresentable (an ablate
+    direction has no strengths to hold one), which is the accepted
+    schema's actual, coherent design, not an oversight. Raises on a
+    caller attempting the wrong shape for the given operation, rather
+    than silently dropping or defaulting anything."""
     if operation not in ("clamp", "ablate"):
         raise ValueError(f"operation must be 'clamp' or 'ablate', got {operation!r}")
     if operation == "ablate":
@@ -644,7 +714,7 @@ def producer_schema_declaration() -> dict[str, Any]:
                         "additionalProperties": False,
                         "manifest_sha256": "sha256:<64 hex>, and MUST equal the digest promotion RECOMPUTED from the bound manifest's bytes.",
                         "outcome": "SELECTED | FAILED",
-                        "selected": "object {LOW, MEDIUM, HIGH}; REQUIRED iff outcome == SELECTED, PROHIBITED iff outcome == FAILED. The three must name three DISTINCT doses. No magnitude ordering is asserted: on the SUPPRESS arm HIGH is ABLATE, which carries no value, no unit and no unit_source.",
+                        "selected": "object {LOW, MEDIUM, HIGH}; REQUIRED iff outcome == SELECTED, PROHIBITED iff outcome == FAILED. The three must name three DISTINCT doses. No magnitude ordering is asserted (a SUPPRESS HIGH of S4 is valid and is the normal case). CORRECTED (was: 'on the SUPPRESS arm HIGH is ABLATE'): that claim is FALSE. Per mixed_operation_publication.json v1.1.0 (commit 6e3f4be), S5/ABLATE is NEVER eligible to occupy LOW, MEDIUM, or HIGH here -- the restriction binds at selection time, before any judged score exists. S5 remains fully scientific (generated, judged, and reflected in this record's own unselected/evidence) but may never be a value in this object; S1..S4 (CLAMP) and S5 (ABLATE) are not one continuous magnitude ramp, they are two different operations.",
                         "unselected": "array; every confirmation dose not selected, and ALL doses when outcome == FAILED.",
                         "partition": "The dose set is DERIVED FROM THE MANIFEST -- the distinct doses across files[] where purpose == CONFIRMATION -- and is never asserted by the record. selected.values() UNION unselected must equal it exactly, each dose covered exactly once.",
                         "failed_never_promoted": "A FAILED record may NEVER be referenced here. A failed direction is null in calibration.directions, generation_manifests and selection_records alike; the FAILED record stays in the run's immutable inventory beside its manifest, preserved and never deleted.",

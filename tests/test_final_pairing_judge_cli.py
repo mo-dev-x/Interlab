@@ -182,7 +182,7 @@ def _tiny_manifest(tmp_path, *, n_doses=3):
     )
     records = [control]
     for dose_index in range(n_doses):
-        dose = one_alloc.DoseSpec(kind="clamp", value_in_max_units=float(dose_index + 1))
+        dose = one_alloc.DoseSpec(dose_id=f"A{dose_index + 1}", kind="clamp", value_in_max_units=float(dose_index + 1))
         records.append(one_alloc.generate_dose_file(
             backend, [CONCEPT_FEATURE], dose=dose, corpus_max=corpus_max, positions="all",
             prompts=prompts, purpose="sweep", n_repeats=1, seeds=seeds, max_new_tokens=1, out_dir=tmp_path,
@@ -190,6 +190,42 @@ def _tiny_manifest(tmp_path, *, n_doses=3):
             control_ref=control.path,
         ))
     manifest_path = tmp_path / "generation_manifest.json"
+    one_alloc.write_generation_manifest(records, manifest_path, **_MANIFEST_KWARGS)
+    return manifest_path, backend.pairing
+
+
+def _tiny_suppress_manifest(tmp_path):
+    """A real, full 5-dose (S1..S5) CONFIRMATION-purpose Suppress manifest
+    -- for exercising `_cmd_write_selection`'s real ablate_dose_id
+    resolution against the actual frozen causal_dose_grid.json."""
+    backend = fakes.make_fake_gemma_backend()
+    corpus_max = d.corpus_max_per_feature(backend, ["background text"])
+    prompts = [_tiny_row(f"p{i}", i + 1) for i in range(2)]
+    seeds = one_alloc.derive_seeds(
+        namespace="confirmation", concept_id="cheese", pairing_id=backend.pairing, direction="suppress",
+        locale="en", n_prompts=2, n_repeats=1,
+    )
+    control = one_alloc.generate_control_file(
+        backend, corpus_max=corpus_max, positions="all", prompts=prompts, purpose="confirmation", n_repeats=1,
+        seeds=seeds, max_new_tokens=1, out_dir=tmp_path, concept_id="cheese", pairing_id=backend.pairing,
+        direction="suppress", locale="en",
+    )
+    records = [control]
+    suppress_doses = [
+        one_alloc.DoseSpec(dose_id="S1", kind="clamp", value_in_max_units=1.0),
+        one_alloc.DoseSpec(dose_id="S2", kind="clamp", value_in_max_units=0.5),
+        one_alloc.DoseSpec(dose_id="S3", kind="clamp", value_in_max_units=0.25),
+        one_alloc.DoseSpec(dose_id="S4", kind="clamp", value_in_max_units=0.1),
+        one_alloc.DoseSpec(dose_id="S5", kind="ablate"),
+    ]
+    for dose in suppress_doses:
+        records.append(one_alloc.generate_dose_file(
+            backend, [CONCEPT_FEATURE], dose=dose, corpus_max=corpus_max, positions="all",
+            prompts=prompts, purpose="confirmation", n_repeats=1, seeds=seeds, max_new_tokens=1, out_dir=tmp_path,
+            concept_id="cheese", pairing_id=backend.pairing, direction="suppress", locale="en",
+            control_ref=control.path,
+        ))
+    manifest_path = tmp_path / "generation_manifest_suppress.json"
     one_alloc.write_generation_manifest(records, manifest_path, **_MANIFEST_KWARGS)
     return manifest_path, backend.pairing
 
@@ -321,6 +357,7 @@ def _sample_selected_record() -> jc.SelectionRecord:
     return jc.build_selected_record(
         concept_id="cheese", pairing_id="gemma-3-12b-it", direction="amplify",
         low_dose=1, medium_dose=2, high_dose=4, all_confirmation_doses=[0, 1, 2, 3, 4],
+        ablate_dose_id=None,  # Amplify has no ablate point at all
     )
 
 
@@ -440,13 +477,86 @@ def test_cli_judge_sweep_requires_budget_usd():
         ])
 
 
-def test_cli_write_selection_accepts_low_medium_high_dose_labels():
+def test_cli_write_selection_accepts_low_medium_high_dose_ids():
     parser = jc.build_arg_parser()
     args = parser.parse_args([
         "write-selection", "--manifest", "generation_manifest.json",
         "--concept-id", "cheese", "--pairing-id", "gemma-3-12b-it", "--direction", "amplify",
-        "--low-dose", "1.0x", "--medium-dose", "2.0x", "--high-dose", "4.0x", "--out", "selection_record.json",
+        "--low-dose", "A1", "--medium-dose", "A2", "--high-dose", "A5", "--out", "selection_record.json",
         "--repo-root", ".", "--commit-message", "select",
     ])
-    assert args.low_dose == "1.0x" and args.medium_dose == "2.0x" and args.high_dose == "4.0x"
+    assert args.low_dose == "A1" and args.medium_dose == "A2" and args.high_dose == "A5"
     assert args.failed is False
+
+
+# ---------------------------------------------------------------------------
+# mixed_operation_publication.json v1.1.0 (commit 6e3f4be): S5/ABLATE is
+# never eligible to occupy a published Suppress low/medium/high position,
+# restricted pre-registered at selection time -- while S4 (a real CLAMP
+# dose) remains exactly as valid a HIGH as any other dose_id.
+# ---------------------------------------------------------------------------
+
+
+def test_build_selected_record_refuses_ablate_dose_id_at_high():
+    with pytest.raises(jc.MixedOperationPublicationRefused, match="S5"):
+        jc.build_selected_record(
+            concept_id="cheese", pairing_id="gemma-3-12b-it", direction="suppress",
+            low_dose="S1", medium_dose="S2", high_dose="S5",
+            all_confirmation_doses=["S1", "S2", "S3", "S4", "S5"], ablate_dose_id="S5",
+        )
+
+
+def test_build_selected_record_refuses_ablate_dose_id_at_any_position():
+    """The restriction applies to low/medium/high uniformly, not merely high."""
+    for position in ("low_dose", "medium_dose", "high_dose"):
+        kwargs = {"low_dose": "S1", "medium_dose": "S2", "high_dose": "S3"}
+        kwargs[position] = "S5"
+        with pytest.raises(jc.MixedOperationPublicationRefused):
+            jc.build_selected_record(
+                concept_id="cheese", pairing_id="gemma-3-12b-it", direction="suppress",
+                all_confirmation_doses=["S1", "S2", "S3", "S4", "S5"], ablate_dose_id="S5", **kwargs,
+            )
+
+
+def test_build_selected_record_accepts_s4_as_a_valid_high():
+    """The grid ruling's own point, now the normal case: HIGH=S4 (a real
+    CLAMP dose, not ABLATE) is valid and is not rejected."""
+    record = jc.build_selected_record(
+        concept_id="cheese", pairing_id="gemma-3-12b-it", direction="suppress",
+        low_dose="S1", medium_dose="S2", high_dose="S4",
+        all_confirmation_doses=["S1", "S2", "S3", "S4", "S5"], ablate_dose_id="S5",
+    )
+    assert record.selected["high"] == "S4"
+    assert "S5" in record.unselected  # S5 stays fully scientific: generated, judged, recorded as evidence
+
+
+def test_build_selected_record_with_ablate_dose_id_none_never_restricts_amplify():
+    """Amplify has no ablate point at all -- ablate_dose_id=None is the
+    correct call for it, and no dose is ever refused."""
+    record = jc.build_selected_record(
+        concept_id="cheese", pairing_id="gemma-3-12b-it", direction="amplify",
+        low_dose="A1", medium_dose="A2", high_dose="A5",
+        all_confirmation_doses=["A1", "A2", "A3", "A4", "A5"], ablate_dose_id=None,
+    )
+    assert record.selected["high"] == "A5"
+
+
+def test_cmd_write_selection_resolves_the_real_ablate_dose_id_and_refuses_it(tmp_path):
+    """End-to-end through the real CLI command (not just build_selected_
+    record directly): --high-dose S5 on a suppress selection is refused,
+    using the REAL frozen causal_dose_grid.json to resolve which dose_id
+    is ABLATE, not a hardcoded 'S5' inside the CLI handler itself. Never
+    reaches a git commit -- the refusal fires before write_selection_
+    record/commit_selection_record, so no throwaway git repo is needed
+    here."""
+    manifest_path, pairing_id = _tiny_suppress_manifest(tmp_path)
+    parser = jc.build_arg_parser()
+    args = parser.parse_args([
+        "write-selection", "--manifest", str(manifest_path),
+        "--concept-id", "cheese", "--pairing-id", pairing_id, "--direction", "suppress",
+        "--low-dose", "S1", "--medium-dose", "S2", "--high-dose", "S5",
+        "--out", str(tmp_path / "selection_record.json"), "--repo-root", str(REPO_ROOT),
+        "--commit-message", "select",
+    ])
+    with pytest.raises(jc.MixedOperationPublicationRefused):
+        jc._cmd_write_selection(args)

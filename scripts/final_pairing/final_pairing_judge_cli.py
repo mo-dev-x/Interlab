@@ -86,6 +86,15 @@ class ScientificModeMockRefused(RuntimeError):
     its output as attested evidence."""
 
 
+class MixedOperationPublicationRefused(RuntimeError):
+    """A SELECTED Suppress record's low/medium/high named the ABLATE
+    dose_id (S5) -- protocols/final_pairing/v1/mixed_operation_
+    publication.json v1.1.0 (commit 6e3f4be) forbids S5 from ever
+    occupying a published triple position. S5 stays fully scientific
+    (generated, judged, recorded as 'unselected' evidence); it is simply
+    never eligible to be selected as low, medium, or high."""
+
+
 def ensure_lodestar_importable(source_root: str | Path | None = None) -> Path:
     """Inserts the real, separately-installed Lodestar source tree onto
     `sys.path` -- an explicit source-root mechanism, never an install
@@ -207,10 +216,12 @@ def manifest_entries(manifest: dict[str, Any], *, direction: str, purpose: str, 
     (schema 2.0, commit 67ad4ef -- a manifest covers exactly one
     direction, so every file entry already matches it or the manifest is
     malformed) rather than a per-file field, which no longer exists.
-    `purpose`/`dose` are matched case-insensitively against the file
-    entries' own ruled UPPERCASE storage ("SWEEP"/"CONFIRMATION"/
-    "CONTROL"; dose labels like "0.5x"/"ABLATE") -- CONTROL entries carry
-    no `dose` key at all, so `dose is not None` never matches one."""
+    `purpose` is matched case-insensitively against the file entries' own
+    ruled UPPERCASE storage ("SWEEP"/"CONFIRMATION"/"CONTROL"); `dose` is
+    matched by EXACT string equality against the entry's canonical
+    dose_id (e.g. "S4", "A5" -- causal_dose_grid.json, never a float or a
+    float-derived label) -- CONTROL entries carry no `dose` key at all,
+    so `dose is not None` never matches one."""
     if manifest["direction"].lower() != direction.lower():
         return []
     entries = [
@@ -369,25 +380,60 @@ class SelectionRecord:
     cell); a FAILED record names NO selected doses
     (`sealed_output_rules.if_direction_fails`: all five stay sealed).
 
-    Doses are STRING labels (e.g. "1.0x", "ABLATE") -- matching the real
-    manifest's own dose identifiers (`final_pairing_one_allocation_
-    generation.GenerationFileRecord.dose_label`/`stamp_manifest_with_
-    selection`'s `unselected_doses`), not the integer dose indices an
-    earlier version of this module used."""
+    Doses are the CANONICAL string dose_ids (e.g. "S4", "S5") -- matching
+    the real manifest's own dose identifiers (`final_pairing_one_
+    allocation_generation.GenerationFileRecord.dose_id`/`stamp_manifest_
+    with_selection`'s `unselected_doses`; `causal_dose_grid.json`, commit
+    c43a976), not the integer dose indices an earlier version of this
+    module used, and not a float-derived label. No magnitude ordering is
+    assumed: a SELECTED record whose `high` is "S4" is valid (indeed the
+    normal case) -- LOW/MEDIUM/HIGH are chosen from the judged sweep,
+    never from dose-grid position.
+
+    MIXED-OPERATION PUBLICATION RESTRICTION (protocols/final_pairing/v1/
+    mixed_operation_publication.json v1.1.0, commit 6e3f4be, supersedes
+    v1.0.0/cddd9a5): on the SUPPRESS arm, the ABLATE dose (S5) may NEVER
+    occupy `low`/`medium`/`high` in a SELECTED record -- `build_selected_
+    record` enforces this (see its own docstring). S5 remains fully
+    scientific: it is still generated, judged, and named in `unselected`
+    when not chosen; it simply cannot be one of the three published
+    positions. S1..S4 (CLAMP) and S5 (ABLATE) are not one continuous
+    magnitude ramp -- S5 is a different operation with no magnitude at
+    all, not a further point on the same scale."""
 
     concept_id: str
     pairing_id: str
     direction: str
     status: Literal["SELECTED", "FAILED"]
-    selected: dict[str, str]  # {"low": dose_label, "medium": dose_label, "high": dose_label} -- empty for FAILED
+    selected: dict[str, str]  # {"low": dose_id, "medium": dose_id, "high": dose_id} -- empty for FAILED
     unselected: list[str]
 
 
 def build_selected_record(
     *, concept_id: str, pairing_id: str, direction: str, low_dose: str, medium_dose: str, high_dose: str,
-    all_confirmation_doses: list[str],
+    all_confirmation_doses: list[str], ablate_dose_id: str | None,
 ) -> SelectionRecord:
+    """`ablate_dose_id` is the Suppress grid's ABLATE dose_id (e.g. "S5",
+    resolved via `final_pairing_one_allocation_generation.
+    load_causal_dose_grid`) when `direction == "suppress"`, else `None`
+    (Amplify has no ablate point at all, so there is nothing to restrict).
+    Raises `MixedOperationPublicationRefused` if `ablate_dose_id` occupies
+    `low`/`medium`/`high` -- the mixed-operation-publication ruling's own
+    restriction (protocols/final_pairing/v1/mixed_operation_publication.json
+    v1.1.0, commit 6e3f4be), binding BEFORE any judged score exists: the
+    candidate set for a published triple excludes S5 from the outset,
+    which is what makes this a legitimate pre-registered constraint rather
+    than post-hoc substitution of what was actually selected."""
     selected = {"low": low_dose, "medium": medium_dose, "high": high_dose}
+    if ablate_dose_id is not None:
+        occupied = sorted(position for position, dose_id in selected.items() if dose_id == ablate_dose_id)
+        if occupied:
+            raise MixedOperationPublicationRefused(
+                f"{occupied} name the ABLATE dose_id {ablate_dose_id!r} -- S5/ABLATE is not eligible to "
+                f"occupy a published Suppress low/medium/high position (mixed_operation_publication.json "
+                f"v1.1.0, commit 6e3f4be). S5 remains fully scientific and belongs in 'unselected'/the "
+                f"manifest's own evidence; it may never be a value in 'selected'."
+            )
     unselected = sorted(set(all_confirmation_doses) - set(selected.values()))
     return SelectionRecord(
         concept_id=concept_id, pairing_id=pairing_id, direction=direction, status="SELECTED",
@@ -598,10 +644,18 @@ def _cmd_write_selection(args) -> int:
             all_confirmation_doses=all_doses,
         )
     else:
+        # mixed_operation_publication.json v1.1.0 (commit 6e3f4be): on the Suppress arm, the
+        # ABLATE dose_id is excluded from the PUBLISHED triple's candidate set from the outset
+        # (pre-registered, not a post-hoc rejection) -- resolved from the real frozen grid,
+        # never hardcoded, since a caller must not assume "S5" spells the ablate point.
+        ablate_dose_id = None
+        if args.direction == "suppress":
+            _amplify_grid_unused, suppress_grid = one_alloc.load_causal_dose_grid(args.repo_root)
+            ablate_dose_id = next(spec.dose_id for spec in suppress_grid if spec.kind == "ablate")
         record = build_selected_record(
             concept_id=args.concept_id, pairing_id=args.pairing_id, direction=args.direction,
             low_dose=args.low_dose, medium_dose=args.medium_dose, high_dose=args.high_dose,
-            all_confirmation_doses=all_doses,
+            all_confirmation_doses=all_doses, ablate_dose_id=ablate_dose_id,
         )
     write_selection_record([record], args.out)
     commit_hash = commit_selection_record(args.repo_root, args.out, message=args.commit_message)
@@ -683,9 +737,9 @@ def build_arg_parser():
     write_sel.add_argument("--concept-id", required=True)
     write_sel.add_argument("--pairing-id", required=True)
     write_sel.add_argument("--direction", required=True, choices=["amplify", "suppress"])
-    write_sel.add_argument("--low-dose", help="dose label (e.g. '1.0x', 'ABLATE'); required unless --failed")
-    write_sel.add_argument("--medium-dose", help="dose label (e.g. '2.0x', 'ABLATE'); required unless --failed")
-    write_sel.add_argument("--high-dose", help="dose label (e.g. '4.0x', 'ABLATE'); required unless --failed")
+    write_sel.add_argument("--low-dose", help="canonical dose_id (e.g. 'S1', 'A1'); required unless --failed")
+    write_sel.add_argument("--medium-dose", help="canonical dose_id (e.g. 'S2', 'A3'); required unless --failed")
+    write_sel.add_argument("--high-dose", help="canonical dose_id (e.g. 'S4', 'A5'); no ordering assumed, but on Suppress the ABLATE dose_id is refused here -- it may never occupy a published low/medium/high position (mixed_operation_publication.json v1.1.0); required unless --failed")
     write_sel.add_argument("--failed", action="store_true", help="record a FAILED selection: all five doses stay sealed")
     write_sel.add_argument("--out", required=True)
     write_sel.add_argument("--repo-root", required=True)
@@ -709,7 +763,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (CredentialMissing, BudgetExceeded, ScientificModeMockRefused,
+    except (CredentialMissing, BudgetExceeded, ScientificModeMockRefused, MixedOperationPublicationRefused,
             causal_judge.CausalJudgeUnavailable, one_alloc.TransferVerificationFailed) as exc:
         print(f"REFUSED: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1

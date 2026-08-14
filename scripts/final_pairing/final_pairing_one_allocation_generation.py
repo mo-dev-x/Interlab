@@ -107,6 +107,21 @@ ADDITION_4 (concept-complete ordering + wall-time preflight):
 (both directions, both locales, all five doses, sweep AND confirmation,
 plus every paired control) or is not started at all; there is no
 partial-concept file layout.
+
+CANONICAL DOSE IDENTIFIERS (protocols/final_pairing/v1/causal_dose_grid.json,
+commit c43a976, hash-pinned via `validate_causal_dose_grid_protocol_hash`):
+every dose is identified by a canonical STRING `dose_id` ("A1".."A5" for
+Amplify, "S1".."S5" for Suppress) -- `files[].dose`, filenames, and
+selection-record dose references all carry the dose_id, NEVER a float or
+a float-derived string ("0.5x", "ABLATE"). `value_in_max_units` travels
+alongside as DATA on `DoseSpec`, never as a key and never compared or
+ordered against another dose's value. `load_causal_dose_grid` is the
+ONLY source of dose values in this module -- there is no CLI flag or
+caller-supplied override (NO_TUNING_AFTER_ACTIVATIONS: no dose may be
+added, removed, rescaled, reordered, or reinterpreted). Suppress HIGH is
+NOT defined as ABLATE/S5 by fiat: a selection whose HIGH is "S4" is
+valid, since LOW/MEDIUM/HIGH are chosen from the judged sweep under the
+frozen selection rules, not assigned by dose-grid position.
 """
 
 from __future__ import annotations
@@ -212,6 +227,28 @@ def validate_generation_settings_protocol_hash(repo_root: str | Path) -> str:
     return actual
 
 
+CAUSAL_DOSE_GRID_PROTOCOL_PATH = "protocols/final_pairing/v1/causal_dose_grid.json"
+CAUSAL_DOSE_GRID_PROTOCOL_VERSION = "final-pairing-causal-dose-grid/1.0.0"
+CAUSAL_DOSE_GRID_PROTOCOL_COMMIT = "c43a976785a3a7e2e0fa4c8a9a78e1a33a88d37e"
+CAUSAL_DOSE_GRID_PROTOCOL_SHA256 = "6afc4a85d1a8e385bfe366e51767451839c6208e88c396a382bdf02a5e3c5c55"
+
+
+def validate_causal_dose_grid_protocol_hash(repo_root: str | Path) -> str:
+    """Fails closed if `causal_dose_grid.json`'s actual bytes don't match
+    the pinned hash -- same discipline as `validate_one_allocation_
+    protocol_hash`/`validate_generation_settings_protocol_hash` above."""
+    path = Path(repo_root) / CAUSAL_DOSE_GRID_PROTOCOL_PATH
+    if not path.is_file():
+        raise TransferVerificationFailed(f"causal dose grid protocol not found at {path}")
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != CAUSAL_DOSE_GRID_PROTOCOL_SHA256:
+        raise TransferVerificationFailed(
+            f"{path} sha256={actual!r} != pinned {CAUSAL_DOSE_GRID_PROTOCOL_SHA256!r} -- refusing to "
+            f"generate against an altered or unpinned causal dose grid."
+        )
+    return actual
+
+
 def derive_seed(
     *, namespace: Literal["sweep", "confirmation"], concept_id: str, pairing_id: str, direction: str,
     locale: str, prompt_index: int, repeat_index: int,
@@ -269,6 +306,14 @@ def assert_seed_sets_disjoint(sweep_seeds: list[int], confirmation_seeds: list[i
 
 @dataclass(frozen=True)
 class DoseSpec:
+    """`dose_id` is the CANONICAL identifier (causal_dose_grid.json,
+    commit c43a976: "A1".."A5" for Amplify, "S1".."S5" for Suppress) --
+    the ONLY form `files[].dose`, filenames, and selection-record dose
+    references may carry. `value_in_max_units` travels alongside as DATA
+    (never as a key, never compared or ordered against another dose's
+    value) -- S5 (ABLATE) carries `dose_id="S5"` and no numeric value at
+    all, which is precisely why an identifier, not a value, is canonical."""
+    dose_id: str
     kind: Literal["clamp", "ablate"]
     value_in_max_units: float | None = None
 
@@ -279,30 +324,107 @@ class DoseSpec:
             raise ValueError("a clamp dose requires value_in_max_units")
 
 
-def build_amplify_dose_grid(values: tuple[float, ...]) -> list[DoseSpec]:
-    """Amplify's five-point grid: five distinct CLAMP doses (the protocol
-    does not require a particular ordering for Amplify, only that it be
-    five points -- unlike Suppress, which requires ABLATE as one of them)."""
-    if len(values) != DOSES_PER_DIRECTION:
-        raise ValueError(f"amplify dose grid must have exactly {DOSES_PER_DIRECTION} points, got {len(values)}")
-    if len(set(values)) != DOSES_PER_DIRECTION:
-        raise ValueError("amplify dose grid values must be distinct")
-    return [DoseSpec(kind="clamp", value_in_max_units=v) for v in values]
+#: causal_dose_grid.json's own frozen, EXACT grid values (hard stops "An
+#: AMPLIFY grid other than exactly [...]" / "A SUPPRESS CLAMP grid other
+#: than exactly [...]" / "The prohibited Suppress sequence 4.0, 2.0, 1.0,
+#: 0.5 appearing anywhere"). Hardcoded here, not merely read off whatever
+#: bytes the JSON file on disk happens to contain at call time, so
+#: `build_amplify_dose_grid`/`build_suppress_dose_grid` enforce the exact
+#: values as an invariant of THIS CODE -- the same defense-in-depth
+#: relationship as every other hash-pinned frozen artifact in this module.
+FROZEN_AMPLIFY_VALUES: tuple[float, ...] = (0.25, 0.5, 1.0, 2.0, 4.0)
+FROZEN_SUPPRESS_CLAMP_VALUES: tuple[float, ...] = (1.0, 0.5, 0.25, 0.1)
+#: Named and explicitly rejected, never merely absent from the accepted
+#: set: tops out at 4.0x (well above natural firing -- an amplification)
+#: and bottoms out at 0.5x (barely a suppression at all), even though it
+#: is (like the frozen sequence) strictly descending.
+PROHIBITED_SUPPRESS_CLAMP_VALUES: tuple[float, ...] = (4.0, 2.0, 1.0, 0.5)
 
 
-def build_suppress_dose_grid(clamp_fractions: tuple[float, ...]) -> list[DoseSpec]:
-    """Suppress's five-point grid: four DESCENDING clamp fractions plus
-    ABLATE as the fifth grid point (`suppress_specifics.dose_grid`)."""
-    if len(clamp_fractions) != DOSES_PER_DIRECTION - 1:
+def build_amplify_dose_grid(doses: tuple[tuple[str, float], ...]) -> list[DoseSpec]:
+    """Amplify's five-point grid: `doses` is `((dose_id, value_in_max_
+    units), ...)`, exactly 5 entries, distinct dose_ids, and values
+    EXACTLY `FROZEN_AMPLIFY_VALUES` in ascending order (causal_dose_
+    grid.json: "ordering: ASCENDING by value_in_max_units" -- the
+    MEDIUM selection rule takes the dose nearest the geometric midpoint
+    of LOW/HIGH, which only lands sensibly on an ascending, geometric
+    grid). Real callers get `doses` from `load_causal_dose_grid`, never
+    from an operator-supplied CLI value."""
+    if len(doses) != DOSES_PER_DIRECTION:
+        raise ValueError(f"amplify dose grid must have exactly {DOSES_PER_DIRECTION} points, got {len(doses)}")
+    ids = [dose_id for dose_id, _ in doses]
+    values = tuple(value for _, value in doses)
+    if len(set(ids)) != DOSES_PER_DIRECTION:
+        raise ValueError(f"amplify dose_ids must be distinct, got {ids}")
+    if values != FROZEN_AMPLIFY_VALUES:
+        raise ValueError(
+            f"amplify dose grid values must be exactly {FROZEN_AMPLIFY_VALUES}, ascending (causal_dose_"
+            f"grid.json hard stop); got {values}"
+        )
+    return [DoseSpec(dose_id=dose_id, kind="clamp", value_in_max_units=value) for dose_id, value in doses]
+
+
+def build_suppress_dose_grid(clamp_doses: tuple[tuple[str, float], ...], *, ablate_dose_id: str) -> list[DoseSpec]:
+    """Suppress's five-point grid: `clamp_doses` is `((dose_id, value_in_
+    max_units), ...)`, exactly 4 entries with values EXACTLY `FROZEN_
+    SUPPRESS_CLAMP_VALUES` (causal_dose_grid.json's PROHIBITED_
+    SUBSTITUTION hard stop: the illustrative sequence `PROHIBITED_
+    SUPPRESS_CLAMP_VALUES` is rejected even though it is also strictly
+    descending), plus `ablate_dose_id` (S5 by the frozen artifact's own
+    convention) appended as the fifth, terminal grid point -- ABLATE
+    carries no value_in_max_units, unit, or unit_source (`DoseSpec.
+    __post_init__` enforces this). Real callers get both arguments from
+    `load_causal_dose_grid`, never from an operator-supplied CLI value."""
+    if len(clamp_doses) != DOSES_PER_DIRECTION - 1:
         raise ValueError(
             f"suppress clamp portion must have exactly {DOSES_PER_DIRECTION - 1} points "
-            f"(plus ABLATE as the fifth), got {len(clamp_fractions)}"
+            f"(plus ABLATE as the fifth), got {len(clamp_doses)}"
         )
-    if list(clamp_fractions) != sorted(clamp_fractions, reverse=True):
-        raise ValueError(f"suppress clamp fractions must be strictly descending, got {clamp_fractions}")
-    if len(set(clamp_fractions)) != len(clamp_fractions):
-        raise ValueError("suppress clamp fractions must be distinct")
-    return [DoseSpec(kind="clamp", value_in_max_units=v) for v in clamp_fractions] + [DoseSpec(kind="ablate")]
+    ids = [dose_id for dose_id, _ in clamp_doses]
+    values = tuple(value for _, value in clamp_doses)
+    if len(set([*ids, ablate_dose_id])) != DOSES_PER_DIRECTION:
+        raise ValueError(f"suppress dose_ids (4 clamp + 1 ablate) must be distinct, got {[*ids, ablate_dose_id]}")
+    if values != FROZEN_SUPPRESS_CLAMP_VALUES:
+        raise ValueError(
+            f"suppress CLAMP grid must be exactly {FROZEN_SUPPRESS_CLAMP_VALUES} (causal_dose_grid.json "
+            f"PROHIBITED_SUBSTITUTION hard stop -- this rejects {PROHIBITED_SUPPRESS_CLAMP_VALUES} even "
+            f"though it is also strictly descending); got {values}"
+        )
+    return [DoseSpec(dose_id=dose_id, kind="clamp", value_in_max_units=value) for dose_id, value in clamp_doses] + [
+        DoseSpec(dose_id=ablate_dose_id, kind="ablate")
+    ]
+
+
+def load_causal_dose_grid(repo_root: str | Path) -> tuple[list[DoseSpec], list[DoseSpec]]:
+    """Reads `causal_dose_grid.json` (hash-pinned; validated first) and
+    builds the frozen Amplify/Suppress dose grids from ITS OWN dose_id +
+    value_in_max_units pairs -- the ONLY source of dose values in this
+    module. There is no CLI flag or caller-supplied override that can
+    substitute a different grid (`NO_TUNING_AFTER_ACTIVATIONS`: no dose
+    may be added, removed, rescaled, reordered, or reinterpreted after any
+    activation is computed). `build_amplify_dose_grid`/`build_suppress_
+    dose_grid` still independently re-verify the exact frozen values (see
+    their own docstrings) -- this function does not shortcut that check
+    by trusting the JSON's shape alone."""
+    validate_causal_dose_grid_protocol_hash(repo_root)
+    path = Path(repo_root) / CAUSAL_DOSE_GRID_PROTOCOL_PATH
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    amplify_points = sorted(data["AMPLIFY"]["grid"], key=lambda pt: pt["index"])
+    amplify_doses = tuple((pt["dose_id"], pt["value_in_max_units"]) for pt in amplify_points)
+
+    suppress_points = sorted(data["SUPPRESS"]["grid"], key=lambda pt: pt["index"])
+    clamp_points = [pt for pt in suppress_points if pt["operation"] == "CLAMP"]
+    ablate_points = [pt for pt in suppress_points if pt["operation"] == "ABLATE"]
+    if len(ablate_points) != 1:
+        raise ValueError(
+            f"causal_dose_grid.json SUPPRESS grid must carry exactly one ABLATE point, found {len(ablate_points)}"
+        )
+    suppress_clamp_doses = tuple((pt["dose_id"], pt["value_in_max_units"]) for pt in clamp_points)
+
+    amplify_grid = build_amplify_dose_grid(amplify_doses)
+    suppress_grid = build_suppress_dose_grid(suppress_clamp_doses, ablate_dose_id=ablate_points[0]["dose_id"])
+    return amplify_grid, suppress_grid
 
 
 @dataclass(frozen=True)
@@ -508,19 +630,6 @@ def _prefixed_sha256(hexdigest: str) -> str:
     return hexdigest if hexdigest.startswith("sha256:") else f"sha256:{hexdigest}"
 
 
-def _dose_label(dose: DoseSpec) -> str:
-    """The human-readable dose IDENTIFIER the real consumer's manifest
-    validator expects (`concept_bundle_publish.py` commit 67ad4ef,
-    `MANIFEST_FILE_FIELDS`'s `dose` field -- checked only for set-
-    membership and `str(dose) not in file_path`, never parsed back into a
-    float by that tool, so the exact string form is a convention this
-    module fixes, not something the consumer computes): "ABLATE" for the
-    ablate point, otherwise "<value>x" (e.g. "0.5x", "1.0x") -- matching
-    the real `generation_manifest_amplify.json`/`generation_manifest_
-    suppress.json` conformance fixtures byte-for-byte in form."""
-    return "ABLATE" if dose.kind == "ablate" else f"{dose.value_in_max_units}x"
-
-
 @dataclass(frozen=True)
 class GenerationFileRecord:
     """Internal bookkeeping for ONE physical file -- resumability, seed-
@@ -534,12 +643,14 @@ class GenerationFileRecord:
     manifest entries, one per generation (see this module's own docstring,
     "MANIFEST GRANULARITY IS PER GENERATION, NOT PER PHYSICAL FILE").
 
-    `purpose='control'` files carry `dose_label=None`/`dose_kind=None`/
+    `purpose='control'` files carry `dose_id=None`/`dose_kind=None`/
     `dose_value=None` (`generation_settings.json`'s manifest extension:
     "dose: prohibited on CONTROL entries -- a control has no dose") and
     `control_ref=None` (a control is not itself paired with a control);
-    `purpose in ('sweep','confirmation')` files carry a real `dose_label`
-    and a non-None `control_ref` naming the shared control file's path.
+    `purpose in ('sweep','confirmation')` files carry a real, canonical
+    `dose_id` (causal_dose_grid.json: "A1".."A5"/"S1".."S5", never a
+    float-derived string) and a non-None `control_ref` naming the shared
+    control file's path.
 
     `prompt_ids`/`truncated_flags` are parallel arrays to `seeds` (one
     entry per generation, in the SAME order) -- the frozen artifact's own
@@ -552,7 +663,7 @@ class GenerationFileRecord:
     direction: Literal["amplify", "suppress"]
     purpose: Literal["sweep", "confirmation", "control"]
     locale: Literal["en", "fr"]
-    dose_label: str | None  # e.g. "0.5x", "ABLATE"; None for purpose="control"
+    dose_id: str | None  # canonical "A1".."A5"/"S1".."S5"; None for purpose="control"
     dose_kind: Literal["clamp", "ablate"] | None
     dose_value: float | None
     n_prompts: int
@@ -579,8 +690,8 @@ class GenerationFileRecord:
                 "sha256": _prefixed_sha256(self.sha256), "seed": seed, "prompt_id": prompt_id,
                 "truncated": truncated,
             }
-            if self.dose_label is not None:
-                entry["dose"] = self.dose_label
+            if self.dose_id is not None:
+                entry["dose"] = self.dose_id
             if self.control_ref is not None:
                 entry["control_ref"] = self.control_ref
             entries.append(entry)
@@ -588,9 +699,11 @@ class GenerationFileRecord:
 
 
 def _generation_filename(
-    *, concept_id: str, pairing_id: str, direction: str, purpose: str, locale: str, dose_label: str | None,
+    *, concept_id: str, pairing_id: str, direction: str, purpose: str, locale: str, dose_id: str | None,
 ) -> str:
-    dose_part = "" if dose_label is None else f"__dose_{dose_label.replace('/', '_')}"
+    """Filenames encode the canonical `dose_id` ("A1".."A5"/"S1".."S5"),
+    never a float (causal_dose_grid.json's own `filenames` rule)."""
+    dose_part = "" if dose_id is None else f"__dose_{dose_id}"
     return f"{concept_id}__{pairing_id}__{direction}__{purpose}__{locale}{dose_part}.json"
 
 
@@ -653,7 +766,7 @@ def generate_control_file(
     }
     filename = _generation_filename(
         concept_id=concept_id, pairing_id=pairing_id, direction=direction, purpose="control", locale=locale,
-        dose_label=None,
+        dose_id=None,
     )
     path = Path(out_dir) / f"{filename[:-5]}__{purpose}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -661,7 +774,7 @@ def generate_control_file(
     digest = hash_fn(path)
     return GenerationFileRecord(
         concept_id=concept_id, pairing_id=pairing_id, direction=direction, purpose="control", locale=locale,
-        dose_label=None, dose_kind=None, dose_value=None, n_prompts=len(prompts), n_repeats=n_repeats,
+        dose_id=None, dose_kind=None, dose_value=None, n_prompts=len(prompts), n_repeats=n_repeats,
         seeds=list(seeds), prompt_ids=prompt_ids, truncated_flags=truncated_flags,
         path=str(path), sha256=digest, control_ref=None,
     )
@@ -733,15 +846,15 @@ def generate_dose_file(
                 "verdict": outcome.verdict, "spec": outcome.spec,
             })
 
-    dose_label = _dose_label(dose)
+    dose_id = dose.dose_id
     payload = {
         "concept_id": concept_id, "pairing_id": pairing_id, "direction": direction, "purpose": purpose,
-        "dose": dose_label, "dose_kind": dose.kind, "dose_value": dose.value_in_max_units, "locale": locale,
+        "dose": dose_id, "dose_kind": dose.kind, "dose_value": dose.value_in_max_units, "locale": locale,
         "control_ref": control_ref, "generations": generations,
     }
     filename = _generation_filename(
         concept_id=concept_id, pairing_id=pairing_id, direction=direction, purpose=purpose, locale=locale,
-        dose_label=dose_label,
+        dose_id=dose_id,
     )
     path = Path(out_dir) / filename
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -749,7 +862,7 @@ def generate_dose_file(
     digest = hash_fn(path)
     return GenerationFileRecord(
         concept_id=concept_id, pairing_id=pairing_id, direction=direction, purpose=purpose, locale=locale,
-        dose_label=dose_label, dose_kind=dose.kind, dose_value=dose.value_in_max_units,
+        dose_id=dose_id, dose_kind=dose.kind, dose_value=dose.value_in_max_units,
         n_prompts=len(prompts), n_repeats=n_repeats, seeds=list(seeds),
         prompt_ids=prompt_ids, truncated_flags=truncated_flags,
         path=str(path), sha256=digest, control_ref=control_ref,
@@ -1086,10 +1199,13 @@ def stamp_manifest_with_selection(manifest: dict, unselected_doses: list[str]) -
     selection record. `verify_generation_manifest`/LA-B's own gate refuse
     any manifest carrying either marker, or any `files[]` entry carrying
     `selection_status`, as the bound artifact. `unselected_doses` names
-    the dose LABELS (e.g. "2.0x", "ABLATE") this manifest's own selection
+    the canonical dose_ids (e.g. "A4", "S5") this manifest's own selection
     decided against -- since a manifest now covers exactly one (concept,
     pairing, direction), there is no cross-cell key to match against
-    beyond the dose label itself."""
+    beyond the dose_id itself. No ordering or magnitude comparison is
+    performed: membership in `unselected_doses` is a plain string-set
+    check, so a Suppress selection whose HIGH is "S4" (not "S5"/ABLATE)
+    is handled identically to any other dose_id."""
     unselected = set(unselected_doses)
     stamped_files = []
     for entry in manifest["files"]:
@@ -1178,13 +1294,6 @@ def measure_seconds_per_generation(
 # ---------------------------------------------------------------------------
 
 
-def _parse_dose_grid_csv(raw: str) -> list[float]:
-    values = [float(x) for x in raw.split(",") if x.strip()]
-    if not values:
-        raise ValueError("a dose grid argument must contain at least one value")
-    return values
-
-
 def _release_and_loader_sae_id_for_backend(backend) -> tuple[str, str]:
     """Gemma's provenance already carries the real sae_lens `release`/
     `loader_sae_id` (from the registry lookup `load_gemma_scientific_
@@ -1242,8 +1351,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--configuration-name", choices=["primary", "backup"], required=True)
     p.add_argument("--grid-path", required=True, help="The exact grid.json this pairing's OWN grid-discovery phase already wrote (never globbed, never read from another lane's in-memory state).")
     p.add_argument("--pairing-id", required=True, help="Composite model_id+sae_repo_id, e.g. google/gemma-3-12b-it+google/gemma-scope-2-12b-it -- for manifest identity, distinct from --pairing.")
-    p.add_argument("--amplify-dose-grid", required=True, help="5 comma-separated distinct clamp values, in value_in_max_units.")
-    p.add_argument("--suppress-dose-grid", required=True, help="4 comma-separated, strictly descending clamp fractions -- ABLATE is appended automatically as the fifth point.")
+    # No --amplify-dose-grid/--suppress-dose-grid flag: dose values are FROZEN
+    # (causal_dose_grid.json) and read ONLY via load_causal_dose_grid inside
+    # run_generation_mode -- there is no CLI path for an operator to supply a
+    # different grid (NO_TUNING_AFTER_ACTIVATIONS).
     p.add_argument("--run-id", required=True)
     p.add_argument("--source-commit", required=True)
     p.add_argument("--job-deadline-epoch-seconds", type=float, required=True, help="Absolute time.time()-based wall-clock deadline for this allocation -- never a duration relative to this process's own start, so readiness stays correct even if this process launches late.")
@@ -1285,6 +1396,7 @@ def run_generation_mode(args: argparse.Namespace) -> dict:
 
     validate_one_allocation_protocol_hash(_d.REPO_ROOT)
     validate_generation_settings_protocol_hash(_d.REPO_ROOT)
+    validate_causal_dose_grid_protocol_hash(_d.REPO_ROOT)
     _d.run_prompt_set_validator(_d.REPO_ROOT)
     artifact = _d.load_frozen_prompt_artifact(_d.REPO_ROOT, allow_pi_gated=True)
 
@@ -1319,8 +1431,9 @@ def run_generation_mode(args: argparse.Namespace) -> dict:
         if verdict_by_concept_this_pairing.get(c) is not None and verdict_by_concept_this_pairing[c].status != "pass"
     ]
 
-    amplify_grid = build_amplify_dose_grid(tuple(_parse_dose_grid_csv(args.amplify_dose_grid)))
-    suppress_grid = build_suppress_dose_grid(tuple(_parse_dose_grid_csv(args.suppress_dose_grid)))
+    # Dose values are FROZEN and read ONLY from causal_dose_grid.json -- no
+    # CLI flag can substitute a different grid (NO_TUNING_AFTER_ACTIVATIONS).
+    amplify_grid, suppress_grid = load_causal_dose_grid(_d.REPO_ROOT)
 
     backend = _d.load_backend(
         pairing=args.pairing, model_path=args.model_path, sae_path=args.sae_path, layer=args.layer,
