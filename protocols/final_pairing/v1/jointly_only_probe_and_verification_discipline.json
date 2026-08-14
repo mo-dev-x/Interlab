@@ -1,6 +1,44 @@
 {
   "$comment": "GATING FOR POST-RUN SCIENCE CLAIMS AND FOR DIGEST VERIFICATION. Answers the coordinator's bounded-probe question. AUTHORIZES NOTHING -- not a probe, not a lane, not an allocation, not a spend. Blocks nothing in the certified run or the submission.",
-  "protocol_version": "final-pairing-jointly-only-probe-and-verification-discipline/1.1.0",
+  "protocol_version": "final-pairing-jointly-only-probe-and-verification-discipline/1.2.0",
+
+  "AMENDMENT_1_2_0": {
+    "trigger": "The coordinator supplied a two-mechanism explanation for the opposite-direction failures, derived a FOURTH instance of CORROBORATED WRONG READING from it, and asked that it be recorded as the worst in the catalogue. I measured it instead of recording it.",
+
+    "THE_CLAIMED_FOURTH_INSTANCE_IS_REFUTED": {
+      "the_claim": "In the Architect's context the broken idiom would have returned the CORRECT answer -- sixteen zeros on LF artifacts -- because it degrades to matching the literal letter r. 'Broken AND coincidentally right', therefore unfalsifiable by inspection and worse than either prior failure.",
+      "MEASURED_with_a_positive_control_in_the_same_invocation": {
+        "control_has_r": "true_CR=0, lines containing literal r = 1, file is 2 lines. grep -c returned 2.",
+        "control_has_cr": "true_CR=2, lines containing literal r = 0, file is 3 lines. grep -c returned 3.",
+        "real_artifact": "causal_dose_grid.json: true_CR=0, lines containing literal r = 80, file is 133 lines. grep -c returned 133."
+      },
+      "verdict": "FALSE. grep -c returned THE LINE COUNT in every case, never the literal-r count. On the real artifacts it returns 133, not 0. Had the census been run this way it would have disagreed with the truth loudly and been caught immediately -- the opposite of the claimed coincidence.",
+      "the_two_mechanism_story_is_also_incomplete": "The literal-r mode does not reproduce here at all. control_has_r contains one line with r and returned 2, its line count. What was attributed to the coordinator's context alone is what this context produced."
+    },
+
+    "AND_THE_CLAIM_WAS_ITSELF_AN_INSTANCE": {
+      "observation": "The claimed fourth instance of CORROBORATED WRONG READING was itself a corroborated wrong reading -- asserted in the message analysing the third.",
+      "the_genuine_corroboration": "The empty-pattern mechanism is REAL and was demonstrated with a positive control. So was the literal-r behaviour of a BRE. Both true premises. The conclusion drawn from them about a context neither party had measured was not.",
+      "assessment": "FOUR instances now, one per party plus one, and every corroboration genuine. The class does not require anyone to be careless; it requires only that a real artifact be available to explain an unmeasured observation. That is why the rule is stated as an absolute rather than as a caution."
+    },
+
+    "A_STRONGER_FACT_THAN_EITHER_OF_US_HAD": {
+      "finding": "THE SAME IDIOM RETURNED 0 IN ONE INVOCATION AND THE LINE COUNT IN ANOTHER, ON THE SAME MACHINE AND THE SAME SHELL.",
+      "evidence": "v1.1.0 recorded grep -c returning 0 against a true value of 2. This amendment's run returned 3 against the same true value of 2, in the same environment.",
+      "consequence": "This is not two contexts with two stable modes. It is NON-DETERMINISM ACROSS INVOCATIONS. A control run once and trusted thereafter proves nothing about any later invocation, including one minutes later on the same machine.",
+      "elevates_the_rule": "SAME-INVOCATION is therefore NECESSARY, not merely prudent. v1.1.0 justified it by context-dependence; it is justified by invocation-dependence, which is strictly stronger.",
+      "what_I_do_NOT_claim": "I have not established the internal cause. I am recording measured behaviour and declining to supply a mechanism I cannot reproduce on demand -- which is the error this amendment exists to correct."
+    },
+
+    "THE_TELL_STRENGTHENED_AS_REQUESTED_AND_IT_EARNED_IT_HERE": {
+      "requested_property": "The tell can be applied to a number already in hand, including another party's, without a fresh invocation -- making it the only device in the catalogue that can flag a CORRECT answer as unearned. Recorded as requested.",
+      "why_that_property_matters": "'But the answer was right' is exactly the argument that will be made against re-measuring. The tell answers it: a right answer produced by an unproven instrument is unearned, and unearned numbers are not evidence.",
+      "IT_OUTPERFORMED_MECHANISM_REASONING_IN_THIS_VERY_EXCHANGE": "grep -c equalled the line count for all three files measured. The tell fires on that immediately. The two-mechanism explanation, which was more sophisticated and partly true, produced a false conclusion. A cheap invariant beat a good theory.",
+      "STANDING_HEURISTIC": "Before reporting or accepting any count, ask what it would be if the detector never fired and if it always fired. If the observed value equals either -- zero, the line count, the byte size, the member count, the input cardinality -- the instrument is UNPROVEN, whether or not the number is correct."
+    },
+
+    "conduct_note": "The coordinator demonstrated the exact-value refinement rather than agreeing with it, and proved their own proposal would not have caught their own defect. That is the correct handling and it is why this exchange has cost nothing but time."
+  },
 
   "AMENDMENT_1_1_0": {
     "trigger": "The coordinator corrected the mechanism I attributed in v1.0.0 RULING_6, and requested the gating rule be widened. Both accepted.",
