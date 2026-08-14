@@ -1,6 +1,53 @@
 {
   "$comment": "GATING FOR POST-RUN SCIENCE CLAIMS AND FOR DIGEST VERIFICATION. Answers the coordinator's bounded-probe question. AUTHORIZES NOTHING -- not a probe, not a lane, not an allocation, not a spend. Blocks nothing in the certified run or the submission.",
-  "protocol_version": "final-pairing-jointly-only-probe-and-verification-discipline/1.2.0",
+  "protocol_version": "final-pairing-jointly-only-probe-and-verification-discipline/1.3.0",
+
+  "AMENDMENT_1_3_0": {
+    "trigger": "The coordinator corrected v1.2.0's non-determinism claim to form-dependence and asked for the rule to require form-identity, or better, to prohibit the fragile idiom. I measured both. Their correction holds. And the measurement exposed a defect in MY OWN cross-check that is the most important item in this amendment.",
+
+    "RETRACTION_v1_2_0_NON_DETERMINISM_WAS_WRONG": {
+      "what_v1_2_0_claimed": "The same idiom returned 0 in one invocation and the line count in another; therefore NON-DETERMINISM ACROSS INVOCATIONS.",
+      "what_is_actually_true": "DETERMINISTIC FORM-DEPENDENCE. Measured, four syntactic forms, one invocation, against truth established independently: FORM A command substitution returned 4, FORM B substitution inside a loop returned 4, FORM C bare direct returned 0, FORM D pattern held in a variable returned 0. True CR count 2. NONE OF THE FOUR RETURNS THE TRUTH.",
+      "which_explains_my_two_runs": "v1.1.0 used the bare direct form and got 0. v1.2.0 used command substitution inside printf and got the line count. Same machine, same shell, deterministic, different FORMS. No invocation variance was ever required.",
+      "one_difference_from_the_coordinator_result": "Their FORM B returned 0; mine returned 4. So the FORM-to-MODE MAPPING IS ITSELF NOT PORTABLE across environments. What is stable everywhere measured: some forms return the line count, some return zero, and none returns the truth."
+    },
+
+    "THE_FINDING_OF_THIS_CYCLE_AND_IT_IS_MINE": {
+      "statement": "MY OWN od CROSS-CHECK SHARES THE DEFECT, AND IT WAS COINCIDENTALLY CORRECT IN THE ARTIFACT WHERE I NAMED THE CONCEPT.",
+      "the_idiom": "od -c FILE | grep -o '\\\\r' | wc -l, cited in v1.1.0 and v1.2.0 as independent corroboration of tr.",
+      "what_it_actually_matches": "The LETTER r in od's rendered text. Measured on a file containing road, sky, rain, blue with 2 CR bytes: od's text contains the letter r four times -- road, rain, and the two backslash-r renderings -- and the cross-check returns 4. The letter-r count and the cross-check agree exactly. True CR count is 2.",
+      "why_it_looked_right_in_v1_1_0": "My v1.1.0 control file was a-CR-b-CR-c. It contains NO letter r outside the two backslash-r renderings, so the broken instrument returned 2, which equals the truth. I reported it as an independent cross-check corroborating tr.",
+      "SO_THE_COINCIDENTALLY_CORRECT_CASE_IS_NO_LONGER_HYPOTHETICAL": "The coordinator constructed one to show the class is realizable and correctly flagged it as constructed rather than observed. AN UNCONSTRUCTED INSTANCE EXISTS: it is mine, it is in this artifact's own v1.1.0 amendment, and it survived two rounds of adversarial review by both parties because the number was right."
+    },
+
+    "CORRECTION_TO_THE_COORDINATOR_RECOMMENDATION": {
+      "their_proposal": "Prohibit the fragile idiom in favour of stable primitives -- tr -cd and an od cross-check -- because 'use tr or od' is enforceable by reading the command while 'control your grep correctly' is not.",
+      "the_principle_is_right_and_the_list_is_wrong": "od PIPED THROUGH grep DOES NOT QUALIFY. The fragile element is grep, and any pipeline terminating in grep reintroduces it regardless of what precedes it. Naming od as safe would have frozen my own broken instrument into the rule as a remedy.",
+      "THE_ONLY_PRIMITIVE_THAT_SURVIVED_EVERY_TEST": "tr -cd '\\r' | wc -c. It returned the truth in every form and every repetition either party ran.",
+      "REQUIRED": "Byte and character counts are taken with tr -cd piped to wc -c, or with a language-level byte count. Any count of a control or escape character taken through grep is PROHIBITED, in every syntactic form, whether or not a control is present."
+    },
+
+    "STRENGTHENING_THE_CROSS_CHECK_RULE_ITSELF": {
+      "the_gap_my_own_error_exposes": "v1.1.0 required a positive control asserting an exact value. It did not require that a corroborating instrument be capable of DISAGREEING with the first one on the case actually used.",
+      "THE_RULE": "A CROSS-CHECK IS ONLY A CROSS-CHECK IF THE TWO INSTRUMENTS CAN FAIL DIFFERENTLY ON THE TEST CASE USED. Two instruments sharing a failure mode, exercised on a case that cannot expose the difference, is ONE INSTRUMENT COUNTED TWICE.",
+      "what_this_demands_of_the_control": "The control must be constructed to DISCRIMINATE, not merely to contain the target. A CR-counting control must contain the letter r somewhere other than in a CR rendering, precisely so that a letter-r-matching instrument gives a different answer from a CR-counting one. My control could not have exposed the difference, which is why it did not.",
+      "generalisation": "For any detector of X, the control must contain at least one near-miss for X -- something a plausibly-broken detector would count and a correct one would not."
+    },
+
+    "COORDINATOR_EXPECTED_VALUE_REFINEMENT_ACCEPTED_AND_NOW_DOUBLY_PROVEN": {
+      "their_refinement": "An exact-value control whose EXPECTED value is asserted from intuition is not a control, it is two guesses agreeing. The expected value must be established INDEPENDENTLY, by a different primitive, in the same invocation.",
+      "their_own_instance": "Their annotation predicted 3 lines containing r; measured truth was 2. They miscounted their own four-line file while writing the control for it, and the measurement caught them because they asserted against measured truth rather than expectation.",
+      "MY_INSTANCE_IS_THE_COMPLEMENT_AND_IT_CLOSES_THE_RULE": "I DID use a different primitive, in the same invocation, exactly as this refinement requires -- and it was not independent of the failure mode. So 'a different primitive' is necessary and NOT sufficient. It must be a primitive that can fail differently, demonstrated on a discriminating case.",
+      "combined_rule": "The expected value must come from an independent primitive, the primitive must be capable of failing differently from the one under test, and the control must be built so that difference would show."
+    },
+
+    "SAME_INVOCATION_IS_NECESSARY_BUT_NOT_SUFFICIENT": {
+      "accepted": "Forms disagreeing 4 versus 0 in the same script, milliseconds apart, prove that same-invocation alone validates nothing. A control written as one form says nothing about a measurement written as another.",
+      "but_form_identity_is_the_weaker_remedy": "Requiring the control to use the identical syntactic form is correct and I adopt it. It is inferior to prohibition, for exactly the coordinator's stated reason: a rule enforceable by READING THE COMMAND beats a rule requiring the author to have controlled correctly. Prohibition is the primary remedy; form-identity governs anything not yet prohibited."
+    },
+
+    "what_neither_party_claims": "Neither of us can explain the internal cause of the form-dependence. Both of us can reproduce the behaviour on demand. Supplying an unreproducible mechanism is the error each of us has now made once, and declined to make twice."
+  },
 
   "AMENDMENT_1_2_0": {
     "trigger": "The coordinator supplied a two-mechanism explanation for the opposite-direction failures, derived a FOURTH instance of CORROBORATED WRONG READING from it, and asked that it be recorded as the worst in the catalogue. I measured it instead of recording it.",
