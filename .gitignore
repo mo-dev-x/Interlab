@@ -68,6 +68,11 @@ project_management/*
 # Scratch probe output (repo-root scratch dirs from manual test runs)
 tmp_r6c4_probe/
 
+# Report output of scripts/recon_checkpoint_provenance.py (written next to
+# the repo root every run; noticed while relocating the script, docs/
+# repo_cleanup_plan.md Phase 5)
+/provenance_recon_*.json
+
 # Scratch from audit and preflight runs (docs/repo_cleanup_plan.md Phase 1)
 .audit_extract_*/
 .tmp_codex_preflight*/

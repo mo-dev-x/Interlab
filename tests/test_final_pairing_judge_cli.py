@@ -64,6 +64,20 @@ requires_aiosqlite = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _lodestar_source_root_env(monkeypatch):
+    """ensure_lodestar_importable() no longer has ANY hardcoded fallback
+    (docs/repo_cleanup_plan.md Phase 3 P0 follow-up) -- callers that
+    invoke it with no argument (build_lodestar_generations_from_dose_file,
+    run_estimate, run_judging) now require LODESTAR_SOURCE_ROOT to be set.
+    This module's whole premise is REAL_LODESTAR_ROOT (d:/lodstar), so
+    every test gets it for free rather than each one setting it
+    individually; a test exercising the no-configuration refusal path
+    passes an explicit source_root instead, which bypasses the
+    environment variable entirely (see ensure_lodestar_importable)."""
+    monkeypatch.setenv("LODESTAR_SOURCE_ROOT", str(REAL_LODESTAR_ROOT))
+
+
 # ---------------------------------------------------------------------------
 # ensure_lodestar_importable / credential handling.
 # ---------------------------------------------------------------------------
@@ -78,6 +92,20 @@ def test_ensure_lodestar_importable_succeeds_against_the_real_checkout():
 def test_ensure_lodestar_importable_refuses_a_bogus_root(tmp_path):
     with pytest.raises(jc.causal_judge.CausalJudgeUnavailable, match="not a real Lodestar source root"):
         jc.ensure_lodestar_importable(tmp_path)
+
+
+def test_ensure_lodestar_importable_refuses_when_neither_source_root_nor_env_var_is_given(monkeypatch):
+    """docs/repo_cleanup_plan.md Phase 3 P0 follow-up: there is no
+    hardcoded fallback of any kind -- omitting BOTH source_root and
+    LODESTAR_SOURCE_ROOT must refuse, naming the environment variable
+    rather than silently trying some machine-specific guess."""
+    monkeypatch.delenv("LODESTAR_SOURCE_ROOT", raising=False)
+    with pytest.raises(jc.causal_judge.CausalJudgeUnavailable, match="LODESTAR_SOURCE_ROOT"):
+        jc.ensure_lodestar_importable()
+
+
+def test_ensure_lodestar_importable_has_no_hardcoded_default_module_constant():
+    assert not hasattr(jc, "DEFAULT_LODESTAR_SOURCE_ROOT")
 
 
 def test_require_api_key_refuses_when_unset(monkeypatch):

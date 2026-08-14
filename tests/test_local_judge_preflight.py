@@ -28,6 +28,17 @@ pytestmark = pytest.mark.skipif(
     reason="requires the real D:/lodstar checkout present in this development environment",
 )
 
+
+@pytest.fixture(autouse=True)
+def _lodestar_source_root_env(monkeypatch):
+    """final_pairing_judge_cli.ensure_lodestar_importable() no longer has
+    any hardcoded fallback (docs/repo_cleanup_plan.md Phase 3 P0 follow-
+    up) -- case 1 below calls it with no argument, so it now requires
+    LODESTAR_SOURCE_ROOT. This module's whole premise is REAL_LODESTAR_ROOT
+    (d:/lodstar), so every test gets it for free."""
+    monkeypatch.setenv("LODESTAR_SOURCE_ROOT", str(REAL_LODESTAR_ROOT))
+
+
 _KNOWN_SETUP_FAILURE_CASES = {
     "pinned_judge_model_is_a_real_snapshot",
     "real_zero_cost_estimate_before_any_paid_call",

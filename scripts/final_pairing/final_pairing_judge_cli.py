@@ -16,11 +16,17 @@ sequencing the one-allocation protocol requires. It imports
 `final_pairing_causal_judge` for the gate arithmetic and rubric/judge
 identity helpers already built there, rather than duplicating them.
 
-D:-ONLY, NEVER C:. `--lodestar-source-root` (default: `LODESTAR_SOURCE_ROOT`
-env var, else `D:/lodstar`) is inserted onto `sys.path` so the real,
-separately-installed Lodestar package is importable WITHOUT installing it
-into this repo's own (C:-hosted) `.venv` -- `ensure_lodestar_importable`
-below is the only place this happens, and it is idempotent. `--cache-path`
+D:-ONLY, NEVER C:. `ensure_lodestar_importable`'s `source_root` argument, or
+(when omitted) the `LODESTAR_SOURCE_ROOT` environment variable -- REQUIRED,
+with no hardcoded fallback of any kind -- names the real, separately-
+installed Lodestar checkout to insert onto `sys.path`, so it is importable
+WITHOUT installing it into this repo's own (C:-hosted) `.venv`.
+`ensure_lodestar_importable` below is the only place this happens, and it
+is idempotent; it raises immediately, naming the environment variable, if
+neither is given (docs/repo_cleanup_plan.md Phase 3 P0 follow-up: Lodestar
+is a separate, never-vendored repository this project cannot locate on any
+given machine, so there is no sensible default to guess -- not even a
+repo-relative one). `--cache-path`
 and `--output-dir` default to `INTERPLAB_CACHE_DIR`/`INTERPLAB_OUTPUT_ROOT`
 (`default_cache_path`/`default_output_root` below) if set, else this
 repo's own gitignored `./.local/` directory -- never a machine-specific
@@ -64,8 +70,6 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 import final_pairing_causal_judge as causal_judge  # noqa: E402
 import final_pairing_one_allocation_generation as one_alloc  # noqa: E402
-
-DEFAULT_LODESTAR_SOURCE_ROOT = "D:/lodstar"
 
 #: Repo-relative, gitignored fallback root for anything this CLI writes
 #: when neither INTERPLAB_CACHE_DIR nor INTERPLAB_OUTPUT_ROOT is set --
@@ -128,16 +132,30 @@ def ensure_lodestar_importable(source_root: str | Path | None = None) -> Path:
     """Inserts the real, separately-installed Lodestar source tree onto
     `sys.path` -- an explicit source-root mechanism, never an install
     into this repo's own `.venv`. Idempotent: safe to call more than
-    once. Raises `causal_judge.CausalJudgeUnavailable` if the resolved
-    root does not look like the real Lodestar package (no
-    `lodestar/__init__.py`), rather than silently proceeding to an
-    import error deeper in the stack."""
-    root = Path(source_root or os.environ.get("LODESTAR_SOURCE_ROOT") or DEFAULT_LODESTAR_SOURCE_ROOT)
+    once. Requires EITHER `source_root` OR the `LODESTAR_SOURCE_ROOT`
+    environment variable -- there is no hardcoded fallback of any kind
+    (docs/repo_cleanup_plan.md Phase 3 P0 follow-up): Lodestar is a
+    separate, never-vendored repository this project cannot locate on any
+    given machine, so a machine-specific guess would only ever be right on
+    the one machine it was written for. Raises
+    `causal_judge.CausalJudgeUnavailable` if neither is given, naming the
+    environment variable rather than a path nobody configured; raises the
+    same error if a root IS given but does not look like the real
+    Lodestar package (no `lodestar/__init__.py`), rather than silently
+    proceeding to an import error deeper in the stack."""
+    if source_root is None:
+        env_root = os.environ.get("LODESTAR_SOURCE_ROOT")
+        if not env_root:
+            raise causal_judge.CausalJudgeUnavailable(
+                "Lodestar source root not configured; set LODESTAR_SOURCE_ROOT or pass source_root="
+            )
+        source_root = env_root
+    root = Path(source_root)
     if not (root / "lodestar" / "__init__.py").is_file():
         raise causal_judge.CausalJudgeUnavailable(
             f"{root} does not contain lodestar/__init__.py -- not a real Lodestar source root. Set "
-            f"--lodestar-source-root or the LODESTAR_SOURCE_ROOT environment variable to the real "
-            f"checkout (this project's is d:/lodstar, a separate repository, never vendored here)."
+            f"LODESTAR_SOURCE_ROOT or pass source_root= to the real checkout (a separate repository, "
+            f"never vendored here)."
         )
     resolved = str(root.resolve())
     if resolved not in sys.path:

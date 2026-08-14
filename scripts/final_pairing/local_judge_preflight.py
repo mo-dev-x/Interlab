@@ -170,19 +170,30 @@ def run_all_cases() -> dict[str, Any]:
     runner.case("scientific_mode_refuses_mock_judge_models", case_mock_refused)
 
     # -----------------------------------------------------------------
-    # 6. D:-only cache/output paths -- never C:.
+    # 6. Cache/output paths, and the configured Lodestar source root,
+    # never resolve to C:. NOT "always D:": docs/repo_cleanup_plan.md
+    # Phase 3 P0 and its Lodestar follow-up removed every hardcoded
+    # machine-specific default from final_pairing_judge_cli.py --
+    # default_cache_path()/default_output_root() resolve from
+    # INTERPLAB_CACHE_DIR/INTERPLAB_OUTPUT_ROOT or a repo-relative
+    # ./.local/, and ensure_lodestar_importable() requires
+    # LODESTAR_SOURCE_ROOT with no fallback at all. The invariant this
+    # environment still owes is "never C:", checked against whatever
+    # they actually resolve to on THIS machine, not a specific drive
+    # letter baked into the code.
     # -----------------------------------------------------------------
-    def case_d_only_paths() -> str:
-        for label, value in (
-            ("DEFAULT_LODESTAR_SOURCE_ROOT", jc.DEFAULT_LODESTAR_SOURCE_ROOT),
-            ("DEFAULT_CACHE_PATH", jc.DEFAULT_CACHE_PATH),
-            ("DEFAULT_OUTPUT_ROOT", jc.DEFAULT_OUTPUT_ROOT),
-        ):
-            if not str(value).upper().startswith("D:"):
-                raise AssertionError(f"{label}={value!r} is not D:-rooted")
-        return "all default source/cache/output paths are D:-rooted"
+    def case_never_c_drive() -> str:
+        checked = {
+            "LODESTAR_SOURCE_ROOT (env)": os.environ.get("LODESTAR_SOURCE_ROOT"),
+            "default_cache_path()": jc.default_cache_path(),
+            "default_output_root()": jc.default_output_root(),
+        }
+        for label, value in checked.items():
+            if value is not None and str(value).upper().startswith("C:"):
+                raise AssertionError(f"{label}={value!r} resolves to C:")
+        return f"none of {sorted(checked)} resolve to C: on this machine ({checked})"
 
-    runner.case("d_only_cache_and_output_paths", case_d_only_paths)
+    runner.case("cache_output_and_lodestar_root_never_resolve_to_c_drive", case_never_c_drive)
 
     # -----------------------------------------------------------------
     # 7. Real, zero-cost cost estimate -- no API call is made.

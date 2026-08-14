@@ -18,8 +18,8 @@ Hard rules this script follows:
     interplab.registry.
 
 Run from the repo root on the cluster, with the project venv active:
-    python recon_checkpoint_provenance.py              # metadata only, fast, login-node safe
-    python recon_checkpoint_provenance.py --with-hash   # also hashes checkpoint + model dirs (slow, real I/O -- run via sbatch/salloc, not the login node)
+    python scripts/recon_checkpoint_provenance.py              # metadata only, fast, login-node safe
+    python scripts/recon_checkpoint_provenance.py --with-hash   # also hashes checkpoint + model dirs (slow, real I/O -- run via sbatch/salloc, not the login node)
 """
 
 from __future__ import annotations
@@ -36,7 +36,12 @@ try:
 except ImportError:
     yaml = None  # config.yaml parsing degrades to "not parsed" rather than crashing
 
-REPO_ROOT = Path(__file__).resolve().parent
+#: Repository root, not this script's own directory: this script was
+#: relocated to scripts/ (docs/repo_cleanup_plan.md Phase 5) from repo
+#: root, where `.parent` alone used to be correct. `.parents[1]` keeps
+#: every relative lookup below (results/sae_checkpoints/, wandb/, the
+#: report output path) correct regardless of the invoking cwd.
+REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_IDS = ["rwu04lpb", "d1bgp5v5", "o1cx1dow", "zf2o13m2"]
 MODEL_NAME_HINT = "Qwen2.5-14B-Instruct"
 
