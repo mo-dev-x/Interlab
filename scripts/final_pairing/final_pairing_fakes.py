@@ -195,8 +195,23 @@ def make_fake_gemma_backend() -> d.Backend:
         d_model=D_MODEL,
         layer=targets.GEMMA_3_12B_IT_TARGET.expected_layer,
         provenance={
-            "model": {"repository": "google/gemma-3-12b-it", "local_path": "/fake/gemma/model"},
-            "sae": {"repository": "google/gemma-scope-2-12b-it"},
+            "model": {
+                "repository": "google/gemma-3-12b-it",
+                "revision": "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+                "local_path": "/fake/gemma/model",
+            },
+            "sae": {
+                "repository": "google/gemma-scope-2-12b-it",
+                "revision": "4c419f1ba0be8b7754d4151d4f26c23b92a9029e",
+                "release": "gemma-scope-2-12b-it-res-all",
+                "loader_sae_id": "layer_29_width_16k_l0_big",
+                "scientific_sae_id": "resid_post_all/layer_29_width_16k_l0_big",
+                # A fake backend cannot measure bytes, but production manifest
+                # assembly now correctly requires the loader's already-measured
+                # digest.  Carry the frozen PRIMARY digest so archive preflight
+                # exercises that fail-closed production path without weakening it.
+                "params_sha256": "6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e",
+            },
         },
         checkpoint_hash="deadbeefgemma",
     )
