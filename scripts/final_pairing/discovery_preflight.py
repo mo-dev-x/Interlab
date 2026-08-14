@@ -505,7 +505,7 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
     document_holder: dict[str, Any] = {}
 
     def case_document_shape() -> str:
-        head = _git_head(repo_root)
+        head = resolve_source_commit(repo_root)
         synthetic_manifest_path = tmp_root / "generation_manifest_amplify_synthetic.json"
         synthetic_manifest_path.write_text(json.dumps({"synthetic": "preflight manifest, not a real run"}), encoding="utf-8")
         synthetic_selection_path = tmp_root / "selection_record_amplify_synthetic.json"
@@ -1148,7 +1148,7 @@ def run_all_cases(*, tmp_root: Path, repo_root: Path, gemma_output_root: Path, q
                 "--configuration-name", "primary", "--grid-path", str(grid_dir / "grid.json"),
                 "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
                 "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "1.0,0.5,0.25,0.1",
-                "--run-id", "r-preflight-0001", "--source-commit", "0" * 40,
+                "--run-id", "r-preflight-0001", "--source-commit", resolve_source_commit(repo_root),
                 "--job-deadline-epoch-seconds", str(time.time() + 100_000),
                 "--out-dir", str(tmp_root / "wall_time_refusal_out"), "--state-dir", str(tmp_root / "wall_time_refusal_state"),
             ])
