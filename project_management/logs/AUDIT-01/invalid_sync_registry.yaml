@@ -1,0 +1,2 @@
+# Intentionally invalid AUDIT-01 input: required outbox_dir omitted.
+{}

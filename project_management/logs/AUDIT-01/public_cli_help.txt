@@ -1,0 +1,381 @@
+﻿===== backfill_checkpoint.py --help =====
+usage: backfill_checkpoint.py [-h] --config CONFIG
+
+Register a backfilled A5 manifest for a legacy checkpoint.
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  Path to a backfill_checkpoint_v1-schema config YAML.
+EXIT_CODE=0
+
+===== census.py --help =====
+usage: census.py [-h] --config CONFIG
+
+Run SS1 census against a config.
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  Path to a census_v1-schema config YAML.
+EXIT_CODE=0
+
+===== certify.py --help =====
+usage: certify.py [-h] --config CONFIG
+
+Run SS4 certification (GATE G1) against a config.
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  Path to a certify_v1-schema config YAML.
+Exception ignored in atexit callback: <bound method TemporaryDirectory.cleanup of <TemporaryDirectory 'D:\\devcache\\tmp\\tmpgx31jadywandb-media'>>
+Traceback (most recent call last):
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 954, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 934, in _rmtree
+    _shutil.rmtree(name, onexc=onexc)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 781, in rmtree
+    return _rmtree_unsafe(path, onexc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 623, in _rmtree_unsafe
+    for dirpath, dirnames, filenames in results:
+                                        ^^^^^^^
+  File "<frozen os>", line 369, in walk
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 621, in onerror
+    onexc(os.scandir, err.filename, err)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 906, in onexc
+    _resetperms(path)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 286, in _resetperms
+    _dont_follow_symlinks(_os.chmod, path, 0o700)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 277, in _dont_follow_symlinks
+    func(path, *args)
+PermissionError: [WinError 5] Access is denied: 'D:\\devcache\\tmp\\tmpgx31jadywandb-media'
+Exception ignored in atexit callback: <bound method TemporaryDirectory.cleanup of <TemporaryDirectory 'D:\\devcache\\tmp\\tmpkb9vsw9zwandb-artifacts'>>
+Traceback (most recent call last):
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 954, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 934, in _rmtree
+    _shutil.rmtree(name, onexc=onexc)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 781, in rmtree
+    return _rmtree_unsafe(path, onexc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 623, in _rmtree_unsafe
+    for dirpath, dirnames, filenames in results:
+                                        ^^^^^^^
+  File "<frozen os>", line 369, in walk
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 621, in onerror
+    onexc(os.scandir, err.filename, err)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 906, in onexc
+    _resetperms(path)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 286, in _resetperms
+    _dont_follow_symlinks(_os.chmod, path, 0o700)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 277, in _dont_follow_symlinks
+    func(path, *args)
+PermissionError: [WinError 5] Access is denied: 'D:\\devcache\\tmp\\tmpkb9vsw9zwandb-artifacts'
+EXIT_CODE=0
+
+===== characterize.py --help =====
+usage: characterize.py [-h] --config CONFIG
+
+Run SS5 characterization against a config.
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  Path to a characterize_v1-schema config YAML.
+Exception ignored in atexit callback: <bound method TemporaryDirectory.cleanup of <TemporaryDirectory 'D:\\devcache\\tmp\\tmp2ykjm_t_wandb-media'>>
+Traceback (most recent call last):
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 954, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 934, in _rmtree
+    _shutil.rmtree(name, onexc=onexc)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 781, in rmtree
+    return _rmtree_unsafe(path, onexc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 623, in _rmtree_unsafe
+    for dirpath, dirnames, filenames in results:
+                                        ^^^^^^^
+  File "<frozen os>", line 369, in walk
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 621, in onerror
+    onexc(os.scandir, err.filename, err)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 906, in onexc
+    _resetperms(path)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 286, in _resetperms
+    _dont_follow_symlinks(_os.chmod, path, 0o700)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 277, in _dont_follow_symlinks
+    func(path, *args)
+PermissionError: [WinError 5] Access is denied: 'D:\\devcache\\tmp\\tmp2ykjm_t_wandb-media'
+Exception ignored in atexit callback: <bound method TemporaryDirectory.cleanup of <TemporaryDirectory 'D:\\devcache\\tmp\\tmpa4ix67oewandb-artifacts'>>
+Traceback (most recent call last):
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 954, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 934, in _rmtree
+    _shutil.rmtree(name, onexc=onexc)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 781, in rmtree
+    return _rmtree_unsafe(path, onexc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 623, in _rmtree_unsafe
+    for dirpath, dirnames, filenames in results:
+                                        ^^^^^^^
+  File "<frozen os>", line 369, in walk
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 621, in onerror
+    onexc(os.scandir, err.filename, err)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 906, in onexc
+    _resetperms(path)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 286, in _resetperms
+    _dont_follow_symlinks(_os.chmod, path, 0o700)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 277, in _dont_follow_symlinks
+    func(path, *args)
+PermissionError: [WinError 5] Access is denied: 'D:\\devcache\\tmp\\tmpa4ix67oewandb-artifacts'
+EXIT_CODE=0
+
+===== characterize_lite.py --help =====
+usage: characterize_lite.py [-h] --checkpoint-hash CHECKPOINT_HASH --features
+                            FEATURES [--corpus-location CORPUS_LOCATION]
+                            [--n-docs N_DOCS] [--seq-len SEQ_LEN] --out-dir
+                            OUT_DIR
+
+options:
+  -h, --help            show this help message and exit
+  --checkpoint-hash CHECKPOINT_HASH
+  --features FEATURES   comma-separated feature indices
+  --corpus-location CORPUS_LOCATION
+  --n-docs N_DOCS
+  --seq-len SEQ_LEN
+  --out-dir OUT_DIR
+Exception ignored in atexit callback: <bound method TemporaryDirectory.cleanup of <TemporaryDirectory 'D:\\devcache\\tmp\\tmp304jutpgwandb-media'>>
+Traceback (most recent call last):
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 954, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 934, in _rmtree
+    _shutil.rmtree(name, onexc=onexc)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 781, in rmtree
+    return _rmtree_unsafe(path, onexc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 623, in _rmtree_unsafe
+    for dirpath, dirnames, filenames in results:
+                                        ^^^^^^^
+  File "<frozen os>", line 369, in walk
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 621, in onerror
+    onexc(os.scandir, err.filename, err)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 906, in onexc
+    _resetperms(path)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 286, in _resetperms
+    _dont_follow_symlinks(_os.chmod, path, 0o700)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 277, in _dont_follow_symlinks
+    func(path, *args)
+PermissionError: [WinError 5] Access is denied: 'D:\\devcache\\tmp\\tmp304jutpgwandb-media'
+Exception ignored in atexit callback: <bound method TemporaryDirectory.cleanup of <TemporaryDirectory 'D:\\devcache\\tmp\\tmp871py1e8wandb-artifacts'>>
+Traceback (most recent call last):
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 954, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 934, in _rmtree
+    _shutil.rmtree(name, onexc=onexc)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 781, in rmtree
+    return _rmtree_unsafe(path, onexc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 623, in _rmtree_unsafe
+    for dirpath, dirnames, filenames in results:
+                                        ^^^^^^^
+  File "<frozen os>", line 369, in walk
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 621, in onerror
+    onexc(os.scandir, err.filename, err)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 906, in onexc
+    _resetperms(path)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 286, in _resetperms
+    _dont_follow_symlinks(_os.chmod, path, 0o700)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 277, in _dont_follow_symlinks
+    func(path, *args)
+PermissionError: [WinError 5] Access is denied: 'D:\\devcache\\tmp\\tmp871py1e8wandb-artifacts'
+EXIT_CODE=0
+
+===== multilingual_rerun.py --help =====
+usage: multilingual_rerun.py [-h] --checkpoint-hash CHECKPOINT_HASH --probes
+                             PROBES --out-dir OUT_DIR
+
+options:
+  -h, --help            show this help message and exit
+  --checkpoint-hash CHECKPOINT_HASH
+  --probes PROBES       path to multilingual_probe_sentences.json
+  --out-dir OUT_DIR
+Exception ignored in atexit callback: <bound method TemporaryDirectory.cleanup of <TemporaryDirectory 'D:\\devcache\\tmp\\tmpqla4ygr0wandb-media'>>
+Traceback (most recent call last):
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 954, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 934, in _rmtree
+    _shutil.rmtree(name, onexc=onexc)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 781, in rmtree
+    return _rmtree_unsafe(path, onexc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 623, in _rmtree_unsafe
+    for dirpath, dirnames, filenames in results:
+                                        ^^^^^^^
+  File "<frozen os>", line 369, in walk
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 621, in onerror
+    onexc(os.scandir, err.filename, err)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 906, in onexc
+    _resetperms(path)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 286, in _resetperms
+    _dont_follow_symlinks(_os.chmod, path, 0o700)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 277, in _dont_follow_symlinks
+    func(path, *args)
+PermissionError: [WinError 5] Access is denied: 'D:\\devcache\\tmp\\tmpqla4ygr0wandb-media'
+Exception ignored in atexit callback: <bound method TemporaryDirectory.cleanup of <TemporaryDirectory 'D:\\devcache\\tmp\\tmpz5t8z6o6wandb-artifacts'>>
+Traceback (most recent call last):
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 954, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 934, in _rmtree
+    _shutil.rmtree(name, onexc=onexc)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 781, in rmtree
+    return _rmtree_unsafe(path, onexc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 623, in _rmtree_unsafe
+    for dirpath, dirnames, filenames in results:
+                                        ^^^^^^^
+  File "<frozen os>", line 369, in walk
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 621, in onerror
+    onexc(os.scandir, err.filename, err)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 906, in onexc
+    _resetperms(path)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 286, in _resetperms
+    _dont_follow_symlinks(_os.chmod, path, 0o700)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 277, in _dont_follow_symlinks
+    func(path, *args)
+PermissionError: [WinError 5] Access is denied: 'D:\\devcache\\tmp\\tmpz5t8z6o6wandb-artifacts'
+EXIT_CODE=0
+
+===== report.py --help =====
+usage: report.py [-h] --config CONFIG
+
+Assemble a claim chain (SS9, GATE G4) from a claim-spec config.
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  Path to a report_v1-schema claim-spec config YAML.
+EXIT_CODE=0
+
+===== steer.py --help =====
+usage: steer.py [-h] --config CONFIG
+
+Run SS7/SS8 steering generation (GATE G3 consumer) against a config.
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  Path to a steer_v1-schema config YAML.
+Exception ignored in atexit callback: <bound method TemporaryDirectory.cleanup of <TemporaryDirectory 'D:\\devcache\\tmp\\tmpkb4y2dliwandb-media'>>
+Traceback (most recent call last):
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 954, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 934, in _rmtree
+    _shutil.rmtree(name, onexc=onexc)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 781, in rmtree
+    return _rmtree_unsafe(path, onexc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 623, in _rmtree_unsafe
+    for dirpath, dirnames, filenames in results:
+                                        ^^^^^^^
+  File "<frozen os>", line 369, in walk
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 621, in onerror
+    onexc(os.scandir, err.filename, err)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 906, in onexc
+    _resetperms(path)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 286, in _resetperms
+    _dont_follow_symlinks(_os.chmod, path, 0o700)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 277, in _dont_follow_symlinks
+    func(path, *args)
+PermissionError: [WinError 5] Access is denied: 'D:\\devcache\\tmp\\tmpkb4y2dliwandb-media'
+Exception ignored in atexit callback: <bound method TemporaryDirectory.cleanup of <TemporaryDirectory 'D:\\devcache\\tmp\\tmp4t_hwdhlwandb-artifacts'>>
+Traceback (most recent call last):
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 954, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 934, in _rmtree
+    _shutil.rmtree(name, onexc=onexc)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 781, in rmtree
+    return _rmtree_unsafe(path, onexc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 623, in _rmtree_unsafe
+    for dirpath, dirnames, filenames in results:
+                                        ^^^^^^^
+  File "<frozen os>", line 369, in walk
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 621, in onerror
+    onexc(os.scandir, err.filename, err)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 906, in onexc
+    _resetperms(path)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 286, in _resetperms
+    _dont_follow_symlinks(_os.chmod, path, 0o700)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 277, in _dont_follow_symlinks
+    func(path, *args)
+PermissionError: [WinError 5] Access is denied: 'D:\\devcache\\tmp\\tmp4t_hwdhlwandb-artifacts'
+EXIT_CODE=0
+
+===== store_qa.py --help =====
+usage: store_qa.py [-h] --config CONFIG
+
+Run SS2 store QA against a config.
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  Path to a store_qa_v1-schema config YAML.
+EXIT_CODE=0
+
+===== sync_registry.py --help =====
+usage: sync_registry.py [-h] --config CONFIG
+
+Pull cluster-outbox artifacts into registry/ (�3.3).
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  Path to a sync_registry_v1-schema config YAML.
+EXIT_CODE=0
+
+===== validate.py --help =====
+usage: validate.py [-h] --config CONFIG
+
+Run SS6 validation (GATE G2) against a config.
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG  Path to a validate_v1-schema config YAML.
+Exception ignored in atexit callback: <bound method TemporaryDirectory.cleanup of <TemporaryDirectory 'D:\\devcache\\tmp\\tmp_47lqfpywandb-media'>>
+Traceback (most recent call last):
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 954, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 934, in _rmtree
+    _shutil.rmtree(name, onexc=onexc)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 781, in rmtree
+    return _rmtree_unsafe(path, onexc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 623, in _rmtree_unsafe
+    for dirpath, dirnames, filenames in results:
+                                        ^^^^^^^
+  File "<frozen os>", line 369, in walk
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 621, in onerror
+    onexc(os.scandir, err.filename, err)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 906, in onexc
+    _resetperms(path)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 286, in _resetperms
+    _dont_follow_symlinks(_os.chmod, path, 0o700)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 277, in _dont_follow_symlinks
+    func(path, *args)
+PermissionError: [WinError 5] Access is denied: 'D:\\devcache\\tmp\\tmp_47lqfpywandb-media'
+Exception ignored in atexit callback: <bound method TemporaryDirectory.cleanup of <TemporaryDirectory 'D:\\devcache\\tmp\\tmpf7vmmkqpwandb-artifacts'>>
+Traceback (most recent call last):
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 954, in cleanup
+    self._rmtree(self.name, ignore_errors=self._ignore_cleanup_errors)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 934, in _rmtree
+    _shutil.rmtree(name, onexc=onexc)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 781, in rmtree
+    return _rmtree_unsafe(path, onexc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 623, in _rmtree_unsafe
+    for dirpath, dirnames, filenames in results:
+                                        ^^^^^^^
+  File "<frozen os>", line 369, in walk
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\shutil.py", line 621, in onerror
+    onexc(os.scandir, err.filename, err)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 906, in onexc
+    _resetperms(path)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 286, in _resetperms
+    _dont_follow_symlinks(_os.chmod, path, 0o700)
+  File "D:\devcache\uv-python\cpython-3.12.11-windows-x86_64-none\Lib\tempfile.py", line 277, in _dont_follow_symlinks
+    func(path, *args)
+PermissionError: [WinError 5] Access is denied: 'D:\\devcache\\tmp\\tmpf7vmmkqpwandb-artifacts'
+EXIT_CODE=0
+

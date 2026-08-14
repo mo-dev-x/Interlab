@@ -1,0 +1,177 @@
+﻿AUDIT-01 suspicious implementation search
+Generated: 2026-07-28T14:34:13.3356982-04:00
+Scope: tracked text excluding uv.lock and frozen legacy only where noted
+
+===== PATTERN: TODO =====
+.\slurm\requirements.cluster.txt:257:pycryptodomex==3.23.0
+
+===== PATTERN: FIXME =====
+(no matches)
+
+===== PATTERN: NotImplementedError =====
+.\interplab\certification\model_loading.py:84:    raise NotImplementedError(f"cannot resolve model location scheme {parsed.scheme!r}: {location!r}")
+.\interplab\certification\model_loading.py:93:        raise NotImplementedError(
+.\scripts\multilingual_rerun.py:64:    raise NotImplementedError(f"cannot resolve SAE weights from {location!r} (want local:/tamia:)")
+.\interplab\corpus\replay.py:206:        raise NotImplementedError(
+.\scripts\characterize_lite.py:74:    raise NotImplementedError(f"cannot resolve SAE weights from {location!r} (want local:/tamia:)")
+.\docs\implementation_log.md:67:- `interplab/jobs/certify.py::_load_sae` raises `NotImplementedError` for any non-`local:`
+.\docs\implementation_log.md:69:- `interplab/jobs/certify.py::_load_model` raises `NotImplementedError` for any non-`local:`
+.\tests\test_certification_model_loading.py:24:    with pytest.raises(NotImplementedError):
+.\interplab\validation\model_loading.py:91:    raise NotImplementedError(f"cannot resolve model location scheme {parsed.scheme!r}: {location!r}")
+.\interplab\validation\model_loading.py:100:        raise NotImplementedError(
+.\tests\test_corpus_replay.py:140:    with pytest.raises(NotImplementedError):
+.\interplab\characterization\model_loading.py:88:    raise NotImplementedError(f"cannot resolve model location scheme {parsed.scheme!r}: {location!r}")
+.\interplab\characterization\model_loading.py:97:        raise NotImplementedError(
+.\interplab\characterization\feature_index.py:77:                raise NotImplementedError(
+.\interplab\characterization\feature_index.py:169:            raise NotImplementedError(
+.\tests\test_jobs_census.py:111:    assert exit_code == 4  # NotImplementedError falls through the generic catch-all (§6.2)
+.\interplab\jobs\characterize.py:97:    raise NotImplementedError(f"characterize can only load {what} from local:/tamia: URIs; got {location!r}")
+.\interplab\jobs\certify.py:76:        raise NotImplementedError(f"certify can only load SAE weights from local:/tamia: URIs; got {location!r}")
+.\interplab\jobs\store_qa.py:65:            raise NotImplementedError(
+.\interplab\jobs\store_qa.py:77:                raise NotImplementedError(
+.\interplab\jobs\census.py:74:            raise NotImplementedError(
+.\interplab\jobs\census.py:80:            raise NotImplementedError(
+.\interplab\jobs\census.py:93:            raise NotImplementedError(
+.\interplab\jobs\steer.py:79:        raise NotImplementedError(
+.\interplab\jobs\steer.py:132:    raise NotImplementedError(f"cannot resolve model location scheme {parsed.scheme!r}: {location!r}")
+.\interplab\jobs\steer.py:156:        raise NotImplementedError(
+.\interplab\jobs\validate.py:67:    raise NotImplementedError(f"validate can only load {what} from local:/tamia: URIs; got {location!r}")
+
+===== PATTERN: placeholder =====
+.\docs\implementation_log.md:140:SAEs; bands are placeholders but metrics stored raw), `batch_size = 8` (→16 if node headroom;
+.\docs\implementation_log.md:161:Verdicts sit on placeholder bands (v1); the raw metrics are the deliverable. Certify-slice FVU differs from
+.\docs\infrastructure_architecture.md:132:**Healthy (TopK k=100, mid-stack 14B; bands are placeholders until calibrated on the first certification batch — a schema version bump per D3):** CE-recovered ≥95% green, 90–95% amber, <90% red; dead fraction <5% green, >15% red; density histogram broad and unimodal across ~1e-6–1e-2.
+.\interplab\certification\bands.py:3:Band *values* are placeholders (§10 item 1) -- calibration is explicitly
+.\interplab\validation\bands.py:1:"""§5 SS6 bands (placeholder data file, calibrated on the first real
+.\interplab\store_qa\bands.py:2:`schemas/store_manifest/qa_bands_v<N>.json` -- same placeholder-data-file
+.\tests\test_certification_bands.py:1:"""§5 SS4 bands: verdict assignment (bands_v1.json values are placeholders,
+.\slurm\launch_certify.sh:12:# then submits. Resource request is a starting placeholder pending
+.\slurm\launch_characterize.sh:8:# then submits. Resource request is a starting placeholder pending
+.\slurm\launch_steer.sh:17:# steering sweep scripts; placeholder pending recalibration once the real
+.\slurm\launch_validate.sh:8:# then submits. Resource request is a starting placeholder pending
+.\slurm\launch_train.sh:17:# scripts' successful runs (~14h on a 24h budget); placeholder pending
+.\tests\test_interventions_identity_nightly.py:17:placeholder here; no real production SAE checkpoint is needed for this test.
+.\schemas\store_manifest\qa_bands_v1.json:3:  "note": "PLACEHOLDER values only (ED-11: thresholds follow the SS4 bands pattern -- placeholder data file, calibrated on the first real store). Recalibration is a data change to this file plus a schema_version bump on store_manifest (D3), never a code change. chat_divergence is recorded evidence, never gate-bearing, and is intentionally not banded here.",
+.\schemas\sae_certificate\bands_v1.json:3:  "note": "PLACEHOLDER values only (blueprint §10 item 1): not yet calibrated on a retro-certification batch. Calibration is explicitly out of scope for WP2. Recalibration is a data change to this file plus a schema_version bump on sae_certificate (D3), never a code change.",
+.\schemas\feature_certificate\bands_v1.json:3:  "note": "PLACEHOLDER values only (blueprint §10 item 1, same pattern as sae_certificate/bands_v1.json and store_manifest/qa_bands_v1.json): not yet calibrated on a real validation batch. Recalibration is a data change to this file plus a schema_version bump on feature_certificate (D3), never a code change. cross_lingual_firing is intentionally never banded (ED-13: descriptive only).",
+
+===== PATTERN: stub =====
+.\interplab\validation\judge.py:1:"""SS6 rubric judge (D2 stub-judge pattern, continued from WP4): specificity
+.\interplab\validation\judge.py:8:`NoOpRubricJudge` is the honest default (null scores), `StubRubricJudge` is
+.\interplab\validation\judge.py:29:    production-safe default -- running the test-only `StubRubricJudge`
+.\interplab\validation\judge.py:42:class StubRubricJudge:
+.\interplab\validation\judge.py:49:    model: str = "stub-rubric-judge-v1"
+.\interplab\validation\judge.py:50:    rubric_version: str = "stub-v1"
+.\interplab\validation\judge.py:51:    prompt_version: str = "stub-v1"
+.\interplab\jobs\validate.py:38:from interplab.validation.judge import NoOpRubricJudge, StubRubricJudge
+.\interplab\jobs\validate.py:42:_RUBRIC_JUDGES = {"stub": StubRubricJudge, "none": NoOpRubricJudge}
+.\interplab\jobs\validate.py:145:            marker_words=frozenset(config.get("stub_judge_marker_words", []))
+.\interplab\jobs\validate.py:146:        ) if config["specificity_judge"] == "stub" else _RUBRIC_JUDGES[config["specificity_judge"]]()
+.\schemas\configs\validate_v1.schema.json:15:      "description": "D2 stub-judge resolution (continued from WP4): only 'stub' is implemented; 'none' produces null decile ratings (empty decile_means). Production rubric judging is researcher-gated, out of scope here.",
+.\schemas\configs\validate_v1.schema.json:16:      "enum": ["stub", "none"]
+.\schemas\configs\validate_v1.schema.json:18:    "stub_judge_marker_words": { "type": "array", "items": { "type": "string" } },
+.\interplab\jobs\characterize.py:36:_JUDGES = {"stub": indexer.StubJudge, "none": indexer.NoOpJudge}
+.\tests\test_validation_specificity.py:4:from interplab.validation.judge import NoOpRubricJudge, StubRubricJudge
+.\tests\test_validation_specificity.py:23:    judge = StubRubricJudge(marker_words=frozenset({"cheese"}))
+.\tests\test_validation_specificity.py:30:    judge = StubRubricJudge(marker_words=frozenset({"cheese"}))
+.\tests\test_validation_specificity.py:44:    judge = StubRubricJudge(marker_words=frozenset({"cheese"}), model="m1", rubric_version="r1", prompt_version="p1")
+.\tests\test_validation_specificity.py:53:    judge = StubRubricJudge(marker_words=frozenset({"cheese"}))
+.\schemas\configs\characterize_v1.schema.json:19:      "description": "D2 stub-judge resolution (WP4): only 'stub' is implemented; 'none' produces null autointerp fields. Production autointerpretation is researcher-gated, out of scope here.",
+.\schemas\configs\characterize_v1.schema.json:20:      "enum": ["stub", "none"]
+.\interplab\characterization\indexer.py:13:Autointerpretation (D2, stub-judge resolution): `Judge` is a narrow
+.\interplab\characterization\indexer.py:19:(null labels, `judge.model = "none"`); `StubJudge` is a deterministic test
+.\interplab\characterization\indexer.py:55:    running the test-only `StubJudge` against real production data would
+.\interplab\characterization\indexer.py:69:class StubJudge:
+.\interplab\characterization\indexer.py:75:    model: str = "stub-judge-v1"
+.\interplab\characterization\indexer.py:76:    rubric_version: str = "stub-v1"
+.\interplab\characterization\indexer.py:77:    prompt_version: str = "stub-v1"
+.\tests\test_validation_selectivity.py:44:    # search_by_activation needs a live model -- stub it so this test stays
+.\tests\test_validation_judge.py:1:"""SS6 rubric judge (D2 stub-judge pattern, continued from WP4)."""
+.\tests\test_validation_judge.py:3:from interplab.validation.judge import NoOpRubricJudge, StubRubricJudge
+.\tests\test_validation_judge.py:18:def test_stub_judge_records_configured_versions():
+.\tests\test_validation_judge.py:19:    j = StubRubricJudge(marker_words=frozenset({"cheese"}), model="m1", rubric_version="r1", prompt_version="p1")
+.\tests\test_validation_judge.py:25:def test_stub_judge_rates_by_marker_word_count_capped_at_three():
+.\tests\test_validation_judge.py:26:    j = StubRubricJudge(marker_words=frozenset({"cheese"}))
+.\tests\test_validation_judge.py:32:def test_stub_judge_is_case_insensitive_and_strips_punctuation():
+.\tests\test_validation_judge.py:33:    j = StubRubricJudge(marker_words=frozenset({"cheese"}))
+.\tests\test_characterization_dashboards.py:37:        "judge": {"model": "stub", "rubric_version": "v1", "prompt_version": "v1"},
+.\tests\test_characterization_indexer.py:2:logit-lens/stub-autointerp, and the corpus_max sourcing invariant."""
+.\tests\test_characterization_indexer.py:103:    judge = indexer.StubJudge(model="m1", rubric_version="r1", prompt_version="p1")
+.\tests\test_characterization_indexer.py:119:def test_stub_judge_labels_at_least_one_firing_feature(tiny_hooked_transformer, tiny_sae, docs):
+.\tests\test_characterization_indexer.py:121:        tiny_hooked_transformer, tiny_sae, corpus_docs=docs, judge=indexer.StubJudge(),
+.\tests\test_characterization_indexer.py:125:    assert labeled, "expected the stub judge to label at least one firing feature"
+.\tests\test_reports_chain.py:200:        lodestar_judge={"model": "lodestar-stub", "rubric_version": "stub-v1"},
+.\tests\test_jobs_characterize.py:63:        "judge": "stub",
+.\tests\test_jobs_characterize.py:98:    assert manifest["payload"]["judge"]["model"] == "stub-judge-v1"
+.\tests\test_jobs_validate.py:125:        "specificity_judge": "stub",
+.\tests\test_jobs_validate.py:126:        "stub_judge_marker_words": ["zorbium"],
+.\tests\fixtures\synthetic_chains\builder.py:207:        {"class_id": "stub-class", "members": [
+.\tests\fixtures\synthetic_chains\builder.py:208:            {"judge_model": "stub-rubric-judge-v1", "rubric_version": "stub-v1", "prompt_version": "stub-v1"},
+.\tests\fixtures\synthetic_chains\builder.py:209:            {"judge_model": "lodestar-stub", "rubric_version": "stub-v1", "prompt_version": "stub-v1"},
+
+===== PATTERN: dummy =====
+.\tests\golden\generate_delta_golden.py:32:DUMMY_CHECKPOINT_HASH = "sha256:" + "0" * 64
+.\tests\golden\generate_delta_golden.py:65:        checkpoint_hash=DUMMY_CHECKPOINT_HASH,
+.\tests\golden\generate_delta_golden.py:77:        checkpoint_hash=DUMMY_CHECKPOINT_HASH,
+.\tests\test_jobs_certify.py:19:_DUMMY_CORPUS_HASH = "sha256:" + "3" * 64
+.\tests\test_jobs_certify.py:50:        subject=[{"content_hash": _DUMMY_CORPUS_HASH, "location": "local:registry/corpus_manifest/x.json", "role": "corpus_manifest"}],
+.\tests\test_jobs_certify.py:99:            "corpus_manifest_hash": _DUMMY_CORPUS_HASH,
+.\tests\test_jobs_certify.py:164:            "corpus_manifest_hash": _DUMMY_CORPUS_HASH,
+.\tests\test_jobs_certify.py:207:            "corpus_manifest_hash": _DUMMY_CORPUS_HASH,
+
+===== PATTERN: \bpass\b =====
+.\docs\research_program.md:213:**Q5 — What is a forward pass, semantically?**
+.\docs\research_program.md:214:Is inference-time computation amortized Bayesian inference — a posterior update compiled into weights? In-context learning behaves like *learning*, and there are results suggesting gradient-descent-like updates implemented in activation space. When do fixed weights contain a learned optimizer? Stripped of its safety framing: what class of *processes* — inference, search, optimization, simulation — can a single forward pass implement, and which does pretraining actually select?
+.\docs\pipline.md:226:- **Feature steering / activation patching:** During the model's forward pass, at the layer where the SAE is trained, you:
+.\docs\pipline.md:320:- **Attribution patching:** Run a clean forward pass and a corrupted forward pass (with one feature perturbed). The difference in downstream feature activations tells you the causal contribution of the perturbed feature.
+.\docs\infrastructure_architecture.md:13:1. **Certificates, not vibes.** Every artifact that downstream work depends on (a corpus, an SAE, a feature, an intervention result) carries a machine-generated certificate with pass/fail gates. Claims chain certificates; a claim whose chain is incomplete is automatically stamped `UNCERTIFIED`.
+.\docs\infrastructure_architecture.md:141:**Measurements:** the `CharacterizationIndex`: a streaming pass of 5–10M+ held-out corpus tokens (plus a chat-formatted slice) producing, per `(checkpoint_hash, feature_index)`: top-k activating contexts; examples sampled from every activation decile (the anti-top-activation-illusion measure); activation histogram; corpus max (the steering unit); firing rate; logit-lens top tokens; autointerp label with a detection score (Lodestar's judge infrastructure reused, judge versions pinned per D2). The index lives on the cluster and is referenced by hash (D1). Its **search interface** — by probe activation, by decoder cosine to a seed feature, by label text — is one of the architecture's two live APIs.
+.\docs\infrastructure_architecture.md:255:4. **SS5 characterization engine** (large) — the biggest build and the biggest payoff; everything from here on has real eyes. SS2 store QA rides along (same streaming-pass infrastructure).
+.\docs\implementation_log.md:130:Tests: 29 pass (eval_slice + certify), incl. a new laziness test proving an unbounded source is
+.\data\concepts\extract_from_find_features.py:62:    pass
+.\scripts\legacy\steering_experiment.py:409:    p.add_argument("--feature_id", type=int, nargs="+", required=True, help="Poutine feature ID(s) from Step 3 — pass multiple to clamp them simultaneously")
+.\scripts\legacy\montreal_qwen.py:32:                          error every single forward pass, compounding across
+.\scripts\legacy\find_features.py:575:        "Pass 'all' alone to run every concept in PROBES. The model and SAE are loaded once and "
+.\scripts\legacy\collect_activations.py:150:        # Forward pass (no grad, hooks fire here)
+.\scripts\characterize_lite.py:116:    # --- streaming pass ---
+.\tests\canary_lib.py:12:and is left to propagate -- ED-23: never silently omit the test, never pass
+.\tests\canary_lib.py:197:    the science). Returns a list of mismatch descriptions; empty = pass."""
+.\interplab\registry\registry.py:26:    pass
+.\interplab\evaluation\capability.py:11:forward pass under each arm's intervention, which needs
+.\tests\test_interventions_identity_nightly.py:6:silently, never pass vacuously.
+.\interplab\evaluation\blinding.py:45:    registry/artifact-side and never pass it to a judge.
+.\tests\test_corpus_manifest.py:4:(the by-products of a single streaming pass, per interplab.corpus.census
+.\tests\test_corpus_census.py:1:"""interplab.corpus.census: literal term matching only (ED-9), single-pass
+.\tests\test_characterization_indexer.py:50:    corpus-sourced field, even though the chat pass runs through the same
+.\interplab\corpus\manifest.py:21:single streaming pass over the corpus, since materializing the whole
+.\interplab\characterization\indexer.py:7:from the corpus-sample pass. The chat-slice pass (if any) produces its own,
+.\interplab\characterization\indexer.py:110:    """Runs one forward+encode pass over `docs`. Returns (per-feature
+.\interplab\characterization\indexer.py:212:    """Runs the full streaming pass and returns the index payload as a
+.\interplab\corpus\census.py:10:ED-28: `scan_stream` is the single pass over the corpus stream -- every
+.\interplab\corpus\census.py:15:`method.coverage`/`method.sampling`: `"full"` when the pass covers the
+.\interplab\corpus\census.py:59:    pass over every concept/language/term at once; this function only
+.\interplab\corpus\census.py:100:    """Single pass over `docs` (ED-28). Returns a dict with:
+.\interplab\corpus\census.py:188:    single pass A1's manifest also needs (ED-28: census and manifest are
+.\interplab\characterization\feature_index.py:178:        """Runs a live model+SAE forward pass over `texts` (the model+SAE
+.\tests\test_import_contracts.py:185:# so this entry is dormant, not vacuous-pass-by-omission: the moment the
+.\tests\test_reports_chain.py:307:    """Compliance revision, Finding 2: the compat pass must run whenever
+.\tests\test_registry_run_card.py:79:        pass
+.\interplab\certification\metrics.py:96:            # Clean pass: baseline CE + the activations to reconstruct/ablate.
+.\interplab\certification\metrics.py:162:    a real SAE/model forward pass."""
+.\interplab\core\envelope.py:24:    pass
+.\interplab\core\canonical_json.py:20:    pass
+.\interplab\core\uris.py:21:    pass
+.\tests\test_jobs_census.py:3:ED-28: streaming replay (local: or hf:), single-pass scan, sampled
+.\tests\test_jobs_census.py:176:    pass."""
+.\tests\test_interventions_measurement.py:21:        pass
+.\interplab\core\_schema_registry.py:26:    pass
+
+===== PATTERN: pytest\.skip|@pytest\.mark\.skip|skipif =====
+.\tests\test_canary_cheese.py:40:        pytest.skip(
+.\tests\test_canary_cheese.py:48:        pytest.skip(str(e))
+.\tests\canary_lib.py:55:    this environment. Callers translate this into `pytest.skip(reason=...)`
+.\tests\test_interventions_identity_nightly.py:40:        pytest.skip(
+
+===== PATTERN: pytest\.xfail|@pytest\.mark\.xfail|\bxfail\b =====
+(no matches)
+

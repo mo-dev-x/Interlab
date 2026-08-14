@@ -1,0 +1,21 @@
+AUDIT-01 minimal public workflow
+
+Isolation:
+- Copied the exact working-tree `interplab/`, `schemas/`, and
+  `scripts/sync_registry.py` into an audit-only sandbox.
+- Set `PYTHONPATH` to the sandbox and confirmed:
+  `D:\qwen-sae-interp\project_management\logs\AUDIT-01\public_workflow_sandbox\interplab\__init__.py`
+- Removed the copied source after the run; retained the input config and generated RunCard.
+
+Command:
+`python scripts\sync_registry.py --config configs\sync_registry.yaml`
+
+Input:
+`outbox_dir: outbox`
+
+Result:
+- Exit code: 0
+- Outcome: `synced 0 artifact(s) from outbox`
+- Generated audit-only RunCard:
+  `public_workflow_sandbox/registry/run_card/90cd68eaf8cc.json`
+- No production registry artifact was retained or changed.

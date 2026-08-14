@@ -1,0 +1,515 @@
+{
+  "schema_note": "One record per calibration-reserved feature: slot (1..N, the public handle -- dispatch rounds by slot, never by index) and fetched (bool, whether evidence has been pulled under SS10.0b). The orchestrator never opens this file; a rater resolves slot -> index locally.",
+  "prereg_ref": "reports/adjudication_prereg_v1.md SS13.1 (v1.9), magnitude-floor amendment (v1.10)",
+  "seed": 42,
+  "pool_size": 16384,
+  "composition_n": 40,
+  "reserved_n": 100,
+  "reserved_floor": 1000,
+  "reserved_floor_justification": "Applies only to the calibration-reserved slice, never to the composition draw (filtering composition would be a denominator change). Content-blind: an SAE dictionary position is arbitrary with respect to what a feature detects, so index magnitude cannot correlate with any feature property -- excluding small indices introduces no bias, it only avoids values that double as ordinary governance-prose numbers (file counts, section numbers, quantities).",
+  "total_n_drawn": 145,
+  "replaced_slot_count": 4,
+  "reserved_features": [
+    {
+      "slot": 1,
+      "index": 9606,
+      "fetched": false
+    },
+    {
+      "slot": 2,
+      "index": 11850,
+      "fetched": false
+    },
+    {
+      "slot": 3,
+      "index": 6300,
+      "fetched": false
+    },
+    {
+      "slot": 4,
+      "index": 12236,
+      "fetched": false
+    },
+    {
+      "slot": 5,
+      "index": 1501,
+      "fetched": false
+    },
+    {
+      "slot": 6,
+      "index": 7467,
+      "fetched": false
+    },
+    {
+      "slot": 7,
+      "index": 9482,
+      "fetched": false
+    },
+    {
+      "slot": 8,
+      "index": 2614,
+      "fetched": false
+    },
+    {
+      "slot": 9,
+      "index": 7628,
+      "fetched": false
+    },
+    {
+      "slot": 10,
+      "index": 3309,
+      "fetched": false
+    },
+    {
+      "slot": 11,
+      "index": 12455,
+      "fetched": false
+    },
+    {
+      "slot": 12,
+      "index": 9108,
+      "fetched": false
+    },
+    {
+      "slot": 13,
+      "index": 14857,
+      "fetched": false
+    },
+    {
+      "slot": 14,
+      "index": 11954,
+      "fetched": false
+    },
+    {
+      "slot": 15,
+      "index": 5329,
+      "fetched": false
+    },
+    {
+      "slot": 16,
+      "index": 12130,
+      "fetched": false
+    },
+    {
+      "slot": 17,
+      "index": 11641,
+      "fetched": false
+    },
+    {
+      "slot": 18,
+      "index": 6865,
+      "fetched": false
+    },
+    {
+      "slot": 19,
+      "index": 8748,
+      "fetched": false
+    },
+    {
+      "slot": 20,
+      "index": 2339,
+      "fetched": false
+    },
+    {
+      "slot": 21,
+      "index": 5607,
+      "fetched": false
+    },
+    {
+      "slot": 22,
+      "index": 8021,
+      "fetched": false
+    },
+    {
+      "slot": 23,
+      "index": 5354,
+      "fetched": false
+    },
+    {
+      "slot": 24,
+      "index": 15147,
+      "fetched": false
+    },
+    {
+      "slot": 25,
+      "index": 12433,
+      "fetched": false
+    },
+    {
+      "slot": 26,
+      "index": 8845,
+      "fetched": false
+    },
+    {
+      "slot": 27,
+      "index": 7196,
+      "fetched": false
+    },
+    {
+      "slot": 28,
+      "index": 10626,
+      "fetched": false
+    },
+    {
+      "slot": 29,
+      "index": 1832,
+      "fetched": false
+    },
+    {
+      "slot": 30,
+      "index": 7505,
+      "fetched": false
+    },
+    {
+      "slot": 31,
+      "index": 1051,
+      "fetched": false
+    },
+    {
+      "slot": 32,
+      "index": 10336,
+      "fetched": false
+    },
+    {
+      "slot": 33,
+      "index": 13145,
+      "fetched": false
+    },
+    {
+      "slot": 34,
+      "index": 8773,
+      "fetched": false
+    },
+    {
+      "slot": 35,
+      "index": 2168,
+      "fetched": false
+    },
+    {
+      "slot": 36,
+      "index": 6913,
+      "fetched": false
+    },
+    {
+      "slot": 37,
+      "index": 10311,
+      "fetched": false
+    },
+    {
+      "slot": 38,
+      "index": 6967,
+      "fetched": false
+    },
+    {
+      "slot": 39,
+      "index": 16358,
+      "fetched": false
+    },
+    {
+      "slot": 40,
+      "index": 12964,
+      "fetched": false
+    },
+    {
+      "slot": 41,
+      "index": 15035,
+      "fetched": false
+    },
+    {
+      "slot": 42,
+      "index": 4681,
+      "fetched": false
+    },
+    {
+      "slot": 43,
+      "index": 8679,
+      "fetched": false
+    },
+    {
+      "slot": 44,
+      "index": 4575,
+      "fetched": false
+    },
+    {
+      "slot": 45,
+      "index": 8081,
+      "fetched": false
+    },
+    {
+      "slot": 46,
+      "index": 8609,
+      "fetched": false
+    },
+    {
+      "slot": 47,
+      "index": 14038,
+      "fetched": false
+    },
+    {
+      "slot": 48,
+      "index": 13087,
+      "fetched": false
+    },
+    {
+      "slot": 49,
+      "index": 11861,
+      "fetched": false
+    },
+    {
+      "slot": 50,
+      "index": 7186,
+      "fetched": false
+    },
+    {
+      "slot": 51,
+      "index": 4532,
+      "fetched": false
+    },
+    {
+      "slot": 52,
+      "index": 16171,
+      "fetched": false
+    },
+    {
+      "slot": 53,
+      "index": 2978,
+      "fetched": false
+    },
+    {
+      "slot": 54,
+      "index": 1543,
+      "fetched": false
+    },
+    {
+      "slot": 55,
+      "index": 3592,
+      "fetched": false
+    },
+    {
+      "slot": 56,
+      "index": 5008,
+      "fetched": false
+    },
+    {
+      "slot": 57,
+      "index": 5242,
+      "fetched": false
+    },
+    {
+      "slot": 58,
+      "index": 13833,
+      "fetched": false
+    },
+    {
+      "slot": 59,
+      "index": 2081,
+      "fetched": false
+    },
+    {
+      "slot": 60,
+      "index": 12608,
+      "fetched": false
+    },
+    {
+      "slot": 61,
+      "index": 12504,
+      "fetched": false
+    },
+    {
+      "slot": 62,
+      "index": 15337,
+      "fetched": false
+    },
+    {
+      "slot": 63,
+      "index": 8238,
+      "fetched": false
+    },
+    {
+      "slot": 64,
+      "index": 3753,
+      "fetched": false
+    },
+    {
+      "slot": 65,
+      "index": 8743,
+      "fetched": false
+    },
+    {
+      "slot": 66,
+      "index": 11146,
+      "fetched": false
+    },
+    {
+      "slot": 67,
+      "index": 3655,
+      "fetched": false
+    },
+    {
+      "slot": 68,
+      "index": 9617,
+      "fetched": false
+    },
+    {
+      "slot": 69,
+      "index": 14246,
+      "fetched": false
+    },
+    {
+      "slot": 70,
+      "index": 5182,
+      "fetched": false
+    },
+    {
+      "slot": 71,
+      "index": 14867,
+      "fetched": false
+    },
+    {
+      "slot": 72,
+      "index": 8630,
+      "fetched": false
+    },
+    {
+      "slot": 73,
+      "index": 5854,
+      "fetched": false
+    },
+    {
+      "slot": 74,
+      "index": 3486,
+      "fetched": false
+    },
+    {
+      "slot": 75,
+      "index": 9779,
+      "fetched": false
+    },
+    {
+      "slot": 76,
+      "index": 6517,
+      "fetched": false
+    },
+    {
+      "slot": 77,
+      "index": 12252,
+      "fetched": false
+    },
+    {
+      "slot": 78,
+      "index": 5293,
+      "fetched": false
+    },
+    {
+      "slot": 79,
+      "index": 10621,
+      "fetched": false
+    },
+    {
+      "slot": 80,
+      "index": 16010,
+      "fetched": false
+    },
+    {
+      "slot": 81,
+      "index": 3665,
+      "fetched": false
+    },
+    {
+      "slot": 82,
+      "index": 11894,
+      "fetched": false
+    },
+    {
+      "slot": 83,
+      "index": 10076,
+      "fetched": false
+    },
+    {
+      "slot": 84,
+      "index": 7846,
+      "fetched": false
+    },
+    {
+      "slot": 85,
+      "index": 1898,
+      "fetched": false
+    },
+    {
+      "slot": 86,
+      "index": 7892,
+      "fetched": false
+    },
+    {
+      "slot": 87,
+      "index": 2580,
+      "fetched": false
+    },
+    {
+      "slot": 88,
+      "index": 2806,
+      "fetched": false
+    },
+    {
+      "slot": 89,
+      "index": 15924,
+      "fetched": false
+    },
+    {
+      "slot": 90,
+      "index": 2267,
+      "fetched": false
+    },
+    {
+      "slot": 91,
+      "index": 4120,
+      "fetched": false
+    },
+    {
+      "slot": 92,
+      "index": 4207,
+      "fetched": false
+    },
+    {
+      "slot": 93,
+      "index": 15574,
+      "fetched": false
+    },
+    {
+      "slot": 94,
+      "index": 5410,
+      "fetched": false
+    },
+    {
+      "slot": 95,
+      "index": 8685,
+      "fetched": false
+    },
+    {
+      "slot": 96,
+      "index": 13865,
+      "fetched": false
+    },
+    {
+      "slot": 97,
+      "index": 6940,
+      "fetched": false
+    },
+    {
+      "slot": 98,
+      "index": 6591,
+      "fetched": false
+    },
+    {
+      "slot": 99,
+      "index": 10214,
+      "fetched": false
+    },
+    {
+      "slot": 100,
+      "index": 13074,
+      "fetched": false
+    }
+  ],
+  "retired_slot_count": 1
+}
