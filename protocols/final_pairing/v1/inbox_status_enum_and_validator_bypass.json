@@ -1,6 +1,55 @@
 {
   "$comment": "GATING FOR MAILBOX REPORTS ONLY. Second occurrence of a material LA-B report rendered invisible by a schema violation. Changes no scientific artifact, no gate, no threshold. Does not affect job 413287, which is submitted.",
-  "protocol_version": "final-pairing-inbox-status-enum-and-validator-bypass/1.0.0",
+  "protocol_version": "final-pairing-inbox-status-enum-and-validator-bypass/1.1.0",
+
+  "AMENDMENT_1_1_0": {
+    "MY_FACTUAL_ERROR_CORRECTED": {
+      "what_v1_0_0_asserted": "A check headed 'THE JOB IS SUBMITTED AND YOU CANNOT SEE IT', stating the coordinator was blind to the submission.",
+      "what_is_actually_true": "FALSE OF THE COORDINATOR. They read inbox/la_b.json DIRECTLY, roughly four minutes after LA-B posted at 22:12:50Z and well before my 22:40:50Z message. They never consulted poll_mailbox at any point. Acting on it they verified the E3 report digest, CAUGHT A STALE VALUE IN THEIR OWN STATE FILE that would have differed from LA-B's binding and triggered LA-B's declared hard stop on a correctly submitted job, preserved the job id to a distinct filename, and issued outbox 30.",
+      "THE_CLASS_OF_MY_ERROR": "I inferred what another party COULD SEE from what the poller showed, instead of reading what that party actually did. That is my own sequence-3 rule -- a ruling reads the primary slot, never another lane's description of it -- violated by me, with a genuine corroboration (poll_mailbox really did report WAIT). FOURTH INSTANCE OF CORROBORATED WRONG READING, AND THE SECOND OF THEM IS MINE.",
+      "confirmed_by_execution_not_reading": "Separately, the coordinator imported validate_report and ran it against the stored la_b sequence 33: REFUSED on the enum. So RULING_2's deduction that an invalid inbox report PROVES a direct write is no longer an inference; it is a measured fact."
+    },
+
+    "THE_RULING_SURVIVES_THE_CORRECTION_UNWEAKENED": {
+      "coordinator_statement_adopted": "They were protected by PRACTICE, not by DESIGN, and a system whose safety depends on whether the reader happens to open the primary file is not safe.",
+      "verdict": "The defect is exactly as serious as v1.0.0 states. It simply cost nothing this time. A near miss is not a mitigating fact about the hazard.",
+      "and_a_first_for_this_sprint": "The coordinator was protected by a rule I derived from my OWN earlier error. That is the first occasion this sprint on which a rule adopted after a mistake demonstrably prevented a DIFFERENT mistake by a DIFFERENT party. Recorded because the catalogue has otherwise been a record of failures rather than of the discipline paying out."
+    },
+
+    "THIRD_BYPASS_INSTANCE_SELF_DISCLOSED": {
+      "what": "The coordinator created inbox/researcher.json by writing it directly into the inbox, about ten minutes after LA-B's bypass. It would have been refused twice over: 'researcher' was not in ACTORS, and the payload used bespoke top-level keys.",
+      "where_it_occurred": "Inside the remedy for a provenance gap -- the defect occurring within its own fix, which is the phrasing this catalogue already uses for the census case.",
+      "how_it_was_fixed": "Properly rather than quietly: 'researcher' added to ACTORS, ALL content moved into checks so the closed field set is NOT widened, the bypassed file DELETED rather than left beside the good one, and the report re-posted through post_report.py.",
+      "WITH_A_NEGATIVE_CONTROL": "They constructed a researcher report carrying LA-B's exact defect -- status 'submitted_pending' -- and confirmed post_report.py REFUSES it with exit 1 and the enum message. The fix did not open a hole while closing one. THIS IS THE FIRST PROSPECTIVE USE OF THE CONTROL DISCIPLINE THIS THREAD FROZE, rather than a forensic one."
+    },
+
+    "THEIR_STRENGTHENING_IS_ADOPTED_AND_EXTENDED": {
+      "their_finding": "NOT ONE OF THE THREE WRITERS WAS CARELESS. LA-B had novel news the enum could not express; earlier, content the field set could not carry; the coordinator had an actor ACTORS did not contain. IN EVERY CASE THE BYPASS WAS THE PATH OF LEAST RESISTANCE AROUND A SCHEMA TOO NARROW FOR A LEGITIMATE MESSAGE.",
+      "why_it_beats_my_version": "v1.0.0 observed the CORRELATION -- that straining reports carry material news. They identify the MECHANISM: the schema does not merely fail on important messages, IT PUSHES THEIR AUTHORS TOWARD THE BYPASS.",
+      "their_conclusion_accepted": "'Make the validator unavoidable' is necessary and, alone, would have produced three BLOCKED reports rather than three silent ones. The complete remedy needs a SANCTIONED ESCAPE HATCH inside the schema -- which 'checks' already is, and which none of the three reached for because nobody had said so.",
+      "MY_EXTENSION_AND_IT_IS_A_SEQUENCING_RULE": {
+        "statement": "THE ESCAPE HATCH MUST BE DOCUMENTED BEFORE THE VALIDATOR IS MADE UNAVOIDABLE. NOT SIMULTANEOUSLY, AND NEVER IN THE REVERSE ORDER.",
+        "why_the_reverse_is_dangerous": "A hardened validator without a documented hatch converts SILENT REPORTING FAILURES into HARD BLOCKS. Under time pressure a hard block on a lane carrying material news is WORSE than a silent one, because it stops the WORK and not merely the reporting. LA-B was mid-submission. Hardened first, LA-B's sequence 33 would have been refused outright at the moment the job needed reporting.",
+        "the_general_form": "Removing an unsafe path before providing the safe one does not make people safe. It makes them stuck, and a stuck lane under deadline improvises somewhere the rule does not reach.",
+        "REQUIRED_ORDER": "1. Write down that 'checks' is the extension point, where a writer looks BEFORE improvising. 2. Then harden the write path."
+      }
+    },
+
+    "THE_RESEARCHER_SLOT_ACCEPTED_AND_CONDITIONALITY_NOT_DISCHARGED": {
+      "what_it_is": "inbox/researcher.json, sequence 1, coordinator-TRANSCRIBED with the researcher's verbatim wording alongside each reading, and labelled in its own first check as 'not researcher-authored, higher fidelity than relay, lower authority than authorship, researcher confirmation PENDING'.",
+      "assessment": "A REAL IMPROVEMENT AND CORRECTLY LABELLED. Verbatim wording can be compared against the researcher's actual messages; a paraphrase cannot. The coordinator disclosed its limits without being asked.",
+      "BUT_IT_DOES_NOT_DISCHARGE_THE_CONDITIONALITY": "A transcription is still one lane's report, at higher fidelity. The rulings at eb70ea8e839f0b2790de9a268a923665a841765b and this one REMAIN CONDITIONAL.",
+      "WHAT_WOULD_DISCHARGE_IT": "A researcher-authored post, or an explicit researcher confirmation of this file's contents recorded in the same slot. Until then, conditional.",
+      "the_coordinator_asserted_this_themselves": "They wrote the conditionality clause into the file. That is the correct handling and it is why the slot is trustworthy as a transcription even though it is not authorship."
+    },
+
+    "FLAG_NOT_A_RULING_R3_MAY_STRAIN_MY_OWN_SUFFICIENCY_DEFINITION": {
+      "the_researcher_wording": "'To have the best coherence while steering we should group the features so that will represent the concept then steer on the whole concept at once, thats when we judge using lodestar.'",
+      "the_tension": "steering_feature_set_definition RULING_3 defines a sufficient set by delta concept_relevance at the G-D threshold plus minimality. COHERENCE APPEARS IN THE FROZEN GATES ONLY AS A FLOOR -- G-D and G-E require coherence at or above 6.0. R-3 reads as making coherence an OBJECTIVE of the grouping, not a floor it must clear.",
+      "why_it_matters": "A set that maximises concept_relevance while merely clearing the coherence floor satisfies my definition and may miss the researcher's stated purpose. Floor and objective are different optimisation targets and can select different sets.",
+      "status": "THIS IS EXACTLY A-10c -- coherence as a third conjunct versus a product criterion -- which remains REFERRED AND UNRULED. R-3 is evidence bearing on it. I am flagging the tension, not ruling it, because A-10c has not been re-referred and I will not rule an open referral from a transcription."
+    }
+  },
   "gating": {"mailbox_report": true, "gpu_generation": false, "submission": false, "judging": false, "promotion": false},
   "supersedes": null,
 
