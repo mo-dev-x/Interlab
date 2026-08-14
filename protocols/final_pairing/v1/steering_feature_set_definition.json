@@ -1,0 +1,89 @@
+{
+  "$comment": "GATING FOR POST-RUN SCIENCE CLAIMS ONLY. Resolves referral A-7. Does NOT block or alter the certified submission, changes no threshold, grid, identity or prompt artifact, and adds no gate to the pending run.",
+  "protocol_version": "final-pairing-steering-feature-set-definition/1.0.0",
+  "gating": {
+    "gpu_generation": false,
+    "submission": false,
+    "judging": false,
+    "promotion": false,
+    "post_run_science_claim": true
+  },
+  "supersedes": null,
+  "answers_referral": {
+    "id": "A-7",
+    "source": "mailbox outbox/architect.json sequence 1",
+    "question": "What constitutes the FEATURE SET that steers a whole concept, and does the certified run configuration emit it?"
+  },
+
+  "PREMISE_CORRECTION_READ_FIRST": {
+    "the_referral_says": "The frozen science ruling of 2026-08-13 specifies '1/3/5 shared-concept targets'.",
+    "what_I_found": "No frozen artifact contains that string. Literal searches for '1/3/5', '1, 3 and 5' and '1, 3, 5' across protocols/, docs/ and prompts/ return ZERO matches.",
+    "consequence": "There is no ambiguous frozen text to disambiguate. The ambiguity lives in a SUMMARY of the ruling, not in the ruling. The operative frozen numbers are elsewhere and they are already unambiguous.",
+    "why_this_matters_more_than_the_answer": "A referral built on a quotation that does not exist would, if answered on its own terms, produce a ruling that reconciles two readings of a sentence no artifact contains. Verify the quotation before adjudicating the ambiguity."
+  },
+
+  "RULING_1_the_reading": {
+    "verdict": "READING 1. The frozen counts are counts of CONCEPTS. Not feature-set sizes.",
+    "decisive_evidence": {
+      "artifact": "protocols/final_pairing/v1/backup_trigger.json",
+      "sha256": "4a234e59799089e634f00c59d5fed71c73d0f7466e30f0c20a7d72ef4c9d23d3",
+      "line_51": "primary_shared_gabc_count = 'Number of CONCEPTS satisfying shared_gabc in PRIMARY. Range 0-14.' The range 0-14 is the concept count. A feature-set size would not be bounded by 14.",
+      "line_173": "demo_may_proceed_at: shared_validated_count 1",
+      "line_174": "general_cross_model_comparison_claim_requires: shared_validated_count 2",
+      "line_175": "backup_triggered_below: primary_shared_gabc_count 3"
+    },
+    "the_actual_frozen_triple_is_1_2_3_not_1_3_5": "Demo floor 1, claim floor 2, backup trigger 3. Anyone carrying '1/3/5' forward is carrying a number that no artifact states.",
+    "READING_2_is_not_merely_unsupported": "It conflicts with the gate definition. backup_trigger.json line 41: 'A SINGLE feature f survives G-A/B/C for concept c on pairing p in configuration k iff THAT SAME FEATURE passes all three gates.' Survival is defined per individual feature. There is no frozen gate that evaluates a SET of features jointly."
+  },
+
+  "RULING_2_does_the_certified_run_emit_a_steering_feature_set": {
+    "verdict": "NO. AND IT CANNOT, BECAUSE NO GATE IN THE FROZEN CHAIN IS DEFINED OVER A SET.",
+    "what_the_run_DOES_emit": [
+      "per concept and pairing, the list of features that EACH INDIVIDUALLY cleared G-A, G-B and G-C",
+      "per surviving feature, causal evidence from G-D and where applicable G-E, at the frozen dose grid",
+      "the per-direction generation manifests, selection records and judged results already bound by the discovery-document binding"
+    ],
+    "what_that_list_IS": "The set of features that each independently steer the concept enough to pass the gates.",
+    "what_that_list_IS_NOT": "A measured steering set. Nothing in the run intervenes on the members jointly, so nothing measures what the set does together. Co-occurrence in a results table is not joint evidence.",
+    "the_honest_statement": "The certified configuration can reach terminal state, satisfy every frozen gate, and still not answer 'which features must be gathered to steer a whole concept.' The coordinator's concern is correct.",
+    "why_this_is_not_a_defect_in_the_run": "The run was scoped to per-feature discovery and per-feature causal validation, and it does that completely. The operator's restated goal is a DIFFERENT question that was never in the certified scope. Naming the gap is not a criticism of the configuration."
+  },
+
+  "RULING_3_minimum_evidence_for_a_sufficient_feature_set": {
+    "applies_to": "Any future post-run science lane. NOT to the pending run.",
+    "verdict": "A CONJUNCTION. Sufficiency alone is not enough and dose response alone is not enough.",
+    "required": {
+      "joint_sufficiency": "The set, intervened on TOGETHER in one forward pass, produces the concept effect at or above the G-D threshold. This is G-D generalised from a feature to a set and requires an actual joint intervention, never the sum or maximum of individual effects.",
+      "minimality": "Removing ANY single member materially degrades the effect. Without this the claim is unfalsifiable: any superset of a working set also works, so 'the features needed' would admit padding without limit.",
+      "both_required": "Sufficiency answers 'does this set steer the concept.' Minimality answers 'is this the set that is NEEDED.' The operator's question contains the word 'needed', so minimality is not optional."
+    },
+    "explicitly_NOT_sufficient_on_its_own": {
+      "dose_response": "A monotone dose curve shows the knob is real. It says nothing about whether the SET is the right set, and a single feature already produces one.",
+      "individual_survival": "N features each passing G-A/B/C individually does not establish that those N together are sufficient, nor that fewer would not do.",
+      "additivity_assumption": "Summing or maxing individual per-feature deltas to predict a joint effect is prohibited as evidence. SAE features are not guaranteed independent, and the whole point of asking about a SET is that interaction may matter."
+    },
+    "cardinality_is_an_OUTCOME_not_a_TARGET": "The size of a sufficient minimal set is measured, never chosen in advance. Pre-registering 'sets of size 1, 3 and 5' would fix the answer before the measurement, which is the same defect as selecting a dose after seeing its score. If sizes are swept they are swept as a search procedure, and the reported set is whatever survived minimality."
+  },
+
+  "what_this_ruling_deliberately_does_not_do": [
+    "It does not add a gate to the certified run, alter a threshold, or touch the dose grid.",
+    "It does not delay or authorize the submission. LA-B alone owns that and its blocker is infrastructure.",
+    "It does not create the post-run science lane or scope its allocation. That needs its own protocol and its own authorization, and joint intervention is additional GPU work that nobody has budgeted.",
+    "It does not decide whether the deliverable should be per-feature results or measured steering sets. That is a researcher call about what this sprint claims."
+  ],
+
+  "consequence_the_researcher_must_see": {
+    "statement": "If the terminal goal is 'the features needed to steer a whole concept', the pending run is a PREREQUISITE, not the deliverable. It produces the candidate pool that a joint-intervention lane would then reduce to a minimal sufficient set.",
+    "the_decision_that_follows": "Either the sprint claims per-feature causal validation, which the certified run does deliver in full, or it claims steering sets, which requires a second lane that does not exist and is not budgeted. That is a scope decision and it is the researcher's, not mine.",
+    "not_auto_approved": "No lane may resolve this by widening what the run's outputs are said to mean. Relabelling a list of individually-surviving features as 'the steering set' would be an unmeasured claim."
+  },
+
+  "hard_stops": [
+    "Reporting the set of individually-surviving features as a measured steering set.",
+    "Predicting or asserting a joint effect from summed or maximum individual per-feature effects.",
+    "Pre-registering a target feature-set cardinality and reporting it as a measured result.",
+    "Claiming a set is 'needed' without a minimality test.",
+    "Treating this ruling as authorization for, or a block on, the pending submission.",
+    "Carrying the string '1/3/5' forward as if a frozen artifact stated it."
+  ]
+}
