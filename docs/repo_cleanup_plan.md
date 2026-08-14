@@ -153,6 +153,13 @@ here so a later sweep does not mistake them for leftovers.
 | `docs/repo_cleanup_plan.md` | **Delete** as the last commit of Phase 2 | This file. It is the operative document until then, and git history retains it. |
 | `recon_checkpoint_provenance.py` | **Move to `scripts/`** | One-off T0.0 evidence-recovery script sitting loose at repo root. No inbound reference from anywhere. It is a real tool in the wrong place — relocating removes the root-level smell without destroying a method. |
 
+**Before this file is deleted:** its live publication preconditions — the
+entropy secret-scan status, the public-subset include list, the
+`internship_report` exclusion, and `C14 political_framing`'s PI gate — are
+recorded in [`docs/publication_preconditions.md`](publication_preconditions.md),
+which this plan does not delete. From that point on, that file is the
+authority on open preconditions, not this one.
+
 **`docs/execution_roadmap.md` — DO NOT DELETE.** My first draft listed it as dead because it
 is dated "Final 3 Days (Fri Jul 24 → Sun Jul 26, 2026)" and superseded by the PI directive.
 Checking the inbound references showed it is **cited evidence**:
