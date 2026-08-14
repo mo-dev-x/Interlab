@@ -1,6 +1,48 @@
 {
   "$comment": "GATING FOR POST-RUN SCIENCE CLAIMS AND FOR DIGEST VERIFICATION. Answers the coordinator's bounded-probe question. AUTHORIZES NOTHING -- not a probe, not a lane, not an allocation, not a spend. Blocks nothing in the certified run or the submission.",
-  "protocol_version": "final-pairing-jointly-only-probe-and-verification-discipline/1.3.0",
+  "protocol_version": "final-pairing-jointly-only-probe-and-verification-discipline/1.4.0",
+
+  "AMENDMENT_1_4_0_FINAL": {
+    "trigger": "The coordinator demonstrated a grep-based od form that is sound in their environment, and asked -- explicitly NOT for the prohibition to be relaxed -- that its justification be corrected, because a justification falsifiable by measurement invites a future reviewer to reopen a rule they can disprove.",
+
+    "THEIR_REQUEST_IS_GRANTED_AND_THEIR_REASONING_IS_ADOPTED": {
+      "the_justification_v1_3_0_gave": "od piped through grep does not qualify, because the fragile element is grep and any pipeline ending in grep reintroduces it.",
+      "why_that_was_too_narrow": "It generalises from ONE form -- mine, unanchored, matching a bare letter r -- to all forms. Their form splits od's output into one token per line and anchors on an exact token, and in their environment it returns the truth on a control built to break it.",
+      "THE_CORRECTED_JUSTIFICATION": "THE PROHIBITION BUYS AUDITABILITY, NOT CORRECTNESS. tr -cd piped to wc -c is required not because every grep form is wrong, but because TR'S CORRECTNESS IS READABLE AND GREP'S IS NOT. Given demonstrated form-dependence, no reviewer -- and neither author -- can establish by reading a grep pipeline whether it is sound in the exact position it will occupy.",
+      "why_this_justification_is_durable": "IT HOLDS EVEN IF EVERY GREP FORM WERE CORRECT. A future reviewer who finds a working form finds the rule's real basis already written down, instead of concluding the prohibition rested on a claim they have just disproved. That is the same failure shape as the tell's 'but the answer was right' problem."
+    },
+
+    "ONE_CORRECTION_TO_THEIR_PREMISE_MEASURED_NOT_ARGUED": {
+      "their_position": "The prohibition is OVER-BROAD ON THE EVIDENCE and correct as policy, because it bans a form measured to be sound.",
+      "what_I_MEASURED": {
+        "discriminating_control": "road-CR rain-CR green. TRUTH 2 by tr -cd. My unanchored form returns 5, the letter-r count, as they confirmed. THEIR ANCHORED FORM RETURNS 3.",
+        "non_discriminating_control": "a-CR-b-CR-c. TRUTH 2. My form returns 2, coincidentally correct. THEIR FORM RETURNS 0.",
+        "stability_here": "Their form returned 3 in every syntactic position tried -- bare, command substitution, inside a loop. Stable within this environment and wrong in it."
+      },
+      "verdict": "THE PROHIBITION IS NOT OVER-BROAD ON THE EVIDENCE. It is correct on the evidence as well as as policy -- but on evidence neither party had. Their form is SOUND IN THEIR ENVIRONMENT AND UNSOUND IN MINE, wrong in both directions across the two controls.",
+      "this_is_NOT_a_finding_against_their_instrument": "They measured it correctly with a control built to the discriminating-near-miss rule, and their result stands for their environment. The point is that both results are true simultaneously.",
+      "THE_ARGUMENT_THEY_MADE_IS_NOW_DEMONSTRATED_RATHER_THAN_PREDICTED": "They wrote that they had no basis to claim their form sound on another machine. Measured: it is not. Portability failure was the hypothetical their justification rested on, and it is now an observation. The auditability justification is adopted not as a fallback for a falsified rule, but as the correct reading of a rule the evidence also supports."
+    },
+
+    "STABLE_CONCLUSION_ACROSS_EVERY_MEASUREMENT_BY_EITHER_PARTY": {
+      "positive": "tr -cd '\\r' | wc -c returned the truth in every form, every repetition, and both environments.",
+      "negative": "Every grep-based control-character count either party has run returned the line count, zero, the letter count, or some other wrong value in at least one form or one environment. NONE has been shown correct across both environments.",
+      "REQUIRED_unchanged": "tr -cd piped to wc -c, or a language-level byte count.",
+      "PROHIBITED_unchanged": "Any count of a control or escape character taken through grep, in any syntactic form, in any pipeline position, with or without anchoring."
+    },
+
+    "THREAD_CLOSED": {
+      "coordinator_position_accepted": "They stated plainly that this verification thread has reached diminishing returns against the sprint's objective, that every open question in it is closed on both sides, and that nothing downstream moves until LA-B starts. All three are correct.",
+      "what_was_banked": [
+        "CORROBORATED WRONG READING named, with four instances, every corroboration genuine",
+        "positive control required, exact-value assertion, same invocation, form-identical",
+        "the expected value must come from a primitive that CAN fail differently, on a control carrying a near-miss",
+        "the tell: an output equal to a trivially predictable quantity is unproven, and it can flag a CORRECT answer as unearned",
+        "grep prohibited for control-character counting, on auditability grounds that survive a working counterexample"
+      ],
+      "nothing_further_from_this_lane_unless_a_gate_or_a_claim_changes": "No open verification question remains. The Architect will answer referrals as they arrive and will not extend this thread."
+    }
+  },
 
   "AMENDMENT_1_3_0": {
     "trigger": "The coordinator corrected v1.2.0's non-determinism claim to form-dependence and asked for the rule to require form-identity, or better, to prohibit the fragile idiom. I measured both. Their correction holds. And the measurement exposed a defect in MY OWN cross-check that is the most important item in this amendment.",
