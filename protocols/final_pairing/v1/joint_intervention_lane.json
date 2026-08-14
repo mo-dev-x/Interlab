@@ -1,0 +1,112 @@
+{
+  "$comment": "GATING FOR POST-RUN SCIENCE CLAIMS ONLY. Answers referral A-9. Specifies a lane; AUTHORIZES NOTHING. Adds no gate to the certified run, moves no threshold, edits no frozen artifact, and does not affect the submission.",
+  "protocol_version": "final-pairing-joint-intervention-lane/1.0.0",
+  "gating": {
+    "gpu_generation": false,
+    "submission": false,
+    "judging": false,
+    "promotion": false,
+    "post_run_science_claim": true
+  },
+  "supersedes": null,
+  "extends": {
+    "protocol": "protocols/final_pairing/v1/steering_feature_set_definition.json",
+    "protocol_version": "final-pairing-steering-feature-set-definition/1.1.0"
+  },
+  "answers_referral": {"id": "A-9", "source": "mailbox outbox/architect.json sequence 4"},
+
+  "COORDINATOR_EVIDENCE_INDEPENDENTLY_VERIFIED": {
+    "method": "Every claim below was re-read on the bytes by the Architect. None was adopted on report.",
+    "one_feature_per_concept_BY_CONSTRUCTION": {
+      "verified": true,
+      "final_pairing_concept_discovery.py:1963": "surviving_feature_index: int | None -- SINGULAR",
+      "final_pairing_concept_discovery.py:2002-2003": "if survives: surviving_feature_index = candidate.feature_index; break -- first survivor, then BREAK out of the ranked loop",
+      "run_grid_mode_docstring:3208-3212": "'Does not rank/compose a bundle ... driven off THIS grid's surviving_feature_index per concept' -- DESIGN, not accident",
+      "consequence": "This goes FURTHER than my A-7 ruling. A-7 said no gate is defined over a set. The stronger fact is that the run cannot EMIT a set of size > 1 at all."
+    },
+    "composer_exists_but_is_unreachable": {
+      "verified": true,
+      "definition": "compose_bundle_greedily at :2624; --bundle-max-size at :2972 defaults to 1",
+      "only_call_site": ":3099, inside run()",
+      "why_unreachable": "main() at :3270-3273 branches on args.mode == 'grid', calls run_grid_mode(args), and RETURNS before reaching run(args) at :3275"
+    },
+    "no_judge_in_the_certified_call_graph": {
+      "verified": true,
+      "final_pairing_concept_discovery.py:1061-1062": "'No real judge is implemented or invoked by this file ... honestly defaulting to the same \"none\" identity'",
+      "assessment": "This is HONEST CODE, not a defect. It declares its own limitation in the place a reader will find it."
+    }
+  },
+
+  "RULING_1_max_targets_v1_is_an_UNEXECUTED_PRE_REGISTRATION": {
+    "the_finding": "prompts/final_pairing/v1/metadata.json:251-252 pre-registers max_targets_v1 = 3 and second_target_relevance_gain_min = 1.0. VERIFIED: the only two occurrences in the entire tree -- tracked AND raw including gitignored paths -- are metadata.json itself and build_prompt_sets.py:69-70, the script that PRODUCES metadata.json. There is no runtime reader.",
+    "verdict": "THE PRE-REGISTRATION IS REAL AND THE CAPABILITY IS NOT. Both facts stand; neither cancels the other.",
+    "which_governs": "NEITHER IS 'CORRECTED' INTO THE OTHER. The frozen metadata records what was PLANNED. The code records what was DONE. The run implements max_targets = 1 in fact, and no execution path could have produced 2 or 3.",
+    "what_is_PROHIBITED": "Reporting, in any write-up, that the protocol permitted up to three targets per concept. Nothing could have produced more than one, so that sentence would claim a design space the run never had. It is the same false-negative asymmetry as a gate that does not run: it reads as specified behaviour and is inert.",
+    "what_is_REQUIRED": "Any results document that cites the frozen prompt-set metadata must state that max_targets_v1 = 3 was pre-registered and NOT exercised, and that the executed value was 1.",
+    "do_not_edit_metadata_json": "It is a frozen prompt-set artifact. Post-hoc editing a pre-registration to match what the code did is the precise inversion of pre-registration. The divergence is disclosed here instead.",
+    "second_target_relevance_gain_min": "Equally inert, and it also presupposes a JUDGED gain -- which routes through the judging stage that the certified run does not contain. It could not have been evaluated even if a reader existed."
+  },
+
+  "RULING_2_the_greedy_composer_is_a_PROPOSER_and_never_a_CLAIM": {
+    "the_question_asked": "Is the existing composer a legitimate first stage, or does adopting it risk the set search inheriting a sufficiency claim it cannot carry?",
+    "verdict": "BOTH ARE TRUE, AND THE DISTINCTION IS THE WHOLE RULING. It is a legitimate PROPOSER of candidate sets. It may NEVER, on its own output, support a sufficiency claim.",
+    "why_it_cannot_carry_sufficiency": "steering_feature_set_definition RULING_3 requires joint intervention on the whole set in ONE forward pass AND minimality under removal. Greedy addition evaluates one feature at a time against the current partial set; it never intervenes on the final set jointly and never tests removal. A set assembled greedily is a HYPOTHESIS about which features matter together, and an untested hypothesis is not evidence.",
+    "THE_SHARPER_PROBLEM_THE_COORDINATOR_DID_NOT_RAISE": {
+      "finding": "GREEDY COMPOSITION DOES NOT FIX THE LOW-RECALL BIAS. IT REPRODUCES IT AT THE SET LEVEL.",
+      "mechanism": "Greedy addition starts from the individually-strongest feature and adds whichever feature most improves the score GIVEN what is already selected. A pair whose members are each inert alone, and which only produce an effect together, is invisible to it: neither member shows gain against the empty or near-empty set, so neither is ever admitted, so the pair is never reached.",
+      "consequence": "The survivor pool is high precision and low recall for FEATURES. A greedy composer over that pool is high precision and low recall for SETS. The two biases COMPOUND rather than cancel.",
+      "what_this_means_for_A_9": "A joint-intervention lane built on greedy proposal inherits both. That is acceptable if and only if the resulting claim is stated as bounded. It is not acceptable as a claim about which features are NEEDED, unqualified."
+    },
+    "additional_dependency": "Greedy gain is JUDGED gain, which routes through the judging stage and therefore through the paid Lodestar path, currently unauthorised at $0 spent against a $25 cap. The composer is not free to run even once reachable."
+  },
+
+  "RULING_3_the_demo_floor_is_UNDETERMINED_not_missed": {
+    "the_finding": "backup_trigger.json operational_targets sets demo_may_proceed_at = {shared_validated_count: 1}, and that quantity is defined POST-G-D. The certified run computes no G-D, because no judge is in its call graph.",
+    "verdict": "A SUCCESSFUL RUN LEAVES THE DEMO FLOOR UNDETERMINED. Not met, not missed -- UNCOMPUTED.",
+    "this_is_not_a_defect": "Judging is deliberately off-cluster because Tamia compute nodes have no outbound internet. The architecture is correct and was ratified in one_allocation_dose_generation.json. The run is not supposed to compute it.",
+    "what_is_PROHIBITED": [
+      "Reporting a terminal run as having met the demo floor.",
+      "Reporting it as having MISSED the demo floor -- equally false, and the direction that unfairly understates the work.",
+      "Any status line that reads 'demo: no' without stating that the quantity was never computed."
+    ],
+    "what_is_REQUIRED": "A terminal run reports demo_floor_status = NOT_EVALUATED, with the reason: shared_validated_count is post-G-D and no judging stage was executed.",
+    "how_it_becomes_determined": "The off-cluster judging stage exists and is runnable (final_pairing_judge_cli.py). Running it is a separate authorization and a separate spend against the $25 cap. NOT authorized here.",
+    "why_this_ruling_exists": "So it is not discovered at write-up. An undetermined floor found late reads as a failed run; found now it reads as a pipeline with a known next stage."
+  },
+
+  "RULING_4_minimum_viable_joint_intervention_and_minimality_lane": {
+    "STATUS": "SPECIFICATION ONLY. THIS AUTHORIZES NOTHING -- not a lane, not an allocation, not a mode change, not a config change, not a single GPU-hour or dollar.",
+    "shape": {
+      "stage_1_propose": "Reachable greedy composition -- --mode full with --bundle-max-size k. A mode flag and a size, not new science. Output: one CANDIDATE SET per concept. Labelled hypothesis, never result.",
+      "stage_2_joint_test": "Intervene on ALL k members SIMULTANEOUSLY in one forward pass. Measure delta concept_relevance against the SAME paired same-seed control the certified protocol already mandates. Passes iff it clears the G-D threshold as a set.",
+      "stage_3_minimality": "k leave-one-out runs per candidate set. The set is MINIMAL iff removing any single member materially degrades the effect. A set that survives stage 2 and fails stage 3 is SUFFICIENT BUT NOT MINIMAL and must be reported as such, never as 'the features needed'."
+    },
+    "cost_shape": "Per candidate set of size k: 1 joint + k leave-one-out = (k+1) generation conditions per prompt, plus judging of each. Cost is linear in k and multiplies by the concept count. At k=3 this is 4x the per-set generation of a single-feature dose point before any judging.",
+    "on_cluster_or_off": "SPLIT, EXACTLY AS THE CERTIFIED PROTOCOL ALREADY SPLITS. Generation on-cluster (needs model plus SAE on GPU). Judging off-cluster (needs the Anthropic API; compute nodes have no outbound internet). The lane inherits one_allocation_dose_generation.json's architecture unchanged -- this is the cheapest correct answer and it introduces no new transfer or provenance machinery.",
+    "does_it_consume_the_survivor_pool": {
+      "verdict": "YES, AND THE RESULTING CLAIM IS BOUNDED BY THAT CHOICE. Legitimate, cheap, and honest only if the bound is stated.",
+      "permitted_claim": "Among features that individually clear G-A/B/C, this minimal set jointly steers the concept.",
+      "PROHIBITED_claim": "These are the features needed to steer the concept. The pool cannot support an unqualified claim because features that matter only jointly never enter it.",
+      "what_would_lift_the_bound": "Evidence that jointly-only features are rare on this corpus rather than merely possible -- measurable, and a legitimate object of the read-only investigation. Absent that, the caveat is load-bearing and may not be dropped."
+    }
+  },
+
+  "what_the_run_DOES_deliver": {
+    "$comment": "Recorded so that none of the above is read as dismissal.",
+    "delivered": [
+      "14 concept verdicts per pairing with per-family separation, fire-rate and near-miss evidence",
+      "one gate-passing feature index per passing concept",
+      "dose-response and full-ablation generations with paired same-seed controls"
+    ],
+    "assessment": "Real and non-trivial. It is the RAW MATERIAL for a steering claim rather than the steering claim."
+  },
+
+  "hard_stops": [
+    "Reporting that the protocol permitted up to three targets per concept.",
+    "Reporting a terminal run as having met OR missed the demo floor; it is NOT_EVALUATED.",
+    "Presenting a greedily-composed set as evidence of sufficiency.",
+    "Claiming a set is 'the features needed' without both a minimality test and the survivor-pool recall caveat.",
+    "Editing prompts/final_pairing/v1/metadata.json to reconcile the pre-registration with what executed.",
+    "Treating this specification as authorization for a lane, an allocation, a mode change, or any spend."
+  ]
+}

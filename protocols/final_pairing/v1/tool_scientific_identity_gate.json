@@ -1,0 +1,70 @@
+{
+  "$comment": "GATING FOR ANY SCIENCE-ATTRIBUTED DEMONSTRATION. The coordinator flagged this for visibility rather than adjudication. The engineering is theirs; the SCIENTIFIC IDENTITY is mine, and that half is adjudicated here. Blocks nothing in the certified run or the submission.",
+  "protocol_version": "final-pairing-tool-scientific-identity-gate/1.0.0",
+  "gating": {
+    "gpu_generation": false,
+    "submission": false,
+    "judging": false,
+    "science_attributed_demonstration": true
+  },
+  "supersedes": null,
+
+  "SCOPE_CORRECTION": {
+    "coordinator_framing": "Flagged to the Architect for visibility rather than for adjudication, as a tool P0 rather than a protocol matter.",
+    "partly_accepted": "The joins, the missing publisher and the reachability are ENGINEERING and are not mine.",
+    "NOT_accepted": "The SAE identity mismatch is not an engineering preference. It determines which dictionary a feature index is interpreted in, and therefore whether output attributed to certified science is that science at all. That is a scientific-identity question and it is squarely mine.",
+    "why_this_matters_procedurally": "Routing an identity defect to 'visibility' would leave the only artifact governing it a tool-side note that already concedes it is unjustified."
+  },
+
+  "THE_MISMATCH_VERIFIED_ON_THE_BYTES": {
+    "certified_primary": {
+      "source": "protocols/final_pairing/v1/scientific_config_identity.json",
+      "release": "gemma-scope-2-12b-it-res-all",
+      "scientific_sae_id": "resid_post_all/layer_29_width_16k_l0_big",
+      "layer": 29
+    },
+    "tool_pin": {
+      "source": "sae_concept_lab/extracted_runtime/targets.py:249-255",
+      "sae_release": "gemma-scope-2-12b-it-res",
+      "sae_id": "resid_post/layer_31_width_16k_l0_medium",
+      "expected_layer": 31,
+      "tool_own_note": "'Engineering target only ... not re-justified here'"
+    },
+    "ALL_THREE_IDENTITY_FIELDS_DIFFER": "release differs (res vs res-all), tree differs (resid_post vs resid_post_all), layer differs (31 vs 29), and l0 tier differs (medium vs big). scientific_config_identity.json already rules that release, loader_sae_id and scientific_sae_id are NOT interchangeable and that RELEASE DETERMINES TIER AVAILABILITY. This is not a near miss; it is a different dictionary.",
+    "qwen_is_worse_in_kind": {
+      "tool_pin": "targets.py:270 pins Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50",
+      "certified_primary": "L0_100",
+      "the_specific_hazard": "L0_50 is not an arbitrary wrong value -- it is the RATIFIED SCIENTIFIC BACKUP arm. A reader checking it against qwen_config_identity.json finds it present and ratified, and may conclude the pin is correct. It is correct for the backup and wrong for the primary."
+    }
+  },
+
+  "THE_FAILURE_IS_SILENT_AND_MISLABELLED": {
+    "mechanism": "core/gemma_backend.py:139 unpacks (sae_id, layer, target) from the resolved bundle. LAYER IS NEVER USED TO LOAD ANYTHING -- the SAE and the hook both come from _ensure_loaded() at :149, i.e. from targets.py. layer reappears only at :196 as a DIAGNOSTICS FIELD.",
+    "consequence": "A layer-29 feature index is interpreted inside the layer-31 dictionary, and the diagnostics panel reports layer 29. The tool produces output that is confident, wrong, and correctly-labelled-looking.",
+    "why_this_is_the_worst_variant_of_the_pattern": "The sprint's recurring defect is a check that reads as coverage and is inert. Every prior instance produced a MISSING result. This one produces a WRONG result wearing the right label, and it is the first instance visible to a PI in a live demo. A missing answer prompts investigation; a confident wrong answer ends it."
+  },
+
+  "RULING": {
+    "an_engineering_pin_is_legitimate_AS_ENGINEERING": "targets.py may pin whatever it needs for engineering work. The tool's own note declaring it unjustified is honest and is not the defect.",
+    "THE_DEFECT_IS_THE_ABSENCE_OF_A_BOUNDARY": "Nothing prevents an engineering pin from being used for a science-attributed demonstration, and the diagnostics actively assert an identity the runtime is not using.",
+    "GATE_1_no_science_attributed_demo_on_a_mismatched_pin": "The tool MAY NOT be demonstrated against, or described as showing, results from the certified run unless its resolved SAE identity matches the certified configuration on ALL THREE fields -- release, scientific_sae_id and layer -- for the pairing being shown.",
+    "GATE_2_mismatch_must_fail_LOUD": "When a bundle's layer does not match the loaded SAE's layer, the tool must REFUSE and say so. It may not proceed and report the bundle's layer in diagnostics. An unused unpacked variable that is nonetheless displayed is an assertion the runtime does not honour.",
+    "GATE_3_diagnostics_must_report_the_LOADED_identity": "The diagnostics field must show the identity actually used by _ensure_loaded(), not the identity requested by the bundle. If the two can differ, showing the requested one is the defect.",
+    "explicitly_permitted": "Engineering demonstrations, clearly labelled as such, on any pin. The gate binds the CLAIM, not the code."
+  },
+
+  "NOT_MINE_recorded_for_the_owning_lane": {
+    "$comment": "Named so they are not lost, and explicitly NOT adjudicated here.",
+    "no_artifact_joins_concept_layer_feature": "grid.json carries concept and feature but no layer; the manifest carries layer but no feature; dose files carry feature and corpus_max but no layer; no code performs the join. ENGINEERING.",
+    "bundle_publisher_absent_at_the_candidate": "It exists only on eng3/concept-bundle, which is not an ancestor of the certified candidate. ENGINEERING plus a branch-integration question already raised as A-5.",
+    "assessment": "Both are real. Neither is a scientific-identity matter and neither is ruled here."
+  },
+
+  "hard_stops": [
+    "Demonstrating the tool against certified results while its resolved SAE identity differs from the certified configuration on release, scientific_sae_id or layer.",
+    "Proceeding when a bundle's layer does not match the loaded SAE's layer.",
+    "Reporting a requested identity in diagnostics when the runtime loaded a different one.",
+    "Treating the Qwen L0_50 pin as correct because L0_50 is ratified -- it is ratified as the BACKUP, not the primary.",
+    "Treating this gate as a block on the certified run or the pending submission. It is neither."
+  ]
+}
