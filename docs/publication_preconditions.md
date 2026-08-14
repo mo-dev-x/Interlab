@@ -22,14 +22,48 @@ last commit of Phase 2).
 
 ## 2. Public-subset include list — BLOCKED, not authorable yet
 
-- **Status:** open precondition. No list exists yet.
-- **Blocker:** the tool's file set is not final until generation lands.
+**Scope decision — SETTLED by the researcher, 2026-08-14** (not a
+recommendation; this is what will happen):
+
+- **The repo will be made public in the future.** The flip is planned, not
+  hypothetical. Both `mo-dev-x/qwen-sae-interp` and `mo-dev-x/sae-concept-lab`
+  exist and are private today (verified 2026-08-14: unauthenticated GitHub
+  API returns 404 for both).
+- **Internal governance and experiment evidence are NOT published.**
+  `project_management/`, `reports/`, `results/final_pairing/`, and the
+  dispatch packets stay private.
+- **Publication is by building a public SUBSET, not by stripping this
+  repo.** `qwen-sae-interp` stays complete and private; the public artifact
+  is a separate, derivative build made by inclusion. Two reasons, both
+  non-obvious, both recorded here so neither gets re-litigated:
+  - `.gitignore` does not un-publish anything already committed. Every
+    governance file is already in this repo's history, and flipping a
+    GitHub repo to public publishes the *entire* history in one action —
+    there is no partial reveal. Un-tracking them now would not help, and
+    would only cost the versioning.
+  - `protocols/final_pairing/v1/` must ship despite reading as governance.
+    It is loaded at runtime by 8 scripts (verified: every file under
+    `scripts/final_pairing/` that references `protocols/final_pairing/v1`)
+    and 3 test files (`test_final_pairing_evidence_document.py`,
+    `test_final_pairing_one_allocation_generation.py`,
+    `test_final_pairing_concept_discovery.py`); omitting it breaks the
+    public repo on clone.
+- **Governance stays tracked in the private repo.** Do not "fix" this later
+  by un-tracking it — `project_management/VERIFICATION_LOG.md` binds 84
+  sha256 digests and is the audit ground truth. It needs versioning, not
+  removal.
+
+- **Blocker (unchanged):** the include list itself still is not authorable —
+  the tool's file set is not final until generation lands.
 - **Run before publication:** once generation lands, enumerate the actual
-  public include list and reconcile it against whatever governance-material
-  decision was made (see `docs/repo_cleanup_plan.md` Phase 4/5b while that
-  plan still exists).
-- **Pass means:** a concrete, reviewed include list exists and matches the
-  shipped tree — not assumed, not inferred from a plan document.
+  public include list against the policy above (public tool code +
+  `protocols/final_pairing/v1/`; nothing from `project_management/`,
+  `reports/`, `results/final_pairing/`, or the dispatch packets) and build
+  the public artifact as a separate derivative, never by stripping this
+  repo in place.
+- **Pass means:** a concrete, reviewed include list exists, matches the
+  policy above, and the public artifact is built as its own derivative —
+  this repo remains complete and private throughout.
 
 ## 3. `reports/internship_report.html` / `.pdf` — must never be tracked
 
