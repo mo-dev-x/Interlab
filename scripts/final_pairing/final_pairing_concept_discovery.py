@@ -98,6 +98,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -204,6 +205,21 @@ class MatchedConfiguration:
     #: only where a hash check enforces it", so the emitted value must come
     #: from hashing the file on disk, not from copying this constant.
     gemma_params_expected_sha256: str
+    #: Qwen is CONFIGURATION-SPECIFIC, not merely k-specific (P0 STOP-LINE
+    #: correction, 2026-08-13): unlike Gemma (one repository, two release
+    #: namespaces), PRIMARY and BACKUP draw from TWO SEPARATE Qwen-Scope
+    #: repositories at two separate revisions -- from
+    #: protocols/final_pairing/v1/qwen_config_identity.json (commit
+    #: c2927d09152118de76e7ce7f7e5c67a1801eafbd) `configurations.<NAME>`.
+    #: `qwen_params_expected_sha256` is bare hex (that artifact's own
+    #: `sha256:`-prefixed string with the prefix stripped), matching
+    #: `gemma_params_expected_sha256`'s encoding above -- compared against a
+    #: digest MEASURED from the actual `layerN.sae.pt` file loaded at
+    #: runtime (`assert_qwen_params_sha256_matches` below), never emitted
+    #: as-is.
+    qwen_sae_repo_id: str
+    qwen_sae_revision: str
+    qwen_params_expected_sha256: str
 
 
 PRIMARY_CONFIGURATION = MatchedConfiguration(
@@ -211,14 +227,29 @@ PRIMARY_CONFIGURATION = MatchedConfiguration(
     gemma_sae_release="gemma-scope-2-12b-it-res-all", gemma_sae_id="resid_post_all/layer_29_width_16k_l0_big",
     gemma_sae_loader_id="layer_29_width_16k_l0_big",
     gemma_params_expected_sha256="6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e",
+    qwen_sae_repo_id="Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_100",
+    qwen_sae_revision="82852e98c9b33d02194e92dd514b12fafd09ed25",
+    qwen_params_expected_sha256="78b94bf19d4c120e70ba2767734b6d904468d127537e5d16c2a76cbc0963aeb0",
 )
 BACKUP_CONFIGURATION = MatchedConfiguration(
     name="backup", qwen_layer=32, qwen_sae_family="L0_50", qwen_sparsity=50, gemma_layer=24, qwen_depth_fraction=0.5,
     gemma_sae_release="gemma-scope-2-12b-it-res", gemma_sae_id="resid_post/layer_24_width_16k_l0_medium",
     gemma_sae_loader_id="layer_24_width_16k_l0_medium",
     gemma_params_expected_sha256="2e5f3bc8edc5340ac101fe967f5b59d7a14b40c47315baf5a3446232cb2e799e",
+    qwen_sae_repo_id="Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50",
+    qwen_sae_revision="13d4221569f7ca5d3c1e605e3e3dc95117e4807c",
+    qwen_params_expected_sha256="fbbae7cf93c1e385c68213ae871ede349ac666f3a8c4e6a75ef959db2b6612ab",
 )
 MATCHED_CONFIGURATIONS: dict[str, MatchedConfiguration] = {"primary": PRIMARY_CONFIGURATION, "backup": BACKUP_CONFIGURATION}
+#: Configuration-specific Qwen identity is looked up by SAE family (the one
+#: field a caller supplies that uniquely determines a configuration) -- the
+#: single place `load_qwen_scientific_target` resolves which configuration's
+#: repo/revision/layer/k/hash a given `--qwen-sae-family` means, so a caller
+#: can no longer combine e.g. `sae_family="L0_100"` with BACKUP's layer/k
+#: (a "crossed configuration/family path").
+QWEN_CONFIGURATION_BY_SAE_FAMILY: dict[str, MatchedConfiguration] = {
+    c.qwen_sae_family: c for c in MATCHED_CONFIGURATIONS.values()
+}
 
 # protocols/final_pairing/v1/scientific_config_identity.json, v1.3.0 (commit
 # 5a5175d): the version this file's MATCHED_CONFIGURATIONS constants above
@@ -246,6 +277,33 @@ def validate_scientific_config_identity_hash(repo_root: str | Path) -> str:
         raise PromptArtifactError(
             f"{path} sha256={actual!r} != pinned {IDENTITY_PROTOCOL_SHA256!r} -- refusing to run "
             f"discovery against an altered or superseded scientific-config identity artifact."
+        )
+    return actual
+
+
+QWEN_CONFIG_IDENTITY_PROTOCOL_PATH = "protocols/final_pairing/v1/qwen_config_identity.json"
+QWEN_CONFIG_IDENTITY_PROTOCOL_VERSION = "final-pairing-qwen-config-identity/1.0.0"
+QWEN_CONFIG_IDENTITY_PROTOCOL_COMMIT = "c2927d09152118de76e7ce7f7e5c67a1801eafbd"
+QWEN_CONFIG_IDENTITY_PROTOCOL_SHA256 = "ad61dd463c4440ff87aecf742038adca51361f5844c2c1bd847a1213999849e4"
+
+
+def validate_qwen_config_identity_protocol_hash(repo_root: str | Path) -> str:
+    """Fails closed if `qwen_config_identity.json`'s actual bytes don't
+    match the pinned hash -- same discipline as
+    `validate_scientific_config_identity_hash`, applied to the Qwen-arm
+    gating supplement `PRIMARY_CONFIGURATION`/`BACKUP_CONFIGURATION`'s
+    `qwen_sae_repo_id`/`qwen_sae_revision`/`qwen_params_expected_sha256`
+    fields are transcribed from -- a silently-edited or reverted identity
+    file must be caught even though this file's own constants still read
+    as the frozen version."""
+    path = Path(repo_root) / QWEN_CONFIG_IDENTITY_PROTOCOL_PATH
+    if not path.is_file():
+        raise PromptArtifactError(f"qwen-config identity protocol not found at {path}")
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != QWEN_CONFIG_IDENTITY_PROTOCOL_SHA256:
+        raise PromptArtifactError(
+            f"{path} sha256={actual!r} != pinned {QWEN_CONFIG_IDENTITY_PROTOCOL_SHA256!r} -- refusing to "
+            f"run discovery against an altered or superseded Qwen scientific-config identity artifact."
         )
     return actual
 
@@ -335,6 +393,26 @@ def assert_params_sha256_matches(resolved_sae_files: list[str], *, expected_sha2
             f"{candidates[0]} hashes to {measured!r}, not the frozen expected "
             f"{expected_sha256!r} ({IDENTITY_PROTOCOL_COMMIT}). Mismatch is a hard stop: the "
             f"revision says what was downloaded, only the hash says what is on disk."
+        )
+    return measured
+
+
+def assert_qwen_params_sha256_matches(layer_file_path: str | Path, *, expected_sha256: str) -> str:
+    """The Qwen-side counterpart to `assert_params_sha256_matches`: computes
+    the ACTUAL SHA-256 of the loaded `layerN.sae.pt` file's bytes on disk
+    (a single file per layer, not a snapshot directory to search) and
+    asserts it equals `expected_sha256` (`qwen_config_identity.json`'s
+    `configurations.<NAME>.params_expected_sha256` for this configuration).
+    Returns the MEASURED digest -- callers must persist exactly this
+    return value as provenance, never the `expected_sha256` argument
+    itself, per the same "the revision says what was downloaded, only the
+    hash says what is on disk" discipline."""
+    measured = compute_file_sha256(layer_file_path)
+    if measured != expected_sha256:
+        raise targets.TargetIdentityMismatch(
+            f"{layer_file_path} hashes to {measured!r}, not the frozen expected {expected_sha256!r} "
+            f"({QWEN_CONFIG_IDENTITY_PROTOCOL_COMMIT}). Mismatch is a hard stop: the revision says "
+            f"what was downloaded, only the hash says what is on disk."
         )
     return measured
 
@@ -792,6 +870,20 @@ def _auroc_from_scores(positive_scores: list[float], negative_scores: list[float
     return float(roc_auc_score(y, scores))
 
 
+def compute_gate_b_fire_rate(positive_scores: list[float], *, floor_fraction: float) -> tuple[float, float]:
+    """G-B's firing arithmetic, pure and independently testable: the floor
+    is `floor_fraction` (0.20 by default) times the observed max of
+    `positive_scores`, and a prompt fires iff its score is `>= floor` --
+    P0 STOP-LINE correction: NOT a strict `>` (a prompt landing exactly
+    at the floor must count as firing). Returns `(fire_rate, floor)`."""
+    if not positive_scores:
+        return 0.0, 0.0
+    observed_max = max(positive_scores)
+    floor = observed_max * floor_fraction
+    fire_rate = sum(1 for s in positive_scores if s >= floor) / len(positive_scores)
+    return fire_rate, floor
+
+
 def compute_gate_a_and_b_per_family(
     backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str, locale: str, feature_index: int,
     auroc_min: float | None = None, activation_floor_fraction: float | None = None, fire_rate_min: float | None = None,
@@ -838,9 +930,7 @@ def compute_gate_a_and_b_per_family(
         auroc = _auroc_from_scores(positive_scores, negative_scores)
         gate_a_passed = auroc >= auroc_min
 
-        observed_max = max(positive_scores) if positive_scores else 0.0
-        floor = observed_max * floor_fraction
-        fire_rate = (sum(1 for s in positive_scores if s > floor) / len(positive_scores)) if positive_scores else 0.0
+        fire_rate, _floor = compute_gate_b_fire_rate(positive_scores, floor_fraction=floor_fraction)
         gate_b_passed = fire_rate >= fire_rate_min
 
         results.append(
@@ -977,22 +1067,63 @@ class Backend:
 _QWEN_SCIENTIFIC_SAE_FAMILIES = tuple(c.qwen_sae_family for c in MATCHED_CONFIGURATIONS.values())
 
 
-def _qwen_scientific_target(*, k: int) -> targets.TargetPairing:
+_QWEN_REPO_L0_SUFFIX_RE = re.compile(r"L0_(\d+)$")
+
+
+def assert_qwen_configuration_self_consistent(configuration: MatchedConfiguration) -> None:
+    """Two runtime cross-checks of `qwen_config_identity.json`'s own
+    recorded constants -- run at every real Qwen load, never merely
+    trusted because the constants were transcribed carefully:
+
+    1. k must equal the `L0_<N>` suffix of the configuration's OWN SAE
+       repository id (`qwen_config_identity.json`'s own validation rule:
+       "k must equal the L0_N value in the repository identifier;
+       disagreement is a hard stop").
+    2. `qwen_depth_fraction` must equal `qwen_layer / expected_num_layers`
+       (64), recomputed here rather than merely read off the stored
+       constant ("depth_fraction is recomputed as layer / 64 at load and
+       asserted equal to the recorded value")."""
+    match = _QWEN_REPO_L0_SUFFIX_RE.search(configuration.qwen_sae_repo_id)
+    if match is None:
+        raise targets.TargetIdentityMismatch(
+            f"configuration {configuration.name!r}'s SAE repository id "
+            f"{configuration.qwen_sae_repo_id!r} does not end in an L0_<N> suffix -- cannot "
+            f"cross-check k against it."
+        )
+    repo_k = int(match.group(1))
+    if repo_k != configuration.qwen_sparsity:
+        raise targets.TargetIdentityMismatch(
+            f"configuration {configuration.name!r}: k={configuration.qwen_sparsity} disagrees with "
+            f"the L0_{repo_k} suffix of its own SAE repository id {configuration.qwen_sae_repo_id!r}."
+        )
+    computed_depth_fraction = configuration.qwen_layer / targets.QWEN_3_5_27B_TARGET.expected_num_layers
+    if abs(computed_depth_fraction - configuration.qwen_depth_fraction) > 1e-9:
+        raise targets.TargetIdentityMismatch(
+            f"configuration {configuration.name!r}: recomputed depth_fraction "
+            f"{configuration.qwen_layer}/{targets.QWEN_3_5_27B_TARGET.expected_num_layers}="
+            f"{computed_depth_fraction} disagrees with the recorded qwen_depth_fraction="
+            f"{configuration.qwen_depth_fraction}."
+        )
+
+
+def _qwen_scientific_target(*, configuration: MatchedConfiguration) -> targets.TargetPairing:
     """A LOCAL variant of the ratified Qwen target for scientific discovery,
     built via `dataclasses.replace` rather than editing
-    `final_pairing_targets.QWEN_3_5_27B_TARGET` in place. The mechanical
-    target's `expected_k=50` is fixed to the engineering-only layer-0/L0_50
-    pairing job 406092 already exercised; the ratified scientific SAE
-    decision's primary search (SAE family L0_100) needs k=100, a genuinely
-    different, independently-verified structural property of a different
-    TopK SAE -- not a free override of the mechanically-accepted identity.
-    Every OTHER field (repo ids, hidden dim, hook-name convention, format)
-    stays exactly the ratified value; `expected_layer` was already `None`
-    ("engineering-only, supplied by the caller") on the base target, so
-    layer flexibility needs no override here."""
+    `final_pairing_targets.QWEN_3_5_27B_TARGET` in place -- CONFIGURATION-
+    SPECIFIC (P0 STOP-LINE correction, 2026-08-13), not merely k-specific:
+    `sae_repo_id`, `expected_k`, and `expected_layer` are ALL drawn from
+    `configuration` (`qwen_config_identity.json`'s per-configuration
+    repository/layer/k, never a caller-supplied override combined freely
+    with a mismatched family). Every OTHER field (hidden dim, hook-name
+    convention, format) stays exactly the ratified base value."""
     import dataclasses as _dc
 
-    return _dc.replace(targets.QWEN_3_5_27B_TARGET, expected_k=k)
+    return _dc.replace(
+        targets.QWEN_3_5_27B_TARGET,
+        sae_repo_id=configuration.qwen_sae_repo_id,
+        expected_k=configuration.qwen_sparsity,
+        expected_layer=configuration.qwen_layer,
+    )
 
 
 def load_qwen_scientific_target(
@@ -1004,13 +1135,26 @@ def load_qwen_scientific_target(
     project's own Ground Rule 2: duplicate rather than cross-import/modify
     a frozen, already-accepted file) with one difference: `target` is a
     locally-built scientific variant (see `_qwen_scientific_target`) rather
-    than the module-level mechanical `QWEN_3_5_27B_TARGET`, so a k other
-    than the mechanical target's fixed 50 can be validated against without
-    touching final_pairing_harness.py or final_pairing_targets.py at all.
+    than the module-level mechanical `QWEN_3_5_27B_TARGET`.
     `sae_family` is recorded in provenance as its own field, never folded
     into `k` or `layer` -- SAE family, transformer layer, and sparsity (k)
-    stay three distinct fields throughout, per the ratified scientific SAE
-    decision's explicit requirement."""
+    stay three distinct fields throughout.
+
+    P0 STOP-LINE correction (2026-08-13), "reject crossed family/
+    configuration paths": `sae_family` resolves to EXACTLY ONE of
+    `PRIMARY_CONFIGURATION`/`BACKUP_CONFIGURATION`
+    (`QWEN_CONFIGURATION_BY_SAE_FAMILY`) and the caller's OWN `layer`/`k`
+    are asserted to agree with that configuration's ratified values before
+    anything loads -- a caller can no longer combine e.g.
+    `sae_family="L0_100"` (PRIMARY) with `layer=32`/`k=50` (BACKUP's own
+    values). `expected_sae_revision`, if supplied, must likewise agree
+    with the configuration's frozen, pinned `qwen_sae_revision`; if
+    omitted, that pinned value is used directly (Qwen's identity is
+    PINNED_LOCAL_ONLY per `qwen_config_identity.json`, unlike Gemma's
+    shared-revision, caller-supplied convention). The loaded `layerN.sae.pt`
+    file's ACTUAL SHA-256 is measured and asserted against the
+    configuration's frozen `qwen_params_expected_sha256`
+    (`assert_qwen_params_sha256_matches`) before generation is possible."""
     import torch
     from transformers import AutoModelForCausalLM
 
@@ -1026,7 +1170,29 @@ def load_qwen_scientific_target(
             "not a scientific candidate -- refusing to run concept discovery against it."
         )
 
-    target = _qwen_scientific_target(k=k)
+    configuration = QWEN_CONFIGURATION_BY_SAE_FAMILY[sae_family]
+    assert_qwen_configuration_self_consistent(configuration)
+    if layer != configuration.qwen_layer:
+        raise targets.TargetIdentityMismatch(
+            f"--qwen-layer {layer} does not match configuration {configuration.name!r}'s ratified "
+            f"layer {configuration.qwen_layer} for --qwen-sae-family {sae_family!r} -- refusing to "
+            f"load a crossed configuration/family combination."
+        )
+    if k != configuration.qwen_sparsity:
+        raise targets.TargetIdentityMismatch(
+            f"--qwen-sparsity {k} does not match configuration {configuration.name!r}'s ratified "
+            f"k={configuration.qwen_sparsity} for --qwen-sae-family {sae_family!r} -- refusing to "
+            f"load a crossed configuration/family combination."
+        )
+    if expected_sae_revision is not None and expected_sae_revision != configuration.qwen_sae_revision:
+        raise targets.TargetIdentityMismatch(
+            f"--expected-sae-revision {expected_sae_revision!r} disagrees with configuration "
+            f"{configuration.name!r}'s frozen, pinned revision {configuration.qwen_sae_revision!r} "
+            f"(qwen_config_identity.json) -- refusing to proceed with an unpinned or altered revision."
+        )
+    resolved_expected_sae_revision = expected_sae_revision or configuration.qwen_sae_revision
+
+    target = _qwen_scientific_target(configuration=configuration)
     harness._require_offline()
 
     model_path = Path(model_path)
@@ -1041,7 +1207,10 @@ def load_qwen_scientific_target(
         model_path, target, which="model", expected_revision=expected_model_revision
     )
     sae_identity = targets.validate_local_snapshot_identity(
-        sae_layer_file_path.parent, target, which="sae", expected_revision=expected_sae_revision
+        sae_layer_file_path.parent, target, which="sae", expected_revision=resolved_expected_sae_revision
+    )
+    measured_params_sha256 = assert_qwen_params_sha256_matches(
+        sae_layer_file_path, expected_sha256=configuration.qwen_params_expected_sha256,
     )
 
     torch_dtype = getattr(torch, dtype)
@@ -1076,6 +1245,7 @@ def load_qwen_scientific_target(
         "sae": {
             "repository": target.sae_repo_id,
             "sae_family": sae_family,
+            "configuration": configuration.name,
             "local_path": str(sae_layer_file_path),
             "revision": sae_identity["revision"],
             "revision_verification": sae_identity["verification"],
@@ -1085,6 +1255,23 @@ def load_qwen_scientific_target(
             "d_in": sae.d_in,
             "d_sae": sae.d_sae,
             "sparsity_k": sae.k,
+            # MEASURED from the actual layerN.sae.pt bytes on disk
+            # (assert_qwen_params_sha256_matches), already asserted equal to
+            # the frozen qwen_config_identity.json expectation above --
+            # never the expected constant copied in without hashing the file.
+            "params_sha256": measured_params_sha256,
+            # QwenScopeSAE.from_state_dict (final_pairing_harness.py, frozen)
+            # explicitly casts every tensor (.to(dtype=torch.float32, ...))
+            # at load -- SAE parameters are float32 while the model runs in
+            # its own dtype; recorded here, not merely performed silently.
+            "dtype_cast": "float32 (explicit, at load, via QwenScopeSAE.from_state_dict)",
+            # weights_only=True is on this load path (final_pairing_harness.
+            # QwenScopeSAE.from_layer_file -> torch.load(..., weights_only=
+            # True)) -- the .sae.pt files are PyTorch pickles, not
+            # safetensors; the hash check above proves which file this is,
+            # weights_only=True is the separate, independent control that
+            # loading it cannot execute arbitrary code.
+            "torch_load_weights_only": True,
         },
         "layer": {"engineering_layer": layer, "engineering_only": False, "hook_name": hook_identifier},
     }
@@ -1864,6 +2051,23 @@ class SpecificityResult:
 
 
 def _pooled_residual_and_feature(backend: Backend, texts: list[str], feature_index: int) -> tuple[np.ndarray, np.ndarray]:
+    """Returns (per-text mean-pooled residual, per-text feature score).
+
+    P0 STOP-LINE correction, 2026-08-13: the per-prompt FEATURE score is
+    MAX over positions, never mean -- matching this file's own established
+    convention everywhere else a per-text SAE-feature scalar is computed
+    (`rank_features_by_activation`'s `_gemma_max_activation_per_feature`/
+    `_qwen_max_activation_per_feature`, `feats.max(dim=0).values`). This
+    function was the one place that deviated (`.mean()`), silently
+    diluting a feature that fires sharply on only a few tokens of a
+    prompt -- exactly the failure mode "max over positions" exists to
+    avoid. Every caller of this function (G-A/B/C, held-out specificity
+    validation, greedy bundle composition) reads its second return value
+    as that per-prompt feature score. The residual pooling (first return
+    value, used only for the specificity probe's own logistic-regression
+    input, never for a gate score) is UNCHANGED mean-pooling -- this
+    correction is scoped to the feature score only, per the frozen
+    metric's own definition."""
     import torch
 
     if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
@@ -1876,7 +2080,7 @@ def _pooled_residual_and_feature(backend: Backend, texts: list[str], feature_ind
                 x = cache[backend.hook_name].to(torch.float32)[0]
                 feats = sae.encode(x)
                 residuals.append(x.mean(dim=0).cpu().numpy())
-                feats_out.append(float(feats[:, feature_index].mean().item()))
+                feats_out.append(float(feats[:, feature_index].max().item()))
         return np.stack(residuals), np.array(feats_out)
 
     from transformers import AutoTokenizer
@@ -1898,7 +2102,7 @@ def _pooled_residual_and_feature(backend: Backend, texts: list[str], feature_ind
                 x = captured[-1].to(torch.float32)[0]
                 feats = backend.sae.encode(x)
                 residuals.append(x.mean(dim=0).cpu().numpy())
-                feats_out.append(float(feats[:, feature_index].mean().item()))
+                feats_out.append(float(feats[:, feature_index].max().item()))
     finally:
         handle.remove()
     return np.stack(residuals), np.array(feats_out)
@@ -2120,6 +2324,84 @@ def _resolved_generation_kwargs(max_new_tokens: int, generation_kwargs: dict[str
     return resolved
 
 
+def resolve_tokenizer_for_backend(backend: Backend):
+    """The one real tokenizer object backing this backend's chat template
+    and stop-token resolution -- Gemma's `HookedTransformer` already
+    carries one (`model.tokenizer`, the same `AutoTokenizer` it was built
+    with); Qwen has no comparable stored tokenizer on `Backend` (every
+    other Qwen code path in this file reloads it from the validated local
+    model path), so this does the same, never inventing a separate
+    lookup."""
+    if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
+        return backend.model_obj.tokenizer
+    from transformers import AutoTokenizer
+
+    return AutoTokenizer.from_pretrained(backend.provenance["model"]["local_path"])
+
+
+def resolve_chat_template_identity(tokenizer) -> str:
+    """P0 STOP-LINE correction ("derive/record template identity rather
+    than accepting an arbitrary label"): a stable fingerprint of the
+    tokenizer's OWN real `chat_template` Jinja string, actually in effect
+    at generation time -- never a free-text CLI/caller label. Raises if
+    the tokenizer carries no chat_template at all: an instruction-tuned
+    model with no template is itself a stop condition, not license to
+    silently fall back to raw (non-chat) tokenization."""
+    name = getattr(tokenizer, "name_or_path", None) or "unknown"
+    template = getattr(tokenizer, "chat_template", None)
+    if not template:
+        raise ValueError(
+            f"tokenizer {name!r} has no chat_template -- refusing to invent one or silently fall "
+            f"back to raw (non-chat) tokenization for an instruction-tuned model."
+        )
+    template_sha256 = hashlib.sha256(template.encode("utf-8")).hexdigest()
+    return f"{name}:{template_sha256[:16]}"
+
+
+#: Well-known chat end-of-turn marker spellings this file checks for IN
+#: ADDITION to the tokenizer's own primary `eos_token_id` -- a chat model's
+#: real stop condition is often MORE than one token id (e.g. Gemma's own
+#: generation_config.json ships `eos_token_id: [<eos>, <end_of_turn>]`).
+#: Never a newline or any other content-shaped stopping criterion.
+_CHAT_END_OF_TURN_MARKERS: tuple[str, ...] = ("<end_of_turn>", "<|im_end|>")
+
+
+def resolve_stop_token_ids(tokenizer) -> dict[str, Any]:
+    """P0 STOP-LINE correction ("resolve and record EOS/EOT/PAD
+    explicitly; never stop on newline"): explicitly resolves the real
+    stop-token id(s) and pad-token id from the tokenizer, rather than
+    relying on whatever implicit default `generate()` would otherwise
+    apply -- and never introduces any newline-based stopping criterion.
+    `eos_token_id` is a LIST when a known end-of-turn marker is present in
+    the tokenizer's vocabulary in addition to its primary EOS (matching
+    `transformers.GenerationConfig`'s own accepted shape), a plain int
+    otherwise."""
+    if tokenizer.eos_token_id is None:
+        raise ValueError(
+            f"tokenizer {getattr(tokenizer, 'name_or_path', tokenizer)!r} has no eos_token_id -- "
+            f"cannot resolve an explicit stop token."
+        )
+    eos_ids = [tokenizer.eos_token_id]
+    unk_id = getattr(tokenizer, "unk_token_id", None)
+    for marker in _CHAT_END_OF_TURN_MARKERS:
+        marker_id = tokenizer.convert_tokens_to_ids(marker)
+        if marker_id is not None and marker_id != unk_id and marker_id not in eos_ids:
+            eos_ids.append(marker_id)
+    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else eos_ids[0]
+    return {"eos_token_id": eos_ids if len(eos_ids) > 1 else eos_ids[0], "pad_token_id": pad_token_id}
+
+
+def render_chat_prompt_tokens(tokenizer, prompt: str, *, return_tensors: str = "pt", return_dict: bool = False):
+    """P0 STOP-LINE correction ("apply each model's real chat template:
+    one user turn, no system prompt"): applies the tokenizer's REAL chat
+    template via `apply_chat_template`, never a hand-built prompt string
+    -- exactly one user-role message, no system message."""
+    messages = [{"role": "user", "content": prompt}]
+    return tokenizer.apply_chat_template(
+        messages, tokenize=True, add_generation_prompt=True, return_tensors=return_tensors, return_dict=return_dict,
+    )
+
+
 def run_intervention(
     backend: Backend, feature_indices: list[int], *,
     direction: Literal["clamp", "ablate"], value_in_max_units: float, corpus_max: dict[int, float],
@@ -2138,8 +2420,10 @@ def run_intervention(
     trace: list = []
     if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
         model = backend.model_obj
-        tokens = model.to_tokens(prompt)
-        prompt_lengths = tokens.shape[1] if positions == "generated_only" else None
+        tokens = render_chat_prompt_tokens(model.tokenizer, prompt, return_tensors="pt", return_dict=False)
+        stop_ids = resolve_stop_token_ids(model.tokenizer)
+        prompt_length = tokens.shape[1]
+        prompt_lengths = prompt_length if positions == "generated_only" else None
         inner = _bundle_hook_fn(backend, feature_indices, absolute_clamp_value, positions, prompt_lengths, trace)
         hook_fn = harness.wrap_hook_with_diagnostics(
             inner, sae=backend.sae, feature_index=seed_feature, mode=direction,
@@ -2148,15 +2432,15 @@ def run_intervention(
         )
         torch.manual_seed(seed)
         with _attached(backend, hook_fn):
-            out_tokens = model.generate(tokens, verbose=False, **gen_kwargs)
-        generated_text = model.tokenizer.decode(out_tokens[0])
-        new_token_count = out_tokens.shape[1] - tokens.shape[1]
+            out_tokens = model.generate(tokens, verbose=False, **{**gen_kwargs, **stop_ids})
+        generated_text = model.tokenizer.decode(out_tokens[0][prompt_length:], skip_special_tokens=True)
+        new_token_count = out_tokens.shape[1] - prompt_length
     else:
-        from transformers import AutoTokenizer
-
-        tokenizer = AutoTokenizer.from_pretrained(backend.provenance["model"]["local_path"])
-        inputs = tokenizer(prompt, return_tensors="pt").to(backend._qwen_device)
-        prompt_lengths = inputs["input_ids"].shape[1] if positions == "generated_only" else None
+        tokenizer = resolve_tokenizer_for_backend(backend)
+        inputs = render_chat_prompt_tokens(tokenizer, prompt, return_tensors="pt", return_dict=True).to(backend._qwen_device)
+        stop_ids = resolve_stop_token_ids(tokenizer)
+        prompt_length = inputs["input_ids"].shape[1]
+        prompt_lengths = prompt_length if positions == "generated_only" else None
         inner = _bundle_hook_fn(backend, feature_indices, absolute_clamp_value, positions, prompt_lengths, trace)
         hook_fn = harness.wrap_hook_with_diagnostics(
             inner, sae=backend.sae, feature_index=seed_feature, mode=direction,
@@ -2165,9 +2449,9 @@ def run_intervention(
         )
         torch.manual_seed(seed)
         with _attached(backend, hook_fn), torch.no_grad():
-            out_ids = backend.model_obj.generate(**inputs, **gen_kwargs)
-        generated_text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
-        new_token_count = out_ids.shape[1] - inputs["input_ids"].shape[1]
+            out_ids = backend.model_obj.generate(**inputs, **{**gen_kwargs, **stop_ids})
+        generated_text = tokenizer.decode(out_ids[0][prompt_length:], skip_special_tokens=True)
+        new_token_count = out_ids.shape[1] - prompt_length
 
     verdict = harness.mechanical_verdict(trace, positions=positions)
     spec = {
@@ -2217,21 +2501,23 @@ def run_baseline_generation(
 
     if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
         model = backend.model_obj
-        tokens = model.to_tokens(prompt)
+        tokens = render_chat_prompt_tokens(model.tokenizer, prompt, return_tensors="pt", return_dict=False)
+        stop_ids = resolve_stop_token_ids(model.tokenizer)
+        prompt_length = tokens.shape[1]
         torch.manual_seed(seed)
-        out_tokens = model.generate(tokens, verbose=False, **gen_kwargs)
-        generated_text = model.tokenizer.decode(out_tokens[0])
-        new_token_count = out_tokens.shape[1] - tokens.shape[1]
+        out_tokens = model.generate(tokens, verbose=False, **{**gen_kwargs, **stop_ids})
+        generated_text = model.tokenizer.decode(out_tokens[0][prompt_length:], skip_special_tokens=True)
+        new_token_count = out_tokens.shape[1] - prompt_length
     else:
-        from transformers import AutoTokenizer
-
-        tokenizer = AutoTokenizer.from_pretrained(backend.provenance["model"]["local_path"])
-        inputs = tokenizer(prompt, return_tensors="pt").to(backend._qwen_device)
+        tokenizer = resolve_tokenizer_for_backend(backend)
+        inputs = render_chat_prompt_tokens(tokenizer, prompt, return_tensors="pt", return_dict=True).to(backend._qwen_device)
+        stop_ids = resolve_stop_token_ids(tokenizer)
+        prompt_length = inputs["input_ids"].shape[1]
         torch.manual_seed(seed)
         with torch.no_grad():
-            out_ids = backend.model_obj.generate(**inputs, **gen_kwargs)
-        generated_text = tokenizer.decode(out_ids[0], skip_special_tokens=True)
-        new_token_count = out_ids.shape[1] - inputs["input_ids"].shape[1]
+            out_ids = backend.model_obj.generate(**inputs, **{**gen_kwargs, **stop_ids})
+        generated_text = tokenizer.decode(out_ids[0][prompt_length:], skip_special_tokens=True)
+        new_token_count = out_ids.shape[1] - prompt_length
 
     spec = {
         "kind": "baseline", "feature_index": None, "value_in_max_units": 0.0, "corpus_max": None,
@@ -2445,15 +2731,20 @@ class ReadyRecord:
     loaded_at: float
 
 
-def write_ready_record(ready_path: str | Path, *, pairing: str, device: str) -> ReadyRecord:
+def write_ready_record(ready_path: str | Path, *, pairing: str, device: str, pid: int | None = None) -> ReadyRecord:
     """Written ATOMICALLY (write to a sibling .tmp file, then os.replace)
     so a reader polling for `ready_path` never observes a partially-written
     file -- os.replace is atomic on both POSIX and NTFS when source and
     destination are on the same volume, which a sibling temp file always
-    is."""
+    is. `pid` defaults to `os.getpid()` (the real, production case: this
+    function runs INSIDE the child process it is reporting readiness
+    for) -- overridable so a test can fake a launch WITHOUT a real
+    subprocess while still recording the fake process handle's own pid,
+    which `wait_for_ready_record`'s `expected_pid` check requires to
+    agree."""
     import time as _time
 
-    record = ReadyRecord(pairing=pairing, device=device, pid=os.getpid(), loaded_at=_time.time())
+    record = ReadyRecord(pairing=pairing, device=device, pid=pid if pid is not None else os.getpid(), loaded_at=_time.time())
     path = Path(ready_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_suffix(path.suffix + ".tmp")
@@ -2470,9 +2761,20 @@ class ReadyHandshakeFailed(RuntimeError):
     underperformance."""
 
 
+def delete_stale_ready_record(ready_path: str | Path) -> None:
+    """P0 STOP-LINE correction ('delete an old READY file before
+    launch'): removes any pre-existing READY record at `ready_path`
+    BEFORE this lane's child process is even launched -- a state_dir
+    reused across runs (a resumed job, a re-submitted allocation) must
+    never let a PREVIOUS run's READY record be misread as THIS run's
+    signal. A no-op (never raises) if no file is present."""
+    Path(ready_path).unlink(missing_ok=True)
+
+
 def wait_for_ready_record(
     ready_path: str | Path, *, expected_pairing: str, expected_device: str,
     process_alive_fn, timeout_seconds: float, poll_interval: float = 1.0, sleep_fn=None,
+    expected_pid: int | None = None, min_loaded_at: float | None = None,
 ) -> ReadyRecord:
     """Polls for `ready_path`. `process_alive_fn()` returning False BEFORE
     a valid READY record appears means the loader process exited without
@@ -2480,7 +2782,17 @@ def wait_for_ready_record(
     out the full timeout on a process that has already died. A READY
     record naming a different pairing or device than expected is refused
     rather than trusted (a misconfigured lane could otherwise silently
-    satisfy the wrong handshake)."""
+    satisfy the wrong handshake).
+
+    P0 STOP-LINE correction ('require READY pid/start time to match this
+    child'): when `expected_pid`/`min_loaded_at` are supplied (the real
+    orchestrator always supplies both -- see `DualGpuOrchestrator.
+    launch_staggered`), the record's own `pid` must equal `expected_pid`
+    (THIS child's actual spawned pid, never merely "a" pid) and its
+    `loaded_at` must be `>= min_loaded_at` (no earlier than when THIS
+    child was launched) -- a defense-in-depth check independent of
+    `delete_stale_ready_record`, in case that deletion ever raced with a
+    straggler process from a previous run still writing to the same path."""
     import time as _time
 
     sleep = sleep_fn or _time.sleep
@@ -2494,6 +2806,18 @@ def wait_for_ready_record(
                 raise ReadyHandshakeFailed(
                     f"READY record at {path} names pairing={record.pairing!r} device={record.device!r}, "
                     f"expected pairing={expected_pairing!r} device={expected_device!r}"
+                )
+            if expected_pid is not None and record.pid != expected_pid:
+                raise ReadyHandshakeFailed(
+                    f"READY record at {path} names pid={record.pid!r}, expected THIS child's own "
+                    f"pid={expected_pid!r} -- refusing to trust a READY record that may belong to a "
+                    f"different (e.g. stale, previous-run) process."
+                )
+            if min_loaded_at is not None and record.loaded_at < min_loaded_at:
+                raise ReadyHandshakeFailed(
+                    f"READY record at {path} has loaded_at={record.loaded_at!r}, earlier than "
+                    f"min_loaded_at={min_loaded_at!r} (when THIS child was launched) -- refusing to "
+                    f"trust a READY record written before this launch even started."
                 )
             return record
         if not process_alive_fn():
@@ -2845,6 +3169,18 @@ def run_grid_mode(args: argparse.Namespace) -> dict:
         write_ready_record(args.ready_path, pairing=args.pairing, device=args.device)
 
     verdicts = run_concept_grid(backend, artifact, shortlist_size=args.shortlist_size, progress=progress)
+    # P0 STOP-LINE correction: "exactly the frozen 14 concepts; no
+    # operator-selected subset" is enforced here as a RUNTIME invariant,
+    # not merely the absence of a CLI flag -- a caller that ever manages
+    # to narrow concept_ids (a future refactor, a bug) fails loudly rather
+    # than silently writing an incomplete grid.
+    if len(verdicts) != FROZEN_PROMPT_SET_CONCEPT_COUNT:
+        raise PromptArtifactError(
+            f"grid mode produced {len(verdicts)} concept verdict(s), expected exactly "
+            f"{FROZEN_PROMPT_SET_CONCEPT_COUNT} -- refusing to write a partial grid.json; "
+            f"the backup-trigger formula's own primary_shared_gabc_count arithmetic assumes "
+            f"the full 14-concept grid."
+        )
     grid_path = write_grid_result(out_dir, args.pairing, verdicts)
 
     concept_count = len(verdicts)

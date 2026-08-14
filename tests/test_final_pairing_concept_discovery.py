@@ -75,9 +75,46 @@ class _FakeSAE:
         return feats.to(torch.float32) @ self.W
 
 
+#: A fake but non-empty chat template -- P0 STOP-LINE correction requires
+#: `resolve_chat_template_identity`/`resolve_stop_token_ids` to derive a
+#: real template/EOS identity from the tokenizer actually used, never
+#: accept an arbitrary caller label; a tokenizer with NO template at all is
+#: itself a stop condition for real callers, so this fake must carry one.
+_FAKE_CHAT_TEMPLATE = "{% for message in messages %}{{ message['content'] }}{% endfor %}"
+
+
 class _FakeTokenizer:
-    def decode(self, ids) -> str:
+    """Owns a back-reference to its `_FakeGemmaModel` so `apply_chat_template`
+    can register the RENDERED (templated) text through the model's own
+    `to_tokens` -- the same one-text-per-token scheme every other fake code
+    path already relies on."""
+
+    name_or_path = "fake/gemma-3-12b-it"
+    chat_template = _FAKE_CHAT_TEMPLATE
+    eos_token_id = 999999
+    pad_token_id = 999999
+    unk_token_id = None
+
+    def __init__(self, model: _FakeGemmaModel):
+        self._model = model
+
+    def decode(self, ids, **_kwargs) -> str:
         return "fake-generated-text"
+
+    def convert_tokens_to_ids(self, _token) -> None:
+        return None  # this fake vocabulary has no named special tokens at all
+
+    def apply_chat_template(
+        self, messages, *, tokenize: bool = True, add_generation_prompt: bool = True,
+        return_tensors: str | None = None, return_dict: bool = False, **_kwargs,
+    ):
+        rendered = "".join(m["content"] for m in messages)
+        if not tokenize:
+            return rendered
+        tokens = self._model.to_tokens(rendered)
+        if return_dict:
+            return {"input_ids": tokens, "attention_mask": torch.ones_like(tokens)}
+        return tokens
 
 
 class _FakeGemmaModel:
@@ -85,7 +122,7 @@ class _FakeGemmaModel:
     `.to_tokens`, `.run_with_cache`, `.hooks`, `.generate`, `.tokenizer`."""
 
     def __init__(self):
-        self.tokenizer = _FakeTokenizer()
+        self.tokenizer = _FakeTokenizer(self)
         self._active_hooks: list = []
         self._texts_by_token: dict[int, str] = {}
         self._next_token = 0
@@ -479,6 +516,21 @@ def test_run_grid_mode_covers_all_14_concepts_including_the_pi_gated_one(tmp_pat
     assert all(v.status in ("pass", "fail", "error") for v in verdicts)
 
 
+def test_run_grid_mode_refuses_to_write_a_partial_grid(tmp_path, monkeypatch):
+    """P0 STOP-LINE correction: 'exactly the frozen 14 concepts' is a
+    RUNTIME invariant, not merely the absence of a CLI flag -- a
+    hypothetical future bug that narrows concept_ids must fail loudly
+    rather than silently write an incomplete grid.json."""
+    real_run_concept_grid = d.run_concept_grid
+    monkeypatch.setattr(d, "load_backend", lambda **kwargs: make_fake_gemma_backend())
+    monkeypatch.setattr(d, "run_concept_grid", lambda *a, **k: real_run_concept_grid(*a, **k)[:13])
+    out_dir, state_dir = tmp_path / "out", tmp_path / "state"
+    args = d.parse_args(_grid_mode_cli_args(out_dir, state_dir))
+    with pytest.raises(d.PromptArtifactError, match="expected exactly"):
+        d.run_grid_mode(args)
+    assert not (out_dir / "grid.json").is_file()
+
+
 def test_run_grid_mode_writes_a_ready_record_when_ready_path_is_given(tmp_path, monkeypatch):
     monkeypatch.setattr(d, "load_backend", lambda **kwargs: make_fake_gemma_backend())
     out_dir, state_dir = tmp_path / "out", tmp_path / "state"
@@ -650,14 +702,97 @@ def test_load_qwen_scientific_target_rejects_layer_zero_and_unratified_family():
         d.load_qwen_scientific_target("x", "y", layer=10, sae_family="L0_999", k=100)
 
 
-def test_qwen_scientific_target_overrides_only_k_not_other_ratified_fields():
-    variant = d._qwen_scientific_target(k=100)
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"layer": 32, "sae_family": "L0_100", "k": 100},  # BACKUP's layer, PRIMARY's family/k
+        {"layer": 38, "sae_family": "L0_100", "k": 50},  # PRIMARY's layer/family, BACKUP's k
+        {"layer": 38, "sae_family": "L0_50", "k": 100},  # PRIMARY's layer/k, BACKUP's family
+    ],
+)
+def test_load_qwen_scientific_target_rejects_crossed_configuration_family_paths(kwargs):
+    """P0 STOP-LINE correction: 'reject crossed family/configuration
+    paths' -- a caller can no longer combine e.g. PRIMARY's SAE family
+    with BACKUP's layer/k. Fails BEFORE any file access (fake 'x'/'y'
+    paths that don't exist)."""
+    with pytest.raises(targets.TargetIdentityMismatch, match="crossed configuration/family"):
+        d.load_qwen_scientific_target("x", "y", **kwargs)
+
+
+def test_load_qwen_scientific_target_rejects_an_expected_revision_disagreeing_with_the_frozen_one():
+    with pytest.raises(targets.TargetIdentityMismatch, match="frozen, pinned revision"):
+        d.load_qwen_scientific_target(
+            "x", "y", layer=38, sae_family="L0_100", k=100, expected_sae_revision="0" * 40,
+        )
+
+
+def test_qwen_scientific_target_is_configuration_specific_not_merely_k_specific():
+    """P0 STOP-LINE correction: sae_repo_id, expected_k, AND expected_layer
+    are all drawn from the given configuration -- PRIMARY and BACKUP must
+    never resolve to the same repository/layer/k."""
+    primary = d._qwen_scientific_target(configuration=d.PRIMARY_CONFIGURATION)
+    backup = d._qwen_scientific_target(configuration=d.BACKUP_CONFIGURATION)
     base = targets.QWEN_3_5_27B_TARGET
-    assert variant.expected_k == 100
-    assert variant.model_repo_id == base.model_repo_id
-    assert variant.sae_repo_id == base.sae_repo_id
-    assert variant.expected_hidden_dim == base.expected_hidden_dim
-    assert variant.sae_format == base.sae_format
+
+    assert primary.sae_repo_id == "Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_100"
+    assert primary.expected_k == 100
+    assert primary.expected_layer == 38
+    assert backup.sae_repo_id == "Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50"
+    assert backup.expected_k == 50
+    assert backup.expected_layer == 32
+    assert primary.sae_repo_id != backup.sae_repo_id
+
+    for variant in (primary, backup):
+        assert variant.model_repo_id == base.model_repo_id
+        assert variant.expected_hidden_dim == base.expected_hidden_dim
+        assert variant.sae_format == base.sae_format
+
+
+def test_assert_qwen_configuration_self_consistent_passes_for_both_ratified_configurations():
+    d.assert_qwen_configuration_self_consistent(d.PRIMARY_CONFIGURATION)  # must not raise
+    d.assert_qwen_configuration_self_consistent(d.BACKUP_CONFIGURATION)  # must not raise
+
+
+def test_assert_qwen_configuration_self_consistent_rejects_k_disagreeing_with_repo_suffix():
+    import dataclasses as _dc
+
+    broken = _dc.replace(d.PRIMARY_CONFIGURATION, qwen_sparsity=999)
+    with pytest.raises(targets.TargetIdentityMismatch, match="disagrees with the L0_100 suffix"):
+        d.assert_qwen_configuration_self_consistent(broken)
+
+
+def test_assert_qwen_configuration_self_consistent_rejects_depth_fraction_disagreeing_with_layer():
+    import dataclasses as _dc
+
+    broken = _dc.replace(d.PRIMARY_CONFIGURATION, qwen_depth_fraction=0.1)
+    with pytest.raises(targets.TargetIdentityMismatch, match="recomputed depth_fraction"):
+        d.assert_qwen_configuration_self_consistent(broken)
+
+
+def test_assert_qwen_params_sha256_matches_returns_the_measured_digest(tmp_path):
+    layer_file = tmp_path / "layer38.sae.pt"
+    layer_file.write_bytes(b"fake qwen sae bytes")
+    expected = d.compute_file_sha256(layer_file)
+    assert d.assert_qwen_params_sha256_matches(layer_file, expected_sha256=expected) == expected
+
+
+def test_assert_qwen_params_sha256_matches_raises_on_mismatch(tmp_path):
+    layer_file = tmp_path / "layer38.sae.pt"
+    layer_file.write_bytes(b"fake qwen sae bytes")
+    with pytest.raises(targets.TargetIdentityMismatch, match="hashes to"):
+        d.assert_qwen_params_sha256_matches(layer_file, expected_sha256="0" * 64)
+
+
+def test_validate_qwen_config_identity_protocol_hash_matches_the_pinned_value():
+    assert d.validate_qwen_config_identity_protocol_hash(d.REPO_ROOT) == d.QWEN_CONFIG_IDENTITY_PROTOCOL_SHA256
+
+
+def test_validate_qwen_config_identity_protocol_hash_rejects_a_tampered_copy(tmp_path):
+    protocol_dir = tmp_path / "protocols" / "final_pairing" / "v1"
+    protocol_dir.mkdir(parents=True)
+    (protocol_dir / "qwen_config_identity.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(d.PromptArtifactError):
+        d.validate_qwen_config_identity_protocol_hash(tmp_path)
 
 
 def test_matched_configurations_match_the_predeclared_values():
@@ -665,11 +800,20 @@ def test_matched_configurations_match_the_predeclared_values():
     assert d.PRIMARY_CONFIGURATION.qwen_sae_family == "L0_100"
     assert d.PRIMARY_CONFIGURATION.qwen_sparsity == 100
     assert d.PRIMARY_CONFIGURATION.gemma_layer == 29
+    assert d.PRIMARY_CONFIGURATION.qwen_sae_repo_id == "Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_100"
+    assert d.PRIMARY_CONFIGURATION.qwen_sae_revision == "82852e98c9b33d02194e92dd514b12fafd09ed25"
+    assert d.PRIMARY_CONFIGURATION.qwen_params_expected_sha256 == "78b94bf19d4c120e70ba2767734b6d904468d127537e5d16c2a76cbc0963aeb0"
     assert d.BACKUP_CONFIGURATION.qwen_layer == 32
     assert d.BACKUP_CONFIGURATION.qwen_sae_family == "L0_50"
     assert d.BACKUP_CONFIGURATION.qwen_sparsity == 50
     assert d.BACKUP_CONFIGURATION.gemma_layer == 24
+    assert d.BACKUP_CONFIGURATION.qwen_sae_repo_id == "Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50"
+    assert d.BACKUP_CONFIGURATION.qwen_sae_revision == "13d4221569f7ca5d3c1e605e3e3dc95117e4807c"
+    assert d.BACKUP_CONFIGURATION.qwen_params_expected_sha256 == "fbbae7cf93c1e385c68213ae871ede349ac666f3a8c4e6a75ef959db2b6612ab"
+    assert d.PRIMARY_CONFIGURATION.qwen_sae_repo_id != d.BACKUP_CONFIGURATION.qwen_sae_repo_id
+    assert d.PRIMARY_CONFIGURATION.qwen_sae_revision != d.BACKUP_CONFIGURATION.qwen_sae_revision
     assert set(d.MATCHED_CONFIGURATIONS) == {"primary", "backup"}
+    assert d.QWEN_CONFIGURATION_BY_SAE_FAMILY == {"L0_100": d.PRIMARY_CONFIGURATION, "L0_50": d.BACKUP_CONFIGURATION}
 
 
 def test_gemma_scientific_target_rejects_a_third_layer_and_derives_ids_correctly():
@@ -969,6 +1113,45 @@ def test_run_prompt_set_validator_raises_when_the_validator_script_is_missing(tm
         d.run_prompt_set_validator(tmp_path)
 
 
+class _MultiPositionGemmaModel:
+    """A minimal Gemma-shaped fake exposing exactly the surface
+    `_pooled_residual_and_feature` calls (`.to_tokens`/`.run_with_cache`),
+    with a KNOWN, controlled multi-position residual -- proves the
+    per-prompt feature score is MAX over positions, not mean (P0
+    STOP-LINE correction): only ONE of three positions carries a real
+    spike; mean would dilute it by a factor of 3, max would not."""
+
+    def to_tokens(self, text: str) -> torch.Tensor:
+        return torch.zeros((1, 3), dtype=torch.long)  # 3 positions; content is irrelevant to this fake
+
+    def run_with_cache(self, tokens: torch.Tensor, names_filter: str):
+        resid = torch.zeros((1, 3, D_MODEL))
+        resid[0, 2, 0] = 10.0  # residual dim 0 drives CONCEPT_FEATURE via _FakeSAE.W; only position 2 fires
+        return None, {names_filter: resid}
+
+
+def test_pooled_residual_and_feature_uses_max_over_positions_not_mean():
+    backend = d.Backend(
+        pairing=targets.GEMMA_3_12B_IT_TARGET.name, model_obj=_MultiPositionGemmaModel(), sae=_FakeSAE(),
+        hook_name=HOOK_NAME, d_sae=D_SAE, d_model=D_MODEL, layer=targets.GEMMA_3_12B_IT_TARGET.expected_layer,
+        provenance={}, checkpoint_hash="deadbeef",
+    )
+    _, feats_out = d._pooled_residual_and_feature(backend, ["any text"], CONCEPT_FEATURE)
+    # relu([0, 0, 10]) -> feature values [0, 0, 10] at the 3 positions: max=10, mean=3.333...
+    assert feats_out[0] == pytest.approx(10.0)
+
+
+def test_compute_gate_b_fire_rate_counts_a_score_exactly_at_the_floor_as_firing():
+    # observed_max=10, floor_fraction=0.20 -> floor=2.0 exactly; one score sits exactly there.
+    fire_rate, floor = d.compute_gate_b_fire_rate([10.0, 2.0, 1.0], floor_fraction=0.20)
+    assert floor == pytest.approx(2.0)
+    assert fire_rate == pytest.approx(2 / 3)  # 10.0 and 2.0 fire (>= floor); 1.0 does not
+
+
+def test_compute_gate_b_fire_rate_empty_scores_is_zero():
+    assert d.compute_gate_b_fire_rate([], floor_fraction=0.20) == (0.0, 0.0)
+
+
 def test_compute_gate_a_and_b_per_family_runs_independently_per_family_and_reads_default_thresholds():
     backend = make_fake_gemma_backend()
     artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
@@ -1217,6 +1400,148 @@ def test_run_intervention_accepts_the_frozen_generation_settings_without_error()
         prompt="hello", seed=0, max_new_tokens=3, generation_kwargs=d.GENERATION_SETTINGS,
     )
     assert outcome.generated_text == "fake-generated-text"
+
+
+# ---------------------------------------------------------------------------
+# P0 STOP-LINE correction: real chat template application, derived template
+# identity, decode-only-new-tokens, explicit EOS/EOT/PAD resolution.
+# ---------------------------------------------------------------------------
+
+
+class _RecordingTokenizer:
+    """A minimal tokenizer stub that RECORDS what it is asked to render/
+    decode -- proves the real chat-template/decode-slicing contract
+    without needing a real HF tokenizer."""
+
+    name_or_path = "recording/fake-tokenizer"
+    chat_template = "{{ messages[0]['content'] }}"
+    eos_token_id = 42
+    pad_token_id = 42
+    unk_token_id = None
+
+    def __init__(self, model):
+        self._model = model
+        self.last_messages = None
+        self.last_decoded_ids = None
+
+    def convert_tokens_to_ids(self, _token):
+        return None
+
+    def apply_chat_template(
+        self, messages, *, tokenize: bool = True, add_generation_prompt: bool = True,
+        return_tensors: str | None = None, return_dict: bool = False, **_kwargs,
+    ):
+        self.last_messages = messages
+        rendered = "".join(m["content"] for m in messages)
+        if not tokenize:
+            return rendered
+        tokens = self._model.to_tokens(rendered)
+        if return_dict:
+            return {"input_ids": tokens, "attention_mask": torch.ones_like(tokens)}
+        return tokens
+
+    def decode(self, ids, **_kwargs) -> str:
+        self.last_decoded_ids = ids
+        return "fake-generated-text"
+
+
+def test_run_intervention_applies_the_real_chat_template_with_one_user_turn_no_system_prompt():
+    backend = make_fake_gemma_backend()
+    recorder = _RecordingTokenizer(backend.model_obj)
+    backend.model_obj.tokenizer = recorder
+    d.run_intervention(
+        backend, [CONCEPT_FEATURE], direction="clamp", value_in_max_units=1.0,
+        corpus_max=d.corpus_max_per_feature(backend, NEGATIVE_TEXTS), positions="all",
+        prompt="hello there", seed=0, max_new_tokens=2,
+    )
+    assert recorder.last_messages == [{"role": "user", "content": "hello there"}]
+
+
+def test_run_intervention_decodes_only_tokens_after_the_prompt():
+    backend = make_fake_gemma_backend()
+    recorder = _RecordingTokenizer(backend.model_obj)
+    backend.model_obj.tokenizer = recorder
+    d.run_intervention(
+        backend, [CONCEPT_FEATURE], direction="clamp", value_in_max_units=1.0,
+        corpus_max=d.corpus_max_per_feature(backend, NEGATIVE_TEXTS), positions="all",
+        prompt="hello there", seed=0, max_new_tokens=3,
+    )
+    # the fake's to_tokens registers exactly ONE token for the whole
+    # rendered prompt; generate() appends max_new_tokens more tokens --
+    # decode() must have been given only those 3 new tokens, never the 1
+    # prompt token too.
+    assert recorder.last_decoded_ids.shape[0] == 3
+
+
+def test_run_baseline_generation_decodes_only_tokens_after_the_prompt():
+    backend = make_fake_gemma_backend()
+    recorder = _RecordingTokenizer(backend.model_obj)
+    backend.model_obj.tokenizer = recorder
+    d.run_baseline_generation(backend, prompt="hello there", seed=0, max_new_tokens=4, positions="all")
+    assert recorder.last_decoded_ids.shape[0] == 4
+
+
+class _StopIdTokenizerStub:
+    name_or_path = "stub"
+    chat_template = "{{ messages }}"
+
+    def __init__(self, *, eos_token_id, pad_token_id=None, unk_token_id=None, known_tokens=None):
+        self.eos_token_id = eos_token_id
+        self.pad_token_id = pad_token_id
+        self.unk_token_id = unk_token_id
+        self._known = known_tokens or {}
+
+    def convert_tokens_to_ids(self, token):
+        return self._known.get(token, self.unk_token_id)
+
+
+def test_resolve_stop_token_ids_uses_eos_and_pad_when_no_end_of_turn_marker_present():
+    tok = _StopIdTokenizerStub(eos_token_id=1, pad_token_id=0, unk_token_id=99)
+    assert d.resolve_stop_token_ids(tok) == {"eos_token_id": 1, "pad_token_id": 0}
+
+
+def test_resolve_stop_token_ids_adds_end_of_turn_marker_when_present():
+    """Gemma's own generation_config.json ships eos_token_id as a LIST
+    ([<eos>, <end_of_turn>]) -- a chat model's real stop condition is
+    often more than one token id."""
+    tok = _StopIdTokenizerStub(eos_token_id=1, pad_token_id=0, unk_token_id=99, known_tokens={"<end_of_turn>": 106})
+    assert d.resolve_stop_token_ids(tok) == {"eos_token_id": [1, 106], "pad_token_id": 0}
+
+
+def test_resolve_stop_token_ids_defaults_pad_to_eos_when_tokenizer_has_no_pad():
+    tok = _StopIdTokenizerStub(eos_token_id=1, pad_token_id=None, unk_token_id=99)
+    assert d.resolve_stop_token_ids(tok) == {"eos_token_id": 1, "pad_token_id": 1}
+
+
+def test_resolve_stop_token_ids_raises_without_an_eos_token():
+    tok = _StopIdTokenizerStub(eos_token_id=None)
+    with pytest.raises(ValueError, match="eos_token_id"):
+        d.resolve_stop_token_ids(tok)
+
+
+def test_resolve_chat_template_identity_raises_without_a_chat_template():
+    tok = _StopIdTokenizerStub(eos_token_id=1)
+    tok.chat_template = None
+    with pytest.raises(ValueError, match="chat_template"):
+        d.resolve_chat_template_identity(tok)
+
+
+def test_resolve_chat_template_identity_is_stable_and_name_prefixed():
+    tok = _StopIdTokenizerStub(eos_token_id=1)
+    tok.chat_template = "{{ messages }}"
+    tok.name_or_path = "org/model"
+    identity_1 = d.resolve_chat_template_identity(tok)
+    identity_2 = d.resolve_chat_template_identity(tok)
+    assert identity_1 == identity_2
+    assert identity_1.startswith("org/model:")
+
+
+def test_resolve_chat_template_identity_differs_for_different_templates():
+    tok_a = _StopIdTokenizerStub(eos_token_id=1)
+    tok_a.chat_template = "{{ messages }}"
+    tok_b = _StopIdTokenizerStub(eos_token_id=1)
+    tok_b.chat_template = "{{ messages }} different"
+    assert d.resolve_chat_template_identity(tok_a) != d.resolve_chat_template_identity(tok_b)
 
 
 def test_generation_settings_protocol_hash_matches_the_real_frozen_artifact():

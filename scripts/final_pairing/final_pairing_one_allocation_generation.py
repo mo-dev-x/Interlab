@@ -339,17 +339,29 @@ def assess_concept_generation_readiness(
     )
 
 
-#: The RULED file-entry statuses, from the real consumer's
-#: `SELECTION_STATUSES` (`concept_bundle_publish.py`, commit 67ad4ef).
-#: `UNUSED_STATUS` is the generation-time default for EVERY file (nothing
-#: is selected yet); `stamp_manifest_with_selection` (stage 4, a later
-#: machine) flips exactly the three selected CONFIRMATION doses to
-#: `SELECTED_STATUS`. `SEALED_LABEL` is kept as an alias -- the name this
-#: project's docs/tests already use for the sealed value.
+#: Manifest immutability correction (protocols/final_pairing/v1/
+#: manifest_immutability_correction.json, final-pairing-manifest-
+#: immutability/1.0.0, commit 2dc9e338c12db1c1f3939a9f709f8af816ad8272):
+#: the BOUND generation manifest is written ONCE, at transfer, and NEVER
+#: rewritten -- it carries NO per-file selection-outcome field at all.
+#: `SELECTED_STATUS`/`UNUSED_STATUS` survive ONLY as internal vocabulary
+#: for `stamp_manifest_with_selection`'s own DERIVED, non-promotable
+#: reading-aid output (see that function's docstring) -- neither name is
+#: emitted anywhere in `to_manifest_file_entries()`/`write_generation_
+#: manifest` below. `SEALED_LABEL` is kept as an alias for existing
+#: callers (`final_pairing_judge_cli.py`) that reference the sealed value
+#: by name.
 SELECTED_STATUS = "SELECTED"
 UNUSED_STATUS = "UNUSED_FOR_SELECTION_OR_CLAIM"
 SEALED_LABEL = UNUSED_STATUS
 SELECTION_STATUSES: tuple[str, ...] = (SELECTED_STATUS, UNUSED_STATUS)
+
+#: The ONE permitted manifest-level marker the immutability correction
+#: allows in place of a per-file flag: every bound manifest this module
+#: writes is, by construction, pre-selection (selection happens later, on
+#: a different machine, against a DIFFERENT artifact -- the selection
+#: record) -- so this is always the same constant, never computed.
+INVENTORY_STAGE_PRE_SELECTION = "PRE_SELECTION"
 
 #: The ratified `generation_manifests.manifest_required` list from
 #: `conformance/concept_bundle/discovery_input_schema.json` schema 2.0
@@ -365,13 +377,16 @@ SELECTION_STATUSES: tuple[str, ...] = (SELECTED_STATUS, UNUSED_STATUS)
 #: `generation_settings.json` extension (`generation_kwargs`/
 #: `chat_template_identity`/`locales_complete`/`generation_settings_*`/
 #: `causal_order_position`/`skipped_for_gate_failure` are all NEW here).
+#: `inventory_stage` is the manifest-immutability correction's own addition
+#: (commit 2dc9e338), replacing the per-file `selection_status` this list
+#: used to require indirectly via `MANIFEST_FILE_REQUIRED_FIELDS`.
 MANIFEST_REQUIRED_FIELDS: tuple[str, ...] = (
     "run_id", "source_commit", "configuration", "concept_id", "pairing_id",
     "model_revision", "sae_revision", "release", "loader_sae_id", "scientific_sae_id",
     "params_measured_sha256", "direction", "files", "completeness", "protocol_path", "protocol_sha256",
     "generation_kwargs", "chat_template_identity", "locales_complete",
     "generation_settings_path", "generation_settings_version", "generation_settings_sha256",
-    "causal_order_position", "skipped_for_gate_failure",
+    "causal_order_position", "skipped_for_gate_failure", "inventory_stage",
 )
 
 #: The ratified `generation_manifests.manifest_file_required` list from
@@ -381,8 +396,13 @@ MANIFEST_REQUIRED_FIELDS: tuple[str, ...] = (
 #: forces the "one manifest entry per generation, many entries sharing
 #: one physical file's path" granularity `to_manifest_file_entries`
 #: implements -- see this module's own docstring.
+#:
+#: NO `selection_status` here (manifest-immutability correction, commit
+#: 2dc9e338): the bound manifest carries no per-file selection-outcome
+#: field of any kind -- the selection record is the sole selection
+#: authority.
 MANIFEST_FILE_REQUIRED_FIELDS: tuple[str, ...] = (
-    "dose", "purpose", "path", "sha256", "seed", "selection_status", "locale", "prompt_id",
+    "dose", "purpose", "path", "sha256", "seed", "locale", "prompt_id",
     "control_ref", "truncated",
 )
 
@@ -543,11 +563,6 @@ class GenerationFileRecord:
     path: str
     sha256: str  # bare 64-hex; prefixed only at manifest-serialization time
     control_ref: str | None  # the paired control file's path; None only for purpose="control" itself
-    #: `UNUSED_STATUS` at generation time for every file, sweep and
-    #: confirmation alike -- flipped to `SELECTED_STATUS` for exactly the
-    #: three selected confirmation doses by `stamp_manifest_with_selection`
-    #: (a stage-4 concern, on a different machine, AFTER selection).
-    selection_status: str = UNUSED_STATUS
 
     @property
     def truncated(self) -> bool:
@@ -562,7 +577,7 @@ class GenerationFileRecord:
             entry: dict[str, Any] = {
                 "purpose": self.purpose.upper(), "locale": self.locale, "path": self.path,
                 "sha256": _prefixed_sha256(self.sha256), "seed": seed, "prompt_id": prompt_id,
-                "selection_status": self.selection_status, "truncated": truncated,
+                "truncated": truncated,
             }
             if self.dose_label is not None:
                 entry["dose"] = self.dose_label
@@ -858,7 +873,7 @@ def write_generation_manifest(
     concept_id: str, pairing_id: str, model_revision: str, sae_revision: str,
     release: str, loader_sae_id: str, scientific_sae_id: str, measured_params_sha256: str | None,
     generation_kwargs: dict[str, Any], chat_template_identity: str, locales_complete: list[str],
-    causal_order_position: int, skipped_for_gate_failure: bool = False,
+    causal_order_position: int, skipped_for_gate_failure: list[str],
     completeness: Literal["COMPLETE", "PARTIAL", "NOT_ATTEMPTED"] = "COMPLETE",
 ) -> dict:
     """Writes ONE manifest -- ONE PHYSICAL MANIFEST PER (run_id,
@@ -893,13 +908,59 @@ def write_generation_manifest(
     schema-2.0 declaration lists them unconditionally in `manifest_
     required`), written verbatim/as given.
 
+    `generation_kwargs` must be the FULL resolved kwargs (Engineer 3
+    delta, commit 9a32246: `concept_bundle_publish.frozen_generation_
+    kwargs` reads ALL TEN of `generation_settings.json`'s own
+    `1_generation_settings.settings` keys -- including `max_new_tokens:
+    48` -- and requires an EXACT match, no fewer and no extra; the
+    caller must pass `_resolved_generation_kwargs(ONE_ALLOCATION_MAX_
+    NEW_TOKENS, GENERATION_SETTINGS)`, never the bare 9-key
+    `GENERATION_SETTINGS` constant, which omits `max_new_tokens`.
+
+    `skipped_for_gate_failure` is an ARRAY OF CONCEPT IDs (Engineer 3
+    delta, commit 9a32246 -- corrected from an earlier boolean), never a
+    bool: every concept_id that failed G-A/B/C and sits AT OR BEFORE
+    `concept_id`'s own position in `CAUSAL_GENERATION_ORDER` (a concept
+    AFTER this one cannot yet have been "skipped" from this manifest's
+    own vantage point). Validated here, not merely documented -- every
+    name must be in `CAUSAL_GENERATION_ORDER` and not sit after
+    `concept_id`.
+
     `files` is the CONCATENATION of every record's `to_manifest_file_
     entries()` -- one row per GENERATION (not per physical file); see this
-    module's own docstring, "MANIFEST GRANULARITY IS PER GENERATION"."""
+    module's own docstring, "MANIFEST GRANULARITY IS PER GENERATION".
+
+    IMMUTABILITY (protocols/final_pairing/v1/manifest_immutability_
+    correction.json, commit 2dc9e338): this manifest is written ONCE, at
+    transfer, and NEVER rewritten -- `manifest_path` must not already
+    exist; a caller attempting a second write to the same path is trying
+    to rewrite a bound artifact after the fact, which this function
+    refuses rather than silently overwriting. `files[]` entries carry NO
+    per-file selection-outcome field of any kind (the selection record is
+    the sole selection authority); the ONE permitted marker is the
+    manifest-level constant `inventory_stage=PRE_SELECTION`, written
+    unconditionally below."""
+    if Path(manifest_path).exists():
+        raise TransferVerificationFailed(
+            f"{manifest_path} already exists -- the bound generation manifest is written ONCE, at "
+            f"transfer, and NEVER rewritten (manifest-immutability correction, commit 2dc9e338). "
+            f"Refusing to overwrite it."
+        )
     if configuration_name not in ("primary", "backup"):
         raise ValueError(f"configuration_name must be 'primary' or 'backup', got {configuration_name!r}")
     if completeness not in COMPLETENESS_VALUES:
         raise ValueError(f"completeness must be one of {COMPLETENESS_VALUES}, got {completeness!r}")
+    concept_position = causal_order_position_for(concept_id)
+    for name in skipped_for_gate_failure:
+        if name not in CAUSAL_GENERATION_ORDER:
+            raise ValueError(
+                f"skipped_for_gate_failure names {name!r}, which is not in the frozen CAUSAL_GENERATION_ORDER"
+            )
+        if causal_order_position_for(name) > concept_position:
+            raise ValueError(
+                f"skipped_for_gate_failure names {name!r}, which sits AFTER {concept_id!r} in the frozen "
+                f"order and so cannot have been skipped before it"
+            )
     directions_present = {r.direction for r in records}
     if len(directions_present) != 1:
         raise ValueError(
@@ -932,7 +993,8 @@ def write_generation_manifest(
         "generation_settings_version": GENERATION_SETTINGS_PROTOCOL_VERSION,
         "generation_settings_sha256": _prefixed_sha256(GENERATION_SETTINGS_PROTOCOL_SHA256),
         "causal_order_position": causal_order_position,
-        "skipped_for_gate_failure": skipped_for_gate_failure,
+        "skipped_for_gate_failure": list(skipped_for_gate_failure),
+        "inventory_stage": INVENTORY_STAGE_PRE_SELECTION,
     }
 
     Path(manifest_path).write_text(_canonical_manifest_json(body), encoding="utf-8")
@@ -952,7 +1014,15 @@ def verify_generation_manifest(manifest_path: str | Path, *, files_root: str | P
     Each physical file backs MANY `files[]` entries (one per generation,
     see `to_manifest_file_entries`) -- hashes are checked ONCE per unique
     `path` (never once per entry) so verifying a 75-generation control
-    file costs one hash computation, not 75."""
+    file costs one hash computation, not 75.
+
+    Manifest-immutability correction (commit 2dc9e338) enforcement: a
+    manifest carrying a `derived`/`not_for_promotion` truthy marker (e.g.
+    `stamp_manifest_with_selection`'s own reading-aid output) is REFUSED
+    here -- that shape is explicitly never a promotable/bound artifact.
+    A `files[]` entry carrying `selection_status` (or any other
+    selection-outcome-shaped field) is likewise refused: the bound
+    manifest carries no per-file selection-outcome field of any kind."""
     import final_pairing_concept_discovery as _d
 
     manifest_path = Path(manifest_path)
@@ -960,6 +1030,23 @@ def verify_generation_manifest(manifest_path: str | Path, *, files_root: str | P
     missing = sorted(set(MANIFEST_REQUIRED_FIELDS) - set(full))
     if missing:
         raise TransferVerificationFailed(f"{manifest_path} is missing required field(s) {missing} -- not a valid manifest")
+    if full.get("derived") or full.get("not_for_promotion"):
+        raise TransferVerificationFailed(
+            f"{manifest_path} is marked derived/not_for_promotion -- this is a reading-aid view "
+            f"(e.g. stamp_manifest_with_selection's own output), never the bound manifest; refusing "
+            f"to treat it as one."
+        )
+    tainted_entries = [
+        i for i, entry in enumerate(full["files"])
+        if "selection_status" in entry or "outcome" in entry or "selected" in entry
+    ]
+    if tainted_entries:
+        raise TransferVerificationFailed(
+            f"{manifest_path}: files[] entr{'y' if len(tainted_entries) == 1 else 'ies'} "
+            f"{tainted_entries} carries a selection-outcome-shaped field -- the bound manifest is "
+            f"pre-selection and carries no per-file selection-outcome field of any kind (manifest-"
+            f"immutability correction, commit 2dc9e338)."
+        )
 
     declared_sha256_by_path: dict[str, str] = {}
     for entry in full["files"]:
@@ -983,24 +1070,40 @@ def verify_generation_manifest(manifest_path: str | Path, *, files_root: str | P
 
 
 def stamp_manifest_with_selection(manifest: dict, unselected_doses: list[str]) -> dict:
-    """Stage 4 tail: returns a NEW manifest dict (the original,
-    transfer-verified manifest is never mutated in place) with
-    `selection_status=SELECTED_STATUS` on every CONFIRMATION file entry
-    whose `dose` is NOT in `unselected_doses`, and `UNUSED_STATUS`
-    (unchanged) on every sweep entry and every confirmation entry whose
-    dose IS in `unselected_doses`. `unselected_doses` names the dose
-    LABELS (e.g. "2.0x", "ABLATE") this manifest's own selection decided
-    against -- since a manifest now covers exactly one (concept, pairing,
-    direction), there is no cross-cell key to match against beyond the
-    dose label itself."""
+    """A READING-AID ONLY, never a promotable artifact (manifest-
+    immutability correction, protocols/final_pairing/v1/manifest_
+    immutability_correction.json, commit 2dc9e338): the BOUND generation
+    manifest is written ONCE, at transfer, and NEVER rewritten or
+    re-hashed -- the selection record (a separate artifact, owned by
+    stage 4/Engineer 3) is the sole selection authority. This function
+    does NOT mutate, replace, or stand in for that manifest; it returns a
+    NEW, clearly-marked DERIVED dict (`derived: true`, `not_for_
+    promotion: true`) with `selection_status=SELECTED_STATUS` added to
+    every CONFIRMATION file entry whose `dose` is NOT in
+    `unselected_doses`, and `UNUSED_STATUS` on every sweep entry and every
+    confirmation entry whose dose IS in `unselected_doses` -- purely for a
+    human or downstream tool reading this view alongside the real
+    selection record. `verify_generation_manifest`/LA-B's own gate refuse
+    any manifest carrying either marker, or any `files[]` entry carrying
+    `selection_status`, as the bound artifact. `unselected_doses` names
+    the dose LABELS (e.g. "2.0x", "ABLATE") this manifest's own selection
+    decided against -- since a manifest now covers exactly one (concept,
+    pairing, direction), there is no cross-cell key to match against
+    beyond the dose label itself."""
     unselected = set(unselected_doses)
     stamped_files = []
     for entry in manifest["files"]:
         entry = dict(entry)
-        if entry["purpose"] == "CONFIRMATION":
-            entry["selection_status"] = UNUSED_STATUS if entry["dose"] in unselected else SELECTED_STATUS
+        # The bound manifest carries no selection_status at all (manifest-
+        # immutability correction) -- this reading aid ADDS it fresh to
+        # EVERY entry, never merely "unchanged" from a pre-existing value
+        # that no longer exists to inherit.
+        if entry["purpose"] == "CONFIRMATION" and entry["dose"] not in unselected:
+            entry["selection_status"] = SELECTED_STATUS
+        else:
+            entry["selection_status"] = UNUSED_STATUS
         stamped_files.append(entry)
-    return {**manifest, "files": stamped_files}
+    return {**manifest, "files": stamped_files, "derived": True, "not_for_promotion": True}
 
 
 # ---------------------------------------------------------------------------
@@ -1143,7 +1246,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--suppress-dose-grid", required=True, help="4 comma-separated, strictly descending clamp fractions -- ABLATE is appended automatically as the fifth point.")
     p.add_argument("--run-id", required=True)
     p.add_argument("--source-commit", required=True)
-    p.add_argument("--chat-template-identity", required=True)
     p.add_argument("--job-deadline-epoch-seconds", type=float, required=True, help="Absolute time.time()-based wall-clock deadline for this allocation -- never a duration relative to this process's own start, so readiness stays correct even if this process launches late.")
     p.add_argument("--out-dir", required=True)
     p.add_argument("--state-dir", required=True, help="Separate from --out-dir: holds the resumable progress log only.")
@@ -1186,9 +1288,36 @@ def run_generation_mode(args: argparse.Namespace) -> dict:
     _d.run_prompt_set_validator(_d.REPO_ROOT)
     artifact = _d.load_frozen_prompt_artifact(_d.REPO_ROOT, allow_pi_gated=True)
 
+    # P0 STOP-LINE correction ("cross-check generation --source-commit
+    # against transfer_manifest.json"): on Tamia (a git-archive transfer,
+    # no .git at all), transfer_manifest.json's own recorded source_commit
+    # is the one fact this checkout can independently verify --source-
+    # commit against; a caller-supplied value that disagrees with it means
+    # this manifest is about to be stamped with the wrong commit identity.
+    # Silently absent (a live git checkout with no transfer manifest at
+    # all -- the Windows/dev case) is not itself an error here.
+    transfer_manifest = _d.load_transfer_manifest(_d.REPO_ROOT)
+    if transfer_manifest is not None and transfer_manifest["source_commit"] != args.source_commit:
+        raise ValueError(
+            f"--source-commit {args.source_commit!r} disagrees with this checkout's own "
+            f"transfer_manifest.json source_commit {transfer_manifest['source_commit']!r} -- "
+            f"refusing to write a generation manifest under a source_commit that does not match "
+            f"what was actually transferred to this allocation."
+        )
+
     verdicts = _d.read_grid_result(args.grid_path)
     feature_by_concept = {v.concept_id: v.surviving_feature_index for v in verdicts if v.pairing == args.pairing and v.status == "pass"}
     concept_ids = order_concepts_for_causal_generation(list(feature_by_concept))
+    # Engineer 3 delta (commit 9a32246): skipped_for_gate_failure is an
+    # ARRAY OF CONCEPT IDS, not a bool -- every concept that failed G-A/
+    # B/C (from the full grid, a static fact independent of wall-time),
+    # in the fixed causal order. Computed ONCE here; each manifest below
+    # filters this down to the prefix at-or-before its own position.
+    verdict_by_concept_this_pairing = {v.concept_id: v for v in verdicts if v.pairing == args.pairing}
+    gate_failed_in_causal_order = [
+        c for c in CAUSAL_GENERATION_ORDER
+        if verdict_by_concept_this_pairing.get(c) is not None and verdict_by_concept_this_pairing[c].status != "pass"
+    ]
 
     amplify_grid = build_amplify_dose_grid(tuple(_parse_dose_grid_csv(args.amplify_dose_grid)))
     suppress_grid = build_suppress_dose_grid(tuple(_parse_dose_grid_csv(args.suppress_dose_grid)))
@@ -1206,24 +1335,31 @@ def run_generation_mode(args: argparse.Namespace) -> dict:
     model_revision = backend.provenance.get("model", {}).get("revision", "")
     sae_revision = backend.provenance.get("sae", {}).get("revision", "")
     scientific_sae_id = backend.provenance.get("sae", {}).get("scientific_sae_id") or backend.provenance.get("sae", {}).get("sae_id", "")
+    # P0 STOP-LINE correction ("derive/record template identity rather
+    # than accepting an arbitrary label"): DERIVED from the actual
+    # tokenizer this backend will generate with, never a CLI-supplied
+    # free-text label -- there is no --chat-template-identity flag.
+    chat_template_identity = _d.resolve_chat_template_identity(_d.resolve_tokenizer_for_backend(backend))
 
     timing: dict[str, Any] | None = None
     attempted: list[str] = []
     not_attempted: list[dict[str, Any]] = []
     manifest_paths: dict[str, dict[str, str]] = {}
+    # `unrelated` (shared_substrate, identical text across all 14 concepts
+    # by design -- see `rows_for_concept`'s own docstring) is the same
+    # concept-agnostic negative/background role G-A already reads; the
+    # frozen artifact carries no field explicitly named "background_corpus"
+    # of its own, so this is a disclosed re-use, not an invented split.
+    # Computed ONCE (not per concept, since shared_substrate rows are
+    # concept-invariant by construction) -- also means readiness is
+    # checked BEFORE any per-concept GPU work, never after a "probing"
+    # forward pass for a concept that may not even be attempted.
+    background_texts = [
+        row["text"] for row in _d.rows_for_concept(artifact.rows, concept_id=concept_ids[0], locale="en", split="unrelated")
+    ] if concept_ids else []
+    corpus_max = _d.corpus_max_per_feature(backend, background_texts) if background_texts else {}
 
-    for concept_id in concept_ids:
-        # `unrelated` (shared_substrate, identical text across all 14
-        # concepts by design -- see `rows_for_concept`'s own docstring) is
-        # the same concept-agnostic negative/background role G-A already
-        # reads; the frozen artifact carries no field explicitly named
-        # "background_corpus" of its own, so this is a disclosed re-use,
-        # not an invented split.
-        background_texts = [
-            row["text"] for row in _d.rows_for_concept(artifact.rows, concept_id=concept_id, locale="en", split="unrelated")
-        ]
-        corpus_max = _d.corpus_max_per_feature(backend, background_texts)
-
+    for concept_index, concept_id in enumerate(concept_ids):
         if timing is None:
             probe_rows = select_generation_prompt_rows(
                 artifact.rows, concept_id=concept_id, direction="amplify", locale="en", purpose="sweep",
@@ -1240,8 +1376,21 @@ def run_generation_mode(args: argparse.Namespace) -> dict:
             seconds_per_generation=timing["seconds_per_generation"],
         )
         if not readiness.attempt:
-            not_attempted.append({"concept_id": concept_id, "detail": readiness.detail})
-            continue
+            # P0 STOP-LINE correction: "after the first concept cannot fit,
+            # BREAK; do not continue probing later concepts." The fixed
+            # causal order is never reordered around a wall-time cutoff,
+            # and remaining wall time only shrinks further from here, so
+            # every concept after this one is recorded NOT_ATTEMPTED too,
+            # without spending any further GPU time checking each one
+            # individually.
+            for later_concept_id in concept_ids[concept_index:]:
+                detail = (
+                    readiness.detail if later_concept_id == concept_id else
+                    f"not attempted: causal order position after {concept_id!r}, which already could "
+                    f"not fit in the remaining wall time -- {readiness.detail}"
+                )
+                not_attempted.append({"concept_id": later_concept_id, "detail": detail})
+            break
 
         prompts = {
             (direction, purpose): {
@@ -1267,6 +1416,7 @@ def run_generation_mode(args: argparse.Namespace) -> dict:
         )
 
         position = causal_order_position_for(concept_id)
+        skipped_for_gate_failure = [c for c in gate_failed_in_causal_order if causal_order_position_for(c) <= position]
         direction_manifest_paths: dict[str, str] = {}
         for direction in ("amplify", "suppress"):
             direction_records = [r for r in records if r.direction == direction]
@@ -1276,8 +1426,14 @@ def run_generation_mode(args: argparse.Namespace) -> dict:
                 configuration_name=args.configuration_name, concept_id=concept_id, pairing_id=args.pairing_id,
                 model_revision=model_revision, sae_revision=sae_revision, release=release, loader_sae_id=loader_sae_id,
                 scientific_sae_id=scientific_sae_id, measured_params_sha256=measured_params_sha256,
-                generation_kwargs=_d.GENERATION_SETTINGS, chat_template_identity=args.chat_template_identity,
-                locales_complete=list(LOCALES), causal_order_position=position, skipped_for_gate_failure=False,
+                # Engineer 3 delta (commit 9a32246): generation_kwargs must be
+                # the FULL resolved kwargs (all 10 frozen values, including
+                # max_new_tokens=48), never the bare 9-key GENERATION_SETTINGS
+                # constant.
+                generation_kwargs=_d._resolved_generation_kwargs(_d.ONE_ALLOCATION_MAX_NEW_TOKENS, _d.GENERATION_SETTINGS),
+                chat_template_identity=chat_template_identity,
+                locales_complete=list(LOCALES), causal_order_position=position,
+                skipped_for_gate_failure=skipped_for_gate_failure,
             )
             direction_manifest_paths[direction] = str(manifest_path)
         manifest_paths[concept_id] = direction_manifest_paths

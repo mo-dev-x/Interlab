@@ -46,6 +46,7 @@ import argparse
 import dataclasses
 import functools
 import json
+import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -169,6 +170,25 @@ def check_backup_readiness(
     return BackupReadiness(attempt=True, status="ready", detail=time_readiness.detail)
 
 
+def _lane_elapsed_seconds(dual_gpu_result: dict) -> float:
+    """Real, MEASURED elapsed wall time for one dual-GPU lane-group result:
+    `max(lane end_time) - min(lane start_time)` across every lane that
+    actually attempted -- never a guessed constant. This is the
+    `primary_elapsed_seconds` the frozen 1.5x remaining-time backup-
+    readiness rule requires; by the time it is computed, `run_backup` is
+    only ever True when `primary_result['status'] == 'complete_pass'`, so
+    every lane has both timestamps recorded."""
+    lanes = dual_gpu_result.get("lanes") or []
+    starts = [ln["start_time"] for ln in lanes if ln.get("start_time") is not None]
+    ends = [ln["end_time"] for ln in lanes if ln.get("end_time") is not None]
+    if not starts or not ends:
+        raise ValueError(
+            "cannot measure elapsed seconds: no lane in this result recorded both a start_time "
+            "and an end_time"
+        )
+    return max(ends) - min(starts)
+
+
 def _all_lane_paths(lanes: list[dual_gpu.LaneSpec]) -> dict[Path, str]:
     seen: dict[Path, str] = {}
     for lane in lanes:
@@ -180,20 +200,35 @@ def _all_lane_paths(lanes: list[dual_gpu.LaneSpec]) -> dict[Path, str]:
     return seen
 
 
+def validate_all_lane_paths_disjoint(lane_groups: dict[str, list[dual_gpu.LaneSpec]]) -> None:
+    """P0 STOP-LINE correction ('validate all eight grid/generation lane
+    paths pairwise'): pairwise path-disjointness across EVERY supplied
+    lane group -- up to all eight lanes: primary grid (2) + backup grid
+    (2) + primary generation (2) + backup generation (2). Runs BEFORE any
+    lane in any group launches. Reports which two groups collided, not
+    merely that some collision exists."""
+    claims: dict[Path, str] = {}
+    for group_name, lanes in lane_groups.items():
+        for path, claim in _all_lane_paths(lanes).items():
+            full_claim = f"{group_name}:{claim}"
+            if path in claims:
+                raise MatchedConfigurationError(
+                    f"path collision: {full_claim}'s path ({path}) is already claimed by "
+                    f"{claims[path]!r} -- refusing to launch any lane."
+                )
+            claims[path] = full_claim
+
+
 def validate_primary_backup_paths_disjoint(
     primary_lanes: list[dual_gpu.LaneSpec], backup_lanes: list[dual_gpu.LaneSpec]
 ) -> None:
     """Primary results are immutable and must never be overwritten -- this
     check runs BEFORE backup is launched (indeed before primary is even
-    launched, since both lane lists are known upfront), not after."""
-    primary_paths = _all_lane_paths(primary_lanes)
-    backup_paths = _all_lane_paths(backup_lanes)
-    collisions = set(primary_paths) & set(backup_paths)
-    if collisions:
-        detail = ", ".join(f"{p} ({primary_paths[p]} vs {backup_paths[p]})" for p in sorted(collisions))
-        raise MatchedConfigurationError(
-            f"primary and backup paths must never collide -- refusing to run either: {detail}"
-        )
+    launched, since both lane lists are known upfront), not after. A
+    thin, backward-compatible wrapper over the general `validate_all_
+    lane_paths_disjoint` (primary/backup grid lanes only, no generation
+    lanes)."""
+    validate_all_lane_paths_disjoint({"primary": primary_lanes, "backup": backup_lanes})
 
 
 def load_trigger_inputs(path: str | Path) -> dict:
@@ -284,6 +319,7 @@ def run_matched_configuration_job(
     repo_root: Path = dual_gpu.REPO_ROOT,
     primary_generation_lanes: list[dual_gpu.LaneSpec] | None = None,
     backup_generation_lanes: list[dual_gpu.LaneSpec] | None = None,
+    required_slurm_job_id: str | None = None,
 ) -> dict:
     """Runs primary, then EITHER uses the caller-supplied `run_backup`
     (test-only override -- see module docstring; the scheduled entry
@@ -313,36 +349,61 @@ def run_matched_configuration_job(
     written.
 
     If the trigger says to run backup AND `backup_readiness_checker` is
-    supplied (a zero-argument callable, typically `check_backup_readiness`
-    bound via `functools.partial` with the job's real time-budget/GPU
-    facts), it is called ONE more time right before backup would launch.
-    A `BackupReadiness` with `attempt=False` overrides the trigger's own
-    `run_backup=True` -- `backup_execution_status` becomes
-    `NOT_ATTEMPTED` (insufficient time) rather than launching a backup
-    that cannot complete, or the readiness check's own failure is
-    recorded and backup is likewise not launched. `backup_readiness_checker`
-    defaults to `None` (no gate) so every existing caller/test is
-    unaffected.
+    supplied (typically `check_backup_readiness` bound via
+    `functools.partial` with the job's real time-budget/GPU facts, leaving
+    `primary_elapsed_seconds` UNBOUND), it is called ONE more time right
+    before backup would launch, as `backup_readiness_checker(primary_
+    elapsed_seconds=<real, measured elapsed seconds from primary_result's
+    own lane timestamps>)` -- never a guessed constant. A `BackupReadiness`
+    with `attempt=False` overrides the trigger's own `run_backup=True` --
+    `backup_execution_status` becomes `NOT_ATTEMPTED` (insufficient time)
+    rather than launching a backup that cannot complete, or the readiness
+    check's own failure is recorded and backup is likewise not launched.
+    `backup_readiness_checker` defaults to `None` (no gate) so every
+    existing caller/test is unaffected.
 
-    PRIMARY-GRID / PRIMARY-GENERATION / BACKUP LIFECYCLE (P0 CONTINUE
-    blocker 2), explicit: when `primary_generation_lanes` is supplied,
-    causal generation for primary's surviving concepts runs
-    IMMEDIATELY after primary's grid lanes reach `complete_pass` --
-    BEFORE the backup trigger is even computed. This makes the ordering
-    a hard structural guarantee, not a timing accident: primary
-    generation depends ONLY on primary's own `grid.json` (already
-    written to disk by the time generation is even considered) and
-    nothing about when or whether backup runs; backup's own trigger
-    computation, grid lanes, and (if supplied) `backup_generation_lanes`
-    all happen strictly AFTER, independently. Neither phase reads
-    anything from the other lane's in-memory process state -- every
-    cross-phase handoff is a file already flushed to disk. Passing
-    neither `*_generation_lanes` argument (the default) skips the
-    generation phase(s) entirely and reproduces the exact prior
-    grid-only behavior."""
+    REQUIRED PRODUCTION ORDER (P0 STOP-LINE correction): primary grids ->
+    trigger -> conditional matched backup grids -> causal generation.
+    NO CAUSAL GENERATION MAY OCCUR BEFORE THE TRIGGER -- both `primary_
+    generation_lanes` and `backup_generation_lanes` (if supplied) are
+    launched strictly AFTER the trigger has been resolved AND (if
+    triggered) the backup grid lanes have themselves been resolved, never
+    interleaved with or ahead of that decision. Primary generation still
+    depends ONLY on primary's own `grid.json` (unaffected by whether
+    backup ran or what it found) and backup generation only on backup's
+    own `grid.json` (produced only if backup's grid lanes actually ran and
+    reached `complete_pass`); neither phase reads anything from the other
+    lane's in-memory process state -- every cross-phase handoff is a file
+    already flushed to disk. Passing neither `*_generation_lanes` argument
+    (the default) skips the generation phase(s) entirely and reproduces
+    the exact prior grid-only behavior.
+
+    A missing (never attempted despite `*_generation_lanes` being
+    supplied), failed, or partial generation phase makes the AGGREGATE
+    `status` non-`complete_pass` -- a generation-phase problem is never
+    silently absorbed by an otherwise-passing grid phase.
+
+    PRIMARY > BACKUP, always: `selected_configuration` is unconditionally
+    `discovery.PRIMARY_CONFIGURATION.name` -- backup is replication/
+    fallback evidence, reported separately in `backup_result`/`backup_
+    generation_result`, and is NEVER promoted to "the selected
+    configuration" merely because it happened to run."""
     if run_backup is None and trigger_resolver is None:
         raise ValueError("run_matched_configuration_job requires either run_backup or trigger_resolver")
-    validate_primary_backup_paths_disjoint(primary_lanes, backup_lanes)
+    # P0 STOP-LINE correction: validate ALL EIGHT grid/generation lane
+    # paths pairwise (whichever of the four groups were actually
+    # supplied), and, if a SLURM_JOB_ID was required, that every lane's
+    # paths are rooted under it -- both BEFORE any lane in any group
+    # launches.
+    lane_groups: dict[str, list[dual_gpu.LaneSpec]] = {"primary": primary_lanes, "backup": backup_lanes}
+    if primary_generation_lanes is not None:
+        lane_groups["primary_generation"] = primary_generation_lanes
+    if backup_generation_lanes is not None:
+        lane_groups["backup_generation"] = backup_generation_lanes
+    validate_all_lane_paths_disjoint(lane_groups)
+    if required_slurm_job_id is not None:
+        for lanes in lane_groups.values():
+            dual_gpu.validate_lane_paths_rooted_in_slurm_job_id(lanes, slurm_job_id=required_slurm_job_id)
 
     primary_result = dual_gpu.run_dual_gpu_job_for_lanes(
         primary_lanes, orchestrator_factory=orchestrator_factory, validate_prompt_artifact=validate_prompt_artifact,
@@ -350,21 +411,9 @@ def run_matched_configuration_job(
         poll_interval_seconds=poll_interval_seconds, wait_for_ready=wait_for_ready,
     )
 
-    primary_generation_result = None
-    if primary_generation_lanes is not None:
-        if primary_result["status"] == "complete_pass":
-            primary_generation_result = run_causal_generation_phase(
-                primary_generation_lanes, orchestrator_factory=orchestrator_factory,
-                validate_prompt_artifact=validate_prompt_artifact, run_preflight=run_preflight, repo_root=repo_root,
-                ready_timeout_seconds=ready_timeout_seconds, poll_interval_seconds=poll_interval_seconds,
-                wait_for_ready=wait_for_ready,
-            )
-        else:
-            primary_generation_result = {
-                "status": "not_attempted",
-                "reason": f"primary grid did not reach complete_pass (status={primary_result['status']!r})",
-            }
-
+    # TRIGGER RESOLUTION -- strictly BEFORE any causal generation, primary
+    # or backup (P0 STOP-LINE correction: "No causal generation may occur
+    # before the trigger").
     trigger_result = None
     if run_backup is None:
         if primary_result["status"] != "complete_pass":
@@ -383,13 +432,14 @@ def run_matched_configuration_job(
                 )
             run_backup = trigger_result.run_backup
 
+    # CONDITIONAL MATCHED BACKUP GRIDS -- only after the trigger, still
+    # strictly before any causal generation.
     backup_result = None
     backup_readiness = None
     backup_execution_status = None
-    backup_generation_result = None
     if run_backup:
         if backup_readiness_checker is not None:
-            backup_readiness = backup_readiness_checker()
+            backup_readiness = backup_readiness_checker(primary_elapsed_seconds=_lane_elapsed_seconds(primary_result))
         if backup_readiness is not None and not backup_readiness.attempt:
             backup_execution_status = "NOT_ATTEMPTED"
         else:
@@ -399,19 +449,41 @@ def run_matched_configuration_job(
                 poll_interval_seconds=poll_interval_seconds, wait_for_ready=wait_for_ready,
             )
             backup_execution_status = "COMPLETE" if backup_result["status"] == "complete_pass" else "PARTIAL"
-            if backup_generation_lanes is not None:
-                if backup_result["status"] == "complete_pass":
-                    backup_generation_result = run_causal_generation_phase(
-                        backup_generation_lanes, orchestrator_factory=orchestrator_factory,
-                        validate_prompt_artifact=validate_prompt_artifact, run_preflight=run_preflight,
-                        repo_root=repo_root, ready_timeout_seconds=ready_timeout_seconds,
-                        poll_interval_seconds=poll_interval_seconds, wait_for_ready=wait_for_ready,
-                    )
-                else:
-                    backup_generation_result = {
-                        "status": "not_attempted",
-                        "reason": f"backup grid did not reach complete_pass (status={backup_result['status']!r})",
-                    }
+
+    # CAUSAL GENERATION -- strictly AFTER the trigger and the (conditional)
+    # backup grids above, for BOTH primary and backup.
+    primary_generation_result = None
+    if primary_generation_lanes is not None:
+        if primary_result["status"] == "complete_pass":
+            primary_generation_result = run_causal_generation_phase(
+                primary_generation_lanes, orchestrator_factory=orchestrator_factory,
+                validate_prompt_artifact=validate_prompt_artifact, run_preflight=run_preflight, repo_root=repo_root,
+                ready_timeout_seconds=ready_timeout_seconds, poll_interval_seconds=poll_interval_seconds,
+                wait_for_ready=wait_for_ready,
+            )
+        else:
+            primary_generation_result = {
+                "status": "not_attempted",
+                "reason": f"primary grid did not reach complete_pass (status={primary_result['status']!r})",
+            }
+
+    backup_generation_result = None
+    if backup_generation_lanes is not None:
+        if backup_result is not None and backup_result["status"] == "complete_pass":
+            backup_generation_result = run_causal_generation_phase(
+                backup_generation_lanes, orchestrator_factory=orchestrator_factory,
+                validate_prompt_artifact=validate_prompt_artifact, run_preflight=run_preflight,
+                repo_root=repo_root, ready_timeout_seconds=ready_timeout_seconds,
+                poll_interval_seconds=poll_interval_seconds, wait_for_ready=wait_for_ready,
+            )
+        else:
+            reason = (
+                f"backup grid did not reach complete_pass (status={backup_result['status']!r})"
+                if backup_result is not None else
+                "backup grid was never run (the trigger did not select backup, or the backup "
+                "readiness gate declined it)"
+            )
+            backup_generation_result = {"status": "not_attempted", "reason": reason}
 
     for lane in primary_result["lanes"]:
         lane["configuration"] = discovery.PRIMARY_CONFIGURATION.name
@@ -419,12 +491,20 @@ def run_matched_configuration_job(
         for lane in backup_result["lanes"]:
             lane["configuration"] = discovery.BACKUP_CONFIGURATION.name
 
+    # A missing (only when the phase was actually requested via *_generation_lanes),
+    # failed, or partial generation phase makes the AGGREGATE status non-pass --
+    # P0 STOP-LINE correction: a generation-phase problem must never be masked by
+    # an otherwise-passing grid phase.
     if primary_result["status"] != "complete_pass":
         overall_status = "failure" if primary_result["status"] == "failure" else "partial_execution"
+    elif primary_generation_result is not None and primary_generation_result.get("status") != "complete_pass":
+        overall_status = "failure" if primary_generation_result.get("status") == "failure" else "partial_execution"
     elif run_backup and backup_execution_status == "NOT_ATTEMPTED":
         overall_status = "partial_execution"
     elif run_backup and backup_result is not None and backup_result["status"] != "complete_pass":
         overall_status = "failure" if backup_result["status"] == "failure" else "partial_execution"
+    elif backup_generation_result is not None and backup_generation_result.get("status") != "complete_pass":
+        overall_status = "failure" if backup_generation_result.get("status") == "failure" else "partial_execution"
     else:
         overall_status = "complete_pass"
 
@@ -432,7 +512,10 @@ def run_matched_configuration_job(
         "schema_version": SCHEMA_VERSION,
         "status": overall_status,
         "overall_exit_code": 0 if overall_status == "complete_pass" else 1,
-        "selected_configuration": discovery.BACKUP_CONFIGURATION.name if (run_backup and backup_result is not None) else discovery.PRIMARY_CONFIGURATION.name,
+        # PRIMARY > BACKUP, always: backup is replication/fallback evidence
+        # (backup_result/backup_generation_result, reported separately),
+        # never promoted to "the selected configuration" merely because it ran.
+        "selected_configuration": discovery.PRIMARY_CONFIGURATION.name,
         "run_backup": run_backup,
         "backup_execution_status": backup_execution_status,
         "backup_readiness": None if backup_readiness is None else asdict(backup_readiness),
@@ -475,10 +558,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--job-result-path", required=True)
     p.add_argument("--ready-timeout-seconds", type=float, default=1800.0, help="How long to wait for each configuration's lead lane (Qwen) READY record before failing closed.")
     p.add_argument("--poll-interval-seconds", type=float, default=5.0)
-    p.add_argument("--primary-gemma-generation-config", default=None, help="Path to the primary Gemma causal-generation lane's JSON (target_script=final_pairing_one_allocation_generation.py). Optional: omit to skip the generation phase entirely (grid-only, exact prior behavior).")
-    p.add_argument("--primary-qwen-generation-config", default=None)
-    p.add_argument("--backup-gemma-generation-config", default=None, help="Only used if the trigger runs backup. Optional independently of the primary generation flags.")
-    p.add_argument("--backup-qwen-generation-config", default=None)
+    # P0 STOP-LINE correction: all four generation configs are MANDATORY for
+    # the scheduled production entry point -- a production run must never be
+    # able to silently skip causal generation for either configuration.
+    p.add_argument("--primary-gemma-generation-config", required=True, help="Path to the primary Gemma causal-generation lane's JSON (target_script=final_pairing_one_allocation_generation.py).")
+    p.add_argument("--primary-qwen-generation-config", required=True)
+    p.add_argument("--backup-gemma-generation-config", required=True, help="Only ACTUALLY LAUNCHED if the trigger runs backup and backup's own grid reaches complete_pass -- still required upfront so the packet never depends on which branch a live run happens to take.")
+    p.add_argument("--backup-qwen-generation-config", required=True)
+    # P0 STOP-LINE correction: wires the real 1.5x remaining-time and
+    # free-VRAM backup-readiness check into main() -- previously the
+    # functions existed but nothing in the scheduled entry point called them.
+    p.add_argument("--job-start-time-epoch-seconds", type=float, required=True, help="Absolute time.time()-based epoch start of this allocation -- never a duration relative to this process's own start.")
+    p.add_argument("--job-time-limit-seconds", type=float, required=True, help="This allocation's total wall-clock time budget.")
+    p.add_argument("--gpu-ids", required=True, help="Comma-separated GPU ids to verify have sufficient free VRAM before backup launches (e.g. '0,1').")
+    p.add_argument("--min-free-vram-bytes", type=int, required=True, help="Minimum free VRAM required per GPU (after gc.collect/torch.cuda.empty_cache) before backup is allowed to launch.")
     return p.parse_args(argv)
 
 
@@ -507,6 +600,16 @@ def main(argv: list[str] | None = None) -> int:
     not merely exposing its library functions for a caller to wire up
     separately."""
     args = parse_args(argv)
+    # P0 STOP-LINE correction ("require SLURM_JOB_ID roots"): main() only
+    # ever runs inside a real Slurm allocation -- unlike
+    # run_matched_configuration_job (the library function), which stays
+    # unaffected for direct callers/tests that supply no SLURM_JOB_ID at all.
+    slurm_job_id = os.environ.get("SLURM_JOB_ID")
+    if not slurm_job_id:
+        raise MatchedConfigurationError(
+            "SLURM_JOB_ID is not set -- the scheduled production entry point must run inside a real "
+            "Slurm allocation, whose lane paths this job verifies are rooted under."
+        )
     primary_lanes = [
         dual_gpu.load_lane_spec("gemma", args.primary_gemma_config),
         dual_gpu.load_lane_spec("qwen", args.primary_qwen_config),
@@ -523,11 +626,22 @@ def main(argv: list[str] | None = None) -> int:
         gemma_grid_path=args.primary_gemma_grid_path, qwen_grid_path=args.primary_qwen_grid_path,
         concept_ids=args.concept_ids,
     )
+    # The real 1.5x remaining-time and free-VRAM backup-readiness check --
+    # primary_elapsed_seconds is left UNBOUND here (supplied by
+    # run_matched_configuration_job itself, measured from primary_result's
+    # own lane timestamps, never guessed).
+    backup_readiness_checker = functools.partial(
+        check_backup_readiness,
+        job_start_time=args.job_start_time_epoch_seconds, job_time_limit_seconds=args.job_time_limit_seconds,
+        gpu_ids=args.gpu_ids.split(","), min_free_vram_bytes=args.min_free_vram_bytes,
+    )
     result = run_matched_configuration_job(
         primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs=trigger_inputs,
-        trigger_resolver=trigger_resolver, job_result_path=Path(args.job_result_path),
+        trigger_resolver=trigger_resolver, backup_readiness_checker=backup_readiness_checker,
+        job_result_path=Path(args.job_result_path),
         ready_timeout_seconds=args.ready_timeout_seconds, poll_interval_seconds=args.poll_interval_seconds,
         primary_generation_lanes=primary_generation_lanes, backup_generation_lanes=backup_generation_lanes,
+        required_slurm_job_id=slurm_job_id,
     )
     print(json.dumps({"status": result["status"], "selected_configuration": result["selected_configuration"]}, indent=2))
     return result["overall_exit_code"]

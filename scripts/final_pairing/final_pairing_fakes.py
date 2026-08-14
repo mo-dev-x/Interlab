@@ -79,9 +79,52 @@ class FakeSAE:
         return feats.to(torch.float32) @ self.W
 
 
+#: A fake but non-empty chat template -- P0 STOP-LINE correction requires
+#: `resolve_chat_template_identity`/`resolve_stop_token_ids` to derive a
+#: real template/EOS identity from the tokenizer actually used, never
+#: accept an arbitrary caller label; a tokenizer with NO template at all is
+#: itself a stop condition for real callers, so the fakes must carry one.
+_FAKE_CHAT_TEMPLATE = "{% for message in messages %}{{ message['content'] }}{% endfor %}"
+
+
 class _FakeTokenizer:
-    def decode(self, ids) -> str:
+    """Owns a back-reference to its `FakeGemmaModel` so `apply_chat_template`
+    can register the RENDERED (templated) text through the model's own
+    `to_tokens` -- the same one-text-per-token scheme every other fake code
+    path already relies on, rather than a second, disconnected tokenization
+    mechanism."""
+
+    name_or_path = "fake/gemma-3-12b-it"
+    chat_template = _FAKE_CHAT_TEMPLATE
+    eos_token_id = 999999
+    pad_token_id = 999999
+    unk_token_id = None
+
+    def __init__(self, model: FakeGemmaModel):
+        self._model = model
+
+    def decode(self, ids, **_kwargs) -> str:
         return "fake-generated-text"
+
+    def convert_tokens_to_ids(self, _token) -> None:
+        return None  # this fake vocabulary has no named special tokens at all
+
+    def apply_chat_template(
+        self, messages, *, tokenize: bool = True, add_generation_prompt: bool = True,
+        return_tensors: str | None = None, return_dict: bool = False, **_kwargs,
+    ):
+        """Renders via the SAME fixed one-user-turn template every real
+        caller now applies (`_FAKE_CHAT_TEMPLATE` is a trivial passthrough,
+        so the original prompt text -- and any `POSITIVE` marker inside it
+        -- survives verbatim), then tokenizes through the owning model's
+        real `to_tokens` registration, never a second bespoke mechanism."""
+        rendered = "".join(m["content"] for m in messages)
+        if not tokenize:
+            return rendered
+        tokens = self._model.to_tokens(rendered)
+        if return_dict:
+            return {"input_ids": tokens, "attention_mask": torch.ones_like(tokens)}
+        return tokens
 
 
 class FakeGemmaModel:
@@ -90,7 +133,7 @@ class FakeGemmaModel:
     `__call__`."""
 
     def __init__(self):
-        self.tokenizer = _FakeTokenizer()
+        self.tokenizer = _FakeTokenizer(self)
         self._active_hooks: list = []
         self._texts_by_token: dict[int, str] = {}
         self._next_token = 0
@@ -186,7 +229,15 @@ def _build_tiny_qwen_tokenizer_dir() -> str:
     vocab = {word: i for i, word in enumerate(_QWEN_VOCAB_WORDS)}
     tokenizer = Tokenizer(WordLevel(vocab=vocab, unk_token="[UNK]"))
     tokenizer.pre_tokenizer = Whitespace()
-    fast = PreTrainedTokenizerFast(tokenizer_object=tokenizer, unk_token="[UNK]", pad_token="[UNK]")
+    # eos_token and chat_template are required for resolve_chat_template_
+    # identity/resolve_stop_token_ids/apply_chat_template to have anything
+    # real to resolve -- P0 STOP-LINE correction: real callers must derive
+    # these from the tokenizer, never accept an arbitrary label, so this
+    # fake tokenizer must carry genuine (if trivial) values for both.
+    fast = PreTrainedTokenizerFast(
+        tokenizer_object=tokenizer, unk_token="[UNK]", pad_token="[UNK]", eos_token="[UNK]",
+        chat_template=_FAKE_CHAT_TEMPLATE,
+    )
     tmp_dir = tempfile.mkdtemp(prefix="final-pairing-fake-qwen-tokenizer-")
     fast.save_pretrained(tmp_dir)
     return tmp_dir

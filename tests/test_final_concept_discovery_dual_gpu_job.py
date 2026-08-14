@@ -389,7 +389,7 @@ def test_a_passing_prompt_artifact_validator_allows_both_lanes_to_launch(tmp_pat
             ready_path = Path(command[ready_index + 1])
             import final_pairing_concept_discovery as discovery
 
-            discovery.write_ready_record(ready_path, pairing="qwen-3.5-27b", device="cuda:0")
+            discovery.write_ready_record(ready_path, pairing="qwen-3.5-27b", device="cuda:0", pid=processes["qwen"].pid)
         return processes[name]
 
     def fake_orchestrator_factory(lane_list):
@@ -541,19 +541,30 @@ def test_env_for_lane_sets_cuda_device_order_pci_bus_id(tmp_path):
         assert env["CUDA_DEVICE_ORDER"] == "PCI_BUS_ID"
 
 
-def _write_real_ready_record(lane: job.LaneSpec, *, pairing: str, device: str = "cuda:0") -> None:
+def _write_real_ready_record(lane: job.LaneSpec, *, pairing: str, device: str = "cuda:0", pid: int | None = None) -> None:
     import final_pairing_concept_discovery as discovery
 
-    discovery.write_ready_record(job.ready_path_for_lane(lane), pairing=pairing, device=device)
+    discovery.write_ready_record(job.ready_path_for_lane(lane), pairing=pairing, device=device, pid=pid)
 
 
 def test_launch_staggered_launches_qwen_first_and_gemma_only_after_ready(tmp_path):
     lanes = _make_lanes(tmp_path)
-    orch = job.DualGpuOrchestrator(lanes, launch=lambda *a, **k: _FakeProcess(pid=1), sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
-    # The lead lane's READY record already exists BEFORE launch_staggered is
-    # called -- realistic in that wait_for_ready_record's poll loop finds it
-    # on the very first check, so no test-time sleep is needed.
-    _write_real_ready_record(orch.lanes[job.STAGGER_LEAD_LANE], pairing="qwen-3.5-27b")
+    lead_lane = next(lane for lane in lanes if lane.name == job.STAGGER_LEAD_LANE)
+
+    # P0 STOP-LINE correction: launch_staggered now deletes any stale READY
+    # file for BOTH lanes BEFORE launching, so the record must be written
+    # AFTER (i.e. by) the fake launch callback -- exactly mirroring the
+    # real production shape, where the CHILD process writes it, not the
+    # parent before the child even exists. `pid=proc.pid` matches
+    # wait_for_ready_record's new expected_pid check against THIS fake
+    # process's own advertised pid.
+    def launch(command, *, env, cwd, log_path):
+        proc = _FakeProcess(pid=1)
+        if env["CUDA_VISIBLE_DEVICES"] == job.LANE_GPU_ASSIGNMENT[job.STAGGER_LEAD_LANE]:
+            _write_real_ready_record(lead_lane, pairing="qwen-3.5-27b", pid=proc.pid)
+        return proc
+
+    orch = job.DualGpuOrchestrator(lanes, launch=launch, sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
     orch.launch_staggered()
     assert set(orch._processes) == {"gemma", "qwen"}
     assert orch._results["qwen"].start_time <= orch._results["gemma"].start_time
@@ -577,12 +588,62 @@ def test_launch_staggered_fails_closed_when_lead_process_exits_before_ready(tmp_
 
 def test_launch_staggered_fails_closed_on_a_ready_record_naming_the_wrong_pairing(tmp_path):
     lanes = _make_lanes(tmp_path)
-    orch = job.DualGpuOrchestrator(lanes, launch=lambda *a, **k: _FakeProcess(pid=1), sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
-    _write_real_ready_record(orch.lanes[job.STAGGER_LEAD_LANE], pairing="the-wrong-pairing")
+    lead_lane = next(lane for lane in lanes if lane.name == job.STAGGER_LEAD_LANE)
+
+    def launch(command, *, env, cwd, log_path):
+        proc = _FakeProcess(pid=1)
+        if env["CUDA_VISIBLE_DEVICES"] == job.LANE_GPU_ASSIGNMENT[job.STAGGER_LEAD_LANE]:
+            _write_real_ready_record(lead_lane, pairing="the-wrong-pairing", pid=proc.pid)
+        return proc
+
+    orch = job.DualGpuOrchestrator(lanes, launch=launch, sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
     with pytest.raises(Exception) as excinfo:
         orch.launch_staggered()
     assert "names pairing" in str(excinfo.value)
     assert job.STAGGER_FOLLOW_LANE not in orch._processes
+
+
+def test_launch_staggered_fails_closed_on_a_ready_record_naming_the_wrong_pid(tmp_path):
+    """P0 STOP-LINE correction: 'require READY pid/start time to match
+    this child' -- a READY record naming a DIFFERENT pid than the actual
+    spawned lead process must be refused, even if pairing/device agree."""
+    lanes = _make_lanes(tmp_path)
+    lead_lane = next(lane for lane in lanes if lane.name == job.STAGGER_LEAD_LANE)
+
+    def launch(command, *, env, cwd, log_path):
+        proc = _FakeProcess(pid=1)
+        if env["CUDA_VISIBLE_DEVICES"] == job.LANE_GPU_ASSIGNMENT[job.STAGGER_LEAD_LANE]:
+            _write_real_ready_record(lead_lane, pairing="qwen-3.5-27b", pid=99999)  # deliberately wrong pid
+        return proc
+
+    orch = job.DualGpuOrchestrator(lanes, launch=launch, sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
+    with pytest.raises(Exception) as excinfo:
+        orch.launch_staggered()
+    assert "names pid" in str(excinfo.value)
+    assert job.STAGGER_FOLLOW_LANE not in orch._processes
+
+
+def test_launch_staggered_deletes_a_stale_ready_record_before_launching(tmp_path):
+    """P0 STOP-LINE correction: 'delete an old READY file before launch'
+    -- a READY record left over from a previous run in the same state_dir
+    must never be misread as this run's signal. Without the deletion, the
+    lead lane's wait would immediately (and wrongly) succeed against the
+    stale record instead of waiting for a REAL one this launch writes."""
+    lanes = _make_lanes(tmp_path)
+    lead_lane = next(lane for lane in lanes if lane.name == job.STAGGER_LEAD_LANE)
+    stale_path = job.ready_path_for_lane(lead_lane)
+    _write_real_ready_record(lead_lane, pairing="qwen-3.5-27b", pid=424242)  # a stale record from "a previous run"
+
+    def launch(command, *, env, cwd, log_path):
+        proc = _FakeProcess(pid=1)
+        if env["CUDA_VISIBLE_DEVICES"] == job.LANE_GPU_ASSIGNMENT[job.STAGGER_LEAD_LANE]:
+            assert not stale_path.is_file()  # the stale record must already be gone by launch time
+            _write_real_ready_record(lead_lane, pairing="qwen-3.5-27b", pid=proc.pid)
+        return proc
+
+    orch = job.DualGpuOrchestrator(lanes, launch=launch, sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
+    orch.launch_staggered()
+    assert set(orch._processes) == {"gemma", "qwen"}
 
 
 def test_launch_staggered_uses_an_injectable_wait_for_ready_seam(tmp_path):
@@ -592,7 +653,7 @@ def test_launch_staggered_uses_an_injectable_wait_for_ready_seam(tmp_path):
     lanes = _make_lanes(tmp_path)
     calls = {"n": 0}
 
-    def fake_wait_for_ready(ready_path, *, expected_pairing, expected_device, process_alive_fn, timeout_seconds, sleep_fn=None):
+    def fake_wait_for_ready(ready_path, *, expected_pairing, expected_device, process_alive_fn, timeout_seconds, sleep_fn=None, **_kwargs):
         calls["n"] += 1
         raise TimeoutError(f"simulated timeout waiting for {ready_path}")
 
@@ -601,3 +662,92 @@ def test_launch_staggered_uses_an_injectable_wait_for_ready_seam(tmp_path):
         orch.launch_staggered(wait_for_ready=fake_wait_for_ready)
     assert calls["n"] == 1
     assert job.STAGGER_FOLLOW_LANE not in orch._processes
+
+
+# ---------------------------------------------------------------------------
+# P0 STOP-LINE correction: validate generation lane argv identity before
+# launch; require SLURM_JOB_ID-rooted lane paths.
+# ---------------------------------------------------------------------------
+
+
+def _write_generation_lane_json(tmp_path: Path, name: str, *, argv: list[str]) -> Path:
+    lane_dir = tmp_path / name
+    payload = {
+        "out_dir": str(lane_dir / "out"), "state_dir": str(lane_dir / "state"),
+        "tmp_dir": str(lane_dir / "tmp"), "log_path": str(lane_dir / "log.txt"),
+        "argv": argv, "target_script": str(job.GENERATION_SCRIPT),
+    }
+    path = tmp_path / f"{name}.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+_COMPLETE_GENERATION_ARGV = [
+    "--pairing", "gemma-3-12b-it", "--model-path", "/fake/model", "--sae-path", "/fake/sae",
+    "--layer", "29", "--configuration-name", "primary", "--grid-path", "/fake/grid.json",
+    "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
+    "--run-id", "r-test-0001", "--source-commit", "0" * 40,
+]
+
+
+def test_validate_generation_lane_argv_is_a_noop_for_a_grid_discovery_lane(tmp_path):
+    lane = job.load_lane_spec("gemma", _write_lane_json(tmp_path, "gemma"))
+    job.validate_generation_lane_argv(lane)  # must not raise
+
+
+def test_validate_generation_lane_argv_accepts_a_complete_generation_lane(tmp_path):
+    lane = job.load_lane_spec("gemma", _write_generation_lane_json(tmp_path, "gemma", argv=_COMPLETE_GENERATION_ARGV))
+    job.validate_generation_lane_argv(lane)  # must not raise
+
+
+def test_validate_generation_lane_argv_rejects_a_generation_lane_missing_required_flags(tmp_path):
+    lane = job.load_lane_spec("gemma", _write_generation_lane_json(tmp_path, "gemma", argv=["--pairing", "gemma-3-12b-it"]))
+    with pytest.raises(job.LaneConfigError, match="missing required flag"):
+        job.validate_generation_lane_argv(lane)
+
+
+def test_run_dual_gpu_job_for_lanes_rejects_an_incomplete_generation_lane_before_any_launch(tmp_path):
+    launched = []
+
+    def factory(lanes):
+        def fake_launch(command, *, env, cwd, log_path):
+            launched.append(env["CUDA_VISIBLE_DEVICES"])
+            return _FakeProcess(pid=1)
+
+        return job.DualGpuOrchestrator(lanes, launch=fake_launch, sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
+
+    gemma_lane = job.load_lane_spec("gemma", _write_generation_lane_json(tmp_path, "gemma", argv=["--pairing", "gemma-3-12b-it"]))
+    qwen_lane = job.load_lane_spec("qwen", _write_generation_lane_json(tmp_path, "qwen", argv=_COMPLETE_GENERATION_ARGV))
+    with pytest.raises(job.LaneConfigError, match="missing required flag"):
+        job.run_dual_gpu_job_for_lanes(
+            [gemma_lane, qwen_lane], orchestrator_factory=factory,
+            validate_prompt_artifact=lambda repo_root: None, run_preflight=lambda repo_root: dict(_PASSING_PREFLIGHT_REPORT),
+        )
+    assert launched == []
+
+
+def test_validate_lane_paths_rooted_in_slurm_job_id_accepts_rooted_paths(tmp_path):
+    job_root = tmp_path / "SLURM_JOB_42"
+    lane = job.LaneSpec(
+        name="gemma", out_dir=job_root / "out", state_dir=job_root / "state",
+        tmp_dir=job_root / "tmp", log_path=job_root / "log.txt", argv=["--pairing", "gemma-3-12b-it"],
+    )
+    job.validate_lane_paths_rooted_in_slurm_job_id([lane], slurm_job_id="SLURM_JOB_42")  # must not raise
+
+
+def test_validate_lane_paths_rooted_in_slurm_job_id_rejects_a_substring_only_match(tmp_path):
+    """A job id that merely appears as a SUBSTRING of a path component
+    (not as its own exact component) must not pass."""
+    job_root = tmp_path / "SLURM_JOB_42x"
+    lane = job.LaneSpec(
+        name="gemma", out_dir=job_root / "out", state_dir=job_root / "state",
+        tmp_dir=job_root / "tmp", log_path=job_root / "log.txt", argv=["--pairing", "gemma-3-12b-it"],
+    )
+    with pytest.raises(job.LaneConfigError, match="SLURM_JOB_ID"):
+        job.validate_lane_paths_rooted_in_slurm_job_id([lane], slurm_job_id="SLURM_JOB_42")
+
+
+def test_validate_lane_paths_rooted_in_slurm_job_id_rejects_an_unrooted_path(tmp_path):
+    lane = job.load_lane_spec("gemma", _write_lane_json(tmp_path, "gemma"))
+    with pytest.raises(job.LaneConfigError, match="SLURM_JOB_ID"):
+        job.validate_lane_paths_rooted_in_slurm_job_id([lane], slurm_job_id="SLURM_JOB_42")

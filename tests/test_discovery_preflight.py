@@ -30,10 +30,13 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "final_pairing"))
 
 import discovery_preflight as preflight  # noqa: E402
+import final_pairing_concept_discovery as discovery  # noqa: E402
 
 
 def test_run_all_cases_reports_the_la_b_schema_and_a_clean_pass():
@@ -90,6 +93,30 @@ def test_cli_parses_sentinel_dir_flag():
     assert args.sentinel_dir == "/some/path"
 
 
-def test_cli_sentinel_dir_defaults_to_none():
-    args = preflight.parse_args([])
-    assert args.sentinel_dir is None
+def test_cli_sentinel_dir_is_required():
+    """P0 STOP-LINE correction: --sentinel-dir is REQUIRED, not optional."""
+    with pytest.raises(SystemExit):
+        preflight.parse_args([])
+
+
+def test_resolve_source_commit_uses_the_transfer_manifest_inside_a_no_git_archive_extraction(tmp_path):
+    """The transfer manifest must work inside a no-.git archive
+    extraction (P0 STOP-LINE correction) -- simulates the real Tamia
+    shape: a `git archive` checkout with transfer_manifest.json present
+    and NO .git directory at all. Writes the manifest DIRECTLY (never via
+    `build_transfer_manifest`, which itself requires a real `.git` to
+    compute `source_commit` from -- exactly the Windows/dev-side-only
+    tool this no-.git directory must NOT need)."""
+    import json
+
+    assert not (tmp_path / ".git").exists()
+    manifest = {"schema_version": discovery.SCHEMA_VERSION, "source_commit": "abc123fakearchivedcommit", "files": {}}
+    (tmp_path / discovery.TRANSFER_MANIFEST_FILENAME).write_text(json.dumps(manifest), encoding="utf-8")
+    assert preflight.resolve_source_commit(tmp_path) == "abc123fakearchivedcommit"
+
+
+def test_resolve_source_commit_raises_when_neither_transfer_manifest_nor_git_is_present(tmp_path):
+    assert not (tmp_path / ".git").exists()
+    assert not (tmp_path / discovery.TRANSFER_MANIFEST_FILENAME).exists()
+    with pytest.raises(preflight.SetupFailure):
+        preflight.resolve_source_commit(tmp_path)

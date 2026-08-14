@@ -158,8 +158,8 @@ _MANIFEST_KWARGS = dict(
     release="gemma-scope-2-12b-it-res-all", loader_sae_id="layer_29_width_16k_l0_big",
     scientific_sae_id="resid_post_all/layer_29_width_16k_l0_big",
     measured_params_sha256="6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e",
-    generation_kwargs=d.GENERATION_SETTINGS, chat_template_identity="gemma-it-v1",
-    locales_complete=["en", "fr"], causal_order_position=2, skipped_for_gate_failure=False,
+    generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS), chat_template_identity="gemma-it-v1",
+    locales_complete=["en", "fr"], causal_order_position=2, skipped_for_gate_failure=["formal_register"],
 )
 
 

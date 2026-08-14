@@ -133,6 +133,61 @@ def validate_lane_paths_disjoint(lanes: list[LaneSpec]) -> None:
             seen[resolved] = claim
 
 
+#: P0 STOP-LINE correction ("validate generation target_script, pairing,
+#: configuration, layer, SAE identity, grid path and source commit before
+#: launch"): every flag a generation lane's own argv must carry, checked
+#: for STRUCTURAL PRESENCE before this orchestrator ever builds a command
+#: or spawns a subprocess for it -- the full semantic verification
+#: (weights actually load, hashes actually match) remains the child
+#: process's own job (`load_backend`/`assert_qwen_params_sha256_matches`/
+#: etc, already run inside it); this is the fail-fast, orchestrator-level
+#: gate that catches an obviously malformed/incomplete lane config before
+#: a GPU-allocation cycle is spent launching it.
+GENERATION_LANE_REQUIRED_ARGV_FLAGS: tuple[str, ...] = (
+    "--pairing", "--model-path", "--sae-path", "--layer", "--configuration-name",
+    "--grid-path", "--pairing-id", "--run-id", "--source-commit",
+)
+
+
+def validate_generation_lane_argv(lane: LaneSpec) -> None:
+    """A no-op for a grid-discovery lane (`lane.target_script !=
+    GENERATION_SCRIPT`) -- grid lanes have their own, already-required
+    argv shape via `final_pairing_concept_discovery.parse_args` and are
+    unaffected. For a causal-generation lane, every identity flag in
+    `GENERATION_LANE_REQUIRED_ARGV_FLAGS` must be present in the lane's
+    OWN argv (pairing/configuration/layer/SAE path together constitute
+    the SAE identity this check can verify at this level; grid path and
+    source commit round out the full 'before launch' identity list)."""
+    if lane.target_script != GENERATION_SCRIPT:
+        return
+    missing = [flag for flag in GENERATION_LANE_REQUIRED_ARGV_FLAGS if flag not in lane.argv]
+    if missing:
+        raise LaneConfigError(
+            f"generation lane {lane.name!r}'s argv is missing required flag(s) {missing} -- refusing "
+            f"to launch a causal-generation subprocess without its full identity (pairing/"
+            f"configuration/layer/SAE path/grid path/source commit)."
+        )
+
+
+def validate_lane_paths_rooted_in_slurm_job_id(lanes: list[LaneSpec], *, slurm_job_id: str) -> None:
+    """P0 STOP-LINE correction ('require SLURM_JOB_ID roots'): every
+    lane's out_dir/state_dir/tmp_dir/log_path must contain `slurm_job_id`
+    as an EXACT path component (never a mere substring match -- a job id
+    that happens to be a substring of an unrelated directory name must
+    not pass). Fails closed before any lane launches."""
+    for lane in lanes:
+        for kind, path in (
+            ("out_dir", lane.out_dir), ("state_dir", lane.state_dir),
+            ("tmp_dir", lane.tmp_dir), ("log_path", lane.log_path),
+        ):
+            if slurm_job_id not in Path(path).parts:
+                raise LaneConfigError(
+                    f"{lane.name}:{kind} path {path} does not contain SLURM_JOB_ID {slurm_job_id!r} as "
+                    f"an exact path component -- refusing to launch a lane whose output is not rooted "
+                    f"under this allocation's own job id."
+                )
+
+
 def build_lane_command(lane: LaneSpec) -> list[str]:
     """Appends --out-dir/--state-dir/--ready-path (authoritative from the
     LaneSpec, not whatever the JSON's own argv might also contain) and
@@ -302,12 +357,25 @@ class DualGpuOrchestrator:
         first, timed out, or wrote a record naming the wrong pairing/
         device) is raised BEFORE the follower is ever launched -- this
         is a failure of the ALLOCATION, not a scientific result, and must
-        never be reported as one."""
-        if wait_for_ready is None:
-            import final_pairing_concept_discovery as discovery
+        never be reported as one.
 
+        P0 STOP-LINE correction: deletes any stale READY file for BOTH
+        lanes (`delete_stale_ready_record`) BEFORE either one launches --
+        a state_dir reused across runs must never let a previous run's
+        READY record be misread as this run's signal -- and requires the
+        lead lane's own READY record to name THIS child's actual pid and
+        a `loaded_at` no earlier than when this launch started
+        (`expected_pid`/`min_loaded_at`), a defense-in-depth check
+        independent of the deletion above."""
+        import final_pairing_concept_discovery as discovery
+
+        if wait_for_ready is None:
             wait_for_ready = discovery.wait_for_ready_record
 
+        discovery.delete_stale_ready_record(ready_path_for_lane(self.lanes[STAGGER_LEAD_LANE]))
+        discovery.delete_stale_ready_record(ready_path_for_lane(self.lanes[STAGGER_FOLLOW_LANE]))
+
+        launch_started_at = self._time()
         self._launch_one(STAGGER_LEAD_LANE)
         lead_process = self._processes[STAGGER_LEAD_LANE]
         wait_for_ready(
@@ -316,6 +384,7 @@ class DualGpuOrchestrator:
             expected_device="cuda:0",
             process_alive_fn=lambda: lead_process.poll() is None,
             timeout_seconds=ready_timeout_seconds, sleep_fn=self._sleep,
+            expected_pid=lead_process.pid, min_loaded_at=launch_started_at,
         )
         self._launch_one(STAGGER_FOLLOW_LANE)
 
@@ -420,12 +489,21 @@ def default_preflight_runner(repo_root: Path) -> dict:
     re-validates its JSON report -- this driver does not trust the
     subprocess's exit code alone, in case the preflight script itself has
     a bug that exits 0 without every case actually having run and passed.
-    Raises `PreflightFailed` with the full report on any discrepancy."""
+    Raises `PreflightFailed` with the full report on any discrepancy.
+
+    `--sentinel-dir` is REQUIRED by the preflight script itself (P0
+    STOP-LINE correction) -- a stable, OS-temp-rooted directory distinct
+    from the preflight's own per-run `tempfile.TemporaryDirectory`, so it
+    genuinely proves nothing was written outside that tmp_root, across
+    however many times this runner is invoked."""
     import subprocess
     import sys as _sys
+    import tempfile as _tempfile
 
+    sentinel_dir = Path(_tempfile.gettempdir()) / "final_pairing_discovery_preflight_sentinel"
     proc = subprocess.run(
-        [_sys.executable, str(PREFLIGHT_SCRIPT)], cwd=str(repo_root), capture_output=True, text=True,
+        [_sys.executable, str(PREFLIGHT_SCRIPT), "--sentinel-dir", str(sentinel_dir)],
+        cwd=str(repo_root), capture_output=True, text=True,
     )
     try:
         report = json.loads(proc.stdout)
@@ -509,6 +587,16 @@ def run_dual_gpu_job_for_lanes(
             "cancelled": False, "lanes": [], "prompt_artifact_validation_error": str(exc),
             "preflight_report": preflight_report,
         }
+
+    # P0 STOP-LINE correction ("validate generation target_script,
+    # pairing, configuration, layer, SAE identity, grid path and source
+    # commit before launch") -- a no-op for grid-discovery lanes; raises
+    # (never swallowed into a "failure" result) for the SAME reason
+    # `DualGpuOrchestrator.__init__`'s own `validate_lane_paths_disjoint`
+    # raises directly: a malformed lane CONFIG is a caller bug, not an
+    # infrastructure failure statistic.
+    for lane in lanes:
+        validate_generation_lane_argv(lane)
 
     orchestrator = orchestrator_factory(lanes)
     orchestrator.launch_staggered(ready_timeout_seconds=ready_timeout_seconds, wait_for_ready=wait_for_ready)

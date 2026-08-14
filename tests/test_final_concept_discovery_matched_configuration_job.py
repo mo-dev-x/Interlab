@@ -183,6 +183,55 @@ def test_backup_result_json_file_is_written_and_never_reuses_primarys_path(tmp_p
     assert primary_out_dirs.isdisjoint(backup_out_dirs)
 
 
+def test_validate_all_lane_paths_disjoint_covers_all_four_supplied_groups(tmp_path):
+    """P0 STOP-LINE correction: 'validate all eight grid/generation lane
+    paths pairwise' -- a collision between a GENERATION lane and a GRID
+    lane (not just primary-grid-vs-backup-grid) must be caught too."""
+    primary_gemma = _write_lane_json(tmp_path, "primary_gemma")
+    primary_qwen = _write_lane_json(tmp_path, "primary_qwen")
+    backup_gemma = _write_lane_json(tmp_path, "backup_gemma")
+    backup_qwen = _write_lane_json(tmp_path, "backup_qwen")
+    # backup_generation's gemma lane deliberately reuses primary_gemma's own JSON.
+    primary_generation_gemma = dual_gpu.load_lane_spec("gemma", primary_gemma)
+    lane_groups = {
+        "primary": [dual_gpu.load_lane_spec("gemma", primary_gemma), dual_gpu.load_lane_spec("qwen", primary_qwen)],
+        "backup": [dual_gpu.load_lane_spec("gemma", backup_gemma), dual_gpu.load_lane_spec("qwen", backup_qwen)],
+        "backup_generation": [primary_generation_gemma, dual_gpu.load_lane_spec("qwen", backup_qwen)],
+    }
+    with pytest.raises(matched.MatchedConfigurationError, match="path collision"):
+        matched.validate_all_lane_paths_disjoint(lane_groups)
+
+
+def test_validate_all_lane_paths_disjoint_passes_for_eight_genuinely_distinct_lanes(tmp_path):
+    lane_groups = {
+        name: [dual_gpu.load_lane_spec("gemma", _write_lane_json(tmp_path, f"{name}_gemma")),
+               dual_gpu.load_lane_spec("qwen", _write_lane_json(tmp_path, f"{name}_qwen"))]
+        for name in ("primary", "backup", "primary_generation", "backup_generation")
+    }
+    matched.validate_all_lane_paths_disjoint(lane_groups)  # must not raise
+
+
+def test_main_raises_when_slurm_job_id_is_not_set(tmp_path, monkeypatch):
+    """P0 STOP-LINE correction ('require SLURM_JOB_ID roots'): the
+    scheduled entry point must run inside a real Slurm allocation."""
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    with pytest.raises(matched.MatchedConfigurationError, match="SLURM_JOB_ID"):
+        matched.main(_full_valid_cli_args(tmp_path))
+
+
+def test_main_passes_the_real_slurm_job_id_through_to_run_matched_configuration_job(tmp_path, monkeypatch):
+    monkeypatch.setenv("SLURM_JOB_ID", "424242")
+    captured = {}
+
+    def fake_run_matched_configuration_job(**kwargs):
+        captured.update(kwargs)
+        return {"status": "complete_pass", "overall_exit_code": 0, "selected_configuration": "primary"}
+
+    monkeypatch.setattr(matched, "run_matched_configuration_job", fake_run_matched_configuration_job)
+    matched.main(_full_valid_cli_args(tmp_path))
+    assert captured["required_slurm_job_id"] == "424242"
+
+
 # ---------------------------------------------------------------------------
 # The real preflight/prompt-artifact-validation gate, and staggered launch
 # (NEVER launch_all), apply to BOTH primary and backup -- not just to the
@@ -244,11 +293,15 @@ def test_both_primary_and_backup_launch_via_staggered_handshake_never_launch_all
         def fake_launch(command, *, env, cwd, log_path):
             name = "gemma" if env["CUDA_VISIBLE_DEVICES"] == "0" else "qwen"
             launch_order.append(name)
+            fake_pid = hash(name) % 10000
             if name == dual_gpu.STAGGER_LEAD_LANE:
                 ready_index = command.index("--ready-path")
                 ready_path = Path(command[ready_index + 1])
-                discovery_module.write_ready_record(ready_path, pairing="qwen-3.5-27b", device="cuda:0")
-            return _FakeProcess(pid=hash(name) % 10000, exit_code=0)
+                # pid=fake_pid matches THIS fake process's own advertised pid --
+                # wait_for_ready_record now requires the READY record's pid to
+                # equal the actual spawned (fake) process's pid.
+                discovery_module.write_ready_record(ready_path, pairing="qwen-3.5-27b", device="cuda:0", pid=fake_pid)
+            return _FakeProcess(pid=fake_pid, exit_code=0)
 
         return fake_launch
 
@@ -343,7 +396,10 @@ def test_failure_when_backup_fails_after_primary_passed(tmp_path):
 def test_job_result_file_is_written_to_disk(tmp_path):
     _run(tmp_path, run_backup=True)
     written = json.loads((tmp_path / "job_result.json").read_text(encoding="utf-8"))
-    assert written["selected_configuration"] == discovery.BACKUP_CONFIGURATION.name
+    # P0 STOP-LINE correction: PRIMARY > BACKUP, always -- backup is
+    # replication/fallback evidence (reported separately in backup_result),
+    # never globally selected merely because it ran.
+    assert written["selected_configuration"] == discovery.PRIMARY_CONFIGURATION.name
     assert written["primary_configuration"]["gemma_layer"] == 29
     assert written["backup_configuration"]["gemma_layer"] == 24
 
@@ -572,7 +628,7 @@ def test_run_matched_configuration_job_writes_not_attempted_when_readiness_refus
     result = matched.run_matched_configuration_job(
         primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
         run_backup=True, job_result_path=tmp_path / "result.json", orchestrator_factory=factory,
-        backup_readiness_checker=lambda: matched.BackupReadiness(attempt=False, status="not_attempted_insufficient_time", detail="not enough time"),
+        backup_readiness_checker=lambda **_kwargs: matched.BackupReadiness(attempt=False, status="not_attempted_insufficient_time", detail="not enough time"),
         **_REAL_GATE_FAKES,
     )
     assert backup_launched["called"] is False
@@ -590,7 +646,7 @@ def test_run_matched_configuration_job_writes_complete_when_readiness_allows_and
     result = matched.run_matched_configuration_job(
         primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
         run_backup=True, job_result_path=tmp_path / "result.json", orchestrator_factory=_make_orchestrator_factory({}),
-        backup_readiness_checker=lambda: matched.BackupReadiness(attempt=True, status="ready", detail="plenty of time"),
+        backup_readiness_checker=lambda **_kwargs: matched.BackupReadiness(attempt=True, status="ready", detail="plenty of time"),
         **_REAL_GATE_FAKES,
     )
     assert result["backup_execution_status"] == "COMPLETE"
@@ -607,7 +663,7 @@ def test_run_matched_configuration_job_writes_partial_when_readiness_allows_but_
         primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
         run_backup=True, job_result_path=tmp_path / "result.json",
         orchestrator_factory=_make_orchestrator_factory({"qwen": 1}),
-        backup_readiness_checker=lambda: matched.BackupReadiness(attempt=True, status="ready", detail="plenty of time"),
+        backup_readiness_checker=lambda **_kwargs: matched.BackupReadiness(attempt=True, status="ready", detail="plenty of time"),
         **_REAL_GATE_FAKES,
     )
     assert result["backup_execution_status"] == "PARTIAL"
@@ -632,10 +688,21 @@ def test_backup_readiness_checker_defaults_to_none_and_never_gates_existing_call
 
 
 def _write_generation_lane_json(tmp_path: Path, tag: str) -> Path:
+    pairing = "gemma-3-12b-it" if "gemma" in tag else "qwen-3.5-27b"
     payload = {
         "out_dir": str(tmp_path / tag / "out"), "state_dir": str(tmp_path / tag / "state"),
         "tmp_dir": str(tmp_path / tag / "tmp"), "log_path": str(tmp_path / tag / "log.txt"),
-        "argv": ["--pairing", "gemma-3-12b-it" if "gemma" in tag else "qwen-3.5-27b"],
+        # P0 STOP-LINE correction: a generation lane's argv must carry its
+        # full identity (validate_generation_lane_argv) before this
+        # orchestrator will launch it -- every flag below is required.
+        "argv": [
+            "--pairing", pairing, "--model-path", "/fake/model", "--sae-path", "/fake/sae",
+            "--layer", "29", "--configuration-name", "primary", "--grid-path", str(tmp_path / tag / "grid.json"),
+            "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
+            "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "1.0,0.5,0.25,0.1",
+            "--run-id", "r-test-0001", "--source-commit", "0" * 40,
+            "--job-deadline-epoch-seconds", "9999999999",
+        ],
         "target_script": str(dual_gpu.GENERATION_SCRIPT),
     }
     path = tmp_path / f"{tag}.json"
@@ -661,9 +728,13 @@ def test_omitting_generation_lanes_skips_the_generation_phase_entirely(tmp_path)
     assert result["backup_generation_result"] is None
 
 
-def test_primary_generation_runs_and_completes_before_the_backup_trigger_is_resolved(tmp_path):
-    """Proves the ordering, not just that both eventually run: the
-    trigger_resolver must observe primary generation as ALREADY DONE."""
+def test_primary_generation_runs_only_after_the_trigger_and_backup_grid_are_resolved(tmp_path):
+    """P0 STOP-LINE correction: 'No causal generation may occur before the
+    trigger' -- required production order is primary grids -> trigger ->
+    conditional matched backup grids -> causal generation. Proves the
+    ordering, not just that all phases eventually run: the trigger_resolver
+    (and, since this trigger selects backup, the backup grid too) must
+    both be OBSERVED AS ALREADY DONE by the time primary generation runs."""
     paths = _standard_paths(tmp_path)
     primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
     backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
@@ -694,8 +765,9 @@ def test_primary_generation_runs_and_completes_before_the_backup_trigger_is_reso
         primary_generation_lanes=primary_generation_lanes,
         **_REAL_GATE_FAKES,
     )
-    assert call_order.index("primary_grid") < call_order.index("primary_generation") < call_order.index("trigger_resolved")
+    assert call_order.index("primary_grid") < call_order.index("trigger_resolved")
     assert call_order.index("trigger_resolved") < call_order.index("backup_grid")
+    assert call_order.index("backup_grid") < call_order.index("primary_generation")
     assert result["primary_generation_result"]["status"] == "complete_pass"
 
 
@@ -772,3 +844,145 @@ def test_backup_generation_runs_when_backup_grid_passes(tmp_path):
 def test_main_cli_generation_config_flags_require_both_gemma_and_qwen_together():
     with pytest.raises(matched.MatchedConfigurationError, match=r"BOTH.*or neither"):
         matched._load_generation_lanes("only-gemma.json", None)
+
+
+# ---------------------------------------------------------------------------
+# P0 STOP-LINE correction: a missing/failed/partial generation phase must
+# make the aggregate status non-pass; all four generation configs are
+# mandatory on the scheduled CLI; the real 1.5x/VRAM backup-readiness check
+# is wired into main().
+# ---------------------------------------------------------------------------
+
+
+def test_primary_generation_failure_makes_aggregate_status_non_pass(tmp_path):
+    """A grid-only reading of this run would report complete_pass (both
+    primary and backup grids pass) -- the generation phase's own failure
+    must not be silently absorbed by that."""
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+    primary_generation_lanes = [
+        dual_gpu.load_lane_spec("gemma", _write_generation_lane_json(tmp_path, "primary_gen_gemma")),
+        dual_gpu.load_lane_spec("qwen", _write_generation_lane_json(tmp_path, "primary_gen_qwen")),
+    ]
+
+    def factory(lanes):
+        if lanes is primary_generation_lanes:
+            return _make_orchestrator_factory({"qwen": 1})(lanes)  # generation lane fails
+        return _make_orchestrator_factory({})(lanes)  # both grids pass
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+        run_backup=False, job_result_path=tmp_path / "result.json", orchestrator_factory=factory,
+        primary_generation_lanes=primary_generation_lanes,
+        **_REAL_GATE_FAKES,
+    )
+    assert result["primary_result"]["status"] == "complete_pass"
+    assert result["primary_generation_result"]["status"] != "complete_pass"
+    assert result["status"] != "complete_pass"
+
+
+def test_primary_generation_preflight_failure_makes_aggregate_status_non_pass(tmp_path):
+    """A generation-phase preflight failure (never an exit-code failure)
+    must equally force the aggregate status non-pass."""
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+    primary_generation_lanes = [
+        dual_gpu.load_lane_spec("gemma", _write_generation_lane_json(tmp_path, "primary_gen_gemma")),
+        dual_gpu.load_lane_spec("qwen", _write_generation_lane_json(tmp_path, "primary_gen_qwen")),
+    ]
+
+    call_count = {"n": 0}
+
+    def flaky_run_preflight(repo_root):
+        call_count["n"] += 1
+        if call_count["n"] > 1:  # first call is the primary grid's own preflight; fail generation's
+            raise RuntimeError("preflight unavailable for the generation phase")
+        return {"overall": "pass", "executed_cases": 0, "expected_cases": 0, "cases": []}
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+        run_backup=False, job_result_path=tmp_path / "result.json", orchestrator_factory=_make_orchestrator_factory({}),
+        primary_generation_lanes=primary_generation_lanes,
+        run_preflight=flaky_run_preflight,
+        validate_prompt_artifact=_fake_validate_prompt_artifact, wait_for_ready=_fake_wait_for_ready,
+    )
+    assert result["primary_result"]["status"] == "complete_pass"
+    assert result["primary_generation_result"]["status"] == "failure"
+    assert result["status"] != "complete_pass"
+
+
+def _full_valid_cli_args(tmp_path: Path) -> list[str]:
+    paths = _standard_paths(tmp_path)
+    return [
+        "--primary-gemma-config", str(paths["primary_gemma"]), "--primary-qwen-config", str(paths["primary_qwen"]),
+        "--backup-gemma-config", str(paths["backup_gemma"]), "--backup-qwen-config", str(paths["backup_qwen"]),
+        "--trigger-inputs-json", str(_write_trigger_inputs_json(tmp_path)),
+        "--primary-gemma-grid-path", str(tmp_path / "primary_gemma_grid.json"),
+        "--primary-qwen-grid-path", str(tmp_path / "primary_qwen_grid.json"),
+        "--concept-id", "cheese", "--job-result-path", str(tmp_path / "result.json"),
+        "--primary-gemma-generation-config", str(_write_generation_lane_json(tmp_path, "primary_gen_gemma")),
+        "--primary-qwen-generation-config", str(_write_generation_lane_json(tmp_path, "primary_gen_qwen")),
+        "--backup-gemma-generation-config", str(_write_generation_lane_json(tmp_path, "backup_gen_gemma")),
+        "--backup-qwen-generation-config", str(_write_generation_lane_json(tmp_path, "backup_gen_qwen")),
+        "--job-start-time-epoch-seconds", "0.0", "--job-time-limit-seconds", "10000.0",
+        "--gpu-ids", "0,1", "--min-free-vram-bytes", "1000000",
+    ]
+
+
+def _write_trigger_inputs_json(tmp_path: Path) -> Path:
+    path = tmp_path / "trigger_inputs.json"
+    path.write_text(json.dumps({"note": "test"}), encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    "missing_flag",
+    [
+        "--primary-gemma-generation-config", "--primary-qwen-generation-config",
+        "--backup-gemma-generation-config", "--backup-qwen-generation-config",
+        "--job-start-time-epoch-seconds", "--job-time-limit-seconds", "--gpu-ids", "--min-free-vram-bytes",
+    ],
+)
+def test_parse_args_requires_generation_config_and_backup_readiness_flags(tmp_path, missing_flag):
+    """P0 STOP-LINE correction: all four generation configs are mandatory,
+    and the real 1.5x/VRAM backup-readiness inputs are mandatory too --
+    the scheduled CLI must never be able to launch without them."""
+    args = _full_valid_cli_args(tmp_path)
+    flag_index = args.index(missing_flag)
+    del args[flag_index:flag_index + 2]
+    with pytest.raises(SystemExit):
+        matched.parse_args(args)
+
+
+def test_parse_args_accepts_a_fully_specified_production_invocation(tmp_path):
+    args = matched.parse_args(_full_valid_cli_args(tmp_path))
+    assert args.job_start_time_epoch_seconds == 0.0
+    assert args.job_time_limit_seconds == 10000.0
+    assert args.gpu_ids == "0,1"
+    assert args.min_free_vram_bytes == 1000000
+
+
+def test_main_wires_the_real_check_backup_readiness_function(tmp_path, monkeypatch):
+    """Proves main() actually constructs a functools.partial around the
+    REAL check_backup_readiness (not a fake/no-op), bound with the job's
+    real time-budget/GPU-ids/min-free-vram CLI inputs -- captured via a
+    monkeypatched run_matched_configuration_job rather than by invoking
+    real CUDA calls (unavailable/unsafe in this test environment)."""
+    captured = {}
+
+    def fake_run_matched_configuration_job(**kwargs):
+        captured.update(kwargs)
+        return {"status": "complete_pass", "overall_exit_code": 0, "selected_configuration": "primary"}
+
+    monkeypatch.setenv("SLURM_JOB_ID", "424242")
+    monkeypatch.setattr(matched, "run_matched_configuration_job", fake_run_matched_configuration_job)
+    matched.main(_full_valid_cli_args(tmp_path))
+
+    checker = captured["backup_readiness_checker"]
+    assert checker.func is matched.check_backup_readiness
+    assert checker.keywords["job_start_time"] == 0.0
+    assert checker.keywords["job_time_limit_seconds"] == 10000.0
+    assert checker.keywords["gpu_ids"] == ["0", "1"]
+    assert checker.keywords["min_free_vram_bytes"] == 1000000

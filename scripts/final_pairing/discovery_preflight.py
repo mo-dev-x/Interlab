@@ -301,11 +301,15 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
                 # wait forever (or, as `_FakeProcess.poll()` returning a real exit
                 # code makes it look already-exited, raise ReadyHandshakeFailed
                 # immediately instead).
+                fake_pid = abs(hash(env["CUDA_VISIBLE_DEVICES"])) % 10000
                 if env["CUDA_VISIBLE_DEVICES"] == dual_gpu.LANE_GPU_ASSIGNMENT[dual_gpu.STAGGER_LEAD_LANE]:
                     ready_index = command.index("--ready-path")
                     ready_path = Path(command[ready_index + 1])
-                    d.write_ready_record(ready_path, pairing="qwen-3.5-27b", device="cuda:0")
-                return _FakeProcess(pid=abs(hash(env["CUDA_VISIBLE_DEVICES"])) % 10000)
+                    # pid=fake_pid matches THIS fake process's own advertised pid --
+                    # launch_staggered's wait_for_ready_record now requires the READY
+                    # record's pid to equal the actual spawned (fake) process's pid.
+                    d.write_ready_record(ready_path, pairing="qwen-3.5-27b", device="cuda:0", pid=fake_pid)
+                return _FakeProcess(pid=fake_pid)
             return dual_gpu.DualGpuOrchestrator(lanes, launch=fake_launch, sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
 
         # This case runs INSIDE discovery_preflight.py's own run_all_cases --
@@ -688,8 +692,14 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
             concept_id="cheese", pairing_id="google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
             model_revision="0" * 40, sae_revision="0" * 40, release="gemma-scope-2-12b-it-res-all",
             loader_sae_id="layer_29_width_16k_l0_big", scientific_sae_id="resid_post_all/layer_29_width_16k_l0_big",
-            measured_params_sha256="1" * 64, generation_kwargs=d.GENERATION_SETTINGS,
+            measured_params_sha256="1" * 64,
+            # Engineer 3 delta (commit 9a32246): the FULL resolved kwargs (all
+            # 10 frozen values, including max_new_tokens), never the bare
+            # 9-key GENERATION_SETTINGS constant -- matching run_generation_
+            # mode's own real call shape exactly.
+            generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS),
             chat_template_identity="gemma-it-v1", locales_complete=["en"], causal_order_position=2,
+            skipped_for_gate_failure=["formal_register"],  # position 1, strictly before "cheese" (position 2)
         )
         verified = one_alloc.verify_generation_manifest(manifest_path)
         missing = sorted(set(one_alloc.MANIFEST_REQUIRED_FIELDS) - set(verified))
@@ -888,11 +898,11 @@ def parse_args(argv: list[str] | None = None) -> Any:
 
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument(
-        "--sentinel-dir", default=None,
+        "--sentinel-dir", required=True,
         help=(
-            "A directory (created if absent) that must remain byte-identical across this entire preflight "
-            "run -- proves the scheduled call graph never writes outside its own tmp_root, even into a "
-            "sibling tree. Optional: omit to skip this specific proof (every other case still runs)."
+            "REQUIRED (P0 STOP-LINE correction): a directory (created if absent) that must remain "
+            "byte-identical across this entire preflight run -- proves the scheduled call graph never "
+            "writes outside its own tmp_root, even into a sibling tree."
         ),
     )
     return p.parse_args(argv)
@@ -900,19 +910,15 @@ def parse_args(argv: list[str] | None = None) -> Any:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    sentinel_dir: Path | None = None
-    sentinel_before: dict[str, str] | None = None
-    if args.sentinel_dir is not None:
-        sentinel_dir = Path(args.sentinel_dir)
-        ensure_sentinel(sentinel_dir)
-        sentinel_before = _sentinel_snapshot(sentinel_dir)
+    sentinel_dir = Path(args.sentinel_dir)
+    ensure_sentinel(sentinel_dir)
+    sentinel_before = _sentinel_snapshot(sentinel_dir)
 
     with tempfile.TemporaryDirectory(prefix="discovery-preflight-") as tmp:
         report = run_all_cases(tmp_root=Path(tmp))
 
-    if sentinel_dir is not None:
-        verify_sentinel_untouched(sentinel_dir, sentinel_before)
-        report["proofs"]["sibling_tree_isolation_sentinel_dir"] = str(sentinel_dir)
+    verify_sentinel_untouched(sentinel_dir, sentinel_before)
+    report["proofs"]["sibling_tree_isolation_sentinel_dir"] = str(sentinel_dir)
 
     print(json.dumps(report, indent=2))
     return 0 if report["overall_passed"] else 1

@@ -20,6 +20,7 @@ on any machine in this investigation.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -546,8 +547,8 @@ _MANIFEST_KWARGS = dict(
     release="gemma-scope-2-12b-it-res-all", loader_sae_id="layer_29_width_16k_l0_big",
     scientific_sae_id="resid_post_all/layer_29_width_16k_l0_big",
     measured_params_sha256="6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e",
-    generation_kwargs=d.GENERATION_SETTINGS, chat_template_identity="gemma-it-v1",
-    locales_complete=["en", "fr"], causal_order_position=2, skipped_for_gate_failure=False,
+    generation_kwargs=d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS), chat_template_identity="gemma-it-v1",
+    locales_complete=["en", "fr"], causal_order_position=2, skipped_for_gate_failure=["formal_register"],
 )
 
 
@@ -566,7 +567,7 @@ def test_write_and_verify_generation_manifest_round_trips(tmp_path):
     assert verified["params_measured_sha256"] == "sha256:6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e"
     assert verified["completeness"] == "COMPLETE"
     assert verified["causal_order_position"] == 2
-    assert verified["skipped_for_gate_failure"] is False
+    assert verified["skipped_for_gate_failure"] == ["formal_register"]
     assert verified["generation_settings_path"] == one.GENERATION_SETTINGS_PROTOCOL_PATH
     assert verified["generation_settings_sha256"] == f"sha256:{one.GENERATION_SETTINGS_PROTOCOL_SHA256}"
     assert "model" not in verified and "sae" not in verified and "concepts" not in verified
@@ -592,7 +593,9 @@ def test_write_generation_manifest_file_entries_carry_the_ruled_flat_fields(tmp_
     for entry in by_purpose["CONFIRMATION"]:
         assert "dose" in entry
         assert entry["control_ref"] == control_path
-        assert entry["selection_status"] == one.UNUSED_STATUS
+        # manifest-immutability correction (commit 2dc9e338): the bound
+        # manifest carries NO per-file selection-outcome field at all.
+        assert "selection_status" not in entry
         assert entry["prompt_id"] in ("p0", "p1")
     assert all(entry["sha256"].startswith("sha256:") for entry in manifest["files"])
     assert all(isinstance(entry["seed"], int) for entry in manifest["files"])
@@ -637,11 +640,13 @@ def test_write_generation_manifest_carries_the_generation_settings_extension_fie
         records, tmp_path / "m.json",
         **{**_MANIFEST_KWARGS, "locales_complete": ["en"]},
     )
-    assert manifest["generation_kwargs"] == d.GENERATION_SETTINGS
+    assert manifest["generation_kwargs"] == d._resolved_generation_kwargs(48, d.GENERATION_SETTINGS)
+    assert manifest["generation_kwargs"]["max_new_tokens"] == 48
+    assert len(manifest["generation_kwargs"]) == 10  # all 10 frozen generation_settings.json values
     assert manifest["chat_template_identity"] == "gemma-it-v1"
     assert manifest["locales_complete"] == ["en"]
     assert manifest["causal_order_position"] == 2
-    assert manifest["skipped_for_gate_failure"] is False
+    assert manifest["skipped_for_gate_failure"] == ["formal_register"]
 
 
 def test_write_generation_manifest_accepts_a_null_measured_params_sha256_for_qwen(tmp_path):
@@ -652,6 +657,62 @@ def test_write_generation_manifest_accepts_a_null_measured_params_sha256_for_qwe
     kwargs = {**_MANIFEST_KWARGS, "measured_params_sha256": None}
     manifest = one.write_generation_manifest(records, tmp_path / "m.json", **kwargs)
     assert manifest["params_measured_sha256"] is None
+
+
+def test_write_generation_manifest_rejects_a_skipped_concept_not_in_the_causal_order(tmp_path):
+    records = _tiny_records(tmp_path)
+    kwargs = {**_MANIFEST_KWARGS, "skipped_for_gate_failure": ["not-a-real-concept"]}
+    with pytest.raises(ValueError, match="not in the frozen CAUSAL_GENERATION_ORDER"):
+        one.write_generation_manifest(records, tmp_path / "m.json", **kwargs)
+
+
+def test_write_generation_manifest_rejects_a_skipped_concept_after_this_ones_own_position(tmp_path):
+    """cheese sits at causal_order_position=2; a concept AFTER it (e.g.
+    chess, position 3) cannot yet have been 'skipped' from cheese's own
+    manifest's vantage point -- Engineer 3's real validator (commit
+    9a32246) rejects this exact case."""
+    records = _tiny_records(tmp_path)
+    kwargs = {**_MANIFEST_KWARGS, "skipped_for_gate_failure": ["chess"]}
+    with pytest.raises(ValueError, match="sits AFTER"):
+        one.write_generation_manifest(records, tmp_path / "m.json", **kwargs)
+
+
+def test_write_generation_manifest_refuses_to_overwrite_an_existing_manifest(tmp_path):
+    """Manifest-immutability correction (commit 2dc9e338): the bound
+    manifest is written ONCE, at transfer, and NEVER rewritten."""
+    records = _tiny_records(tmp_path)
+    manifest_path = tmp_path / "generation_manifest.json"
+    one.write_generation_manifest(records, manifest_path, **_MANIFEST_KWARGS)
+    with pytest.raises(one.TransferVerificationFailed, match="written ONCE"):
+        one.write_generation_manifest(records, manifest_path, **_MANIFEST_KWARGS)
+
+
+def test_write_generation_manifest_carries_the_pre_selection_inventory_stage(tmp_path):
+    records = _tiny_records(tmp_path)
+    manifest = one.write_generation_manifest(records, tmp_path / "m.json", **_MANIFEST_KWARGS)
+    assert manifest["inventory_stage"] == one.INVENTORY_STAGE_PRE_SELECTION == "PRE_SELECTION"
+
+
+def test_verify_generation_manifest_rejects_a_derived_reading_aid_view(tmp_path):
+    records = _tiny_records(tmp_path)
+    manifest_path = tmp_path / "generation_manifest.json"
+    manifest = one.write_generation_manifest(records, manifest_path, **_MANIFEST_KWARGS)
+    stamped = one.stamp_manifest_with_selection(manifest, unselected_doses=[])
+    derived_path = tmp_path / "derived_view.json"
+    derived_path.write_text(json.dumps(stamped), encoding="utf-8")
+    with pytest.raises(one.TransferVerificationFailed, match="derived/not_for_promotion"):
+        one.verify_generation_manifest(derived_path)
+
+
+def test_verify_generation_manifest_rejects_a_files_entry_carrying_selection_status(tmp_path):
+    records = _tiny_records(tmp_path)
+    manifest_path = tmp_path / "generation_manifest.json"
+    one.write_generation_manifest(records, manifest_path, **_MANIFEST_KWARGS)
+    tampered = json.loads(manifest_path.read_text(encoding="utf-8"))
+    tampered["files"][0]["selection_status"] = one.UNUSED_STATUS
+    manifest_path.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(one.TransferVerificationFailed, match="selection-outcome-shaped field"):
+        one.verify_generation_manifest(manifest_path)
 
 
 def test_verify_generation_manifest_raises_on_a_tampered_file(tmp_path):
@@ -684,13 +745,21 @@ def test_stamp_manifest_with_selection_selects_the_named_doses_and_leaves_contro
     manifest_path = tmp_path / "generation_manifest.json"
     manifest = one.write_generation_manifest(records, manifest_path, **_MANIFEST_KWARGS)
     stamped = one.stamp_manifest_with_selection(manifest, unselected_doses=["3.0x"])
+    # manifest-immutability correction (commit 2dc9e338): stamp_manifest_
+    # with_selection's output is a DERIVED reading aid only, never the
+    # bound manifest -- marked so verify_generation_manifest/LA-B's gate
+    # can identify and refuse it if ever mistakenly promoted.
+    assert stamped["derived"] is True
+    assert stamped["not_for_promotion"] is True
     by_key = {(entry["purpose"], entry.get("dose")): entry for entry in stamped["files"]}
     assert by_key[("CONFIRMATION", "1.0x")]["selection_status"] == one.SELECTED_STATUS
     assert by_key[("CONFIRMATION", "2.0x")]["selection_status"] == one.SELECTED_STATUS
     assert by_key[("CONFIRMATION", "3.0x")]["selection_status"] == one.UNUSED_STATUS
     assert by_key[("CONTROL", None)]["selection_status"] == one.UNUSED_STATUS
-    # the original manifest is untouched
-    assert all(entry["selection_status"] == one.UNUSED_STATUS for entry in manifest["files"])
+    # the original (bound) manifest is untouched -- it never carried
+    # selection_status at all, and still doesn't.
+    assert all("selection_status" not in entry for entry in manifest["files"])
+    assert "derived" not in manifest and "not_for_promotion" not in manifest
 
 
 def test_stamp_manifest_with_selection_never_touches_sweep_entries(tmp_path):
@@ -728,18 +797,28 @@ def test_run_generation_mode_end_to_end_for_one_concept(tmp_path, monkeypatch):
     grid_dir = tmp_path / "grid"
     d.write_grid_result(
         grid_dir, backend.pairing,
-        [d.ConceptPairingVerdict(
-            concept_id="cheese", pairing=backend.pairing, status="pass",
-            surviving_feature_index=CONCEPT_FEATURE, candidates_evaluated=[], error=None,
-        )],
+        [
+            # formal_register (causal order position 1) FAILS G-A/B/C -- costs
+            # no extra real generation work (only "pass" concepts are ever
+            # processed), but lets this same run prove skipped_for_gate_failure
+            # is computed for real: cheese (position 2) must list it.
+            d.ConceptPairingVerdict(
+                concept_id="formal_register", pairing=backend.pairing, status="fail",
+                surviving_feature_index=None, candidates_evaluated=[], error=None,
+            ),
+            d.ConceptPairingVerdict(
+                concept_id="cheese", pairing=backend.pairing, status="pass",
+                surviving_feature_index=CONCEPT_FEATURE, candidates_evaluated=[], error=None,
+            ),
+        ],
     )
 
     args = one.parse_args([
         "--pairing", backend.pairing, "--model-path", "unused", "--sae-path", "unused", "--layer", "29",
         "--configuration-name", "primary", "--grid-path", str(grid_dir / "grid.json"),
         "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
-        "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "4.0,2.0,1.0,0.5",
-        "--run-id", "r-test-0001", "--source-commit", "0" * 40, "--chat-template-identity", "gemma-it-v1",
+        "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "1.0,0.5,0.25,0.1",
+        "--run-id", "r-test-0001", "--source-commit", "0" * 40,
         "--job-deadline-epoch-seconds", str(__import__("time").time() + 100_000),
         "--out-dir", str(tmp_path / "out"), "--state-dir", str(tmp_path / "state"),
     ])
@@ -763,3 +842,114 @@ def test_run_generation_mode_end_to_end_for_one_concept(tmp_path, monkeypatch):
         real_prompt_ids = {e["prompt_id"] for e in manifest["files"]}
         assert all(isinstance(pid, str) and pid for pid in real_prompt_ids)
         assert not any(pid.startswith(("sweep_", "confirmation_")) for pid in real_prompt_ids)
+        # P0 STOP-LINE correction: DERIVED from the backend's own real
+        # tokenizer (fakes.py's fake Gemma tokenizer), never the removed
+        # --chat-template-identity CLI label.
+        assert manifest["chat_template_identity"] == d.resolve_chat_template_identity(
+            d.resolve_tokenizer_for_backend(backend)
+        )
+        # Engineer 3 delta (commit 9a32246): generation_kwargs carries all 10
+        # frozen values (including max_new_tokens), and skipped_for_gate_failure
+        # is the real, computed array of gate-failed concepts at-or-before
+        # cheese's own causal-order position -- formal_register (position 1)
+        # failed G-A/B/C and must be named here.
+        assert manifest["generation_kwargs"]["max_new_tokens"] == d.ONE_ALLOCATION_MAX_NEW_TOKENS
+        assert len(manifest["generation_kwargs"]) == 10
+        assert manifest["skipped_for_gate_failure"] == ["formal_register"]
+
+
+def test_run_generation_mode_breaks_after_the_first_concept_that_cannot_fit(tmp_path, monkeypatch):
+    """P0 STOP-LINE correction: 'after the first concept cannot fit,
+    BREAK; do not continue probing later concepts.' formal_register
+    (causal order position 1) is readied and attempted; cheese (position
+    2) must be refused and the loop must BREAK -- never checking cheese's
+    own readiness a second time, and never calling generate_concept_
+    complete for it at all (no further GPU probing)."""
+    backend = fakes.make_fake_gemma_backend()
+    monkeypatch.setattr(d, "load_backend", lambda **_kwargs: backend)
+    monkeypatch.setattr(d, "ONE_ALLOCATION_MAX_NEW_TOKENS", 1)
+
+    grid_dir = tmp_path / "grid"
+    d.write_grid_result(
+        grid_dir, backend.pairing,
+        [
+            d.ConceptPairingVerdict(concept_id="formal_register", pairing=backend.pairing, status="pass", surviving_feature_index=CONCEPT_FEATURE, candidates_evaluated=[], error=None),
+            d.ConceptPairingVerdict(concept_id="cheese", pairing=backend.pairing, status="pass", surviving_feature_index=CONCEPT_FEATURE, candidates_evaluated=[], error=None),
+        ],
+    )
+
+    call_count = {"n": 0}
+
+    def fake_readiness(*, remaining_wall_time_seconds, seconds_per_generation):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return one.ConceptGenerationReadiness(attempt=True, detail="first concept fits")
+        return one.ConceptGenerationReadiness(attempt=False, detail="does not fit")
+
+    monkeypatch.setattr(one, "assess_concept_generation_readiness", fake_readiness)
+
+    generate_calls: list[str] = []
+    real_generate_concept_complete = one.generate_concept_complete
+
+    def spy_generate_concept_complete(*args, **kwargs):
+        generate_calls.append(kwargs.get("concept_id"))
+        return real_generate_concept_complete(*args, **kwargs)
+
+    monkeypatch.setattr(one, "generate_concept_complete", spy_generate_concept_complete)
+
+    args = one.parse_args([
+        "--pairing", backend.pairing, "--model-path", "unused", "--sae-path", "unused", "--layer", "29",
+        "--configuration-name", "primary", "--grid-path", str(grid_dir / "grid.json"),
+        "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
+        "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "1.0,0.5,0.25,0.1",
+        "--run-id", "r-test-0001", "--source-commit", "0" * 40,
+        "--job-deadline-epoch-seconds", str(__import__("time").time() + 100_000),
+        "--out-dir", str(tmp_path / "out"), "--state-dir", str(tmp_path / "state"),
+    ])
+    result = one.run_generation_mode(args)
+
+    assert result["attempted_concepts"] == ["formal_register"]
+    assert [x["concept_id"] for x in result["not_attempted"]] == ["cheese"]
+    assert call_count["n"] == 2  # readiness checked exactly once per concept, never re-checked for cheese
+    assert generate_calls == ["formal_register"]  # cheese's generation never even started
+    assert result["status"] == "partial_wall_time_cutoff"
+
+
+def test_run_generation_mode_rejects_a_source_commit_disagreeing_with_the_transfer_manifest(tmp_path, monkeypatch):
+    backend = fakes.make_fake_gemma_backend()
+    monkeypatch.setattr(d, "load_backend", lambda **_kwargs: backend)
+    monkeypatch.setattr(d, "ONE_ALLOCATION_MAX_NEW_TOKENS", 1)
+    # A structurally-VALID fake transfer manifest (real file hashes, so
+    # load_frozen_prompt_artifact's OWN internal transfer-manifest check
+    # -- called earlier in run_generation_mode, via the same function --
+    # passes cleanly) with only source_commit disagreeing with --source-commit.
+    jsonl_path = d.REPO_ROOT / d.FROZEN_PROMPT_SET_DIR / "prompt_sets.jsonl"
+    metadata_path = d.REPO_ROOT / d.FROZEN_PROMPT_SET_DIR / "metadata.json"
+    fake_transfer_manifest = {
+        "source_commit": "1" * 40,
+        "files": {
+            f"{d.FROZEN_PROMPT_SET_DIR}/prompt_sets.jsonl": d.compute_file_sha256(jsonl_path),
+            f"{d.FROZEN_PROMPT_SET_DIR}/metadata.json": d.compute_file_sha256(metadata_path),
+        },
+    }
+    monkeypatch.setattr(d, "load_transfer_manifest", lambda _repo_root: fake_transfer_manifest)
+
+    grid_dir = tmp_path / "grid"
+    d.write_grid_result(
+        grid_dir, backend.pairing,
+        [d.ConceptPairingVerdict(
+            concept_id="cheese", pairing=backend.pairing, status="pass",
+            surviving_feature_index=CONCEPT_FEATURE, candidates_evaluated=[], error=None,
+        )],
+    )
+    args = one.parse_args([
+        "--pairing", backend.pairing, "--model-path", "unused", "--sae-path", "unused", "--layer", "29",
+        "--configuration-name", "primary", "--grid-path", str(grid_dir / "grid.json"),
+        "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
+        "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "1.0,0.5,0.25,0.1",
+        "--run-id", "r-test-0001", "--source-commit", "0" * 40,
+        "--job-deadline-epoch-seconds", str(__import__("time").time() + 100_000),
+        "--out-dir", str(tmp_path / "out"), "--state-dir", str(tmp_path / "state"),
+    ])
+    with pytest.raises(ValueError, match="disagrees with this checkout's own"):
+        one.run_generation_mode(args)
