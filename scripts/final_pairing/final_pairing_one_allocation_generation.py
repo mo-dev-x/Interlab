@@ -29,11 +29,50 @@ them; (3) a paired CONTROL (no-intervention) generation for every
 (prompt, seed) used by ANY dose, sharing that EXACT seed, computed once
 and referenced (`control_ref`) from every dose file; (4) a fixed,
 G-A/B/C-independent concept processing order (`CAUSAL_GENERATION_ORDER`).
-KNOWN, DISCLOSED GAP: the extension also requires a real per-entry
-`prompt_id` sourced from the frozen prompt artifact; this module's
-callers still supply bare prompt strings, so no `prompt_id` field is
-emitted (see `GenerationFileRecord`'s docstring) -- inventing one would
-look real without being real.
+REAL PROMPT IDENTITIES (P0 CONTINUE, 2026-08-13): the prior disclosed gap
+-- callers supplying bare prompt strings instead of the frozen artifact's
+own rows -- is CLOSED. `generate_dose_file`/`generate_control_file` now
+take `prompts: list[dict]`, i.e. the frozen artifact's own row dicts
+(`prompt_id`/`text`/`locale`/`split`/`ordinal`, verbatim), never bare
+strings; `select_generation_prompt_rows` below is the ONE place that
+selects which rows (per `generation_settings.json` section 2's
+"ordinals 01-15/01-20 of that concept's held-out split, ascending by
+prompt_id" rule -- amplify reads `heldout_neutral`, suppress reads
+`heldout_eliciting`, per section 3's "AMPLIFY runs on the neutral
+held-out substrate and SUPPRESS on the eliciting substrate"). Every
+per-generation record inside a physical file's own `generations` list
+now carries the row's real `prompt_id`/`split`/`ordinal` (never a
+synthetic `f"{purpose}_{prompt_index}"`); `control_ref` resolution is
+therefore also real: a steered generation and its paired control
+generation are built from the SAME row list in the SAME order, so they
+share the same real `prompt_id` (and, by `SAME_SEED_IS_MANDATORY`, the
+same seed) by construction.
+
+MANIFEST GRANULARITY IS PER GENERATION, NOT PER PHYSICAL FILE (resolved
+against `conformance/concept_bundle/discovery_input_schema.json` schema
+2.0, `D:/devcache/wt/concept-bundle`, status "DECLARED BY ENGINEER 3,
+AWAITING ENGINEER 1 RATIFICATION" -- ratified here by implementing to
+it): `manifest_file_required` there lists BOTH `dose` (one physical file
+per dose) AND `prompt_id` (one row per generation) as required on every
+`files[]` entry. The only shape consistent with both is: ONE PHYSICAL
+JSON FILE per (concept, pairing, direction, dose, purpose, locale)
+(ADDITION_3, unchanged), but ONE MANIFEST `files[]` ENTRY PER
+GENERATION inside it -- many entries share the same `path`/`sha256`
+(they name the same physical file) while each carries its own scalar
+`seed`/`prompt_id`/`truncated`. `GenerationFileRecord.to_manifest_file_
+entries()` (plural; the old singular `to_manifest_file_entry` is gone)
+fans out exactly this way. This also makes the total manifest row count
+per concept exactly `GENERATIONS_PER_CONCEPT` (1800), not
+`DOSE_FILES_PER_CONCEPT` (48).
+
+The manifest also now carries the REST of that same schema's
+`manifest_required` list, previously optional or absent:
+`generation_kwargs`, `chat_template_identity`, `locales_complete`
+(already present), plus NEW required fields `generation_settings_path`/
+`generation_settings_version`/`generation_settings_sha256` (this
+module's own frozen constants) and `causal_order_position`/
+`skipped_for_gate_failure` (see `causal_order_position_for` and
+`run_generation_mode`'s CLI below).
 
 HARD STOP, STRUCTURAL, NOT MERELY DOCUMENTED: this module never imports
 `final_pairing_causal_judge` or `lodestar`, at module scope or inside any
@@ -72,11 +111,18 @@ partial-concept file layout.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
+import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parents[1]
+sys.path.insert(0, str(SCRIPT_DIR))  # so `import final_pairing_concept_discovery` resolves when this file is run directly as a script
 
 DIRECTIONS: tuple[str, ...] = ("amplify", "suppress")
 SWEEP_PROMPTS_PER_DIRECTION = 15  # PER LOCALE (generation_settings.json section 2)
@@ -305,16 +351,39 @@ UNUSED_STATUS = "UNUSED_FOR_SELECTION_OR_CLAIM"
 SEALED_LABEL = UNUSED_STATUS
 SELECTION_STATUSES: tuple[str, ...] = (SELECTED_STATUS, UNUSED_STATUS)
 
-#: The real consumer's own `MANIFEST_FIELDS` (`concept_bundle_publish.py`,
-#: commit 67ad4ef) -- every top-level manifest field, exhaustively (that
-#: tool declares `additionalProperties: false`). Mirrored here (never
-#: imported: that package does not exist on this branch) so `verify_
-#: generation_manifest` can check a manifest is at least well-formed
-#: before transfer-verifying its files.
+#: The ratified `generation_manifests.manifest_required` list from
+#: `conformance/concept_bundle/discovery_input_schema.json` schema 2.0
+#: (`D:/devcache/wt/concept-bundle`, status "DECLARED BY ENGINEER 3,
+#: AWAITING ENGINEER 1 RATIFICATION" -- ratified here by implementing to
+#: it) -- every top-level manifest field, exhaustively (that schema
+#: declares every object closed: "unknown fields are refused"). Mirrored
+#: here (never imported: that package does not exist on this branch) so
+#: `verify_generation_manifest` can check a manifest is at least
+#: well-formed before transfer-verifying its files. Supersedes the
+#: narrower 16-field list this module previously targeted at
+#: `concept_bundle_publish.py` commit 67ad4ef, which predates the
+#: `generation_settings.json` extension (`generation_kwargs`/
+#: `chat_template_identity`/`locales_complete`/`generation_settings_*`/
+#: `causal_order_position`/`skipped_for_gate_failure` are all NEW here).
 MANIFEST_REQUIRED_FIELDS: tuple[str, ...] = (
     "run_id", "source_commit", "configuration", "concept_id", "pairing_id",
     "model_revision", "sae_revision", "release", "loader_sae_id", "scientific_sae_id",
     "params_measured_sha256", "direction", "files", "completeness", "protocol_path", "protocol_sha256",
+    "generation_kwargs", "chat_template_identity", "locales_complete",
+    "generation_settings_path", "generation_settings_version", "generation_settings_sha256",
+    "causal_order_position", "skipped_for_gate_failure",
+)
+
+#: The ratified `generation_manifests.manifest_file_required` list from
+#: the same schema-2.0 declaration -- every `files[]` entry field,
+#: exhaustively. `prompt_id` (per-generation, real) and `dose` (per
+#: physical file, prohibited on CONTROL) coexisting is exactly what
+#: forces the "one manifest entry per generation, many entries sharing
+#: one physical file's path" granularity `to_manifest_file_entries`
+#: implements -- see this module's own docstring.
+MANIFEST_FILE_REQUIRED_FIELDS: tuple[str, ...] = (
+    "dose", "purpose", "path", "sha256", "seed", "selection_status", "locale", "prompt_id",
+    "control_ref", "truncated",
 )
 
 #: `generation_settings.json` section 2 ("2_bilingual_counts"): sweep and
@@ -348,6 +417,68 @@ def order_concepts_for_causal_generation(concept_ids: list[str]) -> list[str]:
     return [c for c in CAUSAL_GENERATION_ORDER if c in present]
 
 
+def causal_order_position_for(concept_id: str) -> int:
+    """The concept's 1-based, FIXED position in `CAUSAL_GENERATION_ORDER`
+    (`formal_register`=1, ..., `political_framing`=14) -- the exact value
+    `generation_settings.json` section 4 requires the manifest to record,
+    independent of whether generation for this concept actually ran."""
+    try:
+        return CAUSAL_GENERATION_ORDER.index(concept_id) + 1
+    except ValueError:
+        raise ValueError(f"concept_id {concept_id!r} is not in the frozen CAUSAL_GENERATION_ORDER") from None
+
+
+#: `generation_settings.json` section 3: "AMPLIFY runs on the neutral
+#: held-out substrate and SUPPRESS on the eliciting substrate." Amplify's
+#: intervention direction is `DoseSpec(kind="clamp"...)` and Suppress's is
+#: `clamp`+`ablate`, but the SPLIT this constant governs is keyed on the
+#: one-allocation DIRECTION name ("amplify"/"suppress"), never on
+#: `DoseSpec.kind`.
+GENERATION_SPLIT_BY_DIRECTION: dict[str, str] = {"amplify": "heldout_neutral", "suppress": "heldout_eliciting"}
+
+
+def select_generation_prompt_rows(
+    rows: list[dict], *, concept_id: str, direction: Literal["amplify", "suppress"], locale: str,
+    purpose: Literal["sweep", "confirmation"],
+) -> list[dict]:
+    """The ONE place that selects which of the frozen prompt artifact's own
+    rows back one-allocation generation, per `generation_settings.json`
+    section 2's `sweep_subset_rule`: "the 15 sweep prompts are ordinals 01
+    through 15 of that concept's held-out split, ascending by prompt_id.
+    Confirmation uses ordinals 01 through 20" -- fully determined, zero
+    discretion, since `prompt_id` is stable and the artifact is sorted.
+    `direction` selects the split (`GENERATION_SPLIT_BY_DIRECTION`); doses
+    only change EXTRACTION, never which rows.
+
+    Returns the frozen artifact's own row dicts VERBATIM (never bare
+    strings) -- callers read `row["text"]`/`row["prompt_id"]`/
+    `row["split"]`/`row["ordinal"]` directly, so every generation this
+    module writes carries the real frozen identity, not an invented one.
+    Raises if fewer than the required count of rows exist, or if the
+    selected rows' ordinals are not exactly 1..N (a corrupted or
+    unexpectedly-reordered artifact must fail closed here, not silently
+    hand back the wrong prompts)."""
+    import final_pairing_concept_discovery as _d
+
+    split = GENERATION_SPLIT_BY_DIRECTION[direction]
+    candidates = _d.rows_for_concept(rows, concept_id=concept_id, locale=locale, split=split)
+    candidates = sorted(candidates, key=lambda r: r["prompt_id"])
+    n = SWEEP_PROMPTS_PER_DIRECTION if purpose == "sweep" else CONFIRMATION_PROMPTS_PER_DIRECTION
+    if len(candidates) < n:
+        raise ValueError(
+            f"expected at least {n} '{split}' rows for concept_id={concept_id!r} locale={locale!r}, "
+            f"found {len(candidates)}"
+        )
+    selected = candidates[:n]
+    ordinals = [row["ordinal"] for row in selected]
+    if ordinals != list(range(1, n + 1)):
+        raise ValueError(
+            f"expected ordinals 1..{n} ascending by prompt_id for concept_id={concept_id!r} locale={locale!r} "
+            f"split={split!r}, got {ordinals} -- refusing to generate against an unexpectedly ordered artifact"
+        )
+    return selected
+
+
 def _prefixed_sha256(hexdigest: str) -> str:
     """The manifest's own ruled digest encoding is `sha256:<64 hex>`
     (`discovery_input_schema.json` schema 2.0's `digest_encoding` note) --
@@ -374,12 +505,14 @@ def _dose_label(dose: DoseSpec) -> str:
 class GenerationFileRecord:
     """Internal bookkeeping for ONE physical file -- resumability, seed-
     disjointness checks, and control/steered pairing all need more than
-    the real consumer's manifest schema carries. `to_manifest_file_entry()`,
-    NOT `dataclasses.asdict`, is what actually goes into a generation
-    manifest: the real consumer (`concept_bundle_publish.py`'s
-    `MANIFEST_FILE_FIELDS`, commit 67ad4ef) declares `additionalProperties:
-    false` on every file entry, so serializing this dataclass wholesale
-    would be refused for carrying unknown fields.
+    the real consumer's manifest schema carries. `to_manifest_file_
+    entries()` (plural), NOT `dataclasses.asdict`, is what actually goes
+    into a generation manifest: the real consumer's schema declares
+    `additionalProperties: false` on every file entry, so serializing this
+    dataclass wholesale would be refused for carrying unknown fields --
+    and, per that same schema, ONE PHYSICAL FILE fans out into MANY
+    manifest entries, one per generation (see this module's own docstring,
+    "MANIFEST GRANULARITY IS PER GENERATION, NOT PER PHYSICAL FILE").
 
     `purpose='control'` files carry `dose_label=None`/`dose_kind=None`/
     `dose_value=None` (`generation_settings.json`'s manifest extension:
@@ -388,14 +521,12 @@ class GenerationFileRecord:
     `purpose in ('sweep','confirmation')` files carry a real `dose_label`
     and a non-None `control_ref` naming the shared control file's path.
 
-    KNOWN GAP, DISCLOSED RATHER THAN FABRICATED: `generation_settings.
-    json`'s extension also requires a real `prompt_id` "from the frozen
-    artifact" on every entry. This module's callers still supply bare
-    prompt STRINGS (see `generate_concept_complete`'s `*_sweep_prompts`/
-    `*_confirmation_prompts` params), not frozen-artifact rows carrying a
-    real prompt_id -- wiring that through is a separate, not-yet-done
-    change, so no `prompt_id` field is emitted here rather than
-    inventing one that would look real but is not."""
+    `prompt_ids`/`truncated_flags` are parallel arrays to `seeds` (one
+    entry per generation, in the SAME order) -- the frozen artifact's own
+    real `prompt_id` for that generation's row (never a synthetic
+    `f"{purpose}_{prompt_index}"`) and whether THAT generation hit
+    `max_new_tokens`, respectively. `seeds[i]`/`prompt_ids[i]`/
+    `truncated_flags[i]` describe the SAME generation."""
     concept_id: str
     pairing_id: str
     direction: Literal["amplify", "suppress"]
@@ -407,7 +538,8 @@ class GenerationFileRecord:
     n_prompts: int
     n_repeats: int
     seeds: list[int]  # every individual generation's seed, in order (bookkeeping + disjointness checks)
-    truncated: bool  # True iff ANY generation in this file hit max_new_tokens
+    prompt_ids: list[int | str]  # parallel to `seeds`: each generation's REAL frozen prompt_id
+    truncated_flags: list[bool]  # parallel to `seeds`: each generation's own truncated flag
     path: str
     sha256: str  # bare 64-hex; prefixed only at manifest-serialization time
     control_ref: str | None  # the paired control file's path; None only for purpose="control" itself
@@ -417,17 +549,27 @@ class GenerationFileRecord:
     #: (a stage-4 concern, on a different machine, AFTER selection).
     selection_status: str = UNUSED_STATUS
 
-    def to_manifest_file_entry(self) -> dict[str, Any]:
-        entry: dict[str, Any] = {
-            "purpose": self.purpose.upper(), "locale": self.locale, "path": self.path,
-            "sha256": _prefixed_sha256(self.sha256), "seed": self.seeds[0],
-            "selection_status": self.selection_status, "truncated": self.truncated,
-        }
-        if self.dose_label is not None:
-            entry["dose"] = self.dose_label
-        if self.control_ref is not None:
-            entry["control_ref"] = self.control_ref
-        return entry
+    @property
+    def truncated(self) -> bool:
+        """True iff ANY generation in this file hit max_new_tokens --
+        convenience/back-compat accessor; the manifest itself records
+        `truncated_flags[i]` per generation, never this rollup."""
+        return any(self.truncated_flags)
+
+    def to_manifest_file_entries(self) -> list[dict[str, Any]]:
+        entries: list[dict[str, Any]] = []
+        for seed, prompt_id, truncated in zip(self.seeds, self.prompt_ids, self.truncated_flags, strict=True):
+            entry: dict[str, Any] = {
+                "purpose": self.purpose.upper(), "locale": self.locale, "path": self.path,
+                "sha256": _prefixed_sha256(self.sha256), "seed": seed, "prompt_id": prompt_id,
+                "selection_status": self.selection_status, "truncated": truncated,
+            }
+            if self.dose_label is not None:
+                entry["dose"] = self.dose_label
+            if self.control_ref is not None:
+                entry["control_ref"] = self.control_ref
+            entries.append(entry)
+        return entries
 
 
 def _generation_filename(
@@ -438,7 +580,7 @@ def _generation_filename(
 
 
 def generate_control_file(
-    backend, *, corpus_max: dict[int, float], positions: str, prompts: list[str],
+    backend, *, corpus_max: dict[int, float], positions: str, prompts: list[dict[str, Any]],
     purpose: Literal["sweep", "confirmation"], n_repeats: int, seeds: list[int], max_new_tokens: int,
     out_dir: str | Path, concept_id: str, pairing_id: str, direction: Literal["amplify", "suppress"],
     locale: str, generation_kwargs: dict[str, Any] | None = None, run_baseline_fn=None, hash_fn=None,
@@ -450,7 +592,12 @@ def generate_control_file(
     SAME seeds as whichever steered generations it pairs with
     (`SAME_SEED_IS_MANDATORY`) -- `seeds` is therefore a REQUIRED
     parameter here, not derived internally, so a caller cannot
-    accidentally give the control its own, different seed sequence."""
+    accidentally give the control its own, different seed sequence.
+
+    `prompts` is the frozen artifact's own ROW dicts (`prompt_id`/`text`/
+    `split`/`ordinal`, e.g. from `select_generation_prompt_rows`), never
+    bare strings -- every generation this writes carries its row's REAL
+    `prompt_id`/`split`/`ordinal`, not an invented one."""
     if len(seeds) != len(prompts) * n_repeats:
         raise ValueError(
             f"generate_control_file requires exactly one seed per (prompt, repeat): got {len(seeds)} seeds for "
@@ -466,19 +613,22 @@ def generate_control_file(
         hash_fn = _d.compute_file_sha256
 
     generations: list[dict[str, Any]] = []
+    prompt_ids: list[Any] = []
+    truncated_flags: list[bool] = []
     seed_iter = iter(seeds)
-    truncated_any = False
-    for prompt_index, prompt in enumerate(prompts):
+    for prompt_index, row in enumerate(prompts):
         for repeat_index in range(n_repeats):
             seed = next(seed_iter)
             outcome = run_baseline_fn(
-                backend, prompt=prompt, seed=seed, max_new_tokens=max_new_tokens, positions=positions,
+                backend, prompt=row["text"], seed=seed, max_new_tokens=max_new_tokens, positions=positions,
                 generation_kwargs=generation_kwargs,
             )
-            truncated_any = truncated_any or outcome.truncated
+            prompt_ids.append(row["prompt_id"])
+            truncated_flags.append(outcome.truncated)
             generations.append({
-                "prompt_id": f"{purpose}_{prompt_index}", "prompt_index": prompt_index, "repeat_index": repeat_index,
-                "prompt": prompt, "locale": locale, "condition": "control", "seed": seed,
+                "prompt_id": row["prompt_id"], "prompt_index": prompt_index, "repeat_index": repeat_index,
+                "prompt": row["text"], "locale": locale, "split": row["split"], "ordinal": row["ordinal"],
+                "condition": "control", "seed": seed,
                 "generated_text": outcome.generated_text, "truncated": outcome.truncated, "spec": outcome.spec,
             })
 
@@ -497,13 +647,14 @@ def generate_control_file(
     return GenerationFileRecord(
         concept_id=concept_id, pairing_id=pairing_id, direction=direction, purpose="control", locale=locale,
         dose_label=None, dose_kind=None, dose_value=None, n_prompts=len(prompts), n_repeats=n_repeats,
-        seeds=list(seeds), truncated=truncated_any, path=str(path), sha256=digest, control_ref=None,
+        seeds=list(seeds), prompt_ids=prompt_ids, truncated_flags=truncated_flags,
+        path=str(path), sha256=digest, control_ref=None,
     )
 
 
 def generate_dose_file(
     backend, feature_indices: list[int], *, dose: DoseSpec, corpus_max: dict[int, float],
-    positions: str, prompts: list[str], purpose: Literal["sweep", "confirmation"], n_repeats: int,
+    positions: str, prompts: list[dict[str, Any]], purpose: Literal["sweep", "confirmation"], n_repeats: int,
     seeds: list[int], max_new_tokens: int, out_dir: str | Path,
     concept_id: str, pairing_id: str, direction: Literal["amplify", "suppress"], locale: str,
     control_ref: str, generation_kwargs: dict[str, Any] | None = None, run_intervention_fn=None, hash_fn=None,
@@ -519,6 +670,13 @@ def generate_dose_file(
     version of this module did) would make that impossible. `control_ref`
     names the shared control file (`generate_control_file`'s own output
     path) this dose's every generation pairs with.
+
+    `prompts` is the frozen artifact's own ROW dicts, exactly as passed to
+    the paired `generate_control_file` call for the SAME (purpose,
+    locale) -- same row list, same order, same seeds, so the i-th steered
+    generation here and the i-th control generation share the same real
+    `prompt_id` and seed by construction (control_ref resolution therefore
+    needs no separate lookup key beyond that shared ordering).
 
     Reuses the existing, already-tested `final_pairing_concept_discovery.
     run_intervention` by default -- injectable for tests."""
@@ -537,22 +695,25 @@ def generate_dose_file(
         hash_fn = _d.compute_file_sha256
 
     generations: list[dict[str, Any]] = []
+    prompt_ids: list[Any] = []
+    truncated_flags: list[bool] = []
     seed_iter = iter(seeds)
-    truncated_any = False
-    for prompt_index, prompt in enumerate(prompts):
+    for prompt_index, row in enumerate(prompts):
         for repeat_index in range(n_repeats):
             seed = next(seed_iter)
             outcome = run_intervention_fn(
                 backend, feature_indices,
                 direction="ablate" if dose.kind == "ablate" else "clamp",
                 value_in_max_units=dose.value_in_max_units or 0.0,
-                corpus_max=corpus_max, positions=positions, prompt=prompt, seed=seed, max_new_tokens=max_new_tokens,
+                corpus_max=corpus_max, positions=positions, prompt=row["text"], seed=seed, max_new_tokens=max_new_tokens,
                 generation_kwargs=generation_kwargs,
             )
-            truncated_any = truncated_any or outcome.truncated
+            prompt_ids.append(row["prompt_id"])
+            truncated_flags.append(outcome.truncated)
             generations.append({
-                "prompt_id": f"{purpose}_{prompt_index}", "prompt_index": prompt_index, "repeat_index": repeat_index,
-                "prompt": prompt, "locale": locale, "condition": "steered",
+                "prompt_id": row["prompt_id"], "prompt_index": prompt_index, "repeat_index": repeat_index,
+                "prompt": row["text"], "locale": locale, "split": row["split"], "ordinal": row["ordinal"],
+                "condition": "steered",
                 "seed": seed, "generated_text": outcome.generated_text, "truncated": outcome.truncated,
                 "verdict": outcome.verdict, "spec": outcome.spec,
             })
@@ -574,7 +735,8 @@ def generate_dose_file(
     return GenerationFileRecord(
         concept_id=concept_id, pairing_id=pairing_id, direction=direction, purpose=purpose, locale=locale,
         dose_label=dose_label, dose_kind=dose.kind, dose_value=dose.value_in_max_units,
-        n_prompts=len(prompts), n_repeats=n_repeats, seeds=list(seeds), truncated=truncated_any,
+        n_prompts=len(prompts), n_repeats=n_repeats, seeds=list(seeds),
+        prompt_ids=prompt_ids, truncated_flags=truncated_flags,
         path=str(path), sha256=digest, control_ref=control_ref,
     )
 
@@ -583,8 +745,8 @@ def generate_concept_complete(
     backend, feature_indices: list[int], *, concept_id: str, pairing_id: str,
     corpus_max: dict[int, float], positions: str, out_dir: str | Path,
     amplify_dose_grid: list[DoseSpec], suppress_dose_grid: list[DoseSpec],
-    amplify_sweep_prompts: dict[str, list[str]], amplify_confirmation_prompts: dict[str, list[str]],
-    suppress_sweep_prompts: dict[str, list[str]], suppress_confirmation_prompts: dict[str, list[str]],
+    amplify_sweep_prompts: dict[str, list[dict[str, Any]]], amplify_confirmation_prompts: dict[str, list[dict[str, Any]]],
+    suppress_sweep_prompts: dict[str, list[dict[str, Any]]], suppress_confirmation_prompts: dict[str, list[dict[str, Any]]],
     max_new_tokens: int, generation_kwargs: dict[str, Any] | None = None,
     run_intervention_fn=None, run_baseline_fn=None, progress=None,
 ) -> list[GenerationFileRecord]:
@@ -595,11 +757,13 @@ def generate_concept_complete(
     `assert_seed_sets_disjoint` once ALL of this concept's cells have
     been planned.
 
-    `*_sweep_prompts`/`*_confirmation_prompts` are now `{locale: prompts}`
-    dicts (`generation_settings.json` section 2: 15/20 prompts EACH in en
-    and fr, never split across the two) -- each locale's prompt list is
-    still exactly `SWEEP_PROMPTS_PER_DIRECTION`/`CONFIRMATION_PROMPTS_PER_
-    DIRECTION` long.
+    `*_sweep_prompts`/`*_confirmation_prompts` are now `{locale: rows}`
+    dicts of the frozen artifact's own ROW dicts (`select_generation_
+    prompt_rows`'s return shape -- `prompt_id`/`text`/`split`/`ordinal`,
+    never bare strings; `generation_settings.json` section 2: 15/20 rows
+    EACH in en and fr, never split across the two) -- each locale's row
+    list is still exactly `SWEEP_PROMPTS_PER_DIRECTION`/`CONFIRMATION_
+    PROMPTS_PER_DIRECTION` long.
 
     For each (direction, purpose, locale): derives ONE shared seed list
     (`derive_seeds`, salted by namespace/locale but NOT by dose), writes
@@ -692,38 +856,46 @@ def write_generation_manifest(
     records: list[GenerationFileRecord], manifest_path: str | Path, *,
     run_id: str, source_commit: str, configuration_name: Literal["primary", "backup"],
     concept_id: str, pairing_id: str, model_revision: str, sae_revision: str,
-    release: str, loader_sae_id: str, scientific_sae_id: str, measured_params_sha256: str,
+    release: str, loader_sae_id: str, scientific_sae_id: str, measured_params_sha256: str | None,
+    generation_kwargs: dict[str, Any], chat_template_identity: str, locales_complete: list[str],
+    causal_order_position: int, skipped_for_gate_failure: bool = False,
     completeness: Literal["COMPLETE", "PARTIAL", "NOT_ATTEMPTED"] = "COMPLETE",
-    generation_kwargs: dict[str, Any] | None = None, chat_template_identity: str | None = None,
-    locales_complete: list[str] | None = None,
 ) -> dict:
     """Writes ONE manifest -- ONE PHYSICAL MANIFEST PER (run_id,
     configuration, concept_id, pairing_id, direction), per the ratified
     `discovery_document_generation_binding.json` v1.1.0's `physical_
-    granularity`, machine-verified against the REAL consumer at commit
-    67ad4ef (`concept_bundle_publish.py`'s `MANIFEST_FIELDS`): every
-    field here is FLAT -- no nested `model`/`sae`/`concepts` objects, and
-    no self-declared `manifest_sha256` -- `additionalProperties: false`
-    on the manifest object refuses anything outside `MANIFEST_FIELDS`,
-    including a self-hash (the binding protocol's `ManifestReference.
-    source_sha256` is RECOMPUTED externally from the manifest's bytes,
-    never read off a field the manifest declares about itself).
+    granularity`, machine-verified against the REAL consumer's schema
+    (`conformance/concept_bundle/discovery_input_schema.json` schema 2.0,
+    `generation_manifests.manifest_required`/`manifest_file_required`):
+    every field here is FLAT -- no nested `model`/`sae`/`concepts`
+    objects, and no self-declared `manifest_sha256` (every object is
+    closed: "unknown fields are refused" -- the binding protocol's
+    `ManifestReference.source_sha256` is RECOMPUTED externally from the
+    manifest's bytes, never read off a field the manifest declares about
+    itself).
 
     `pairing_id` is the CONSUMER'S composite `f"{model_id}+{sae_repo_id}"`
-    (`Pairing.pairing_id`, commit 67ad4ef) -- NOT this module's own
-    internal `pairing_id` (`backend.pairing`, e.g. "gemma-3-12b-it") used
-    for seed derivation/filenames; the caller supplies the composite
-    value explicitly. `configuration_name`/`direction` are stored
-    UPPERCASE (the consumer's own ruled casing); `measured_params_sha256`
-    is stored `sha256:`-prefixed (the manifest's own ruled digest
-    encoding, distinct from the discovery DOCUMENT's bare-hex `pairing.
-    params_sha256`).
+    (`Pairing.pairing_id`) -- NOT this module's own internal `pairing_id`
+    (`backend.pairing`, e.g. "gemma-3-12b-it") used for seed derivation/
+    filenames; the caller supplies the composite value explicitly.
+    `configuration_name`/`direction` are stored UPPERCASE (the consumer's
+    own ruled casing); `measured_params_sha256` is stored `sha256:`-
+    prefixed (the manifest's own ruled digest encoding, distinct from the
+    discovery DOCUMENT's bare-hex `pairing.params_sha256`) -- `None` is
+    accepted and passed through as JSON `null` ONLY for the Qwen arm,
+    which the identity artifact freezes no expected params hash for (the
+    schema's own `pairing.params_sha256` carve-out; a Gemma manifest must
+    always supply a real measured value).
 
-    `generation_kwargs`/`chat_template_identity`/`locales_complete` are
-    `generation_settings.json`'s `manifest_level_additions` -- optional
-    here (default `None`/omitted) since that extension has not yet been
-    consumed by a committed Engineer-3 validator; when supplied they are
-    written verbatim."""
+    `generation_kwargs`/`chat_template_identity`/`locales_complete`/
+    `causal_order_position`/`skipped_for_gate_failure` are `generation_
+    settings.json`'s manifest-level additions -- ALL REQUIRED now (the
+    schema-2.0 declaration lists them unconditionally in `manifest_
+    required`), written verbatim/as given.
+
+    `files` is the CONCATENATION of every record's `to_manifest_file_
+    entries()` -- one row per GENERATION (not per physical file); see this
+    module's own docstring, "MANIFEST GRANULARITY IS PER GENERATION"."""
     if configuration_name not in ("primary", "backup"):
         raise ValueError(f"configuration_name must be 'primary' or 'backup', got {configuration_name!r}")
     if completeness not in COMPLETENESS_VALUES:
@@ -747,19 +919,21 @@ def write_generation_manifest(
         "concept_id": concept_id, "pairing_id": pairing_id,
         "model_revision": model_revision, "sae_revision": sae_revision, "release": release,
         "loader_sae_id": loader_sae_id, "scientific_sae_id": scientific_sae_id,
-        "params_measured_sha256": _prefixed_sha256(measured_params_sha256),
+        "params_measured_sha256": None if measured_params_sha256 is None else _prefixed_sha256(measured_params_sha256),
         "direction": direction.upper(),
-        "files": [r.to_manifest_file_entry() for r in records],
+        "files": [entry for r in records for entry in r.to_manifest_file_entries()],
         "completeness": completeness,
         "protocol_path": ONE_ALLOCATION_PROTOCOL_PATH,
         "protocol_sha256": _prefixed_sha256(ONE_ALLOCATION_PROTOCOL_SHA256),
+        "generation_kwargs": dict(generation_kwargs),
+        "chat_template_identity": chat_template_identity,
+        "locales_complete": list(locales_complete),
+        "generation_settings_path": GENERATION_SETTINGS_PROTOCOL_PATH,
+        "generation_settings_version": GENERATION_SETTINGS_PROTOCOL_VERSION,
+        "generation_settings_sha256": _prefixed_sha256(GENERATION_SETTINGS_PROTOCOL_SHA256),
+        "causal_order_position": causal_order_position,
+        "skipped_for_gate_failure": skipped_for_gate_failure,
     }
-    if generation_kwargs is not None:
-        body["generation_kwargs"] = dict(generation_kwargs)
-    if chat_template_identity is not None:
-        body["chat_template_identity"] = chat_template_identity
-    if locales_complete is not None:
-        body["locales_complete"] = list(locales_complete)
 
     Path(manifest_path).write_text(_canonical_manifest_json(body), encoding="utf-8")
     return body
@@ -773,7 +947,12 @@ def verify_generation_manifest(manifest_path: str | Path, *, files_root: str | P
     whoever computes `ManifestReference.source_sha256` from this file
     (`final_pairing_evidence_document.build_manifest_reference`). A file
     hash mismatch is a HARD STOP (raises `TransferVerificationFailed`),
-    never a warning."""
+    never a warning.
+
+    Each physical file backs MANY `files[]` entries (one per generation,
+    see `to_manifest_file_entries`) -- hashes are checked ONCE per unique
+    `path` (never once per entry) so verifying a 75-generation control
+    file costs one hash computation, not 75."""
     import final_pairing_concept_discovery as _d
 
     manifest_path = Path(manifest_path)
@@ -782,16 +961,20 @@ def verify_generation_manifest(manifest_path: str | Path, *, files_root: str | P
     if missing:
         raise TransferVerificationFailed(f"{manifest_path} is missing required field(s) {missing} -- not a valid manifest")
 
-    mismatches: list[str] = []
+    declared_sha256_by_path: dict[str, str] = {}
     for entry in full["files"]:
-        path = Path(files_root) / Path(entry["path"]).name if files_root is not None else Path(entry["path"])
+        declared_sha256_by_path.setdefault(entry["path"], entry["sha256"])
+
+    mismatches: list[str] = []
+    for declared_path, declared_sha256 in declared_sha256_by_path.items():
+        path = Path(files_root) / Path(declared_path).name if files_root is not None else Path(declared_path)
         if not path.is_file():
             mismatches.append(f"{path}: file missing at transfer destination")
             continue
         actual = _d.compute_file_sha256(path)
-        declared = entry["sha256"][len("sha256:"):] if entry["sha256"].startswith("sha256:") else entry["sha256"]
+        declared = declared_sha256[len("sha256:"):] if declared_sha256.startswith("sha256:") else declared_sha256
         if actual != declared:
-            mismatches.append(f"{path}: sha256 mismatch (manifest {entry['sha256']}, actual {actual})")
+            mismatches.append(f"{path}: sha256 mismatch (manifest {declared_sha256}, actual {actual})")
     if mismatches:
         raise TransferVerificationFailed(
             "transfer verification failed for " + str(len(mismatches)) + " file(s):\n  - " + "\n  - ".join(mismatches)
@@ -818,3 +1001,314 @@ def stamp_manifest_with_selection(manifest: dict, unselected_doses: list[str]) -
             entry["selection_status"] = UNUSED_STATUS if entry["dose"] in unselected else SELECTED_STATUS
         stamped_files.append(entry)
     return {**manifest, "files": stamped_files}
+
+
+# ---------------------------------------------------------------------------
+# Measured (not arithmetic-only) per-generation wall-time estimate (P0
+# CONTINUE blocker 3): `estimate_seconds_for_one_concept`/`assess_concept_
+# generation_readiness` above were always correct arithmetic on TOP of a
+# `seconds_per_generation` figure -- what was missing was a real function
+# that MEASURES that figure from the actually-loaded backend, rather than
+# a caller guessing a constant and calling the resulting multiplication
+# "measured."
+# ---------------------------------------------------------------------------
+
+
+def measure_seconds_per_generation(
+    backend, *, feature_indices: list[int], corpus_max: dict[int, float], positions: str, prompt: str,
+    base_seed: int, max_new_tokens: int, generation_kwargs: dict[str, Any] | None = None, n_samples: int = 3,
+    run_intervention_fn=None, time_fn=None,
+) -> dict[str, Any]:
+    """Times `n_samples` REAL `run_intervention` calls against the
+    ALREADY-LOADED `backend` (the same model/SAE weights this allocation
+    will actually generate with) using `time.perf_counter` by default --
+    never a bare `GENERATIONS_PER_CONCEPT * guessed-constant` arithmetic.
+    `basis` names exactly what was measured and how, so this figure can
+    never be silently relabeled as "measured" if it was not. The MEAN of
+    the `n_samples` samples is `seconds_per_generation`, the one number
+    `assess_concept_generation_readiness` may be called with;
+    `estimate_seconds_for_one_concept`'s multiplication by `GENERATIONS_
+    PER_CONCEPT` on top of that MEASURED figure remains legitimate
+    arithmetic -- that combination, not the multiplication itself, is
+    what "conservative measured estimate with its evidence source" means
+    here.
+
+    Each sample uses a DIFFERENT seed (`base_seed + i`) so the timed calls
+    are independent samples, not one cached/memoized repeat."""
+    time_fn = time_fn or time.perf_counter
+    if run_intervention_fn is None:
+        import final_pairing_concept_discovery as _d
+
+        run_intervention_fn = _d.run_intervention
+
+    samples: list[float] = []
+    for i in range(n_samples):
+        start = time_fn()
+        run_intervention_fn(
+            backend, feature_indices, direction="clamp", value_in_max_units=1.0, corpus_max=corpus_max,
+            positions=positions, prompt=prompt, seed=base_seed + i, max_new_tokens=max_new_tokens,
+            generation_kwargs=generation_kwargs,
+        )
+        samples.append(time_fn() - start)
+    mean_seconds = sum(samples) / len(samples)
+    return {
+        "seconds_per_generation": mean_seconds,
+        "sample_seconds": samples,
+        "n_samples": n_samples,
+        "basis": (
+            f"measured: {n_samples} real run_intervention call(s) against the already-loaded backend "
+            f"({backend.pairing}), timed with time.perf_counter -- not GENERATIONS_PER_CONCEPT arithmetic alone"
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Production causal-generation CLI (P0 CONTINUE blocker 2): the real,
+# scheduled entry point that wires load -> this pairing's own already-
+# written grid.json -> keep only G-A/B/C 'pass' concepts -> CAUSAL_
+# GENERATION_ORDER -> per-concept wall-time readiness gate -> concept-
+# complete bilingual control+steered generation -> one manifest per
+# direction. `final_concept_discovery_matched_configuration_job.py` is
+# the caller that actually invokes this as a real subprocess lane, once
+# per (pairing, configuration) -- see that module's `run_causal_
+# generation_phase`.
+# ---------------------------------------------------------------------------
+
+
+def _parse_dose_grid_csv(raw: str) -> list[float]:
+    values = [float(x) for x in raw.split(",") if x.strip()]
+    if not values:
+        raise ValueError("a dose grid argument must contain at least one value")
+    return values
+
+
+def _release_and_loader_sae_id_for_backend(backend) -> tuple[str, str]:
+    """Gemma's provenance already carries the real sae_lens `release`/
+    `loader_sae_id` (from the registry lookup `load_gemma_scientific_
+    target` performs) -- returned verbatim. Qwen has no sae_lens release
+    at all (`harness.QwenScopeSAE.from_layer_file` loads a raw layer file,
+    never through the sae_lens registry) -- the manifest schema still
+    requires both fields unconditionally for either pairing, so a
+    Qwen-appropriate IDENTIFIER (not a sae_lens release string, and not
+    claimed to be one) is constructed from the SAE family/layer/sparsity
+    fields already recorded in Qwen's own provenance. DISCLOSED CHOICE:
+    the schema does not define a Qwen-specific convention for these two
+    fields -- this is this module's own, clearly-labeled one, not a
+    value read off any registry."""
+    sae_prov = backend.provenance.get("sae", {})
+    if "release" in sae_prov and "loader_sae_id" in sae_prov:
+        return sae_prov["release"], sae_prov["loader_sae_id"]
+    sae_family = sae_prov.get("sae_family", "unknown")
+    return (
+        f"qwen-scope-{sae_family}",
+        f"layer_{backend.layer}_{sae_family}_k{sae_prov.get('sparsity_k', backend.sparsity)}",
+    )
+
+
+def _measured_params_sha256_for_backend(backend) -> str | None:
+    """Gemma's provenance already carries a MEASURED (and, at load time,
+    verified-against-the-frozen-identity-artifact) `params_sha256` --
+    returned verbatim. Qwen's identity artifact freezes no expected params
+    hash at all (per `discovery_input_schema.json`'s own `pairing.
+    params_sha256` note: "may be null only on the Qwen arm ... there it is
+    carried rather than verified") -- this still hashes Qwen's actual
+    resolved SAE file on disk (never invents a value), it is simply not
+    checked against a frozen expectation the identity artifact does not
+    have. Returns `None` only if no resolved SAE file is recorded at all."""
+    sae_prov = backend.provenance.get("sae", {})
+    if "params_sha256" in sae_prov:
+        return sae_prov["params_sha256"]
+    resolved = sae_prov.get("resolved_files") or sae_prov.get("resolved_local_paths") or []
+    if not resolved:
+        return None
+    import final_pairing_concept_discovery as _d
+
+    return _d.compute_file_sha256(resolved[0])
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--pairing", required=True, help="e.g. gemma-3-12b-it or qwen-3.5-27b -- validated against the ratified final targets by load_backend.")
+    p.add_argument("--model-path", required=True)
+    p.add_argument("--sae-path", required=True)
+    p.add_argument("--layer", type=int, required=True)
+    p.add_argument("--qwen-sae-family", default=None)
+    p.add_argument("--qwen-sparsity", type=int, default=None)
+    p.add_argument("--expected-model-revision", default=None)
+    p.add_argument("--expected-sae-revision", default=None)
+    p.add_argument("--configuration-name", choices=["primary", "backup"], required=True)
+    p.add_argument("--grid-path", required=True, help="The exact grid.json this pairing's OWN grid-discovery phase already wrote (never globbed, never read from another lane's in-memory state).")
+    p.add_argument("--pairing-id", required=True, help="Composite model_id+sae_repo_id, e.g. google/gemma-3-12b-it+google/gemma-scope-2-12b-it -- for manifest identity, distinct from --pairing.")
+    p.add_argument("--amplify-dose-grid", required=True, help="5 comma-separated distinct clamp values, in value_in_max_units.")
+    p.add_argument("--suppress-dose-grid", required=True, help="4 comma-separated, strictly descending clamp fractions -- ABLATE is appended automatically as the fifth point.")
+    p.add_argument("--run-id", required=True)
+    p.add_argument("--source-commit", required=True)
+    p.add_argument("--chat-template-identity", required=True)
+    p.add_argument("--job-deadline-epoch-seconds", type=float, required=True, help="Absolute time.time()-based wall-clock deadline for this allocation -- never a duration relative to this process's own start, so readiness stays correct even if this process launches late.")
+    p.add_argument("--out-dir", required=True)
+    p.add_argument("--state-dir", required=True, help="Separate from --out-dir: holds the resumable progress log only.")
+    p.add_argument("--ready-path", default=None)
+    p.add_argument("--device", default="cuda")
+    p.add_argument("--dtype", default="bfloat16")
+    return p.parse_args(argv)
+
+
+def run_generation_mode(args: argparse.Namespace) -> dict:
+    """The real, scheduled production causal-generation entry point.
+    Loads ONE already-configured backend (one pairing, one configuration),
+    reads THIS pairing's own `--grid-path` (a file on disk -- never an
+    in-memory reference to the grid-discovery subprocess that wrote it,
+    which has very likely already exited), keeps only the concepts with a
+    G-A/B/C 'pass' verdict for this pairing, orders them via `order_
+    concepts_for_causal_generation` (FIXED, G-A/B/C-independent order --
+    a concept's position never changes based on how well it scored), and
+    for each concept IN THAT ORDER: gates on measured wall-time readiness
+    (`assess_concept_generation_readiness`, fed a REAL `measure_seconds_
+    per_generation` sample from this exact backend -- never a guessed
+    constant), and if ready, runs `generate_concept_complete` (bilingual,
+    both directions, control+steered) and writes one manifest per
+    direction (`write_generation_manifest`). The FIRST concept the
+    readiness gate refuses stops the loop -- every concept after it in
+    the fixed order is recorded `NOT_ATTEMPTED` too, never skipped ahead
+    to on the chance it might be cheaper (the order is never renegotiated
+    at runtime, matching `generation_settings.json`'s own "NO_REORDERING_
+    AFTER_G_ABC" rule extended to wall-time)."""
+    import final_pairing_concept_discovery as _d
+
+    out_dir = Path(args.out_dir)
+    state_dir = Path(args.state_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    progress = _d.ProgressLog(state_dir / "progress.jsonl")
+
+    validate_one_allocation_protocol_hash(_d.REPO_ROOT)
+    validate_generation_settings_protocol_hash(_d.REPO_ROOT)
+    _d.run_prompt_set_validator(_d.REPO_ROOT)
+    artifact = _d.load_frozen_prompt_artifact(_d.REPO_ROOT, allow_pi_gated=True)
+
+    verdicts = _d.read_grid_result(args.grid_path)
+    feature_by_concept = {v.concept_id: v.surviving_feature_index for v in verdicts if v.pairing == args.pairing and v.status == "pass"}
+    concept_ids = order_concepts_for_causal_generation(list(feature_by_concept))
+
+    amplify_grid = build_amplify_dose_grid(tuple(_parse_dose_grid_csv(args.amplify_dose_grid)))
+    suppress_grid = build_suppress_dose_grid(tuple(_parse_dose_grid_csv(args.suppress_dose_grid)))
+
+    backend = _d.load_backend(
+        pairing=args.pairing, model_path=args.model_path, sae_path=args.sae_path, layer=args.layer,
+        expected_model_revision=args.expected_model_revision, expected_sae_revision=args.expected_sae_revision,
+        device=args.device, dtype=args.dtype, sae_family=args.qwen_sae_family, sparsity=args.qwen_sparsity,
+    )
+    if args.ready_path is not None:
+        _d.write_ready_record(args.ready_path, pairing=args.pairing, device=args.device)
+
+    measured_params_sha256 = _measured_params_sha256_for_backend(backend)
+    release, loader_sae_id = _release_and_loader_sae_id_for_backend(backend)
+    model_revision = backend.provenance.get("model", {}).get("revision", "")
+    sae_revision = backend.provenance.get("sae", {}).get("revision", "")
+    scientific_sae_id = backend.provenance.get("sae", {}).get("scientific_sae_id") or backend.provenance.get("sae", {}).get("sae_id", "")
+
+    timing: dict[str, Any] | None = None
+    attempted: list[str] = []
+    not_attempted: list[dict[str, Any]] = []
+    manifest_paths: dict[str, dict[str, str]] = {}
+
+    for concept_id in concept_ids:
+        # `unrelated` (shared_substrate, identical text across all 14
+        # concepts by design -- see `rows_for_concept`'s own docstring) is
+        # the same concept-agnostic negative/background role G-A already
+        # reads; the frozen artifact carries no field explicitly named
+        # "background_corpus" of its own, so this is a disclosed re-use,
+        # not an invented split.
+        background_texts = [
+            row["text"] for row in _d.rows_for_concept(artifact.rows, concept_id=concept_id, locale="en", split="unrelated")
+        ]
+        corpus_max = _d.corpus_max_per_feature(backend, background_texts)
+
+        if timing is None:
+            probe_rows = select_generation_prompt_rows(
+                artifact.rows, concept_id=concept_id, direction="amplify", locale="en", purpose="sweep",
+            )
+            timing = measure_seconds_per_generation(
+                backend, feature_indices=[feature_by_concept[concept_id]], corpus_max=corpus_max, positions="all",
+                prompt=probe_rows[0]["text"], base_seed=0, max_new_tokens=_d.ONE_ALLOCATION_MAX_NEW_TOKENS,
+                generation_kwargs=_d.GENERATION_SETTINGS,
+            )
+
+        remaining_wall_time_seconds = args.job_deadline_epoch_seconds - time.time()
+        readiness = assess_concept_generation_readiness(
+            remaining_wall_time_seconds=remaining_wall_time_seconds,
+            seconds_per_generation=timing["seconds_per_generation"],
+        )
+        if not readiness.attempt:
+            not_attempted.append({"concept_id": concept_id, "detail": readiness.detail})
+            continue
+
+        prompts = {
+            (direction, purpose): {
+                locale: select_generation_prompt_rows(
+                    artifact.rows, concept_id=concept_id, direction=direction, locale=locale, purpose=purpose,
+                )
+                for locale in LOCALES
+            }
+            for direction in ("amplify", "suppress")
+            for purpose in ("sweep", "confirmation")
+        }
+
+        concept_out_dir = out_dir / concept_id
+        records = generate_concept_complete(
+            backend, [feature_by_concept[concept_id]], concept_id=concept_id, pairing_id=backend.pairing,
+            corpus_max=corpus_max, positions="all", out_dir=concept_out_dir,
+            amplify_dose_grid=amplify_grid, suppress_dose_grid=suppress_grid,
+            amplify_sweep_prompts=prompts[("amplify", "sweep")],
+            amplify_confirmation_prompts=prompts[("amplify", "confirmation")],
+            suppress_sweep_prompts=prompts[("suppress", "sweep")],
+            suppress_confirmation_prompts=prompts[("suppress", "confirmation")],
+            max_new_tokens=_d.ONE_ALLOCATION_MAX_NEW_TOKENS, generation_kwargs=_d.GENERATION_SETTINGS, progress=progress,
+        )
+
+        position = causal_order_position_for(concept_id)
+        direction_manifest_paths: dict[str, str] = {}
+        for direction in ("amplify", "suppress"):
+            direction_records = [r for r in records if r.direction == direction]
+            manifest_path = concept_out_dir / f"generation_manifest_{direction}.json"
+            write_generation_manifest(
+                direction_records, manifest_path, run_id=args.run_id, source_commit=args.source_commit,
+                configuration_name=args.configuration_name, concept_id=concept_id, pairing_id=args.pairing_id,
+                model_revision=model_revision, sae_revision=sae_revision, release=release, loader_sae_id=loader_sae_id,
+                scientific_sae_id=scientific_sae_id, measured_params_sha256=measured_params_sha256,
+                generation_kwargs=_d.GENERATION_SETTINGS, chat_template_identity=args.chat_template_identity,
+                locales_complete=list(LOCALES), causal_order_position=position, skipped_for_gate_failure=False,
+            )
+            direction_manifest_paths[direction] = str(manifest_path)
+        manifest_paths[concept_id] = direction_manifest_paths
+        attempted.append(concept_id)
+
+    return {
+        "schema_version": 1,
+        "mode": "generation",
+        "pairing": args.pairing,
+        "configuration": args.configuration_name,
+        "grid_path": str(args.grid_path),
+        "surviving_concepts": list(feature_by_concept),
+        "causal_order": concept_ids,
+        "attempted_concepts": attempted,
+        "not_attempted": not_attempted,
+        "timing": timing,
+        "manifest_paths": manifest_paths,
+        "status": "complete" if not not_attempted else "partial_wall_time_cutoff",
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    result = run_generation_mode(args)
+    print(json.dumps({
+        "status": result["status"], "pairing": result["pairing"], "configuration": result["configuration"],
+        "attempted_concepts": result["attempted_concepts"],
+        "not_attempted": [x["concept_id"] for x in result["not_attempted"]],
+    }, indent=2))
+    return 0 if result["status"] == "complete" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

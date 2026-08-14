@@ -527,7 +527,14 @@ def _load_manifest_and_rubrics(args) -> tuple[dict[str, Any], Any, Any]:
 
 
 def _build_generations_for_dose_files(args, entries: list[dict[str, Any]]) -> list[Any]:
-    payloads = load_generation_files([e["path"] for e in entries])
+    """`entries` is now ONE MANIFEST ROW PER GENERATION (schema 2.0 --
+    many rows can share the same physical `path`, see
+    `final_pairing_one_allocation_generation`'s own docstring on manifest
+    granularity), so paths are deduplicated here BEFORE loading -- loading
+    once per entry would re-read (and double-judge) the same physical
+    file's generations once per row that names it."""
+    unique_paths = list(dict.fromkeys(e["path"] for e in entries))
+    payloads = load_generation_files(unique_paths)
     generations: list[Any] = []
     for payload in payloads:
         generations.extend(

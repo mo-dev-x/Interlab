@@ -621,3 +621,154 @@ def test_backup_readiness_checker_defaults_to_none_and_never_gates_existing_call
     result = _run(tmp_path, run_backup=True)
     assert result["backup_execution_status"] == "COMPLETE"
     assert result["backup_readiness"] is None
+
+
+# ---------------------------------------------------------------------------
+# Primary-grid / primary-generation / backup lifecycle (P0 CONTINUE blocker
+# 2): causal generation runs immediately after ITS OWN grid reaches
+# complete_pass, strictly BEFORE the backup trigger is even computed --
+# never racing, and never depending on, backup's own timing.
+# ---------------------------------------------------------------------------
+
+
+def _write_generation_lane_json(tmp_path: Path, tag: str) -> Path:
+    payload = {
+        "out_dir": str(tmp_path / tag / "out"), "state_dir": str(tmp_path / tag / "state"),
+        "tmp_dir": str(tmp_path / tag / "tmp"), "log_path": str(tmp_path / tag / "log.txt"),
+        "argv": ["--pairing", "gemma-3-12b-it" if "gemma" in tag else "qwen-3.5-27b"],
+        "target_script": str(dual_gpu.GENERATION_SCRIPT),
+    }
+    path = tmp_path / f"{tag}.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_primary_generation_lane_command_targets_the_generation_script(tmp_path):
+    lane = dual_gpu.load_lane_spec("gemma", _write_generation_lane_json(tmp_path, "gen_gemma"))
+    assert lane.target_script == dual_gpu.GENERATION_SCRIPT
+    command = dual_gpu.build_lane_command(lane)
+    assert str(dual_gpu.GENERATION_SCRIPT) in command
+    assert str(dual_gpu.DISCOVERY_SCRIPT) not in command
+
+
+def test_omitting_generation_lanes_skips_the_generation_phase_entirely(tmp_path):
+    """The default (no `*_generation_lanes` argument) reproduces the exact
+    prior grid-only behavior -- `primary_generation_result`/`backup_
+    generation_result` are simply absent from consideration (None), never
+    attempted."""
+    result = _run(tmp_path, run_backup=True)
+    assert result["primary_generation_result"] is None
+    assert result["backup_generation_result"] is None
+
+
+def test_primary_generation_runs_and_completes_before_the_backup_trigger_is_resolved(tmp_path):
+    """Proves the ordering, not just that both eventually run: the
+    trigger_resolver must observe primary generation as ALREADY DONE."""
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+    primary_generation_lanes = [
+        dual_gpu.load_lane_spec("gemma", _write_generation_lane_json(tmp_path, "primary_gen_gemma")),
+        dual_gpu.load_lane_spec("qwen", _write_generation_lane_json(tmp_path, "primary_gen_qwen")),
+    ]
+
+    call_order: list[str] = []
+    real_factory = _make_orchestrator_factory({})
+
+    def factory(lanes):
+        if lanes is primary_generation_lanes:
+            call_order.append("primary_generation")
+        elif lanes is primary_lanes:
+            call_order.append("primary_grid")
+        elif lanes is backup_lanes:
+            call_order.append("backup_grid")
+        return real_factory(lanes)
+
+    def resolver():
+        call_order.append("trigger_resolved")
+        return discovery.evaluate_backup_trigger(primary_complete=True, primary_shared_gabc_count=1)
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+        trigger_resolver=resolver, job_result_path=tmp_path / "result.json", orchestrator_factory=factory,
+        primary_generation_lanes=primary_generation_lanes,
+        **_REAL_GATE_FAKES,
+    )
+    assert call_order.index("primary_grid") < call_order.index("primary_generation") < call_order.index("trigger_resolved")
+    assert call_order.index("trigger_resolved") < call_order.index("backup_grid")
+    assert result["primary_generation_result"]["status"] == "complete_pass"
+
+
+def test_primary_generation_is_not_attempted_when_primary_grid_did_not_reach_complete_pass(tmp_path):
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+    primary_generation_lanes = [
+        dual_gpu.load_lane_spec("gemma", _write_generation_lane_json(tmp_path, "primary_gen_gemma")),
+        dual_gpu.load_lane_spec("qwen", _write_generation_lane_json(tmp_path, "primary_gen_qwen")),
+    ]
+    generation_launched = {"called": False}
+
+    def factory(lanes):
+        if lanes is primary_generation_lanes:
+            generation_launched["called"] = True
+        return _make_orchestrator_factory({"gemma": 1})(lanes)  # primary fails
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+        run_backup=False, job_result_path=tmp_path / "result.json", orchestrator_factory=factory,
+        primary_generation_lanes=primary_generation_lanes,
+        **_REAL_GATE_FAKES,
+    )
+    assert generation_launched["called"] is False
+    assert result["primary_generation_result"]["status"] == "not_attempted"
+
+
+def test_backup_generation_only_runs_when_backup_grid_reaches_complete_pass(tmp_path):
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+    backup_generation_lanes = [
+        dual_gpu.load_lane_spec("gemma", _write_generation_lane_json(tmp_path, "backup_gen_gemma")),
+        dual_gpu.load_lane_spec("qwen", _write_generation_lane_json(tmp_path, "backup_gen_qwen")),
+    ]
+    generation_launched = {"called": False}
+
+    def factory(lanes):
+        if lanes is backup_generation_lanes:
+            generation_launched["called"] = True
+        if lanes is backup_lanes:
+            return _make_orchestrator_factory({"qwen": 1})(lanes)  # backup grid fails
+        return _make_orchestrator_factory({})(lanes)
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+        run_backup=True, job_result_path=tmp_path / "result.json", orchestrator_factory=factory,
+        backup_generation_lanes=backup_generation_lanes,
+        **_REAL_GATE_FAKES,
+    )
+    assert generation_launched["called"] is False
+    assert result["backup_generation_result"]["status"] == "not_attempted"
+
+
+def test_backup_generation_runs_when_backup_grid_passes(tmp_path):
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
+    backup_lanes = [dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]), dual_gpu.load_lane_spec("qwen", paths["backup_qwen"])]
+    backup_generation_lanes = [
+        dual_gpu.load_lane_spec("gemma", _write_generation_lane_json(tmp_path, "backup_gen_gemma")),
+        dual_gpu.load_lane_spec("qwen", _write_generation_lane_json(tmp_path, "backup_gen_qwen")),
+    ]
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={},
+        run_backup=True, job_result_path=tmp_path / "result.json", orchestrator_factory=_make_orchestrator_factory({}),
+        backup_generation_lanes=backup_generation_lanes,
+        **_REAL_GATE_FAKES,
+    )
+    assert result["backup_generation_result"]["status"] == "complete_pass"
+
+
+def test_main_cli_generation_config_flags_require_both_gemma_and_qwen_together():
+    with pytest.raises(matched.MatchedConfigurationError, match=r"BOTH.*or neither"):
+        matched._load_generation_lanes("only-gemma.json", None)

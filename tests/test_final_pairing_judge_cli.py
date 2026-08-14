@@ -158,13 +158,19 @@ _MANIFEST_KWARGS = dict(
     release="gemma-scope-2-12b-it-res-all", loader_sae_id="layer_29_width_16k_l0_big",
     scientific_sae_id="resid_post_all/layer_29_width_16k_l0_big",
     measured_params_sha256="6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e",
+    generation_kwargs=d.GENERATION_SETTINGS, chat_template_identity="gemma-it-v1",
+    locales_complete=["en", "fr"], causal_order_position=2, skipped_for_gate_failure=False,
 )
+
+
+def _tiny_row(prompt_id: str, ordinal: int) -> dict:
+    return {"prompt_id": prompt_id, "text": f"prompt {prompt_id}", "locale": "en", "split": "heldout_neutral", "ordinal": ordinal}
 
 
 def _tiny_manifest(tmp_path, *, n_doses=3):
     backend = fakes.make_fake_gemma_backend()
     corpus_max = d.corpus_max_per_feature(backend, ["background text"])
-    prompts = [f"prompt {i}" for i in range(2)]
+    prompts = [_tiny_row(f"p{i}", i + 1) for i in range(2)]
     seeds = one_alloc.derive_seeds(
         namespace="sweep", concept_id="cheese", pairing_id=backend.pairing, direction="amplify",
         locale="en", n_prompts=2, n_repeats=1,
@@ -192,7 +198,8 @@ def test_manifest_entries_filters_by_direction_and_purpose(tmp_path):
     manifest_path, _ = _tiny_manifest(tmp_path)
     manifest = one_alloc.verify_generation_manifest(manifest_path)
     entries = jc.manifest_entries(manifest, direction="amplify", purpose="sweep")
-    assert len(entries) == 3
+    assert len(entries) == 6  # 3 doses x 2 generations each -- one manifest row per generation now
+    assert len({e["path"] for e in entries}) == 3  # but only 3 distinct physical dose files
     assert jc.manifest_entries(manifest, direction="suppress", purpose="sweep") == []
 
 
@@ -200,7 +207,8 @@ def test_load_generation_files_reads_back_real_payloads(tmp_path):
     manifest_path, _ = _tiny_manifest(tmp_path)
     manifest = one_alloc.verify_generation_manifest(manifest_path)
     entries = jc.manifest_entries(manifest, direction="amplify", purpose="sweep")
-    payloads = jc.load_generation_files([e["path"] for e in entries])
+    unique_paths = list(dict.fromkeys(e["path"] for e in entries))
+    payloads = jc.load_generation_files(unique_paths)
     assert len(payloads) == 3
     assert all(p["concept_id"] == "cheese" for p in payloads)
     assert all(len(p["generations"]) == 2 for p in payloads)  # 2 prompts x 1 repeat each

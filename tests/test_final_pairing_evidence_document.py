@@ -3,8 +3,10 @@
 No network, no eng3/concept-bundle checkout required for MOST of these
 tests -- `reconcile_against_static_snapshot` is checked against the
 committed static snapshot fixture (tests/fixtures/eng3_concept_bundle/
-accepted_input_schema_ac9ea40.json, schema v1.3), never a live worktree,
-and is explicitly NON-GATING.
+accepted_input_schema_2003406.json, schema v2.0, generation-settings-
+aware), never a live worktree, and is explicitly NON-GATING. The prior
+ac9ea40 (schema v1.3) snapshot/report fixtures are kept alongside as the
+historical record, never deleted.
 
 `test_real_runner_document_passes_live_gating_report_if_a_worktree_is_available`
 below DOES run the real, live `run_gating_report_with_eng3` subprocess --
@@ -12,9 +14,18 @@ but only if a checked-out `eng3/concept-bundle` worktree is present on
 this machine at `D:/devcache/wt/concept-bundle` (skipped, not failed,
 otherwise, since that path is this specific development machine's, not
 portable). A REAL, captured result of that exact run (at consumer commit
-ac9ea40) is committed at tests/fixtures/eng3_concept_bundle/gating_
-report_result_ac9ea40.json (`submission_may_proceed: true`, exit_code 0)
--- see the closing report.
+2003406, the generation-settings-aware successor -- 2003406 is NOT an
+ancestor of this branch, confirmed via `git merge-base --is-ancestor` in
+both directions) is committed at tests/fixtures/eng3_concept_bundle/
+gating_report_result_2003406.json (`submission_may_proceed: true`,
+exit_code 0) -- see the closing report. Getting this to pass required
+fixing `producer_schema_declaration()`'s `causal_validation.selection_
+records`/`generation_manifests` blocks: the consumer's own field-
+flattening reconciler reads "keys" (the per-direction slot names) and
+"required"/"reference_required" (the referenced object's own fields) as
+structurally distinct keys, not inferred from a nested named sub-object
+-- the producer's declaration now mirrors that convention exactly,
+verified against the real `accepted_input_schema()` output at 2003406.
 """
 
 from __future__ import annotations
@@ -308,6 +319,120 @@ def test_real_runner_document_passes_live_gating_report_if_a_worktree_is_availab
     )
     assert result["exit_code"] == 0, result
     assert result["submission_may_proceed"] is True, result
+
+
+# ---------------------------------------------------------------------------
+# build_discovery_document_from_production_run: a COMPLETE document built
+# from real provenance dicts (the exact shape Backend.provenance["model"]/
+# ["sae"] returns) and real generation-manifest/selection-record FILE PATHS
+# -- never a test/synthetic assembler that hand-types every leaf value.
+# ---------------------------------------------------------------------------
+
+
+def _production_run_kwargs(**overrides) -> dict:
+    kwargs = dict(
+        run_id="r-prod-0001", code_commit="0" * 40, entrypoint="scripts.final_pairing.final_pairing_one_allocation_generation",
+        host="test-host", created_at="2026-08-13T00:00:00Z",
+        model_id="google/gemma-3-12b-it", sae_repo_id="google/gemma-scope-2-12b-it",
+        model_provenance={"revision": "deadbeef" * 5, "revision_verification": "pinned"},
+        sae_provenance={
+            "revision": "4c419f1ba0be8b7754d4151d4f26c23b92a9029e",
+            "release": "gemma-scope-2-12b-it-res-all", "loader_sae_id": "layer_29_width_16k_l0_big",
+            "scientific_sae_id": "resid_post_all/layer_29_width_16k_l0_big",
+            "params_sha256": "1" * 64,
+        },
+        layer=29, layer_selection=None,
+        concept_id="cheese", hypothesis_source="real production run for cheese", search_scope="fake backend, no GPU here",
+        candidate_index=0, engineering_index_rediscovery_note=None,
+        feature_certificate={
+            "feature_index": 3, "concept_id": "cheese", "specificity": 0.9, "sensitivity": 0.85,
+            "cross_lingual_firing": 0.8, "selectivity": 0.88, "probe": {"auc": 0.91},
+            "verdict": "green", "verdict_basis": "test",
+        },
+        subject=[{"content_hash": "sha256:" + "0" * 64, "location": "tamia:test/subject.json", "role": "discovery_record"}],
+        calibration_protocol="test-v1", calibrated_by="test", calibrated_at="2026-08-13T00:00:00Z",
+        directions={
+            "amplify": ed.build_direction_block(
+                operation="clamp", feature_indices=[3], unit="corpus_max_multiple",
+                unit_source="background corpus max activation", strengths={"low": 0.5, "medium": 1.0, "high": 2.0},
+            ),
+            "suppress": None,
+        },
+        positions="all",
+        prompt_set_id="final_pairing_v1_cheese", prompt_set_source_path="prompts/final_pairing/v1/prompt_sets.jsonl",
+        prompt_set_source_sha256="sha256:" + FROZEN_SHA, prompt_set_source_commit=FROZEN_COMMIT,
+        paraphrase_families=[{"family_id": "f1", "prompts": ["p1", "p2"]}],
+        causal_validation_computed_at_commit="0" * 40, causal_validation_positions="all",
+        gates=[{"gate": "G-D", "status": "pass", "direction": "amplify", "evidence": "test"}],
+        spot_read=None,
+        judge_model="claude-sonnet-4-5-20250929", judge_rubric_version="1.0", judge_prompt_version="lodestar-steering-v1",
+        dose_response={
+            "amplify": {"computed_at_commit": "0" * 40,
+                        "observations": [{"dose_multiple": 0.5, "arm": "steered", "n_generations": 20, "effect_note": "test"}],
+                        "unit": "corpus_max_multiple", "measured_maximum": 12.3,
+                        "strength_mapping": {"low": 0.5, "medium": 1.0, "high": 2.0}},
+        },
+        configuration_name="primary", configuration_completeness="COMPLETE",
+        configuration_model_n_layers=48, configuration_grid_cells_expected=1, configuration_grid_cells_recorded=1,
+        generation_manifest_paths={"amplify": _SAMPLE_BINDING_DIR / "generation_manifest_amplify.json", "suppress": None},
+        generation_manifest_commits={"amplify": "0" * 40, "suppress": None},
+        selection_record_paths={"amplify": _SAMPLE_BINDING_DIR / "selection_record_amplify.json", "suppress": None},
+        selection_commits={"amplify": "0" * 40, "suppress": None},
+        confirmation_judging_commits={"amplify": "0" * 40, "suppress": None},
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_build_discovery_document_from_production_run_reads_identity_from_real_provenance():
+    document = ed.build_discovery_document_from_production_run(**_production_run_kwargs())
+    assert set(document) == set(ed.ROOT_REQUIRED_FIELDS)
+    assert document["pairing"]["model_revision"] == "deadbeef" * 5
+    assert document["pairing"]["sae_repo_revision"] == "4c419f1ba0be8b7754d4151d4f26c23b92a9029e"
+    assert document["pairing"]["release"] == "gemma-scope-2-12b-it-res-all"
+    assert document["pairing"]["loader_sae_id"] == "layer_29_width_16k_l0_big"
+    assert document["pairing"]["sae_id"] == "resid_post_all/layer_29_width_16k_l0_big"
+    assert document["pairing"]["params_sha256"] == "1" * 64
+
+
+def test_build_discovery_document_from_production_run_hashes_the_real_manifest_and_selection_files():
+    import hashlib
+
+    document = ed.build_discovery_document_from_production_run(**_production_run_kwargs())
+    manifest_ref = document["generation_manifests"]["amplify"]
+    expected_hash = hashlib.sha256((_SAMPLE_BINDING_DIR / "generation_manifest_amplify.json").read_bytes()).hexdigest()
+    assert manifest_ref["source_sha256"] == "sha256:" + expected_hash
+    assert document["generation_manifests"]["suppress"] is None
+    selection_ref = document["causal_validation"]["selection_records"]["amplify"]
+    expected_selection_hash = hashlib.sha256((_SAMPLE_BINDING_DIR / "selection_record_amplify.json").read_bytes()).hexdigest()
+    assert selection_ref["source_sha256"] == "sha256:" + expected_selection_hash
+
+
+def test_build_discovery_document_from_production_run_passes_a_missing_qwen_params_hash_as_none():
+    """Qwen's identity artifact freezes no expected params digest to
+    measure against -- `sae_provenance` legitimately has no `params_
+    sha256` key at all for that arm, and this must pass through as
+    `None`/JSON null, never a fabricated value. Qwen's raw `load_qwen_
+    scientific_target` provenance also has no sae_lens `release`/
+    `loader_sae_id` (it never goes through the sae_lens registry) --
+    DISCLOSED GAP: this function does not invent a fallback convention
+    for them (unlike `final_pairing_one_allocation_generation._release_
+    and_loader_sae_id_for_backend`, which this module deliberately does
+    not import); a Qwen caller must populate `sae_provenance['release']`/
+    `['loader_sae_id']` itself before calling this function, or the
+    document carries empty strings there, as proven here."""
+    qwen_sae_provenance = {
+        "revision": "4c419f1ba0be8b7754d4151d4f26c23b92a9029e", "sae_family": "L0_100", "sparsity_k": 100,
+    }
+    document = ed.build_discovery_document_from_production_run(
+        **_production_run_kwargs(
+            model_id="Qwen/Qwen3.5-27B", sae_repo_id="Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50",
+            sae_provenance=qwen_sae_provenance, layer=38,
+        )
+    )
+    assert document["pairing"]["params_sha256"] is None
+    assert document["pairing"]["release"] == ""
+    assert document["pairing"]["loader_sae_id"] == ""
 
 
 # ---------------------------------------------------------------------------

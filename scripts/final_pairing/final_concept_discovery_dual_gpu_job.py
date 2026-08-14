@@ -45,6 +45,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
 DISCOVERY_SCRIPT = SCRIPT_DIR / "final_pairing_concept_discovery.py"
+GENERATION_SCRIPT = SCRIPT_DIR / "final_pairing_one_allocation_generation.py"
 SCHEMA_VERSION = 1
 
 LANE_NAMES = ("gemma", "qwen")
@@ -77,6 +78,21 @@ class LaneSpec:
     tmp_dir: Path
     log_path: Path
     argv: list[str]
+    #: Which script this lane actually runs. Defaults to `DISCOVERY_SCRIPT`
+    #: (the G-A/B/C grid-discovery lane, unchanged behavior for every
+    #: existing caller) -- a lane config may instead point this at
+    #: `final_pairing_one_allocation_generation.py` to run the causal-
+    #: generation lane through the SAME preflight/staggered-launch
+    #: machinery (`run_dual_gpu_job_for_lanes`), never a second, weaker
+    #: launch path. Kept a `LaneSpec` field (not a second orchestrator
+    #: class) so the staggered cold-load handshake, GPU assignment, and
+    #: path-collision checks are shared verbatim between grid and
+    #: generation lanes.
+    target_script: Path | None = None
+
+    def __post_init__(self) -> None:
+        if self.target_script is None:
+            self.target_script = DISCOVERY_SCRIPT
 
 
 def load_lane_spec(name: str, config_path: str | Path) -> LaneSpec:
@@ -89,9 +105,11 @@ def load_lane_spec(name: str, config_path: str | Path) -> LaneSpec:
         raise LaneConfigError(f"lane config {config_path!r} is missing required field(s): {missing}")
     if not isinstance(data["argv"], list) or not all(isinstance(x, str) for x in data["argv"]):
         raise LaneConfigError(f"lane config {config_path!r}: 'argv' must be a list of strings")
+    target_script = Path(data["target_script"]) if "target_script" in data else DISCOVERY_SCRIPT
     return LaneSpec(
         name=name, out_dir=Path(data["out_dir"]), state_dir=Path(data["state_dir"]),
         tmp_dir=Path(data["tmp_dir"]), log_path=Path(data["log_path"]), argv=list(data["argv"]),
+        target_script=target_script,
     )
 
 
@@ -119,9 +137,12 @@ def build_lane_command(lane: LaneSpec) -> list[str]:
     """Appends --out-dir/--state-dir/--ready-path (authoritative from the
     LaneSpec, not whatever the JSON's own argv might also contain) and
     --device cuda:0 LAST, so they win over any earlier occurrence in argv
-    (argparse takes the last value for a repeated store-action flag)."""
+    (argparse takes the last value for a repeated store-action flag).
+    Runs `lane.target_script` -- `DISCOVERY_SCRIPT` (grid discovery) by
+    default, or `final_pairing_one_allocation_generation.py` (causal
+    generation) for a generation lane."""
     return [
-        sys.executable, str(DISCOVERY_SCRIPT), *lane.argv,
+        sys.executable, str(lane.target_script), *lane.argv,
         "--out-dir", str(lane.out_dir), "--state-dir", str(lane.state_dir),
         "--ready-path", str(ready_path_for_lane(lane)),
         "--device", "cuda:0",
@@ -418,10 +439,14 @@ def default_preflight_runner(repo_root: Path) -> dict:
     problems = []
     if proc.returncode != 0:
         problems.append(f"subprocess exit code {proc.returncode} != 0")
-    if report.get("overall") != "pass":
-        problems.append(f"report['overall'] = {report.get('overall')!r}, not 'pass'")
+    if report.get("overall_passed") is not True:
+        problems.append(f"report['overall_passed'] = {report.get('overall_passed')!r}, not True")
     if report.get("executed_cases") != report.get("expected_cases"):
         problems.append(f"executed_cases={report.get('executed_cases')} != expected_cases={report.get('expected_cases')}")
+    if report.get("failed_cases"):
+        problems.append(f"report['failed_cases'] is non-empty: {report.get('failed_cases')}")
+    if not report.get("source_commit"):
+        problems.append("report['source_commit'] is missing or empty")
     if non_passing:
         problems.append(f"{len(non_passing)} case(s) did not report 'pass': {[c['name'] for c in non_passing]}")
     if problems:

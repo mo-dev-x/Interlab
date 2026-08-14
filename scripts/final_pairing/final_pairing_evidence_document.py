@@ -1,31 +1,41 @@
-"""Assembles the `concept_bundle.discovery_input` document (schema v1.3)
+"""Assembles the `concept_bundle.discovery_input` document (schema v2.0)
 that `scripts/concept_bundle_publish.py` (Engineer 3, branch
-`eng3/concept-bundle`, currently at commit ac9ea40) accepts, from this
-repository's own discovery-runner output (`final_pairing_concept_
-discovery.py`'s `run()` result and grid verdicts) plus a small set of
-caller-supplied identity facts that no file in this repository may invent
-by reading a clock or guessing a name.
+`eng3/concept-bundle`, currently at commit 2003406 -- "Consume the
+generation settings: sampling, controls, counts and order") accepts,
+from this repository's own discovery-runner output (`final_pairing_
+concept_discovery.py`'s `run()` result and grid verdicts) plus a small
+set of caller-supplied identity facts that no file in this repository
+may invent by reading a clock or guessing a name.
 
-SUPERSEDES 2c8cf5b/schema v1.1. `d833ba4` (superseded by `ac9ea40`, both
-schema v1.3) rebased onto identity v1.2.0 (later v1.3.0) and added: a
-root-level `configuration` block (name/completeness/model_n_layers/
-grid_cells_expected/grid_cells_recorded), three new required `pairing`
-fields (`release`, `loader_sae_id`, `params_sha256`), and a required
-`causal_validation.judge` block (`model`/`rubric_version`/`prompt_
-version`, refusing the no-op judge identities). The root-required
-undercount this module previously found in 2c8cf5b (9 declared vs. 12
-enforced) is gone as of d833ba4/ac9ea40: `accepted_input_schema()`'s own
-printed `objects["<root>"]["required"]` lists all 13 fields the enforcing
-`_closed()` call actually requires (verified by reading both directly out
-of `D:/devcache/wt/concept-bundle`, a clean worktree of `eng3/concept-
-bundle`, re-verified at each successive consumer commit). `ac9ea40`
-additionally: separates `pairing.params_sha256` (MEASURED, emitted here)
-from the identity artifact's own `params_expected_sha256` (never emitted
-by a producer -- refused by name if it is), and adds the `dose-check`
-gate over the one-allocation generation manifest/selection record (see
-`final_pairing_one_allocation_generation.py`), which the discovery
-document does not yet reference (the Architect's pending ruling on the
-exact field -- see that module's own docstring).
+2003406 is NOT an ancestor of this branch (`final-pairing-harness`) --
+confirmed via `git merge-base --is-ancestor` in both directions, both
+fail. Every fact this file relies on about that commit was read directly
+out of `D:/devcache/wt/concept-bundle` (a real, separate worktree of
+`eng3/concept-bundle` checked out AT that commit), never assumed from an
+older commit's shape or copied from a stale excerpt fixture.
+
+LINEAGE: 2c8cf5b (schema v1.1) -> d833ba4/ac9ea40 (schema v1.3: added the
+root-level `configuration` block, `pairing.release`/`loader_sae_id`/
+`params_sha256`, and a required `causal_validation.judge` block) ->
+67ad4ef (schema v2.0: `generation_manifests` becomes a NEW REQUIRED
+root-level field, one `ManifestReference | null` per calibrated
+direction, MAJOR bump because a zero-legacy-corpus discovery runner has
+no prior document shape to stay backward compatible with) -> 2003406
+(schema v2.0 UNCHANGED at the document root; the referenced generation
+MANIFEST's own shape -- built by `final_pairing_one_allocation_
+generation.py`, never embedded in the document itself -- gained the
+`generation_settings.json` extension fields (`generation_kwargs`,
+`chat_template_identity`, `locales_complete`, `generation_settings_path`/
+`_version`/`_sha256`, `causal_order_position`, `skipped_for_gate_
+failure`) verified directly against `concept_bundle_publish.py`'s own
+`MANIFEST_FIELDS`/`MANIFEST_FILE_FIELDS` tuples at 2003406 -- this
+document producer does not change shape for that extension since it
+only ever carries a `ManifestReference` (a path + a measured hash to the
+manifest file), never the manifest's own internal fields).
+
+`ac9ea40`/2003406 both: separate `pairing.params_sha256` (MEASURED,
+emitted here) from the identity artifact's own `params_expected_sha256`
+(never emitted by a producer -- refused by name if it is).
 
 WHY A SEPARATE FILE. `interplab/concept_bundle/` (the package
 `concept_bundle_publish.py` imports) does not exist on this branch -- it
@@ -72,17 +82,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-DISCOVERY_SCHEMA_VERSION = "1.3"  # must equal concept_bundle_publish.DISCOVERY_SCHEMA_VERSION
+DISCOVERY_SCHEMA_VERSION = "2.0"  # verified equal to concept_bundle_publish.DISCOVERY_SCHEMA_VERSION at commit 2003406
 
 #: All 14 root fields required per `protocols/final_pairing/v1/discovery_
-#: document_generation_binding.json` v1.1.0 (commit 40061b6): `generation_
-#: manifests` is NEW, ratified there ("a new REQUIRED top-level object" --
-#: a MAJOR schema bump Engineer 3 applies the numeral for). Emitted here
-#: ahead of that numeral landing on the consumer side, since the shape is
-#: fully specified and unambiguous; `DISCOVERY_SCHEMA_VERSION` above is
-#: left at "1.3" until Engineer 3's actual bumped value is known (bumping
-#: to a guessed wrong numeral would create a worse, silent mismatch than
-#: staying visibly one version behind).
+#: document_generation_binding.json` v1.1.0 (commit 40061b6) and confirmed
+#: verbatim against `conformance/concept_bundle/discovery_input_schema.json`
+#: schema 2.0's own `objects["<root>"]["required"]` at Engineer 3's real
+#: commit 2003406 (`D:/devcache/wt/concept-bundle`): `generation_manifests`
+#: is the field that bumped 1.3 -> 2.0 ("a new REQUIRED top-level object").
 ROOT_REQUIRED_FIELDS: tuple[str, ...] = (
     "discovery_schema_version", "run", "pairing", "concept", "discovery",
     "validation", "subject", "calibration", "positions",
@@ -176,16 +183,20 @@ def _validate_generation_binding_nullity(
 NOOP_JUDGE_MODELS: tuple[str, ...] = ("none", "noop", "no-op", "identity")
 
 #: A STATIC SNAPSHOT of Engineer 3's `accepted_input_schema()`, captured
-#: 2026-08-13 from a clean worktree of `eng3/concept-bundle` at ac9ea40
-#: (schema v1.3). NON-GATING, defense-in-depth only: this snapshot never
-#: decides submission compatibility by itself. It exists so the standalone
-#: preflight (and anything else that must run OFFLINE, e.g. a Tamia compute
-#: node with no internet and no eng3/concept-bundle checkout) can still do a
-#: real, non-fabricated structural check without a live worktree. The
-#: GATING decision is `run_gating_report_with_eng3` below, run against a
-#: live worktree -- never this.
-STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT = "ac9ea40aec0f52cb099c48eae14b3384fc51e85a"
-STATIC_ENG3_SCHEMA_SNAPSHOT_PATH = "tests/fixtures/eng3_concept_bundle/accepted_input_schema_ac9ea40.json"
+#: 2026-08-13 by running `python scripts/concept_bundle_publish.py
+#: emit-schema` FOR REAL inside a clean worktree of `eng3/concept-bundle`
+#: at commit 2003406 (schema v2.0, generation-settings-aware) --
+#: superseding the prior ac9ea40 snapshot, kept alongside (never deleted)
+#: as the historical record of what schema v1.3 required. NON-GATING,
+#: defense-in-depth only: this snapshot never decides submission
+#: compatibility by itself. It exists so the standalone preflight (and
+#: anything else that must run OFFLINE, e.g. a Tamia compute node with no
+#: internet and no eng3/concept-bundle checkout) can still do a real,
+#: non-fabricated structural check without a live worktree. The GATING
+#: decision is `run_gating_report_with_eng3` below, run against a live
+#: worktree -- never this.
+STATIC_ENG3_SCHEMA_SNAPSHOT_COMMIT = "2003406c3237fc64f6601ca3971bf5d9c85fa7c8"
+STATIC_ENG3_SCHEMA_SNAPSHOT_PATH = "tests/fixtures/eng3_concept_bundle/accepted_input_schema_2003406.json"
 
 
 def reconcile_against_static_snapshot(repo_root: str | Path, produced_document: dict[str, Any]) -> dict[str, Any]:
@@ -401,6 +412,110 @@ def assemble_discovery_document(
     return document
 
 
+def build_discovery_document_from_production_run(
+    *,
+    run_id: str, code_commit: str, entrypoint: str, host: str, created_at: str,
+    model_id: str, sae_repo_id: str, model_provenance: dict[str, Any], sae_provenance: dict[str, Any],
+    layer: int, layer_selection: dict[str, str] | None,
+    concept_id: str, hypothesis_source: str, search_scope: str,
+    candidate_index: int | None, engineering_index_rediscovery_note: str | None,
+    feature_certificate: dict[str, Any], subject: list[dict[str, str]],
+    calibration_protocol: str, calibrated_by: str, calibrated_at: str,
+    directions: dict[str, dict[str, Any] | None], positions: str,
+    prompt_set_id: str, prompt_set_source_path: str, prompt_set_source_sha256: str,
+    prompt_set_source_commit: str, paraphrase_families: list[dict[str, Any]],
+    causal_validation_computed_at_commit: str, causal_validation_positions: str,
+    gates: list[dict[str, Any]], spot_read: dict[str, Any] | None,
+    judge_model: str, judge_rubric_version: str, judge_prompt_version: str,
+    dose_response: dict[str, dict[str, Any]],
+    configuration_name: str, configuration_completeness: str, configuration_model_n_layers: int,
+    configuration_grid_cells_expected: int, configuration_grid_cells_recorded: int,
+    generation_manifest_paths: dict[str, str | Path | None],
+    generation_manifest_commits: dict[str, str | None],
+    selection_record_paths: dict[str, str | Path | None],
+    selection_commits: dict[str, str | None], confirmation_judging_commits: dict[str, str | None],
+) -> dict[str, Any]:
+    """A COMPLETE document assembled from REAL PRODUCTION OBJECTS, not a
+    test/synthetic assembler: `model_provenance`/`sae_provenance` are
+    exactly `Backend.provenance["model"]`/`["sae"]` as `final_pairing_
+    concept_discovery.load_backend` actually returns them (this function
+    never re-derives `model_revision`/`sae_revision`/`release`/
+    `loader_sae_id`/`params_sha256` -- it reads them straight off that
+    dict), and `generation_manifest_paths`/`selection_record_paths` are
+    the REAL file paths `final_pairing_one_allocation_generation.write_
+    generation_manifest`/`final_pairing_judge_cli`'s selection-writing
+    command actually wrote -- hashed HERE via `build_manifest_reference`/
+    `build_selection_record_reference` (never pre-hashed by the caller,
+    never copied from a manifest's own self-declared field).
+
+    `sae_provenance["params_sha256"]` may be absent (the Qwen arm, whose
+    identity artifact freezes no expected digest to measure against --
+    the schema's own `pairing.params_sha256` carve-out): `params_sha256`
+    is then passed through as `None` (`assemble_discovery_document`
+    accepts that). DISCLOSED GAP: Qwen's own `load_qwen_scientific_
+    target` provenance also carries no sae_lens `release`/`loader_sae_id`
+    (it never goes through the sae_lens registry) -- this function does
+    NOT invent a fallback convention for them (that would duplicate
+    `final_pairing_one_allocation_generation._release_and_loader_sae_id_
+    for_backend`'s own convention, which this module deliberately does
+    not import); a Qwen caller must populate `sae_provenance['release']`/
+    `['loader_sae_id']` itself before calling this function, or the
+    document carries empty strings there.
+
+    Everything this function CANNOT derive from a loaded backend or a
+    written file (identity like `run_id`/`code_commit`/`host`/
+    `created_at`, the judge's own identity, gate verdicts, dose-response
+    observations, calibration directions) remains an explicit, required
+    argument -- this project's own no-clock, no-invented-identity
+    discipline applies here exactly as it does in `assemble_discovery_
+    document` itself, which this function delegates to for the actual
+    document assembly (never duplicating its validation)."""
+    generation_manifests: dict[str, dict[str, Any] | None] = {}
+    selection_records: dict[str, dict[str, Any] | None] = {}
+    for direction in ("amplify", "suppress"):
+        manifest_path = generation_manifest_paths.get(direction)
+        if manifest_path is None:
+            generation_manifests[direction] = None
+        else:
+            generation_manifests[direction] = build_manifest_reference(
+                manifest_path, computed_at_commit=generation_manifest_commits[direction],
+            )
+        selection_path = selection_record_paths.get(direction)
+        if selection_path is None:
+            selection_records[direction] = None
+        else:
+            selection_records[direction] = build_selection_record_reference(
+                selection_path, selection_commit=selection_commits[direction],
+                confirmation_judging_commit=confirmation_judging_commits[direction],
+            )
+
+    return assemble_discovery_document(
+        run_id=run_id, code_commit=code_commit, entrypoint=entrypoint, host=host, created_at=created_at,
+        model_id=model_id, model_revision=model_provenance.get("revision", ""),
+        sae_repo_id=sae_repo_id, sae_repo_revision=sae_provenance.get("revision", ""),
+        sae_id=sae_provenance.get("scientific_sae_id") or sae_provenance.get("sae_id", ""), layer=layer,
+        release=sae_provenance.get("release", ""), loader_sae_id=sae_provenance.get("loader_sae_id", ""),
+        params_sha256=sae_provenance.get("params_sha256"), layer_selection=layer_selection,
+        concept_id=concept_id, hypothesis_source=hypothesis_source, search_scope=search_scope,
+        candidate_index=candidate_index, engineering_index_rediscovery_note=engineering_index_rediscovery_note,
+        feature_certificate=feature_certificate, subject=subject,
+        calibration_protocol=calibration_protocol, calibrated_by=calibrated_by, calibrated_at=calibrated_at,
+        directions=directions, positions=positions,
+        prompt_set_id=prompt_set_id, prompt_set_source_path=prompt_set_source_path,
+        prompt_set_source_sha256=prompt_set_source_sha256, prompt_set_source_commit=prompt_set_source_commit,
+        paraphrase_families=paraphrase_families,
+        causal_validation_computed_at_commit=causal_validation_computed_at_commit,
+        causal_validation_positions=causal_validation_positions, gates=gates, spot_read=spot_read,
+        judge_model=judge_model, judge_rubric_version=judge_rubric_version, judge_prompt_version=judge_prompt_version,
+        dose_response=dose_response,
+        configuration_name=configuration_name, configuration_completeness=configuration_completeness,
+        configuration_model_n_layers=configuration_model_n_layers,
+        configuration_grid_cells_expected=configuration_grid_cells_expected,
+        configuration_grid_cells_recorded=configuration_grid_cells_recorded,
+        generation_manifests=generation_manifests, selection_records=selection_records,
+    )
+
+
 def producer_schema_declaration() -> dict[str, Any]:
     """A hand-authored schema declaration in the SAME shape as Engineer 3's
     own `accepted_input_schema()`, describing what THIS assembler actually
@@ -416,9 +531,11 @@ def producer_schema_declaration() -> dict[str, Any]:
         "schema_id": "concept_bundle.discovery_input",
         "schema_version": DISCOVERY_SCHEMA_VERSION,
         "status": (
-            "ENGINEER 1 PRODUCER DECLARATION -- schema+configuration+judge fields ratified against ac9ea40's "
-            "reconcile-schema/gating-report; generation_manifests/selection_records added per discovery_document_"
-            "generation_binding.json v1.1.0 (commit 40061b6), pending Engineer 3's consumer update"
+            "ENGINEER 1 PRODUCER DECLARATION -- schema+configuration+judge fields ratified against Engineer 3's "
+            "real consumer at commit 2003406 (schema v2.0, generation-settings-aware); generation_manifests/"
+            "selection_records per discovery_document_generation_binding.json v1.1.0 (commit 40061b6). "
+            "Reconciled via a real reconcile-schema/gating-report subprocess run against "
+            "D:/devcache/wt/concept-bundle at 2003406 -- see this module's docstring and the closing report."
         ),
         "objects": {
             "<root>": {"required": list(ROOT_REQUIRED_FIELDS)},
@@ -458,12 +575,18 @@ def producer_schema_declaration() -> dict[str, Any]:
                 "optional": ["spot_read", "generated_only_diagnostic"],
                 "judge": {"required": ["model", "rubric_version", "prompt_version"]},
                 "spot_read": {"required": ["approved_by", "approved_at", "note", "sampled_generations"]},
+                # Mirrors the consumer's own field-naming convention EXACTLY (verified against
+                # `accepted_input_schema()`/`discovery_input_schema.json` at commit 2003406): "keys"
+                # names the two per-direction slots, "required" names the REFERENCE OBJECT's own
+                # fields directly (no separately-named nested sub-object) -- a prior version of this
+                # declaration put ["amplify","suppress"] under "required" and nested the reference
+                # fields under a "SelectionRecordReference" key, which the consumer's own
+                # reconcile-schema/gating-report flattener reads structurally, not by convention
+                # inference, and therefore rejected as an incompatible shape.
                 "selection_records": {
-                    "required": ["amplify", "suppress"],
-                    "value": "null, or a SelectionRecordReference",
-                    "SelectionRecordReference": {
-                        "required": ["source_path", "source_sha256", "selection_commit", "confirmation_judging_commit"],
-                    },
+                    "keys": ["amplify", "suppress"],
+                    "value": "SelectionRecordReference | null",
+                    "required": ["source_path", "source_sha256", "selection_commit", "confirmation_judging_commit"],
                 },
             },
             "dose_response": {"required": ["computed_at_commit", "observations"]},
@@ -471,13 +594,14 @@ def producer_schema_declaration() -> dict[str, Any]:
                 "required": ["name", "completeness", "model_n_layers",
                              "grid_cells_expected", "grid_cells_recorded"],
             },
+            # Same convention fix as causal_validation.selection_records above: "keys" for the two
+            # per-direction slots, "reference_required" (the consumer's own field name, NOT
+            # "required") for the ManifestReference's own fields.
             "generation_manifests": {
-                "required": ["amplify", "suppress"],
-                "value": "null, or a ManifestReference",
-                "ManifestReference": {
-                    "required": ["source_path", "source_sha256", "computed_at_commit",
-                                 "protocol_path", "protocol_sha256"],
-                },
+                "keys": ["amplify", "suppress"],
+                "value": "ManifestReference | null",
+                "reference_required": ["source_path", "source_sha256", "computed_at_commit",
+                                        "protocol_path", "protocol_sha256"],
             },
         },
     }

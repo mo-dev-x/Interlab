@@ -3,12 +3,15 @@
 extended by protocols/final_pairing/v1/generation_settings.json).
 
 Manifest shape matches Engineer 3's real, enforcing validator
-(`scripts/concept_bundle_publish.py` commit 67ad4ef): ONE PHYSICAL
-MANIFEST per (run_id, configuration, concept_id, pairing_id, direction),
-flat top-level identity fields, and file entries with a SCALAR `seed`
-and `selection_status` (never a nullable `label`). `dose-check`/
-`dose_generation_problems` (this module's ground truth at ac9ea40) no
-longer exists on that branch -- superseded by `binding-check`.
+(`scripts/concept_bundle_publish.py`, commit 2003406 -- "Consume the
+generation settings: sampling, controls, counts and order", the
+generation-settings-aware successor to 67ad4ef): ONE MANIFEST ENTRY PER
+GENERATION (not per physical file -- `MANIFEST_FILE_FIELDS` requires both
+`dose` and `prompt_id` on every entry, which is only consistent if a
+manifest row is one generation), flat top-level identity fields, real
+frozen `prompt_id`s (never synthetic), and the full `generation_settings.
+json` extension's manifest-level fields (`generation_kwargs`, `causal_
+order_position`, `skipped_for_gate_failure`, etc).
 
 CPU-only, fake-backend -- same convention as
 test_final_pairing_concept_discovery.py: no real Gemma/Qwen weights exist
@@ -30,6 +33,14 @@ import final_pairing_fakes as fakes  # noqa: E402
 import final_pairing_one_allocation_generation as one  # noqa: E402
 
 CONCEPT_FEATURE = 3
+
+
+def _row(prompt_id: str, text: str, *, locale: str = "en", split: str = "heldout_neutral", ordinal: int = 1) -> dict:
+    """A minimal frozen-artifact-shaped prompt row -- real callers get
+    these from `select_generation_prompt_rows`; tests build them directly
+    since they never need a real frozen artifact to exercise the
+    generation functions themselves."""
+    return {"prompt_id": prompt_id, "text": text, "locale": locale, "split": split, "ordinal": ordinal}
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +287,7 @@ def test_generate_dose_file_writes_exactly_one_file_covering_every_prompt_and_re
     backend = fakes.make_fake_gemma_backend()
     corpus_max = d.corpus_max_per_feature(backend, ["some background text about cheese and other foods"])
     dose = one.DoseSpec(kind="clamp", value_in_max_units=1.0)
-    prompts = [f"prompt {i}" for i in range(3)]
+    prompts = [_row(f"p{i}", f"prompt {i}", ordinal=i + 1) for i in range(3)]
     seeds = one.derive_seeds(
         namespace="sweep", concept_id="cheese", pairing_id=backend.pairing, direction="amplify",
         locale="en", n_prompts=3, n_repeats=2,
@@ -295,6 +306,7 @@ def test_generate_dose_file_writes_exactly_one_file_covering_every_prompt_and_re
     assert record.n_repeats == 2
     assert len(record.seeds) == 6  # 3 prompts x 2 repeats
     assert record.seeds == seeds
+    assert record.prompt_ids == ["p0", "p0", "p1", "p1", "p2", "p2"]
     assert record.dose_label in Path(record.path).name
     assert record.control_ref == "control/sweep_en.json"
 
@@ -305,7 +317,8 @@ def test_generate_dose_file_rejects_a_seed_list_of_the_wrong_length(tmp_path):
     with pytest.raises(ValueError, match="exactly one seed per"):
         one.generate_dose_file(
             backend, [CONCEPT_FEATURE], dose=one.DoseSpec(kind="clamp", value_in_max_units=1.0),
-            corpus_max=corpus_max, positions="all", prompts=["a", "b"], purpose="sweep", n_repeats=1,
+            corpus_max=corpus_max, positions="all", prompts=[_row("a", "a"), _row("b", "b", ordinal=2)],
+            purpose="sweep", n_repeats=1,
             seeds=[1], max_new_tokens=1, out_dir=tmp_path, concept_id="cheese", pairing_id=backend.pairing,
             direction="amplify", locale="en", control_ref="x.json",
         )
@@ -314,7 +327,7 @@ def test_generate_dose_file_rejects_a_seed_list_of_the_wrong_length(tmp_path):
 def test_generate_control_file_writes_one_file_with_no_dose_and_no_control_ref(tmp_path):
     backend = fakes.make_fake_gemma_backend()
     corpus_max = d.corpus_max_per_feature(backend, ["background"])
-    prompts = [f"prompt {i}" for i in range(3)]
+    prompts = [_row(f"p{i}", f"prompt {i}", ordinal=i + 1) for i in range(3)]
     seeds = one.derive_seeds(
         namespace="sweep", concept_id="cheese", pairing_id=backend.pairing, direction="amplify",
         locale="en", n_prompts=3, n_repeats=1,
@@ -329,9 +342,12 @@ def test_generate_control_file_writes_one_file_with_no_dose_and_no_control_ref(t
     assert record.dose_kind is None
     assert record.control_ref is None
     assert record.seeds == seeds
-    entry = record.to_manifest_file_entry()
-    assert "dose" not in entry
-    assert "control_ref" not in entry
+    assert record.prompt_ids == ["p0", "p1", "p2"]
+    entries = record.to_manifest_file_entries()
+    assert len(entries) == 3
+    for entry in entries:
+        assert "dose" not in entry
+        assert "control_ref" not in entry
 
 
 def test_generate_control_file_uses_the_same_seed_as_a_matching_dose_file(tmp_path):
@@ -339,7 +355,7 @@ def test_generate_control_file_uses_the_same_seed_as_a_matching_dose_file(tmp_pa
     control-arm section: SAME_SEED_IS_MANDATORY."""
     backend = fakes.make_fake_gemma_backend()
     corpus_max = d.corpus_max_per_feature(backend, ["background"])
-    prompts = [f"prompt {i}" for i in range(4)]
+    prompts = [_row(f"p{i}", f"prompt {i}", locale="fr", split="heldout_eliciting", ordinal=i + 1) for i in range(4)]
     seeds = one.derive_seeds(
         namespace="confirmation", concept_id="cheese", pairing_id=backend.pairing, direction="suppress",
         locale="fr", n_prompts=4, n_repeats=1,
@@ -356,6 +372,7 @@ def test_generate_control_file_uses_the_same_seed_as_a_matching_dose_file(tmp_pa
         pairing_id=backend.pairing, direction="suppress", locale="fr", control_ref=control.path,
     )
     assert dose_record.seeds == control.seeds == seeds
+    assert dose_record.prompt_ids == control.prompt_ids
 
 
 def test_generate_control_file_rejects_a_seed_list_of_the_wrong_length(tmp_path):
@@ -363,14 +380,18 @@ def test_generate_control_file_rejects_a_seed_list_of_the_wrong_length(tmp_path)
     corpus_max = d.corpus_max_per_feature(backend, ["background"])
     with pytest.raises(ValueError, match="exactly one seed per"):
         one.generate_control_file(
-            backend, corpus_max=corpus_max, positions="all", prompts=["a", "b"], purpose="sweep", n_repeats=1,
+            backend, corpus_max=corpus_max, positions="all", prompts=[_row("a", "a"), _row("b", "b", ordinal=2)],
+            purpose="sweep", n_repeats=1,
             seeds=[1], max_new_tokens=1, out_dir=tmp_path, concept_id="cheese", pairing_id=backend.pairing,
             direction="amplify", locale="en",
         )
 
 
-def _bilingual_prompts(n: int, tag: str) -> dict[str, list[str]]:
-    return {locale: [f"{tag} {locale} prompt {i}" for i in range(n)] for locale in one.LOCALES}
+def _bilingual_prompts(n: int, tag: str, *, split: str = "heldout_neutral") -> dict[str, list[dict]]:
+    return {
+        locale: [_row(f"{tag}-{locale}-{i:02d}", f"{tag} {locale} prompt {i}", locale=locale, split=split, ordinal=i + 1) for i in range(n)]
+        for locale in one.LOCALES
+    }
 
 
 def _amplify_and_suppress_prompts():
@@ -497,8 +518,9 @@ def _tiny_records(tmp_path, *, direction="amplify", purpose="confirmation"):
         namespace=purpose, concept_id="cheese", pairing_id=backend.pairing, direction=direction,
         locale="en", n_prompts=2, n_repeats=1,
     )
+    tiny_prompts = [_row(f"p{i}", f"prompt {i}", ordinal=i + 1) for i in range(2)]
     control = one.generate_control_file(
-        backend, corpus_max=corpus_max, positions="all", prompts=[f"prompt {i}" for i in range(2)],
+        backend, corpus_max=corpus_max, positions="all", prompts=tiny_prompts,
         purpose=purpose, n_repeats=1, seeds=control_seeds, max_new_tokens=1, out_dir=tmp_path,
         concept_id="cheese", pairing_id=backend.pairing, direction=direction, locale="en",
     )
@@ -507,7 +529,7 @@ def _tiny_records(tmp_path, *, direction="amplify", purpose="confirmation"):
         dose = one.DoseSpec(kind="clamp", value_in_max_units=value)
         records.append(one.generate_dose_file(
             backend, [CONCEPT_FEATURE], dose=dose, corpus_max=corpus_max, positions="all",
-            prompts=[f"prompt {i}" for i in range(2)], purpose=purpose, n_repeats=1, seeds=control_seeds,
+            prompts=tiny_prompts, purpose=purpose, n_repeats=1, seeds=control_seeds,
             max_new_tokens=1, out_dir=tmp_path, concept_id="cheese", pairing_id=backend.pairing,
             direction=direction, locale="en", control_ref=control.path,
         ))
@@ -524,6 +546,8 @@ _MANIFEST_KWARGS = dict(
     release="gemma-scope-2-12b-it-res-all", loader_sae_id="layer_29_width_16k_l0_big",
     scientific_sae_id="resid_post_all/layer_29_width_16k_l0_big",
     measured_params_sha256="6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e",
+    generation_kwargs=d.GENERATION_SETTINGS, chat_template_identity="gemma-it-v1",
+    locales_complete=["en", "fr"], causal_order_position=2, skipped_for_gate_failure=False,
 )
 
 
@@ -532,7 +556,7 @@ def test_write_and_verify_generation_manifest_round_trips(tmp_path):
     manifest_path = tmp_path / "generation_manifest.json"
     one.write_generation_manifest(records, manifest_path, **_MANIFEST_KWARGS)
     verified = one.verify_generation_manifest(manifest_path)
-    assert len(verified["files"]) == 4  # 1 control + 3 doses
+    assert len(verified["files"]) == 8  # 1 control (2 generations) + 3 doses (2 generations each)
     assert verified["protocol_sha256"] == f"sha256:{one.ONE_ALLOCATION_PROTOCOL_SHA256}"
     assert verified["configuration"] == "PRIMARY"
     assert verified["direction"] == "AMPLIFY"
@@ -541,6 +565,10 @@ def test_write_and_verify_generation_manifest_round_trips(tmp_path):
     assert verified["scientific_sae_id"] == "resid_post_all/layer_29_width_16k_l0_big"
     assert verified["params_measured_sha256"] == "sha256:6bb44c8c68797942d097604bfd8df50f4865c86282e2c4667e364382ea26120e"
     assert verified["completeness"] == "COMPLETE"
+    assert verified["causal_order_position"] == 2
+    assert verified["skipped_for_gate_failure"] is False
+    assert verified["generation_settings_path"] == one.GENERATION_SETTINGS_PROTOCOL_PATH
+    assert verified["generation_settings_sha256"] == f"sha256:{one.GENERATION_SETTINGS_PROTOCOL_SHA256}"
     assert "model" not in verified and "sae" not in verified and "concepts" not in verified
     assert "manifest_sha256" not in verified
 
@@ -552,15 +580,23 @@ def test_write_generation_manifest_file_entries_carry_the_ruled_flat_fields(tmp_
     for entry in manifest["files"]:
         by_purpose.setdefault(entry["purpose"], []).append(entry)
     assert set(by_purpose) == {"CONTROL", "CONFIRMATION"}
-    control_entry = by_purpose["CONTROL"][0]
-    assert "dose" not in control_entry
-    assert "control_ref" not in control_entry
+    assert len(by_purpose["CONTROL"]) == 2  # one entry per generation, not per physical file
+    assert len(by_purpose["CONFIRMATION"]) == 6  # 3 doses x 2 generations each
+    control_paths = {e["path"] for e in by_purpose["CONTROL"]}
+    assert len(control_paths) == 1  # both entries name the SAME physical file
+    control_path = next(iter(control_paths))
+    for entry in by_purpose["CONTROL"]:
+        assert "dose" not in entry
+        assert "control_ref" not in entry
+        assert entry["prompt_id"] in ("p0", "p1")
     for entry in by_purpose["CONFIRMATION"]:
         assert "dose" in entry
-        assert entry["control_ref"] == control_entry["path"]
+        assert entry["control_ref"] == control_path
         assert entry["selection_status"] == one.UNUSED_STATUS
+        assert entry["prompt_id"] in ("p0", "p1")
     assert all(entry["sha256"].startswith("sha256:") for entry in manifest["files"])
     assert all(isinstance(entry["seed"], int) for entry in manifest["files"])
+    assert all("truncated" in entry for entry in manifest["files"])
 
 
 def test_write_generation_manifest_rejects_an_unknown_configuration_name(tmp_path):
@@ -586,7 +622,8 @@ def test_write_generation_manifest_rejects_records_spanning_more_than_one_concep
         locale="en", n_prompts=2, n_repeats=1,
     )
     foreign = one.generate_control_file(
-        backend, corpus_max=corpus_max, positions="all", prompts=["a", "b"], purpose="confirmation", n_repeats=1,
+        backend, corpus_max=corpus_max, positions="all", prompts=[_row("a", "a"), _row("b", "b", ordinal=2)],
+        purpose="confirmation", n_repeats=1,
         seeds=other_seeds, max_new_tokens=1, out_dir=tmp_path, concept_id="chess", pairing_id=backend.pairing,
         direction="amplify", locale="en",
     )
@@ -594,16 +631,27 @@ def test_write_generation_manifest_rejects_records_spanning_more_than_one_concep
         one.write_generation_manifest([*records, foreign], tmp_path / "m.json", **_MANIFEST_KWARGS)
 
 
-def test_write_generation_manifest_accepts_the_generation_settings_extension_fields(tmp_path):
+def test_write_generation_manifest_carries_the_generation_settings_extension_fields_verbatim(tmp_path):
     records = _tiny_records(tmp_path)
     manifest = one.write_generation_manifest(
-        records, tmp_path / "m.json", **_MANIFEST_KWARGS,
-        generation_kwargs=d.GENERATION_SETTINGS, chat_template_identity="gemma-it-v1",
-        locales_complete=["en"],
+        records, tmp_path / "m.json",
+        **{**_MANIFEST_KWARGS, "locales_complete": ["en"]},
     )
     assert manifest["generation_kwargs"] == d.GENERATION_SETTINGS
     assert manifest["chat_template_identity"] == "gemma-it-v1"
     assert manifest["locales_complete"] == ["en"]
+    assert manifest["causal_order_position"] == 2
+    assert manifest["skipped_for_gate_failure"] is False
+
+
+def test_write_generation_manifest_accepts_a_null_measured_params_sha256_for_qwen(tmp_path):
+    """The identity artifact freezes no expected params hash for Qwen --
+    `params_measured_sha256` may be `None`/JSON `null` there, per the
+    schema's own `pairing.params_sha256` carve-out."""
+    records = _tiny_records(tmp_path)
+    kwargs = {**_MANIFEST_KWARGS, "measured_params_sha256": None}
+    manifest = one.write_generation_manifest(records, tmp_path / "m.json", **kwargs)
+    assert manifest["params_measured_sha256"] is None
 
 
 def test_verify_generation_manifest_raises_on_a_tampered_file(tmp_path):
@@ -650,3 +698,68 @@ def test_stamp_manifest_with_selection_never_touches_sweep_entries(tmp_path):
     manifest = one.write_generation_manifest(records, tmp_path / "m.json", **_MANIFEST_KWARGS)
     stamped = one.stamp_manifest_with_selection(manifest, unselected_doses=["3.0x"])
     assert all(entry["selection_status"] == one.UNUSED_STATUS for entry in stamped["files"] if entry["purpose"] == "SWEEP")
+
+
+# ---------------------------------------------------------------------------
+# Production generation CLI (P0 CONTINUE blocker 2): the real scheduled
+# entry point, exercised END TO END against a REAL grid.json and the REAL
+# frozen prompt artifact (not stage-by-stage unit calls) -- proves
+# run_generation_mode's own call graph is reachable and produces exactly
+# what the schema requires for one full concept.
+# ---------------------------------------------------------------------------
+
+
+def test_run_generation_mode_end_to_end_for_one_concept(tmp_path, monkeypatch):
+    """Builds a real grid.json with exactly one 'pass' verdict (so the
+    causal-order loop only attempts one concept -- runtime stays
+    bounded), monkeypatches `load_backend`/`ONE_ALLOCATION_MAX_NEW_TOKENS`
+    (no real weights exist, and 48 real tokens x 1800 generations would be
+    needlessly slow for a fake CPU backend), and runs the real CLI
+    function against the REAL frozen prompt artifact -- proving
+    `order_concepts_for_causal_generation`, `select_generation_prompt_
+    rows`, `generate_concept_complete`, `measure_seconds_per_generation`,
+    `assess_concept_generation_readiness`, and `write_generation_manifest`
+    are all wired together and reachable from one real entry point, not
+    merely individually unit-tested library functions."""
+    backend = fakes.make_fake_gemma_backend()
+    monkeypatch.setattr(d, "load_backend", lambda **_kwargs: backend)
+    monkeypatch.setattr(d, "ONE_ALLOCATION_MAX_NEW_TOKENS", 1)
+
+    grid_dir = tmp_path / "grid"
+    d.write_grid_result(
+        grid_dir, backend.pairing,
+        [d.ConceptPairingVerdict(
+            concept_id="cheese", pairing=backend.pairing, status="pass",
+            surviving_feature_index=CONCEPT_FEATURE, candidates_evaluated=[], error=None,
+        )],
+    )
+
+    args = one.parse_args([
+        "--pairing", backend.pairing, "--model-path", "unused", "--sae-path", "unused", "--layer", "29",
+        "--configuration-name", "primary", "--grid-path", str(grid_dir / "grid.json"),
+        "--pairing-id", "google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
+        "--amplify-dose-grid", "0.25,0.5,1.0,2.0,4.0", "--suppress-dose-grid", "4.0,2.0,1.0,0.5",
+        "--run-id", "r-test-0001", "--source-commit", "0" * 40, "--chat-template-identity", "gemma-it-v1",
+        "--job-deadline-epoch-seconds", str(__import__("time").time() + 100_000),
+        "--out-dir", str(tmp_path / "out"), "--state-dir", str(tmp_path / "state"),
+    ])
+    result = one.run_generation_mode(args)
+
+    assert result["status"] == "complete"
+    assert result["attempted_concepts"] == ["cheese"]
+    assert result["not_attempted"] == []
+    assert result["causal_order"] == ["cheese"]
+    assert result["timing"]["seconds_per_generation"] > 0
+    assert "measured" in result["timing"]["basis"].lower()
+
+    for direction in ("amplify", "suppress"):
+        manifest_path = Path(result["manifest_paths"]["cheese"][direction])
+        assert manifest_path.is_file()
+        manifest = one.verify_generation_manifest(manifest_path)
+        assert manifest["concept_id"] == "cheese"
+        assert manifest["direction"] == direction.upper()
+        assert manifest["causal_order_position"] == one.causal_order_position_for("cheese")
+        assert len(manifest["files"]) == 900  # one direction's full complement of generations
+        real_prompt_ids = {e["prompt_id"] for e in manifest["files"]}
+        assert all(isinstance(pid, str) and pid for pid in real_prompt_ids)
+        assert not any(pid.startswith(("sweep_", "confirmation_")) for pid in real_prompt_ids)

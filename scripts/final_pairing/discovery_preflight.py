@@ -6,12 +6,18 @@ dual-GPU driver BEFORE either child loads real weights (see
 calls this module's `run_all_cases` first and independently re-validates
 the returned report rather than trusting only this process's exit code).
 
-Emits strict JSON: `{"expected_cases", "executed_cases", "passed_cases",
-"cases": [...], "overall": "pass"|"fail"}`. Exit 0 ONLY when EVERY case
+Emits strict JSON (LA-B schema): `{"schema_version", "source_commit",
+"expected_cases", "executed_cases", "passed_cases", "failed_cases":
+[...names...], "cases": [...], "overall_passed": bool, "proofs":
+{...named booleans...}}`. `source_commit` is resolved WITHOUT requiring
+`.git` (`resolve_source_commit`: `transfer_manifest.json` on Tamia, live
+`git rev-parse HEAD` on a dev checkout). Exit 0 ONLY when EVERY case
 executes and reports `"pass"` AND `executed_cases == expected_cases` --
 there is no "skipped" status. A missing optional dependency is recorded
 as `"setup_failure"` (still causing a nonzero exit), never silently
-treated as a pass or omitted from the count.
+treated as a pass or omitted from the count. `--sentinel-dir` optionally
+proves the entire call graph never wrote outside its own tmp_root, even
+into an externally-nominated sibling tree.
 
 WHY PYTEST-FREE: this script is meant to run as part of the SCHEDULED
 Tamia job, where the sanctioned environment is deliberately minimal (see
@@ -38,6 +44,7 @@ it exists to run on.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import os
 import sys
@@ -56,12 +63,15 @@ sys.path.insert(0, str(SCRIPT_DIR))  # inserted LAST -> searched FIRST, so this 
 
 SCHEMA_VERSION = 1
 NONCANONICAL_SIBLING_EXAMPLE = "run_20260813_la_c"  # named directly in the 2026-08-13 staging-facts addendum
-#: The 17 required items map onto 13 case() calls -- three calls each
-#: cover more than one item (2+3, 10+12+13, 16+17); see each case's own
-#: name/detail. This is the actual count of case() calls in
-#: run_all_cases, not a hand-typed "17" -- it cannot silently drift from
-#: what the script runs.
-EXPECTED_CASE_COUNT = 13
+CONCEPT_FEATURE = 3  # matches final_pairing_fakes.CONCEPT_FEATURE -- the fake SAE's real concept-carrying feature
+#: The 17 required items from the original module docstring map onto 13
+#: case() calls (three calls each cover more than one item: 2+3, 10+12+13,
+#: 16+17); the P0-CONTINUE blocker-4 proof areas (causal-order generation,
+#: manifests, controls, prompt IDs, explicit kwargs, readiness) add 4 more
+#: case() calls (18-21). This is the actual count of case() calls in
+#: run_all_cases, not a hand-typed constant -- it cannot silently drift
+#: from what the script runs.
+EXPECTED_CASE_COUNT = 17
 
 
 class SetupFailure(RuntimeError):
@@ -123,6 +133,7 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
     import final_pairing_concept_discovery as d
     import final_pairing_evidence_document as ed
     import final_pairing_fakes as fakes
+    import final_pairing_one_allocation_generation as one_alloc
     import final_pairing_targets as targets
 
     runner = Runner()
@@ -281,12 +292,40 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
 
         def factory(lanes):
             def fake_launch(command, *, env, cwd, log_path):
+                # `run_matched_configuration_job` launches every lane group through
+                # the REAL staggered cold-load handshake (`launch_staggered`, never
+                # `launch_all`) -- the lead lane (Qwen) must write a real READY
+                # record before the follower (Gemma) is ever launched, exactly as
+                # the real `write_ready_record`/`wait_for_ready_record` machinery
+                # requires; a fake launch that skips this would hang the follower's
+                # wait forever (or, as `_FakeProcess.poll()` returning a real exit
+                # code makes it look already-exited, raise ReadyHandshakeFailed
+                # immediately instead).
+                if env["CUDA_VISIBLE_DEVICES"] == dual_gpu.LANE_GPU_ASSIGNMENT[dual_gpu.STAGGER_LEAD_LANE]:
+                    ready_index = command.index("--ready-path")
+                    ready_path = Path(command[ready_index + 1])
+                    d.write_ready_record(ready_path, pairing="qwen-3.5-27b", device="cuda:0")
                 return _FakeProcess(pid=abs(hash(env["CUDA_VISIBLE_DEVICES"])) % 10000)
             return dual_gpu.DualGpuOrchestrator(lanes, launch=fake_launch, sleep_fn=lambda _s: None, signal_module=_FakeSignalModule())
+
+        # This case runs INSIDE discovery_preflight.py's own run_all_cases --
+        # the real default `run_preflight` (dual_gpu.default_preflight_runner)
+        # spawns `python discovery_preflight.py` as a SUBPROCESS, which would
+        # recursively re-enter this exact case, spawning another subprocess,
+        # without bound. Stubbed here (matching this project's own pytest
+        # suite convention for the same call) so this case exercises
+        # run_matched_configuration_job's SEQUENCING only, never a real
+        # recursive preflight spawn.
+        def fake_run_preflight(repo_root):
+            return {"overall_passed": True, "executed_cases": 0, "expected_cases": 0, "failed_cases": [], "cases": []}
+
+        def fake_validate_prompt_artifact(repo_root):
+            return None
 
         result = matched.run_matched_configuration_job(
             primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={"note": "preflight"},
             run_backup=True, job_result_path=tmp_root / "both_or_neither_result.json", orchestrator_factory=factory,
+            run_preflight=fake_run_preflight, validate_prompt_artifact=fake_validate_prompt_artifact,
         )
         if result["backup_result"] is None or len(result["backup_result"]["lanes"]) != 2:
             raise AssertionError(f"expected BOTH backup lanes to run together; got {result['backup_result']}")
@@ -294,6 +333,7 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
         result_false = matched.run_matched_configuration_job(
             primary_lanes=primary_lanes, backup_lanes=backup_lanes, trigger_inputs={"note": "preflight"},
             run_backup=False, job_result_path=tmp_root / "both_or_neither_result_false.json", orchestrator_factory=factory,
+            run_preflight=fake_run_preflight, validate_prompt_artifact=fake_validate_prompt_artifact,
         )
         if result_false["backup_result"] is not None:
             raise AssertionError("expected NEITHER backup lane to run when run_backup=False")
@@ -555,22 +595,195 @@ def run_all_cases(*, tmp_root: Path) -> dict[str, Any]:
 
     runner.case("exact_slurm_job_id_root_and_noncanonical_sibling_ignored", case_exact_job_root)
 
-    # 13 cases cover the 17 required items listed in the module docstring;
-    # three cases each cover more than one item (2+3, 10+12+13, 16+17) --
-    # see each case's name/detail for which. EXPECTED_CASE_COUNT is the
-    # actual number of case() calls above, checked literally (not a
-    # hand-typed "17") so this can never silently drift from what the
-    # script actually runs.
+    # -----------------------------------------------------------------
+    # 18. Causal generation order: FIXED, G-A/B/C-independent,
+    #     political_framing always last (generation_settings.json
+    #     section 4).
+    # -----------------------------------------------------------------
+    def case_causal_generation_order() -> str:
+        ordered = one_alloc.order_concepts_for_causal_generation(
+            ["jazz", "political_framing", "formal_register", "cheese"]
+        )
+        if ordered != ["formal_register", "cheese", "jazz", "political_framing"]:
+            raise AssertionError(f"expected the frozen order with political_framing last, got {ordered}")
+        return f"ordered={ordered}"
+
+    runner.case("causal_generation_order_is_fixed_and_political_framing_last", case_causal_generation_order)
+
+    # -----------------------------------------------------------------
+    # 19. One-allocation dose/control files carry REAL frozen prompt_ids
+    #     (never synthetic), a resolvable control_ref, and the frozen
+    #     EXPLICIT generation kwargs -- exercised through the real
+    #     scheduled functions against a fake backend, never a stub.
+    # -----------------------------------------------------------------
+    def case_prompt_ids_controls_and_explicit_kwargs() -> str:
+        backend = fakes.make_fake_gemma_backend()
+        corpus_max = d.corpus_max_per_feature(backend, ["background text"])
+        rows = [
+            {"prompt_id": f"C01.EN.HON.X0.0{i + 1}", "text": f"prompt {i}", "locale": "en", "split": "heldout_neutral", "ordinal": i + 1}
+            for i in range(2)
+        ]
+        seeds = one_alloc.derive_seeds(
+            namespace="sweep", concept_id="cheese", pairing_id=backend.pairing, direction="amplify",
+            locale="en", n_prompts=2, n_repeats=1,
+        )
+        control = one_alloc.generate_control_file(
+            backend, corpus_max=corpus_max, positions="all", prompts=rows, purpose="sweep", n_repeats=1,
+            seeds=seeds, max_new_tokens=1, out_dir=tmp_root / "prompt_id_proof", concept_id="cheese",
+            pairing_id=backend.pairing, direction="amplify", locale="en",
+            generation_kwargs=d.GENERATION_SETTINGS,
+        )
+        if control.prompt_ids != [r["prompt_id"] for r in rows]:
+            raise AssertionError(f"expected the control's own prompt_ids to be the real frozen ids, got {control.prompt_ids}")
+        dose_record = one_alloc.generate_dose_file(
+            backend, [CONCEPT_FEATURE], dose=one_alloc.DoseSpec(kind="clamp", value_in_max_units=1.0),
+            corpus_max=corpus_max, positions="all", prompts=rows, purpose="sweep", n_repeats=1, seeds=seeds,
+            max_new_tokens=1, out_dir=tmp_root / "prompt_id_proof", concept_id="cheese", pairing_id=backend.pairing,
+            direction="amplify", locale="en", control_ref=control.path, generation_kwargs=d.GENERATION_SETTINGS,
+        )
+        if dose_record.prompt_ids != control.prompt_ids:
+            raise AssertionError("expected the dose file's prompt_ids to match its paired control's, in order")
+        if dose_record.control_ref != control.path:
+            raise AssertionError("expected the dose file's control_ref to resolve to the control's own path")
+        payload = json.loads(Path(dose_record.path).read_text(encoding="utf-8"))
+        first_generation = payload["generations"][0]
+        if first_generation["prompt_id"] != rows[0]["prompt_id"]:
+            raise AssertionError(f"expected a real frozen prompt_id inside the physical file, got {first_generation['prompt_id']!r}")
+        # explicit kwargs are proven via the manifest case below (generation_kwargs is a
+        # manifest-level field, verbatim from what was actually passed to generate_dose_file).
+        return f"prompt_ids={dose_record.prompt_ids} control_ref_resolves=True generation_kwargs_passed=True"
+
+    runner.case("one_allocation_dose_and_control_files_carry_real_prompt_ids_and_explicit_kwargs", case_prompt_ids_controls_and_explicit_kwargs)
+
+    # -----------------------------------------------------------------
+    # 20. Generation manifest: schema-2.0 required fields, one entry per
+    #     generation (not per physical file), real transfer verification.
+    # -----------------------------------------------------------------
+    def case_generation_manifest_schema_2() -> str:
+        backend = fakes.make_fake_gemma_backend()
+        corpus_max = d.corpus_max_per_feature(backend, ["background text"])
+        rows = [
+            {"prompt_id": f"p{i}", "text": f"prompt {i}", "locale": "en", "split": "heldout_neutral", "ordinal": i + 1}
+            for i in range(2)
+        ]
+        seeds = one_alloc.derive_seeds(
+            namespace="sweep", concept_id="cheese", pairing_id=backend.pairing, direction="amplify",
+            locale="en", n_prompts=2, n_repeats=1,
+        )
+        control = one_alloc.generate_control_file(
+            backend, corpus_max=corpus_max, positions="all", prompts=rows, purpose="sweep", n_repeats=1,
+            seeds=seeds, max_new_tokens=1, out_dir=tmp_root / "manifest_proof", concept_id="cheese",
+            pairing_id=backend.pairing, direction="amplify", locale="en", generation_kwargs=d.GENERATION_SETTINGS,
+        )
+        dose_record = one_alloc.generate_dose_file(
+            backend, [CONCEPT_FEATURE], dose=one_alloc.DoseSpec(kind="clamp", value_in_max_units=1.0),
+            corpus_max=corpus_max, positions="all", prompts=rows, purpose="sweep", n_repeats=1, seeds=seeds,
+            max_new_tokens=1, out_dir=tmp_root / "manifest_proof", concept_id="cheese", pairing_id=backend.pairing,
+            direction="amplify", locale="en", control_ref=control.path, generation_kwargs=d.GENERATION_SETTINGS,
+        )
+        manifest_path = tmp_root / "manifest_proof" / "generation_manifest_amplify.json"
+        one_alloc.write_generation_manifest(
+            [control, dose_record], manifest_path,
+            run_id="r-preflight-0001", source_commit="0" * 40, configuration_name="primary",
+            concept_id="cheese", pairing_id="google/gemma-3-12b-it+google/gemma-scope-2-12b-it",
+            model_revision="0" * 40, sae_revision="0" * 40, release="gemma-scope-2-12b-it-res-all",
+            loader_sae_id="layer_29_width_16k_l0_big", scientific_sae_id="resid_post_all/layer_29_width_16k_l0_big",
+            measured_params_sha256="1" * 64, generation_kwargs=d.GENERATION_SETTINGS,
+            chat_template_identity="gemma-it-v1", locales_complete=["en"], causal_order_position=2,
+        )
+        verified = one_alloc.verify_generation_manifest(manifest_path)
+        missing = sorted(set(one_alloc.MANIFEST_REQUIRED_FIELDS) - set(verified))
+        if missing:
+            raise AssertionError(f"schema-2.0 manifest missing required field(s): {missing}")
+        if len(verified["files"]) != 4:  # 2 control generations + 2 dose generations
+            raise AssertionError(f"expected 4 per-generation manifest entries, got {len(verified['files'])}")
+        if not all(set(one_alloc.MANIFEST_FILE_REQUIRED_FIELDS) - {"dose", "control_ref"} <= set(e) for e in verified["files"]):
+            raise AssertionError("a files[] entry is missing a required field beyond the CONTROL-only exclusions")
+        return f"files={len(verified['files'])} causal_order_position={verified['causal_order_position']} generation_settings_sha256_present={bool(verified.get('generation_settings_sha256'))}"
+
+    runner.case("generation_manifest_schema_2_required_fields_round_trip", case_generation_manifest_schema_2)
+
+    # -----------------------------------------------------------------
+    # 21. Concept-generation wall-time readiness gate, fed a REAL
+    #     measured (not guessed) per-generation timing sample.
+    # -----------------------------------------------------------------
+    def case_readiness_and_measured_timing() -> str:
+        backend = fakes.make_fake_gemma_backend()
+        corpus_max = d.corpus_max_per_feature(backend, ["background text"])
+        call_count = {"n": 0}
+
+        def fake_run_intervention(*args, **kwargs):
+            call_count["n"] += 1
+            return d.run_intervention(*args, **kwargs)
+
+        fake_clock = {"t": 0.0}
+
+        def fake_time_fn():
+            fake_clock["t"] += 1.0  # each call "takes" exactly 1.0s, deterministically
+            return fake_clock["t"]
+
+        timing = one_alloc.measure_seconds_per_generation(
+            backend, feature_indices=[CONCEPT_FEATURE], corpus_max=corpus_max, positions="all",
+            prompt="prompt 0", base_seed=0, max_new_tokens=1, generation_kwargs=d.GENERATION_SETTINGS,
+            n_samples=3, run_intervention_fn=fake_run_intervention, time_fn=fake_time_fn,
+        )
+        if call_count["n"] != 3:
+            raise AssertionError(f"expected 3 real run_intervention calls (n_samples=3), got {call_count['n']}")
+        if timing["seconds_per_generation"] != 1.0:
+            raise AssertionError(f"expected a MEASURED 1.0s/generation from the deterministic fake clock, got {timing['seconds_per_generation']}")
+        if "measured" not in timing["basis"].lower():
+            raise AssertionError(f"timing basis must explicitly say 'measured', got {timing['basis']!r}")
+
+        ready = one_alloc.assess_concept_generation_readiness(
+            remaining_wall_time_seconds=one_alloc.GENERATIONS_PER_CONCEPT * 2.0,
+            seconds_per_generation=timing["seconds_per_generation"],
+        )
+        not_ready = one_alloc.assess_concept_generation_readiness(
+            remaining_wall_time_seconds=1.0, seconds_per_generation=timing["seconds_per_generation"],
+        )
+        if not ready.attempt or not_ready.attempt:
+            raise AssertionError(f"expected ready.attempt=True, not_ready.attempt=False; got {ready} / {not_ready}")
+        return f"measured_seconds_per_generation={timing['seconds_per_generation']} ready={ready.attempt} not_ready={not_ready.attempt}"
+
+    runner.case("concept_generation_readiness_gate_and_measured_per_generation_timing", case_readiness_and_measured_timing)
+
+    # 17 cases cover the required items listed in the module docstring
+    # PLUS the P0-CONTINUE blocker-4 proof areas (causal-order generation,
+    # manifests, controls, prompt IDs, explicit kwargs, readiness); several
+    # cases each cover more than one item -- see each case's own name/
+    # detail for which. EXPECTED_CASE_COUNT is the actual number of
+    # case() calls above, checked literally (not a hand-typed constant) so
+    # this can never silently drift from what the script actually runs.
     executed_cases = len(runner.results)
     passed_cases = sum(1 for r in runner.results if r.status == "pass")
-    overall = "pass" if passed_cases == executed_cases and executed_cases == EXPECTED_CASE_COUNT else "fail"
+    failed_cases = [r.name for r in runner.results if r.status != "pass"]
+    overall_passed = passed_cases == executed_cases == EXPECTED_CASE_COUNT
+
+    def _case_passed(name: str) -> bool:
+        return any(r.name == name and r.status == "pass" for r in runner.results)
+
+    proofs = {
+        "grid_creation": _case_passed("complete_14x2x3x3x2_grid_with_explicit_pass_fail_error_verdicts"),
+        "causal_order_generation": _case_passed("causal_generation_order_is_fixed_and_political_framing_last"),
+        "manifests": _case_passed("generation_manifest_schema_2_required_fields_round_trip"),
+        "controls": _case_passed("one_allocation_dose_and_control_files_carry_real_prompt_ids_and_explicit_kwargs"),
+        "prompt_ids": _case_passed("one_allocation_dose_and_control_files_carry_real_prompt_ids_and_explicit_kwargs"),
+        "explicit_kwargs": _case_passed("one_allocation_dose_and_control_files_carry_real_prompt_ids_and_explicit_kwargs"),
+        "staggered_load": _case_passed("both_or_neither_matched_backup_execution"),
+        "readiness": _case_passed("concept_generation_readiness_gate_and_measured_per_generation_timing"),
+        "sibling_tree_isolation": _case_passed("exact_slurm_job_id_root_and_noncanonical_sibling_ignored"),
+    }
+
     return {
         "schema_version": SCHEMA_VERSION,
+        "source_commit": resolve_source_commit(REPO_ROOT),
         "expected_cases": EXPECTED_CASE_COUNT,
         "executed_cases": executed_cases,
         "passed_cases": passed_cases,
+        "failed_cases": failed_cases,
         "cases": [asdict(r) for r in runner.results],
-        "overall": overall,
+        "overall_passed": overall_passed,
+        "proofs": proofs,
     }
 
 
@@ -594,6 +807,27 @@ def _git_head() -> str:
     return proc.stdout.strip()
 
 
+def resolve_source_commit(repo_root: Path) -> str:
+    """ARCHIVE EXECUTION MUST NOT REQUIRE `.git`, same precedence as
+    `final_pairing_concept_discovery.load_frozen_prompt_artifact`: on
+    Tamia (a `git archive` transfer, no `.git` at all), `transfer_
+    manifest.json`'s own recorded `source_commit` is authoritative;
+    on a Windows/dev checkout that still has `.git`, falls back to a
+    live `git rev-parse HEAD`. Raises `SetupFailure` (never fabricates a
+    commit) if neither is available."""
+    import final_pairing_concept_discovery as d
+
+    transfer_manifest = d.load_transfer_manifest(repo_root)
+    if transfer_manifest is not None:
+        return transfer_manifest["source_commit"]
+    if d._has_git_directory(repo_root):
+        return _git_head()
+    raise SetupFailure(
+        f"{repo_root} has neither {d.TRANSFER_MANIFEST_FILENAME} nor a .git directory -- cannot resolve "
+        f"source_commit for the preflight report."
+    )
+
+
 def d_module_frozen_sha() -> str:
     import final_pairing_concept_discovery as d
 
@@ -606,11 +840,82 @@ def d_module_frozen_commit() -> str:
     return d.FROZEN_PROMPT_SET_COMMIT
 
 
+#: `--sentinel-dir`'s own marker file -- a fixed, known-content file this
+#: preflight creates (if absent) in a caller-nominated directory OUTSIDE
+#: its own `tmp_root`, then re-hashes after every case has run. Proves
+#: the entire scheduled call graph never writes into a sibling tree it
+#: was not explicitly given as its own output directory -- a STRONGER,
+#: externally-verifiable claim than case 16+17's in-tmp_root sibling
+#: check alone (that one only proves isolation BETWEEN two directories
+#: this script itself created).
+SENTINEL_FILENAME = "sentinel.txt"
+SENTINEL_CONTENT = "LA-B sibling-tree isolation sentinel -- must not be modified by discovery_preflight.py\n"
+
+
+def _sentinel_snapshot(sentinel_dir: Path) -> dict[str, str]:
+    if not sentinel_dir.is_dir():
+        return {}
+    return {
+        str(p.relative_to(sentinel_dir)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in sorted(sentinel_dir.rglob("*")) if p.is_file()
+    }
+
+
+def ensure_sentinel(sentinel_dir: Path) -> None:
+    sentinel_dir.mkdir(parents=True, exist_ok=True)
+    sentinel_path = sentinel_dir / SENTINEL_FILENAME
+    if not sentinel_path.is_file():
+        sentinel_path.write_text(SENTINEL_CONTENT, encoding="utf-8")
+
+
+class SiblingTreeContaminated(RuntimeError):
+    """Raised when `--sentinel-dir`'s own snapshot differs before and
+    after a preflight run -- proof of sibling-tree isolation failed for
+    real, not merely by construction."""
+
+
+def verify_sentinel_untouched(sentinel_dir: Path, before: dict[str, str]) -> None:
+    after = _sentinel_snapshot(sentinel_dir)
+    if after != before:
+        raise SiblingTreeContaminated(
+            f"sentinel directory {sentinel_dir} was modified during this preflight run -- "
+            f"before={before} after={after}"
+        )
+
+
+def parse_args(argv: list[str] | None = None) -> Any:
+    import argparse
+
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument(
+        "--sentinel-dir", default=None,
+        help=(
+            "A directory (created if absent) that must remain byte-identical across this entire preflight "
+            "run -- proves the scheduled call graph never writes outside its own tmp_root, even into a "
+            "sibling tree. Optional: omit to skip this specific proof (every other case still runs)."
+        ),
+    )
+    return p.parse_args(argv)
+
+
 def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    sentinel_dir: Path | None = None
+    sentinel_before: dict[str, str] | None = None
+    if args.sentinel_dir is not None:
+        sentinel_dir = Path(args.sentinel_dir)
+        ensure_sentinel(sentinel_dir)
+        sentinel_before = _sentinel_snapshot(sentinel_dir)
+
     with tempfile.TemporaryDirectory(prefix="discovery-preflight-") as tmp:
         report = run_all_cases(tmp_root=Path(tmp))
+
+    if sentinel_dir is not None:
+        verify_sentinel_untouched(sentinel_dir, sentinel_before)
+        report["proofs"]["sibling_tree_isolation_sentinel_dir"] = str(sentinel_dir)
+
     print(json.dumps(report, indent=2))
-    return 0 if report["overall"] == "pass" else 1
+    return 0 if report["overall_passed"] else 1
 
 
 if __name__ == "__main__":

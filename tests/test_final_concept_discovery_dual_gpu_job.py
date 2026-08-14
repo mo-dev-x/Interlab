@@ -344,8 +344,9 @@ def test_orchestrator_rejects_anything_other_than_exactly_gemma_and_qwen_lanes(t
 
 
 _PASSING_PREFLIGHT_REPORT = {
-    "schema_version": 1, "expected_cases": 1, "executed_cases": 1, "passed_cases": 1,
-    "cases": [{"name": "fake", "status": "pass", "detail": "", "elapsed_seconds": 0.0}], "overall": "pass",
+    "schema_version": 1, "source_commit": "0" * 40, "expected_cases": 1, "executed_cases": 1, "passed_cases": 1,
+    "failed_cases": [], "cases": [{"name": "fake", "status": "pass", "detail": "", "elapsed_seconds": 0.0}],
+    "overall_passed": True, "proofs": {},
 }
 
 
@@ -450,12 +451,14 @@ def test_default_preflight_runner_rejects_a_zero_exit_with_a_non_passing_case():
     import types
 
     lying_report = {
-        "schema_version": 1, "expected_cases": 2, "executed_cases": 2, "passed_cases": 1,
+        "schema_version": 1, "source_commit": "0" * 40, "expected_cases": 2, "executed_cases": 2, "passed_cases": 1,
+        "failed_cases": [],  # deliberately lying: "b" failed but is not listed here either
         "cases": [
             {"name": "a", "status": "pass", "detail": "", "elapsed_seconds": 0.0},
             {"name": "b", "status": "fail", "detail": "boom", "elapsed_seconds": 0.0},
         ],
-        "overall": "pass",  # deliberately lying about its own per-case results
+        "overall_passed": True,  # deliberately lying about its own per-case results
+        "proofs": {},
     }
 
     def fake_run(*args, **kwargs):
