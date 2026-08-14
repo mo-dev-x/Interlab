@@ -48,7 +48,11 @@ export HF_HUB_CACHE=/scratch/y/yazid/hf_cache/hub
 export HF_HUB_OFFLINE=1
 export CUDA_DEVICE_ORDER=PCI_BUS_ID
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+REPO_ROOT="${SLURM_SUBMIT_DIR:-}"
+if [ -z "$REPO_ROOT" ] || [ ! -f "$REPO_ROOT/scripts/final_pairing/discovery_preflight.py" ]; then
+  echo "REPO_ROOT (SLURM_SUBMIT_DIR='$REPO_ROOT') does not contain scripts/final_pairing/discovery_preflight.py -- refusing to proceed. Submit this job with 'sbatch slurm/final_pairing_matched_configuration_job.sbatch' from the repository root." >&2
+  exit 1
+fi
 cd "$REPO_ROOT"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
