@@ -1157,6 +1157,37 @@ def _qwen_scientific_target(*, configuration: MatchedConfiguration) -> targets.T
     )
 
 
+def qwen_manifest_identity(
+    configuration: MatchedConfiguration, *, layer_file_name: str,
+) -> dict[str, str]:
+    """Return the Qwen identity vocabulary accepted by the bundle consumer.
+
+    Qwen Scope is loaded directly from a ``layerN.sae.pt`` file rather than
+    through an sae_lens release map.  The bundle still requires the same three
+    namespace fields on every model.  For Qwen, the repository itself is the
+    release namespace, the frozen ``params_file`` is the loader key, and the
+    scientific id uses the already-established consumer convention
+    ``resid_post/layer_N_width_80k_l0_K``.  Every component is derived from the
+    configuration-specific frozen identity; caller text is never accepted.
+    """
+    expected_file = f"layer{configuration.qwen_layer}.sae.pt"
+    if layer_file_name != expected_file:
+        raise targets.TargetIdentityMismatch(
+            f"Qwen manifest loader identity requires {expected_file!r} for "
+            f"configuration {configuration.name!r}, got {layer_file_name!r}"
+        )
+    scientific_sae_id = (
+        f"resid_post/layer_{configuration.qwen_layer}_width_80k_"
+        f"l0_{configuration.qwen_sparsity}"
+    )
+    return {
+        "release": configuration.qwen_sae_repo_id,
+        "loader_sae_id": expected_file,
+        "sae_id": scientific_sae_id,
+        "scientific_sae_id": scientific_sae_id,
+    }
+
+
 def load_qwen_scientific_target(
     model_path: str | Path, sae_layer_file_path: str | Path, *, layer: int, sae_family: str, k: int,
     device: str = "cuda", dtype: str = "bfloat16",
@@ -1243,6 +1274,9 @@ def load_qwen_scientific_target(
     measured_params_sha256 = assert_qwen_params_sha256_matches(
         sae_layer_file_path, expected_sha256=configuration.qwen_params_expected_sha256,
     )
+    manifest_identity = qwen_manifest_identity(
+        configuration, layer_file_name=sae_layer_file_path.name,
+    )
 
     torch_dtype = getattr(torch, dtype)
     hf_model = AutoModelForCausalLM.from_pretrained(str(model_path), dtype=torch_dtype)
@@ -1275,6 +1309,7 @@ def load_qwen_scientific_target(
         },
         "sae": {
             "repository": target.sae_repo_id,
+            **manifest_identity,
             "sae_family": sae_family,
             "configuration": configuration.name,
             "local_path": str(sae_layer_file_path),

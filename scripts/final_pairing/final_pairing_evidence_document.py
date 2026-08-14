@@ -749,19 +749,10 @@ def build_discovery_document_from_production_run(
     `build_selection_record_reference` (never pre-hashed by the caller,
     never copied from a manifest's own self-declared field).
 
-    `sae_provenance["params_sha256"]` may be absent (the Qwen arm, whose
-    identity artifact freezes no expected digest to measure against --
-    the schema's own `pairing.params_sha256` carve-out): `params_sha256`
-    is then passed through as `None` (`assemble_discovery_document`
-    accepts that). DISCLOSED GAP: Qwen's own `load_qwen_scientific_
-    target` provenance also carries no sae_lens `release`/`loader_sae_id`
-    (it never goes through the sae_lens registry) -- this function does
-    NOT invent a fallback convention for them (that would duplicate
-    `final_pairing_one_allocation_generation._release_and_loader_sae_id_
-    for_backend`'s own convention, which this module deliberately does
-    not import); a Qwen caller must populate `sae_provenance['release']`/
-    `['loader_sae_id']` itself before calling this function, or the
-    document carries empty strings there.
+    All model-specific loader identity and the measured params digest must
+    already be present in `sae_provenance`, where the weight-loading path
+    verified them.  This function refuses missing values rather than writing
+    empty or invented immutable provenance.
 
     Everything this function CANNOT derive from a loaded backend or a
     written file (identity like `run_id`/`code_commit`/`host`/
@@ -796,13 +787,30 @@ def build_discovery_document_from_production_run(
                 confirmation_judging_commit=confirmation_judging_commits[direction],
             )
 
+    required_sae_provenance = (
+        "revision", "release", "loader_sae_id", "params_sha256",
+    )
+    missing = [
+        field for field in required_sae_provenance
+        if not isinstance(sae_provenance.get(field), str) or not sae_provenance.get(field)
+    ]
+    scientific_sae_id = (
+        sae_provenance.get("scientific_sae_id") or sae_provenance.get("sae_id")
+    )
+    if missing or not isinstance(scientific_sae_id, str) or not scientific_sae_id:
+        if not scientific_sae_id:
+            missing.append("scientific_sae_id")
+        raise ValueError(
+            f"sae_provenance is missing authoritative immutable identity field(s) {sorted(set(missing))}"
+        )
+
     return assemble_discovery_document(
         run_id=run_id, code_commit=code_commit, entrypoint=entrypoint, host=host, created_at=created_at,
         model_id=model_id, model_revision=model_provenance.get("revision", ""),
         sae_repo_id=sae_repo_id, sae_repo_revision=sae_provenance.get("revision", ""),
-        sae_id=sae_provenance.get("scientific_sae_id") or sae_provenance.get("sae_id", ""), layer=layer,
-        release=sae_provenance.get("release", ""), loader_sae_id=sae_provenance.get("loader_sae_id", ""),
-        params_sha256=sae_provenance.get("params_sha256"), layer_selection=layer_selection,
+        sae_id=scientific_sae_id, layer=layer,
+        release=sae_provenance["release"], loader_sae_id=sae_provenance["loader_sae_id"],
+        params_sha256=sae_provenance["params_sha256"], layer_selection=layer_selection,
         concept_id=concept_id, hypothesis_source=hypothesis_source, search_scope=search_scope,
         candidate_index=candidate_index, engineering_index_rediscovery_note=engineering_index_rediscovery_note,
         feature_certificate=feature_certificate, subject=subject,

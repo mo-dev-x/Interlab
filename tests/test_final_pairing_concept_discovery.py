@@ -726,6 +726,33 @@ def test_load_qwen_scientific_target_rejects_an_expected_revision_disagreeing_wi
         )
 
 
+@pytest.mark.parametrize(("configuration", "expected"), [
+    (d.PRIMARY_CONFIGURATION, {
+        "release": "Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_100",
+        "loader_sae_id": "layer38.sae.pt",
+        "sae_id": "resid_post/layer_38_width_80k_l0_100",
+        "scientific_sae_id": "resid_post/layer_38_width_80k_l0_100",
+    }),
+    (d.BACKUP_CONFIGURATION, {
+        "release": "Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50",
+        "loader_sae_id": "layer32.sae.pt",
+        "sae_id": "resid_post/layer_32_width_80k_l0_50",
+        "scientific_sae_id": "resid_post/layer_32_width_80k_l0_50",
+    }),
+])
+def test_qwen_manifest_identity_is_configuration_specific(configuration, expected):
+    assert d.qwen_manifest_identity(
+        configuration, layer_file_name=expected["loader_sae_id"],
+    ) == expected
+
+
+def test_qwen_manifest_identity_refuses_a_crossed_layer_file():
+    with pytest.raises(targets.TargetIdentityMismatch, match="loader identity"):
+        d.qwen_manifest_identity(
+            d.PRIMARY_CONFIGURATION, layer_file_name="layer32.sae.pt",
+        )
+
+
 def test_qwen_scientific_target_is_configuration_specific_not_merely_k_specific():
     """P0 STOP-LINE correction: sae_repo_id, expected_k, AND expected_layer
     are all drawn from the given configuration -- PRIMARY and BACKUP must

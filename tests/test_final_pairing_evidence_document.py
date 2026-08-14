@@ -414,31 +414,18 @@ def test_build_discovery_document_from_production_run_hashes_the_real_manifest_a
     assert selection_ref["source_sha256"] == "sha256:" + expected_selection_hash
 
 
-def test_build_discovery_document_from_production_run_passes_a_missing_qwen_params_hash_as_none():
-    """Qwen's identity artifact freezes no expected params digest to
-    measure against -- `sae_provenance` legitimately has no `params_
-    sha256` key at all for that arm, and this must pass through as
-    `None`/JSON null, never a fabricated value. Qwen's raw `load_qwen_
-    scientific_target` provenance also has no sae_lens `release`/
-    `loader_sae_id` (it never goes through the sae_lens registry) --
-    DISCLOSED GAP: this function does not invent a fallback convention
-    for them (unlike `final_pairing_one_allocation_generation._release_
-    and_loader_sae_id_for_backend`, which this module deliberately does
-    not import); a Qwen caller must populate `sae_provenance['release']`/
-    `['loader_sae_id']` itself before calling this function, or the
-    document carries empty strings there, as proven here."""
+def test_build_discovery_document_from_production_run_refuses_missing_qwen_identity():
+    """Immutable Qwen provenance may never be guessed or written empty."""
     qwen_sae_provenance = {
         "revision": "4c419f1ba0be8b7754d4151d4f26c23b92a9029e", "sae_family": "L0_100", "sparsity_k": 100,
     }
-    document = ed.build_discovery_document_from_production_run(
-        **_production_run_kwargs(
-            model_id="Qwen/Qwen3.5-27B", sae_repo_id="Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_50",
-            sae_provenance=qwen_sae_provenance, layer=38,
+    with pytest.raises(ValueError, match="authoritative immutable identity"):
+        ed.build_discovery_document_from_production_run(
+            **_production_run_kwargs(
+                model_id="Qwen/Qwen3.5-27B", sae_repo_id="Qwen/SAE-Res-Qwen3.5-27B-W80K-L0_100",
+                sae_provenance=qwen_sae_provenance, layer=38,
+            )
         )
-    )
-    assert document["pairing"]["params_sha256"] is None
-    assert document["pairing"]["release"] == ""
-    assert document["pairing"]["loader_sae_id"] == ""
 
 
 # ---------------------------------------------------------------------------

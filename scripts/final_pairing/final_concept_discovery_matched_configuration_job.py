@@ -503,7 +503,12 @@ def run_matched_configuration_job(
         overall_status = "partial_execution"
     elif run_backup and backup_result is not None and backup_result["status"] != "complete_pass":
         overall_status = "failure" if backup_result["status"] == "failure" else "partial_execution"
-    elif backup_generation_result is not None and backup_generation_result.get("status") != "complete_pass":
+    # Backup generation is mandatory only when the frozen trigger actually
+    # selected BACKUP.  The scheduled packet always supplies backup generation
+    # lane definitions so they are ready if needed; their deliberate
+    # `not_attempted` result on RUN_BACKUP=false is therefore an inapplicable
+    # phase, not a partial run.
+    elif run_backup and backup_generation_result is not None and backup_generation_result.get("status") != "complete_pass":
         overall_status = "failure" if backup_generation_result.get("status") == "failure" else "partial_execution"
     else:
         overall_status = "complete_pass"

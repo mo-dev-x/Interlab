@@ -488,20 +488,28 @@ The discovery source MUST be archived from this exact successor commit in
 this project; if that name surfaces anywhere in staging instructions,
 treat it as a stop-and-flag mismatch, not something to reconcile silently).
 
+Plain `git archive` is prohibited here: it omits the untracked runtime
+`transfer_manifest.json`, leaving the no-`.git` Tamia extraction unable to
+verify its frozen prompt bytes. Build the archive with the committed builder:
+
 ```bash
-# From the qwen-sae-interp repo root, on final-pairing-harness, at the
-# exact successor commit (see the closing report for its hash):
-git rev-parse --abbrev-ref HEAD   # confirm: final-pairing-harness
-git remote get-url origin         # confirm: this IS qwen-sae-interp, not sae-concept-lab
+# From qwen-sae-interp on final-pairing-harness, at the exact successor:
+git rev-parse --abbrev-ref HEAD   # final-pairing-harness
+git remote get-url origin         # qwen-sae-interp, never sae-concept-lab
 COMMIT=$(git rev-parse HEAD)
-git archive --format=tar.gz --output="final_concept_discovery_${COMMIT}.tar.gz" "${COMMIT}"
-sha256sum "final_concept_discovery_${COMMIT}.tar.gz" > "final_concept_discovery_${COMMIT}.tar.gz.sha256"
+python scripts/final_pairing/build_transfer_archive.py \
+  --repo-root . --commit "$COMMIT" \
+  --output "final_concept_discovery_${COMMIT}.tar.gz"
 ```
 
-`git archive` at a fixed commit is deterministic for a given git version --
-the archive's own identity is exactly `${COMMIT}`, independently
-recomputable by anyone who clones qwen-sae-interp and runs the same command
-against the same commit; the `.sha256` sidecar is the chain-of-custody hash
+The builder reads every recorded byte from `${COMMIT}`, adds root-level
+`transfer_manifest.json` and `SOURCE_COMMIT`, and emits the SHA-256 sidecar.
+Before transfer, inspect the archive and require both root members; after
+extraction, run `discovery_preflight.py` there before any CUDA child.
+
+The underlying tree comes from `git archive` at a fixed commit, while the
+builder deterministically adds the two runtime-verification members. The
+`.sha256` sidecar is the chain-of-custody hash
 for whatever copy is actually transferred to Tamia (the same convention
 `results/final_pairing/job_407008/chain_of_custody.json` already
 established for the mechanical-acceptance evidence). Verify on the
@@ -538,14 +546,15 @@ transfer, never the reverse and never interleaved:
    inside any function (verified by a source-level AST scan in its own
    test suite) -- no judge call is reachable from inside the allocation,
    structurally, not just by convention.
-   `write_generation_manifest` hashes every generated file AND the
-   manifest itself before the allocation is released.
+   `write_generation_manifest` hashes every generated file. The immutable
+   manifest bytes are hashed by the later binding/reference step; a manifest
+   never claims a self-hash.
 
 2. **Transfer.** Move the output directory off the cluster. Re-verify
    with `final_pairing_one_allocation_generation.verify_generation_
-   manifest(manifest_path, files_root=<destination>)` -- any file hash
-   mismatch, or a mismatch in the manifest's OWN hash, is a hard stop
-   (`TransferVerificationFailed`), never a warning.
+   manifest(manifest_path, files_root=<destination>)` -- any generated-file
+   hash mismatch is a hard stop (`TransferVerificationFailed`), never a
+   warning. Promotion separately recomputes the manifest reference digest.
 
 3. **Local machine, networked: judge the sweep, select, commit.**
    `scripts/final_pairing/final_pairing_judge_cli.py judge-sweep` verifies

@@ -747,14 +747,12 @@ def test_write_generation_manifest_carries_the_generation_settings_extension_fie
     assert manifest["skipped_for_gate_failure"] == ["formal_register"]
 
 
-def test_write_generation_manifest_accepts_a_null_measured_params_sha256_for_qwen(tmp_path):
-    """The identity artifact freezes no expected params hash for Qwen --
-    `params_measured_sha256` may be `None`/JSON `null` there, per the
-    schema's own `pairing.params_sha256` carve-out."""
+def test_write_generation_manifest_rejects_a_null_measured_params_sha256_for_qwen(tmp_path):
+    """Both Qwen configurations now have frozen expected hashes."""
     records = _tiny_records(tmp_path)
     kwargs = {**_MANIFEST_KWARGS, "measured_params_sha256": None}
-    manifest = one.write_generation_manifest(records, tmp_path / "m.json", **kwargs)
-    assert manifest["params_measured_sha256"] is None
+    with pytest.raises(ValueError, match="measured 64-hex SHA-256 on both model arms"):
+        one.write_generation_manifest(records, tmp_path / "m.json", **kwargs)
 
 
 def test_write_generation_manifest_rejects_a_skipped_concept_not_in_the_causal_order(tmp_path):

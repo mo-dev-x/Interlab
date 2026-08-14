@@ -14,8 +14,10 @@ per (run_id, configuration, concept_id, pairing_id, direction), with
 FLAT top-level identity fields (no nested `model`/`sae`/`concepts`
 objects, no self-declared manifest hash -- `additionalProperties: false`
 refuses both) and file entries carrying a SCALAR `seed` (not a list) and
-`selection_status` (not a nullable `label`). See `write_generation_
-manifest`'s docstring for the exact field-by-field mapping.
+NO selection outcome. The manifest-level `inventory_stage=PRE_SELECTION`
+marks the immutable inventory; the later selection record is the sole
+selection authority. See `write_generation_manifest`'s docstring for the
+exact field-by-field mapping.
 
 `generation_settings.json` (consumed here even though Engineer 3's own
 validator for it, commit dfe2e1b, has not landed yet -- implemented now
@@ -557,7 +559,7 @@ SELECTION_STATUSES: tuple[str, ...] = (SELECTED_STATUS, UNUSED_STATUS)
 INVENTORY_STAGE_PRE_SELECTION = "PRE_SELECTION"
 
 #: The ratified `generation_manifests.manifest_required` list from
-#: `conformance/concept_bundle/discovery_input_schema.json` schema 2.0
+#: `conformance/concept_bundle/discovery_input_schema.json` schema 5.0
 #: (`D:/devcache/wt/concept-bundle`, status "DECLARED BY ENGINEER 3,
 #: AWAITING ENGINEER 1 RATIFICATION" -- ratified here by implementing to
 #: it) -- every top-level manifest field, exhaustively (that schema
@@ -588,7 +590,7 @@ MANIFEST_REQUIRED_FIELDS: tuple[str, ...] = (
 )
 
 #: The ratified `generation_manifests.manifest_file_required` list from
-#: the same schema-2.0 declaration -- every `files[]` entry field,
+#: the same schema-5.0 declaration -- every `files[]` entry field,
 #: exhaustively. `prompt_id` (per-generation, real) and `dose` (per
 #: physical file, prohibited on CONTROL) coexisting is exactly what
 #: forces the "one manifest entry per generation, many entries sharing
@@ -699,7 +701,7 @@ def select_generation_prompt_rows(
 
 def _prefixed_sha256(hexdigest: str) -> str:
     """The manifest's own ruled digest encoding is `sha256:<64 hex>`
-    (`discovery_input_schema.json` schema 2.0's `digest_encoding` note) --
+    (`discovery_input_schema.json` schema 5.0's `digest_encoding` note) --
     distinct from the discovery DOCUMENT's `pairing.params_sha256`, which
     is bare hex. Idempotent so a caller that already has a prefixed value
     is never double-prefixed."""
@@ -1060,7 +1062,7 @@ def write_generation_manifest(
     records: list[GenerationFileRecord], manifest_path: str | Path, *,
     run_id: str, source_commit: str, configuration_name: Literal["primary", "backup"],
     concept_id: str, pairing_id: str, model_revision: str, sae_revision: str,
-    release: str, loader_sae_id: str, scientific_sae_id: str, measured_params_sha256: str | None,
+    release: str, loader_sae_id: str, scientific_sae_id: str, measured_params_sha256: str,
     generation_kwargs: dict[str, Any], chat_template_identity: str, locales_complete: list[str],
     causal_order_position: int, skipped_for_gate_failure: list[str], dose_grid: list[DoseSpec],
     completeness: Literal["COMPLETE", "PARTIAL", "NOT_ATTEMPTED"] = "COMPLETE",
@@ -1069,7 +1071,7 @@ def write_generation_manifest(
     configuration, concept_id, pairing_id, direction), per the ratified
     `discovery_document_generation_binding.json` v1.1.0's `physical_
     granularity`, machine-verified against the REAL consumer's schema
-    (`conformance/concept_bundle/discovery_input_schema.json` schema 2.0,
+    (`conformance/concept_bundle/discovery_input_schema.json` schema 5.0,
     `generation_manifests.manifest_required`/`manifest_file_required`):
     every field here is FLAT -- no nested `model`/`sae`/`concepts`
     objects, and no self-declared `manifest_sha256` (every object is
@@ -1085,16 +1087,15 @@ def write_generation_manifest(
     `configuration_name`/`direction` are stored UPPERCASE (the consumer's
     own ruled casing); `measured_params_sha256` is stored `sha256:`-
     prefixed (the manifest's own ruled digest encoding, distinct from the
-    discovery DOCUMENT's bare-hex `pairing.params_sha256`) -- `None` is
-    accepted and passed through as JSON `null` ONLY for the Qwen arm,
-    which the identity artifact freezes no expected params hash for (the
-    schema's own `pairing.params_sha256` carve-out; a Gemma manifest must
-    always supply a real measured value).
+    discovery DOCUMENT's bare-hex `pairing.params_sha256`). It is mandatory
+    on both arms: Gemma identity v1.3.0 and `qwen_config_identity.json`
+    freeze expected parameter hashes, and each loader measures and verifies
+    the local file before this write-once manifest is emitted.
 
     `generation_kwargs`/`chat_template_identity`/`locales_complete`/
     `causal_order_position`/`skipped_for_gate_failure` are `generation_
     settings.json`'s manifest-level additions -- ALL REQUIRED now (the
-    schema-2.0 declaration lists them unconditionally in `manifest_
+    schema-5.0 declaration lists them unconditionally in `manifest_
     required`), written verbatim/as given.
 
     `dose_grid` is THIS DIRECTION'S OWN five-point frozen grid (schema
@@ -1151,6 +1152,13 @@ def write_generation_manifest(
         raise ValueError(f"completeness must be one of {COMPLETENESS_VALUES}, got {completeness!r}")
     if len(dose_grid) != DOSES_PER_DIRECTION:
         raise ValueError(f"dose_grid must have exactly {DOSES_PER_DIRECTION} points, got {len(dose_grid)}")
+    if not isinstance(measured_params_sha256, str):
+        raise ValueError("measured_params_sha256 must be a measured 64-hex SHA-256 on both model arms")
+    measured_params_bare = (
+        measured_params_sha256.removeprefix("sha256:")
+    )
+    if len(measured_params_bare) != 64 or any(ch not in "0123456789abcdef" for ch in measured_params_bare):
+        raise ValueError("measured_params_sha256 must be a measured lowercase 64-hex SHA-256")
     concept_position = causal_order_position_for(concept_id)
     for name in skipped_for_gate_failure:
         if name not in CAUSAL_GENERATION_ORDER:
@@ -1181,7 +1189,7 @@ def write_generation_manifest(
         "concept_id": concept_id, "pairing_id": pairing_id,
         "model_revision": model_revision, "sae_revision": sae_revision, "release": release,
         "loader_sae_id": loader_sae_id, "scientific_sae_id": scientific_sae_id,
-        "params_measured_sha256": None if measured_params_sha256 is None else _prefixed_sha256(measured_params_sha256),
+        "params_measured_sha256": _prefixed_sha256(measured_params_bare),
         "direction": direction.upper(),
         "files": [entry for r in records for entry in r.to_manifest_file_entries()],
         "completeness": completeness,
@@ -1387,44 +1395,40 @@ def measure_seconds_per_generation(
 
 
 def _release_and_loader_sae_id_for_backend(backend) -> tuple[str, str]:
-    """Gemma's provenance already carries the real sae_lens `release`/
-    `loader_sae_id` (from the registry lookup `load_gemma_scientific_
-    target` performs) -- returned verbatim. Qwen has no sae_lens release
-    at all (`harness.QwenScopeSAE.from_layer_file` loads a raw layer file,
-    never through the sae_lens registry) -- the manifest schema still
-    requires both fields unconditionally for either pairing, so a
-    Qwen-appropriate IDENTIFIER (not a sae_lens release string, and not
-    claimed to be one) is constructed from the SAE family/layer/sparsity
-    fields already recorded in Qwen's own provenance. DISCLOSED CHOICE:
-    the schema does not define a Qwen-specific convention for these two
-    fields -- this is this module's own, clearly-labeled one, not a
-    value read off any registry."""
+    """Read the already-verified loader namespace from backend provenance.
+
+    Both loaders now populate these fields at load time.  Generation must not
+    invent an identity after weights have loaded: manifests are immutable and
+    any guessed value would become irreversible provenance.
+    """
     sae_prov = backend.provenance.get("sae", {})
-    if "release" in sae_prov and "loader_sae_id" in sae_prov:
-        return sae_prov["release"], sae_prov["loader_sae_id"]
-    sae_family = sae_prov.get("sae_family", "unknown")
-    return (
-        f"qwen-scope-{sae_family}",
-        f"layer_{backend.layer}_{sae_family}_k{sae_prov.get('sparsity_k', backend.sparsity)}",
-    )
+    release = sae_prov.get("release")
+    loader_sae_id = sae_prov.get("loader_sae_id")
+    if not isinstance(release, str) or not release or not isinstance(loader_sae_id, str) or not loader_sae_id:
+        raise ValueError(
+            "loaded backend provenance is missing authoritative release/loader_sae_id; "
+            "refusing to invent immutable manifest identity"
+        )
+    return release, loader_sae_id
 
 
-def _measured_params_sha256_for_backend(backend) -> str | None:
+def _measured_params_sha256_for_backend(backend) -> str:
     """Gemma's provenance already carries a MEASURED (and, at load time,
     verified-against-the-frozen-identity-artifact) `params_sha256` --
-    returned verbatim. Qwen's identity artifact freezes no expected params
-    hash at all (per `discovery_input_schema.json`'s own `pairing.
-    params_sha256` note: "may be null only on the Qwen arm ... there it is
-    carried rather than verified") -- this still hashes Qwen's actual
-    resolved SAE file on disk (never invents a value), it is simply not
-    checked against a frozen expectation the identity artifact does not
-    have. Returns `None` only if no resolved SAE file is recorded at all."""
+    returned verbatim. Qwen now does the same against
+    `qwen_config_identity.json`.  The fallback hashes the resolved local file
+    for older test seams only; production loaders always provide the measured,
+    already-verified digest. Missing resolved bytes is a hard stop: both
+    model arms have authoritative expected hashes."""
     sae_prov = backend.provenance.get("sae", {})
     if "params_sha256" in sae_prov:
         return sae_prov["params_sha256"]
     resolved = sae_prov.get("resolved_files") or sae_prov.get("resolved_local_paths") or []
     if not resolved:
-        return None
+        raise ValueError(
+            "loaded backend provenance has neither params_sha256 nor a resolved SAE file; "
+            "refusing to emit an unverified manifest identity"
+        )
     import final_pairing_concept_discovery as _d
 
     return _d.compute_file_sha256(resolved[0])
@@ -1539,7 +1543,15 @@ def run_generation_mode(args: argparse.Namespace) -> dict:
     release, loader_sae_id = _release_and_loader_sae_id_for_backend(backend)
     model_revision = backend.provenance.get("model", {}).get("revision", "")
     sae_revision = backend.provenance.get("sae", {}).get("revision", "")
-    scientific_sae_id = backend.provenance.get("sae", {}).get("scientific_sae_id") or backend.provenance.get("sae", {}).get("sae_id", "")
+    scientific_sae_id = (
+        backend.provenance.get("sae", {}).get("scientific_sae_id")
+        or backend.provenance.get("sae", {}).get("sae_id")
+    )
+    if not isinstance(scientific_sae_id, str) or not scientific_sae_id:
+        raise ValueError(
+            "loaded backend provenance is missing authoritative scientific_sae_id; "
+            "refusing to write an immutable manifest with an empty identity"
+        )
     # P0 STOP-LINE correction ("derive/record template identity rather
     # than accepting an arbitrary label"): DERIVED from the actual
     # tokenizer this backend will generate with, never a CLI-supplied

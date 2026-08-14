@@ -822,6 +822,57 @@ def test_backup_generation_only_runs_when_backup_grid_reaches_complete_pass(tmp_
     assert result["backup_generation_result"]["status"] == "not_attempted"
 
 
+def test_untriggered_backup_generation_is_not_a_partial_execution(tmp_path):
+    """The production packet always supplies all four generation configs.
+
+    When the primary shared count clears the trigger, BACKUP is correctly not
+    selected.  Its predeclared generation lanes must remain unlaunched without
+    turning that normal PRIMARY-only success into exit 1.
+    """
+    paths = _standard_paths(tmp_path)
+    primary_lanes = [
+        dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]),
+        dual_gpu.load_lane_spec("qwen", paths["primary_qwen"]),
+    ]
+    backup_lanes = [
+        dual_gpu.load_lane_spec("gemma", paths["backup_gemma"]),
+        dual_gpu.load_lane_spec("qwen", paths["backup_qwen"]),
+    ]
+    primary_generation_lanes = [
+        dual_gpu.load_lane_spec("gemma", _write_generation_lane_json(tmp_path, "primary_gen_gemma")),
+        dual_gpu.load_lane_spec("qwen", _write_generation_lane_json(tmp_path, "primary_gen_qwen")),
+    ]
+    backup_generation_lanes = [
+        dual_gpu.load_lane_spec("gemma", _write_generation_lane_json(tmp_path, "backup_gen_gemma")),
+        dual_gpu.load_lane_spec("qwen", _write_generation_lane_json(tmp_path, "backup_gen_qwen")),
+    ]
+    launched: list[list[str]] = []
+    real_factory = _make_orchestrator_factory({})
+
+    def factory(lanes):
+        launched.append([lane.name for lane in lanes])
+        return real_factory(lanes)
+
+    result = matched.run_matched_configuration_job(
+        primary_lanes=primary_lanes,
+        backup_lanes=backup_lanes,
+        trigger_inputs={},
+        run_backup=False,
+        job_result_path=tmp_path / "result.json",
+        orchestrator_factory=factory,
+        primary_generation_lanes=primary_generation_lanes,
+        backup_generation_lanes=backup_generation_lanes,
+        **_REAL_GATE_FAKES,
+    )
+
+    assert len(launched) == 2  # primary grid, then primary generation
+    assert result["primary_generation_result"]["status"] == "complete_pass"
+    assert result["backup_result"] is None
+    assert result["backup_generation_result"]["status"] == "not_attempted"
+    assert result["status"] == "complete_pass"
+    assert result["overall_exit_code"] == 0
+
+
 def test_backup_generation_runs_when_backup_grid_passes(tmp_path):
     paths = _standard_paths(tmp_path)
     primary_lanes = [dual_gpu.load_lane_spec("gemma", paths["primary_gemma"]), dual_gpu.load_lane_spec("qwen", paths["primary_qwen"])]
