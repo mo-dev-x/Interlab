@@ -1,0 +1,179 @@
+{
+  "$comment": "GATING CORRECTION. Resolves a logical contradiction between two frozen protocols. Normative over both. Neither referenced artifact is edited, so no downstream digest changes.",
+  "protocol_version": "final-pairing-manifest-immutability/1.0.0",
+  "gating": true,
+  "supersedes": null,
+  "normative_over": [
+    "final-pairing-discovery-generation-binding/1.1.0",
+    "final-pairing-one-allocation-dose-generation/1.0.0"
+  ],
+
+  "why_a_correction_artifact_rather_than_two_bumps": {
+    "reason": "one_allocation_dose_generation.json's digest is embedded as a CONST in the binding protocol (protocol_sha256, two sites) and referenced by generation_settings.json and qwen_config_identity.json. Bumping it cascades through four artifacts and reissues five digests, each a transcription risk, at the moment Engineer 3 is wiring against them.",
+    "cost_accepted": "A reader must consult this artifact alongside the two it corrects. That seam is real.",
+    "recommendation": "Inline this correction and the generation_settings manifest extension at the next MAJOR revision of the binding protocol, and retire this file then. Do not let the seam accumulate a third layer."
+  },
+
+  "the_contradiction": {
+    "clause_a": "The bound generation manifest's commit must STRICTLY PRECEDE the selection-record commit. (binding v1.1.0, chronology link 2.)",
+    "clause_b": "Each manifest files[] entry carries selection_status, described as 'stamped after selection'. (binding v1.1.0 files.item; one_allocation ADDITION_3.labelling.)",
+    "why_they_cannot_both_hold": "A record whose bytes are committed before an event cannot contain that event's outcome. Stamping selection_status would rewrite the manifest, changing its bytes, which invalidates both source_sha256 and computed_at_commit. Either the chain breaks or the field is permanently unfillable. There is no implementation that satisfies both clauses.",
+    "principle": "A record required to predate an event may not encode that event's result. The two clauses were mutually exclusive from the moment both were written.",
+    "caught_before": "Any real manifest existed. No data migration is required."
+  },
+
+  "RULING": {
+    "manifest_is_immutable_pre_selection_inventory": "The bound generation manifest records WHAT WAS GENERATED. It is written once, at transfer, and never rewritten. It may not encode SELECTED, final UNUSED, or any other selection outcome.",
+    "sole_authority_for_selection": "causal_validation.selection_records.<direction> is the ONLY authoritative record of selection outcome.",
+    "sealing_survives_intact": "The prohibition on using or opening unselected doses is UNCHANGED. Only its ENCODING LOCATION moves, from a mutable manifest field to the immutable selection record. Nothing about the seal weakens."
+  },
+
+  "struck_and_replaced_clauses": [
+    {
+      "artifact": "discovery_document_generation_binding.json",
+      "version": "1.1.0",
+      "line": 149,
+      "verbatim": "\"selection_status\": \"SELECTED | UNUSED_FOR_SELECTION_OR_CLAIM\"",
+      "disposition": "STRUCK. Remove the field from manifest files[] entries entirely."
+    },
+    {
+      "artifact": "discovery_document_generation_binding.json",
+      "version": "1.1.0",
+      "line": 193,
+      "verbatim": "exactly three doses carry selection_status SELECTED; the remaining doses' files carry UNUSED_FOR_SELECTION_OR_CLAIM.",
+      "disposition": "REPLACED by the partition check in selection_record_requirements.partition below."
+    },
+    {
+      "artifact": "one_allocation_dose_generation.json",
+      "version": "1.0.0",
+      "line": 95,
+      "verbatim": "Each unselected file's manifest entry is stamped UNUSED_FOR_SELECTION_OR_CLAIM.",
+      "disposition": "STRUCK. This is the manifest-mutation clause. ADDITION_3's substantive rule -- one file per dose so unselected doses are never opened -- is UNAFFECTED and remains in force."
+    },
+    {
+      "artifact": "one_allocation_dose_generation.json",
+      "version": "1.0.0",
+      "line": 107,
+      "verbatim": "\"label\": \"UNUSED_FOR_SELECTION_OR_CLAIM\"",
+      "disposition": "RELOCATED, not struck. The label now attaches to the selection record's unselected list, not to manifest entries. Every prohibition in sealed_output_rules stands unchanged."
+    },
+    {
+      "artifact": "one_allocation_dose_generation.json",
+      "version": "1.0.0",
+      "line": 142,
+      "verbatim": "Opening a file stamped UNUSED_FOR_SELECTION_OR_CLAIM.",
+      "disposition": "REWORDED, remains a hard stop: 'Opening a file whose dose the selection record lists as unselected.' Only the word 'stamped' implied a manifest stamp; the prohibition itself is untouched."
+    }
+  ],
+
+  "corrected_manifest_files_item": {
+    "dose": "dose identifier; PROHIBITED on CONTROL entries",
+    "purpose": "SWEEP | CONFIRMATION | CONTROL",
+    "locale": "en | fr",
+    "prompt_id": "from the frozen prompt artifact",
+    "path": "string",
+    "sha256": "sha256:<64 hex>",
+    "seed": "integer",
+    "control_ref": "required on SWEEP and CONFIRMATION; prohibited on CONTROL",
+    "truncated": "boolean",
+    "selection_status": "REMOVED",
+    "additionalProperties": false
+  },
+
+  "no_per_file_pre_selection_flag": {
+    "considered": "sealed_pending_selection = true on every entry.",
+    "rejected": "A per-file field that is always true carries no information, costs bytes on roughly 375 entries per direction, and -- worse -- READS as a status that could vary, which invites exactly the post-selection mutation this correction removes.",
+    "permitted_alternative": {
+      "field": "inventory_stage",
+      "location": "MANIFEST LEVEL, not per file",
+      "const": "PRE_SELECTION",
+      "why_this_form_is_acceptable": "It describes the KIND of document rather than the state of an entry, so it cannot be partially mutated, and its constancy is honest. Optional; the ancestry check already proves the ordering structurally."
+    }
+  },
+
+  "selection_record_requirements": {
+    "schema": {
+      "manifest_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "semantics": "The exact digest of the immutable bound manifest. Promotion checks it equals the digest it RECOMPUTED from the manifest bytes."},
+      "outcome": {"enum": ["SELECTED", "FAILED"]},
+      "selected": {"type": "object|null", "properties": {"LOW": "dose", "MEDIUM": "dose", "HIGH": "dose"}, "required_iff": "outcome == SELECTED", "prohibited_iff": "outcome == FAILED"},
+      "unselected": {"type": "array", "minItems": 0, "semantics": "Every confirmation dose not selected. Under outcome == FAILED this is ALL doses."},
+      "additionalProperties": false
+    },
+    "partition": {
+      "rule": "The dose set is DERIVED FROM THE MANIFEST -- the distinct dose values across files[] where purpose == CONFIRMATION -- and is never independently asserted by the selection record.",
+      "check": "selected.values() UNION unselected must equal that derived set EXACTLY: every dose covered exactly once, no duplicates, no dose absent, no dose present that the manifest does not contain.",
+      "this_replaces": "the struck 'exactly three doses carry selection_status SELECTED' value_check."
+    },
+    "distinctness": {
+      "rule": "LOW, MEDIUM and HIGH must name three DISTINCT doses.",
+      "no_magnitude_ordering_assertion": "Do NOT require LOW <= MEDIUM <= HIGH numerically. On the SUPPRESS arm, HIGH is ABLATE, which carries no value, no unit and no unit_source -- a magnitude ordering would be ill-formed on that arm. Distinctness is checkable on both arms; ordering is not."
+    },
+    "failed_outcome": {
+      "shape": "outcome FAILED, selected prohibited, unselected = every dose.",
+      "meaning": "The direction failed selection. For AMPLIFY that is LOW > HIGH; for SUPPRESS, no dose clearing the relevance drop.",
+      "all_doses_stay_sealed": "A FAILED selection seals all five doses permanently. It is a result, not a licence to reopen the set and look for a better dose.",
+      "INTERACTION_WITH_BINDING_v1_1_0_NULLITY": {
+        "question": "If SUPPRESS fails, does the promotion document carry a FAILED selection record or a null?",
+        "ruling": "NULL. Binding v1.1.0 requires nullity to mirror across calibration.directions, generation_manifests and selection_records. A failed direction is not published, so selection_records.suppress = null and generation_manifests.suppress = null.",
+        "where_the_FAILED_record_lives": "In the run's immutable inventory, alongside its manifest, preserved and never deleted -- the same retention rule that keeps unselected dose outputs. It is the evidence that SUPPRESS was attempted and failed.",
+        "prohibition": "A FAILED selection record may NEVER be referenced from selection_records.<direction> in a promotion document. Promotion documents carry published directions only.",
+        "why_this_needs_saying": "outcome FAILED exists in the schema so failures are recorded, while binding v1.1.0 requires null in the document. Without stating the split, two implementers would reasonably build contradictory things."
+      }
+    }
+  },
+
+  "derived_human_readable_view": {
+    "tool": "stamp_manifest_with_selection",
+    "permitted": "May produce a DERIVED, human-readable view joining the immutable manifest with the selection record.",
+    "prohibited": [
+      "replacing the bound manifest",
+      "appearing in generation_manifests.<direction>",
+      "satisfying promotion in any way",
+      "having its digest appear in any source_sha256"
+    ],
+    "must_be_unmistakable": {
+      "requirement": "The derived view carries derived: true and NOT_FOR_PROMOTION inside it, and a filename pattern distinct from the bound manifest.",
+      "rule": "Promotion ACTIVELY REJECTS any file carrying the derived marker. It does not merely fail to accept it.",
+      "why": "A joined view is strictly more readable than the bound manifest, so it is the file a hurried person hands to promotion. Labelling it inline, rather than relying on it being absent from the reference, is the same discipline applied to non-authoritative loader fields."
+    }
+  },
+
+  "required_chain_unchanged": {
+    "nodes": [
+      "prompt_set.source_commit",
+      "generation_manifests.<direction>.computed_at_commit",
+      "causal_validation.selection_records.<direction>.selection_commit",
+      "causal_validation.selection_records.<direction>.confirmation_judging_commit"
+    ],
+    "strictness": "STRICT ancestry on every link. All four commits DISTINCT and reachable. Equal commits are a FAILURE.",
+    "verification": "For each consecutive pair (A, B): git merge-base --is-ancestor A B AND A != B.",
+    "per_direction": "Verified separately for each non-null direction.",
+    "status": "UNCHANGED from binding v1.1.0. This correction removes the clause that made link 2 unsatisfiable, it does not alter the chain."
+  },
+
+  "unchanged": [
+    "Every threshold.",
+    "Every identity artifact and every params hash, Gemma and Qwen.",
+    "backup_trigger.json.",
+    "generation_settings.json, including the control arm and the causal-generation order.",
+    "The frozen prompt artifact.",
+    "One physical manifest per (run_id, configuration, concept_id, pairing_id, direction).",
+    "The per-direction maps generation_manifests and selection_records, and their nullity mirroring.",
+    "Every sealing prohibition in one_allocation sealed_output_rules.",
+    "ADDITION_3's substantive rule: one file per dose, so unselected doses are never opened.",
+    "The four binding evidence records plus separate feature_certificate."
+  ],
+
+  "hard_stops": [
+    "A manifest containing selection_status, or any other field encoding a selection outcome.",
+    "A manifest rewritten, re-emitted or re-hashed after its computed_at_commit.",
+    "A selection record whose manifest_sha256 differs from the digest promotion recomputed.",
+    "A selection record failing to partition the manifest's confirmation dose set exactly once.",
+    "LOW, MEDIUM and HIGH not naming three distinct doses.",
+    "outcome SELECTED with selected absent, or outcome FAILED with selected present.",
+    "A FAILED selection record referenced from a promotion document's selection_records.<direction>.",
+    "A derived view submitted to promotion, or its digest appearing in any source_sha256.",
+    "Opening a file whose dose the selection record lists as unselected.",
+    "Any chronology link failing, or any two of the four commits equal."
+  ]
+}
