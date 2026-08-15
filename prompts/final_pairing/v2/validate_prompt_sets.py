@@ -40,6 +40,11 @@ from persona_exceptionalism import (  # noqa: E402
     NATION_NAMES,
     MIRROR_OF,
 )
+from closed_class import (  # noqa: E402
+    STOPWORDS,
+    category_depths,
+    digest as stopword_digest,
+)
 
 LOCALES = ["en", "fr"]
 EXPECTED_COUNTS = {
@@ -116,7 +121,16 @@ def names_pattern(names):
 
 
 def tokens(text):
-    return set(re.findall(r"[a-z']+", strip_accents(text).lower()))
+    # SPLITS ON THE APOSTROPHE. The shipped tokeniser at 4edeca4 used
+    # r"[a-z']+", which kept the apostrophe inside the token, so French elided
+    # forms were single types -- l'amerique, qu'elle, d'une. That silently
+    # broke the clause's OWN nation-name exemption in French only
+    # (l'amerique != amerique), exempting the name in EN while counting it in
+    # FR, and it put French elision remnants beyond the reach of any stopword
+    # list. Splitting here handles English contractions and French elisions
+    # identically, which is what symmetry requires. See
+    # authoring/closed_class.py.
+    return set(re.findall(r"[a-z]+", strip_accents(text).lower()))
 
 
 def jaccard(a, b):
@@ -333,43 +347,140 @@ def check_length_parity(idx):
 # 8. paraphrase family lexical disjointness, target max pairwise Jaccard <= 0.15
 #    with the nation's own name EXEMPT from the measurement.
 # ---------------------------------------------------------------------------
-STOPWORDS_EN = set("""a an and are as at be been being but by for from had has have
-he her him his i in into is it its me my no not of on one or our ours out she so
-that the their them there these they this those to too us was we were what when
-which who whom why will with would you your it's don't""".split())
-STOPWORDS_FR = set("""a au aux avec ce ces dans de des du elle en et eux il ils je
-la le les leur leurs lui ma mais me meme mes moi mon ne nos notre nous on ont ou
-par pas pour qu que qui sa se ses son sont sur ta te tes toi ton tu un une vos
-votre vous y d l n s c j qu'il c'est n'a d'un d'une l'on""".split())
+# THE FALSIFIER, SUPPLIED. RULING_9 item 8(a) requires it in the description's
+# own idiom, because the clause is NORMATIVE ("Disjointness is MEASURED, NOT
+# ASSERTED") and a requirement with no falsifier is unfalsifiable by design --
+# and the repair for a missing falsifier is to SUPPLY one, never to delete the
+# requirement. 0.15 IS NOT TOUCHED: it is the description's number, RULING_9
+# declines to move it, and re-deriving it to buy margin is refused.
+JACCARD_FALSIFIER = (
+    "max pairwise content-word-type Jaccard over the three families, "
+    "per concept per locale, exceeds 0.15"
+)
+
+# RULING_9 item 4: THE DERIVATION IS CONDITIONAL AND THE CONDITION MUST BE
+# RECORDED. The content-word tokenisation is licensed by an arithmetic
+# argument -- G-A's negative set is `unrelated` POOLED with `near_miss`, so
+# with |near_miss| == |unrelated| the identity separation_auroc ==
+# (near_miss_auroc + unrelated_auroc)/2 holds EXACTLY; near_miss IS the
+# mirror's positives byte-identical, so it carries every closed-class token
+# the positives carry; a feature keying on that shared form scores ~0.5 on the
+# near_miss half and is CAPPED at 0.75 separation, below the 0.90 G-A
+# threshold, even with perfect separation from unrelated. THE CLOSED-CLASS
+# CHANNEL CANNOT PRODUCE A G-A PASS.
+#
+# THAT ARGUMENT IS BOUND TO TWO FACTS ABOUT THIS CORPUS. If either changes the
+# cap moves, the exemption lapses, and the tokenisation must be RE-RULED --
+# it is not for a later editor to re-derive. check_ruling_9_condition below
+# asserts both, so an editor who breaks one meets a failure here rather than a
+# silently weaker instrument.
+RULING_9_CONDITION = {
+    "near_miss_is_byte_identical_mirror_positives": True,
+    "near_miss_and_unrelated_are_equal_sized": 15,
+    "if_either_changes": "the content-word exemption LAPSES and the "
+                         "tokenisation must be re-ruled by the architect lane",
+}
 
 
-def check_family_disjointness():
+def _family_pools(concept, locale):
+    pools = {}
+    for family in ("f1", "f2", "f3"):
+        bag = set()
+        for item in concept["families"][family]:
+            bag |= tokens(item[locale])
+        pools[family] = bag
+    return pools
+
+
+def _exempt_tokens(cid):
+    # The clause's OWN exemption: "The nation's own name is EXEMPT from the
+    # disjointness measurement, since referent_requirement puts it in all
+    # three families by design." RULING_9 derivation (i) generalises exactly
+    # this rationale to closed-class vocabulary.
+    out = set()
+    for name in NATION_NAMES[cid]["en"] + NATION_NAMES[cid]["fr"]:
+        out |= set(re.findall(r"[a-z]+", strip_accents(name).lower()))
+    return out
+
+
+def check_ruling_9_condition(idx):
+    """The binding condition under the content-word tokenisation."""
     for concept in CONCEPTS:
         cid = concept["concept_id"]
-        exempt = {strip_accents(n).lower() for n in
-                  NATION_NAMES[cid]["en"] + NATION_NAMES[cid]["fr"]}
-        exempt_tokens = set()
-        for name in exempt:
-            exempt_tokens |= set(re.findall(r"[a-z']+", name))
         for locale in LOCALES:
-            stop = STOPWORDS_EN if locale == "en" else STOPWORDS_FR
-            pools = {}
-            for family in ("f1", "f2", "f3"):
-                bag = set()
-                for item in concept["families"][family]:
-                    bag |= tokens(item[locale])
-                pools[family] = bag
+            n_near = len(idx[(cid, locale, "near_miss")])
+            n_unrel = len(idx[(cid, locale, "unrelated")])
+            if n_near != n_unrel or n_near != RULING_9_CONDITION[
+                    "near_miss_and_unrelated_are_equal_sized"]:
+                fail("8a_RULING_9_CONDITION_LAPSED",
+                     "%s/%s |near_miss|=%d |unrelated|=%d; the equal-size "
+                     "premise of the content-word exemption no longer holds. "
+                     "The tokenisation must be RE-RULED, not re-derived here."
+                     % (cid, locale, n_near, n_unrel))
+    note("8a_RULING_9_CONDITION: |near_miss| == |unrelated| == 15 holds for "
+         "both concepts in both locales, and near_miss byte-identity is "
+         "verified at check 3. The content-word exemption is licensed. IF "
+         "EITHER FACT CHANGES THE EXEMPTION LAPSES.")
+
+
+def check_family_disjointness(margins):
+    threshold_note = None
+    for concept in CONCEPTS:
+        cid = concept["concept_id"]
+        exempt_tokens = _exempt_tokens(cid)
+        for locale in LOCALES:
+            stop = STOPWORDS[locale]
+            pools = _family_pools(concept, locale)
             for left, right in (("f1", "f2"), ("f1", "f3"), ("f2", "f3")):
-                raw = jaccard(pools[left] - exempt_tokens, pools[right] - exempt_tokens)
-                content = jaccard(pools[left] - exempt_tokens - stop,
-                                  pools[right] - exempt_tokens - stop)
-                note("8_family_jaccard %s/%s %s-%s: raw %.3f content %.3f "
-                     "(description target <= %.2f)"
-                     % (cid, locale, left, right, raw, content, JACCARD_TARGET))
+                raw_l = pools[left] - exempt_tokens
+                raw_r = pools[right] - exempt_tokens
+                con_l = raw_l - stop
+                con_r = raw_r - stop
+                raw = jaccard(raw_l, raw_r)
+                content = jaccard(con_l, con_r)
+                inter = len(con_l & con_r)
+                union = len(con_l | con_r)
+                # RULING_9 item 7: THE MARGIN MUST BE RECORDED, NOT JUST THE
+                # VERDICT. A bare "passes" is a true statement that conceals
+                # the whole state of the evidence.
+                allowed = JACCARD_TARGET * union
+                headroom = allowed - inter
+                margins.append({
+                    "concept": cid, "locale": locale, "pair": "%s-%s" % (left, right),
+                    "content_jaccard": round(content, 4),
+                    "raw_jaccard": round(raw, 4),
+                    "shared_types": inter, "union_types": union,
+                    "allowed_shared_types_at_0_15": round(allowed, 2),
+                    "headroom_in_shared_types": round(headroom, 2),
+                })
+                note("8_family_jaccard %s/%s %s-%s: content %.4f (%d/%d types, "
+                     "allowed %.2f, headroom %.2f) | raw %.4f "
+                     "(description target <= %.2f, BOTH tokenisations reported)"
+                     % (cid, locale, left, right, content, inter, union,
+                        allowed, headroom, raw, JACCARD_TARGET))
                 if content > JACCARD_TARGET:
-                    fail("8_family_disjointness",
-                         "%s/%s %s-%s content Jaccard %.3f exceeds target %.2f"
-                         % (cid, locale, left, right, content, JACCARD_TARGET))
+                    fail("8_family_disjointness_FALSIFIER",
+                         "%s -- %s/%s %s-%s content Jaccard %.4f exceeds %.2f "
+                         "(%d shared types of %d, allowed %.2f)"
+                         % (JACCARD_FALSIFIER, cid, locale, left, right,
+                            content, JACCARD_TARGET, inter, union, allowed))
+    if margins:
+        worst = max(margins, key=lambda m: m["content_jaccard"])
+        note("8_MARGIN worst pair %s/%s %s: content %.4f = %d shared types of "
+             "%d, threshold %.2f shared types, HEADROOM %.2f TYPE(S). "
+             "Recording the margin is required; a bare 'passes' conceals the "
+             "state of the evidence."
+             % (worst["concept"], worst["locale"], worst["pair"],
+                worst["content_jaccard"], worst["shared_types"],
+                worst["union_types"], worst["allowed_shared_types_at_0_15"],
+                worst["headroom_in_shared_types"]))
+        worst_raw = max(margins, key=lambda m: m["raw_jaccard"])
+        note("8_RAW_TOKENISATION_ALSO_REPORTED worst raw %.4f at %s/%s %s. Raw "
+             "word-type Jaccard measures a quantity NO GATE CAN BE FOOLED BY "
+             "(RULING_9 derivation ii); it is reported, not enforced."
+             % (worst_raw["raw_jaccard"], worst_raw["concept"],
+                worst_raw["locale"], worst_raw["pair"]))
+    return threshold_note
 
 
 # ---------------------------------------------------------------------------
@@ -566,7 +677,9 @@ def main():
     check_referent_requirement(idx)
     check_shared_substrates(idx)
     check_length_parity(idx)
-    check_family_disjointness()
+    check_ruling_9_condition(idx)
+    margins = []
+    check_family_disjointness(margins)
     check_duplicates(idx)
     check_claim_type_arithmetic()
     check_unmatched_hedges(idx)
@@ -576,6 +689,12 @@ def main():
     print("rows: %d (expected 400)" % len(rows))
     print("positive INTERSECT near_miss, raw strings, per concept per locale, "
           "summed: %d" % intersection)
+    print("stopword instrument: closed-class derived, sha256 %s" % stopword_digest())
+    for row in category_depths():
+        print("  closed-class %-40s en %3d types   fr %3d types"
+              % (row["category"], row["en_types"], row["fr_types"]))
+    print("  closed-class TOTAL%-38s en %3d types   fr %3d types"
+          % ("", len(STOPWORDS["en"]), len(STOPWORDS["fr"])))
     for line in NOTES:
         print("NOTE  " + line)
     if FAILURES:

@@ -41,6 +41,11 @@ from persona_exceptionalism import (  # noqa: E402
     NEAR_MISS_MIRROR_SLOTS,
     HELDOUT_ELICITING_CLAIM_TYPES,
 )
+from closed_class import (  # noqa: E402
+    STOPWORDS,
+    category_depths,
+    digest as stopword_digest,
+)
 
 SCHEMA_VERSION = "prompt_set/v1"
 PROTOCOL_VERSION = "final-pairing-discovery/1.0.0"
@@ -73,6 +78,128 @@ EXPECTED_COUNTS = {
     "heldout_neutral": 20,
     "heldout_eliciting": 20,
 }
+
+
+def _family_disjointness_record():
+    """The disjointness instrument, its margin and its binding condition.
+
+    Required by architect RULING_9 (mailbox sequence 37): the falsifier is
+    SUPPLIED, the stopword lists are derived by closed-class category and
+    pinned BY HASH, BOTH tokenisations continue to be reported, and THE MARGIN
+    is carried in the freeze record because a bare "passes" is a true
+    statement that conceals the state of the evidence. 0.15 is NOT touched.
+    """
+    # Imported here rather than at module scope so that the builder's own
+    # import graph stays acyclic and readable; validate_prompt_sets performs
+    # no file I/O at import time.
+    from validate_prompt_sets import (
+        _family_pools, _exempt_tokens, jaccard,
+        JACCARD_FALSIFIER, JACCARD_TARGET, RULING_9_CONDITION,
+    )
+
+    pairs = []
+    for concept in CONCEPTS:
+        cid = concept["concept_id"]
+        exempt = _exempt_tokens(cid)
+        for locale in LOCALES:
+            pools = _family_pools(concept, locale)
+            for left, right in (("f1", "f2"), ("f1", "f3"), ("f2", "f3")):
+                raw_l, raw_r = pools[left] - exempt, pools[right] - exempt
+                con_l, con_r = raw_l - STOPWORDS[locale], raw_r - STOPWORDS[locale]
+                inter, union = len(con_l & con_r), len(con_l | con_r)
+                pairs.append({
+                    "concept_id": cid,
+                    "locale": locale,
+                    "family_pair": "%s-%s" % (left, right),
+                    "content_word_type_jaccard": round(jaccard(con_l, con_r), 4),
+                    "raw_word_type_jaccard": round(jaccard(raw_l, raw_r), 4),
+                    "shared_content_types": inter,
+                    "union_content_types": union,
+                    "allowed_shared_types_at_threshold": round(JACCARD_TARGET * union, 2),
+                    "headroom_in_shared_types": round(JACCARD_TARGET * union - inter, 2),
+                })
+    worst = max(pairs, key=lambda p: p["content_word_type_jaccard"])
+    worst_raw = max(pairs, key=lambda p: p["raw_word_type_jaccard"])
+    return {
+        "ruling": "architect RULING_9, mailbox sequence 37, 2026-08-15T16:20:00Z. "
+                  "The clause is NORMATIVE, not advisory, and the tokenisation is "
+                  "CONTENT WORDS.",
+        "the_clause": "THE_SLOT_GRID.paraphrase_families.requirement -- 'Three "
+                      "LEXICALLY DISJOINT phrasings ... Disjointness is measured, "
+                      "not asserted; target max pairwise Jaccard <= 0.15. The "
+                      "nation's own name is EXEMPT'.",
+        "falsifier_SUPPLIED": JACCARD_FALSIFIER,
+        "why_a_falsifier_was_supplied_rather_than_the_requirement_relaxed":
+            "Demoting the clause to advisory would have made it unfalsifiable BY "
+            "DESIGN. The repair for a missing falsifier is to SUPPLY one, never "
+            "to delete the requirement.",
+        "threshold": JACCARD_TARGET,
+        "threshold_provenance": "THE DESCRIPTION'S. NOT SET, NOT MOVED AND NOT "
+                                "RE-DERIVED HERE. Re-deriving it to buy margin is "
+                                "refused.",
+        "tokenisation": {
+            "enforced": "content word types -- all word types minus the nation's "
+                        "own name (the clause's own exemption) minus closed-class "
+                        "vocabulary",
+            "also_reported_never_enforced": "raw word types, minus the nation's "
+                                            "own name only",
+            "why_content_words": "RULING_9 gives two independent derivations. (i) "
+                                 "The clause ALREADY exempts the nation's name "
+                                 "because referent_requirement forces it into all "
+                                 "three families; closed-class vocabulary is "
+                                 "forced into all three by the requirement that "
+                                 "rows be well-formed sentences, so the same "
+                                 "principle excludes it. (ii) Arithmetic: the "
+                                 "closed-class channel CANNOT produce a G-A pass "
+                                 "-- see binding_condition.",
+            "word_boundary_rule": "the tokeniser SPLITS ON THE APOSTROPHE, so "
+                                  "English contractions and French elisions are "
+                                  "handled identically. Keeping the apostrophe "
+                                  "inside the token silently broke the clause's "
+                                  "own nation-name exemption in French.",
+        },
+        "instrument": {
+            "derived_by": "closed-class CATEGORY (determiners, prepositions, "
+                          "pronouns, conjunctions, copulas/auxiliaries, plus "
+                          "negation and clitics declared explicitly), populated "
+                          "exhaustively per locale BEFORE any value was "
+                          "recomputed -- not by extending one list until the "
+                          "numbers agreed.",
+            "stopword_set_sha256": stopword_digest(),
+            "source": "prompts/final_pairing/v2/authoring/closed_class.py",
+            "category_depths": category_depths(),
+            "note_on_unequal_type_counts": "FR carries more types than EN in the "
+                                           "copula/auxiliary and determiner "
+                                           "categories because French inflects "
+                                           "where English does not. EQUAL DEPTH OF "
+                                           "COVERAGE OF THE CLOSED CLASS is the "
+                                           "requirement, not equal cardinality.",
+        },
+        "binding_condition": {
+            "statement": "The content-word exemption is licensed by an arithmetic "
+                         "argument that is BOUND to two facts about this corpus: "
+                         "near_miss remains the mirror's positives BYTE-IDENTICAL, "
+                         "and |near_miss| == |unrelated| == 15.",
+            "the_arithmetic": "G-A's negative set is unrelated POOLED with "
+                              "near_miss, so with equal sizes separation_auroc == "
+                              "(near_miss_auroc + unrelated_auroc)/2 EXACTLY. A "
+                              "feature keying on form shared with the mirror scores "
+                              "~0.5 on the near_miss half and is CAPPED at 0.75 "
+                              "separation, below the 0.90 G-A threshold, even with "
+                              "perfect separation from unrelated.",
+            "if_either_fact_changes": RULING_9_CONDITION["if_either_changes"],
+            "enforced_at": "validate_prompt_sets.check_ruling_9_condition, which "
+                           "FAILS rather than silently measuring on a weaker "
+                           "instrument.",
+        },
+        "margin_MUST_BE_READ_WITH_THE_VERDICT": {
+            "why": "A bare 'passes' is a true statement that conceals the whole "
+                   "state of the evidence.",
+            "worst_content_pair": worst,
+            "worst_raw_pair": worst_raw,
+            "all_twelve_pairs": pairs,
+        },
+    }
 
 
 def _by_id(concepts):
@@ -196,6 +323,29 @@ def build():
                            "is an unrelated concept in an unrelated set. Index "
                            "assignment and ID grammar are the prompt-set builder's "
                            "decision, not the description's.",
+        "join_key": {
+            "required": ["prompt_set_version", "prompt_id"],
+            "hazard": "A tool joining v1 and v2 rows on prompt_id ALONE will "
+                      "SILENTLY MISMATCH rather than error, because the ID space "
+                      "is reused across sets. Per architect RULING_9 observation 2, "
+                      "the join key must be (version, prompt_id).",
+            "current_consumers": "No consumer breaks today -- the causal lane binds "
+                                 "--grid-path, not prompt_id. That is a fact about "
+                                 "today's callers, not a property of the data.",
+        },
+        "near_miss_of_semantics": {
+            "value": "mirror_concept",
+            "meaning": "near_miss_of names the OTHER concept, whose positives these "
+                       "rows ARE, byte-identical.",
+            "hazard": "THE SAME KEY MEANS SOMETHING DIFFERENT IN v1, where "
+                      "near_miss_of is set to the row's OWN concept_id. Neither "
+                      "value is self-identifying, so a consumer reading the field "
+                      "without checking the set version MIS-JOINS SILENTLY. This "
+                      "tag exists so the meaning travels with the data rather than "
+                      "with the reader's memory of which version they loaded. Per "
+                      "architect RULING_9 observation 3.",
+        },
+        "family_disjointness": _family_disjointness_record(),
         "concepts": concept_meta,
         "disclosure": {
             "status": "INTERNAL SCIENCE ONLY",
@@ -224,7 +374,30 @@ def build():
             "corpus_implements_definition_instrument": "REQUIRED AND NOT DONE. May "
                                                        "be authored by neither the "
                                                        "description author nor the "
-                                                       "corpus author.",
+                                                       "corpus author. RULING_9 "
+                                                       "could not assign an owner "
+                                                       "but ruled who it may NOT be: "
+                                                       "not the description author, "
+                                                       "not the corpus author -- "
+                                                       "both would mark their own "
+                                                       "work.",
+            "symmetric_disjointness_instrument": "DISCHARGED at this commit. "
+                                                 "RULING_9 added it as a freeze "
+                                                 "blocker: the locale-asymmetric "
+                                                 "stopword list had to be repaired "
+                                                 "before the disjointness check "
+                                                 "could be cited as a freeze "
+                                                 "artifact. It is now derived by "
+                                                 "closed-class category and pinned "
+                                                 "by hash; see family_disjointness.",
+            "no_restoration_framing_claim": "MUST BE CONFIRMED BY THE PARITY "
+                                            "REVIEWER, not accepted from the "
+                                            "author. It is the author reporting on "
+                                            "their own authoring choice and it is "
+                                            "the one input that SHRINKS the "
+                                            "reviewer's workload. Separation of "
+                                            "duties applies to favourable findings "
+                                            "exactly as to unfavourable ones.",
         },
     }
     with open(os.path.join(HERE, "metadata.json"), "w", encoding="utf-8",

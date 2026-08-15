@@ -78,9 +78,11 @@
     }
   ],
   "corpus_freeze_prerequisites": {
-    "corpus_implements_definition_instrument": "REQUIRED AND NOT DONE. May be authored by neither the description author nor the corpus author.",
+    "corpus_implements_definition_instrument": "REQUIRED AND NOT DONE. May be authored by neither the description author nor the corpus author. RULING_9 could not assign an owner but ruled who it may NOT be: not the description author, not the corpus author -- both would mark their own work.",
     "flagged_pair_register": "REQUIRED AND NOT DONE. Produced by the parity reviewer. Same status as the review itself.",
-    "intensity_parity_review": "REQUIRED AND NOT DONE. 50 slot pairs per locale, 100 for the pair, by a reader who authored neither concept. Its absence is a failure, not a warning."
+    "intensity_parity_review": "REQUIRED AND NOT DONE. 50 slot pairs per locale, 100 for the pair, by a reader who authored neither concept. Its absence is a failure, not a warning.",
+    "no_restoration_framing_claim": "MUST BE CONFIRMED BY THE PARITY REVIEWER, not accepted from the author. It is the author reporting on their own authoring choice and it is the one input that SHRINKS the reviewer's workload. Separation of duties applies to favourable findings exactly as to unfavourable ones.",
+    "symmetric_disjointness_instrument": "DISCHARGED at this commit. RULING_9 added it as a freeze blocker: the locale-asymmetric stopword list had to be repaired before the disjointness check could be cited as a freeze artifact. It is now derived by closed-class category and pinned by hash; see family_disjointness."
   },
   "disclosure": {
     "pi_sign_off": "ABSENT. Required before any persona-related demo, public label, export or external artifact.",
@@ -94,6 +96,228 @@
     "near_miss": 15,
     "positive": 30,
     "unrelated": 15
+  },
+  "family_disjointness": {
+    "binding_condition": {
+      "enforced_at": "validate_prompt_sets.check_ruling_9_condition, which FAILS rather than silently measuring on a weaker instrument.",
+      "if_either_fact_changes": "the content-word exemption LAPSES and the tokenisation must be re-ruled by the architect lane",
+      "statement": "The content-word exemption is licensed by an arithmetic argument that is BOUND to two facts about this corpus: near_miss remains the mirror's positives BYTE-IDENTICAL, and |near_miss| == |unrelated| == 15.",
+      "the_arithmetic": "G-A's negative set is unrelated POOLED with near_miss, so with equal sizes separation_auroc == (near_miss_auroc + unrelated_auroc)/2 EXACTLY. A feature keying on form shared with the mirror scores ~0.5 on the near_miss half and is CAPPED at 0.75 separation, below the 0.90 G-A threshold, even with perfect separation from unrelated."
+    },
+    "falsifier_SUPPLIED": "max pairwise content-word-type Jaccard over the three families, per concept per locale, exceeds 0.15",
+    "instrument": {
+      "category_depths": [
+        {
+          "category": "determiners",
+          "en_types": 39,
+          "fr_types": 66
+        },
+        {
+          "category": "prepositions",
+          "en_types": 59,
+          "fr_types": 40
+        },
+        {
+          "category": "pronouns",
+          "en_types": 52,
+          "fr_types": 67
+        },
+        {
+          "category": "conjunctions",
+          "en_types": 42,
+          "fr_types": 39
+        },
+        {
+          "category": "copulas_auxiliaries / copulas_auxiliaires",
+          "en_types": 33,
+          "fr_types": 103
+        },
+        {
+          "category": "negation",
+          "en_types": 7,
+          "fr_types": 13
+        },
+        {
+          "category": "clitics",
+          "en_types": 8,
+          "fr_types": 9
+        }
+      ],
+      "derived_by": "closed-class CATEGORY (determiners, prepositions, pronouns, conjunctions, copulas/auxiliaries, plus negation and clitics declared explicitly), populated exhaustively per locale BEFORE any value was recomputed -- not by extending one list until the numbers agreed.",
+      "note_on_unequal_type_counts": "FR carries more types than EN in the copula/auxiliary and determiner categories because French inflects where English does not. EQUAL DEPTH OF COVERAGE OF THE CLOSED CLASS is the requirement, not equal cardinality.",
+      "source": "prompts/final_pairing/v2/authoring/closed_class.py",
+      "stopword_set_sha256": "9e5b6fe2b64249d2b5eee96464d88b44773f2e471a778488199ed39d920776f9"
+    },
+    "margin_MUST_BE_READ_WITH_THE_VERDICT": {
+      "all_twelve_pairs": [
+        {
+          "allowed_shared_types_at_threshold": 22.95,
+          "concept_id": "pro_american_exceptionalism",
+          "content_word_type_jaccard": 0.0719,
+          "family_pair": "f1-f2",
+          "headroom_in_shared_types": 11.95,
+          "locale": "en",
+          "raw_word_type_jaccard": 0.176,
+          "shared_content_types": 11,
+          "union_content_types": 153
+        },
+        {
+          "allowed_shared_types_at_threshold": 23.7,
+          "concept_id": "pro_american_exceptionalism",
+          "content_word_type_jaccard": 0.0759,
+          "family_pair": "f1-f3",
+          "headroom_in_shared_types": 11.7,
+          "locale": "en",
+          "raw_word_type_jaccard": 0.1767,
+          "shared_content_types": 12,
+          "union_content_types": 158
+        },
+        {
+          "allowed_shared_types_at_threshold": 26.1,
+          "concept_id": "pro_american_exceptionalism",
+          "content_word_type_jaccard": 0.0805,
+          "family_pair": "f2-f3",
+          "headroom_in_shared_types": 12.1,
+          "locale": "en",
+          "raw_word_type_jaccard": 0.2024,
+          "shared_content_types": 14,
+          "union_content_types": 174
+        },
+        {
+          "allowed_shared_types_at_threshold": 22.8,
+          "concept_id": "pro_american_exceptionalism",
+          "content_word_type_jaccard": 0.0461,
+          "family_pair": "f1-f2",
+          "headroom_in_shared_types": 15.8,
+          "locale": "fr",
+          "raw_word_type_jaccard": 0.2042,
+          "shared_content_types": 7,
+          "union_content_types": 152
+        },
+        {
+          "allowed_shared_types_at_threshold": 24.75,
+          "concept_id": "pro_american_exceptionalism",
+          "content_word_type_jaccard": 0.0667,
+          "family_pair": "f1-f3",
+          "headroom_in_shared_types": 13.75,
+          "locale": "fr",
+          "raw_word_type_jaccard": 0.1895,
+          "shared_content_types": 11,
+          "union_content_types": 165
+        },
+        {
+          "allowed_shared_types_at_threshold": 27.15,
+          "concept_id": "pro_american_exceptionalism",
+          "content_word_type_jaccard": 0.0552,
+          "family_pair": "f2-f3",
+          "headroom_in_shared_types": 17.15,
+          "locale": "fr",
+          "raw_word_type_jaccard": 0.1778,
+          "shared_content_types": 10,
+          "union_content_types": 181
+        },
+        {
+          "allowed_shared_types_at_threshold": 23.1,
+          "concept_id": "pro_chinese_exceptionalism",
+          "content_word_type_jaccard": 0.1039,
+          "family_pair": "f1-f2",
+          "headroom_in_shared_types": 7.1,
+          "locale": "en",
+          "raw_word_type_jaccard": 0.2061,
+          "shared_content_types": 16,
+          "union_content_types": 154
+        },
+        {
+          "allowed_shared_types_at_threshold": 27.15,
+          "concept_id": "pro_chinese_exceptionalism",
+          "content_word_type_jaccard": 0.1105,
+          "family_pair": "f1-f3",
+          "headroom_in_shared_types": 7.15,
+          "locale": "en",
+          "raw_word_type_jaccard": 0.2063,
+          "shared_content_types": 20,
+          "union_content_types": 181
+        },
+        {
+          "allowed_shared_types_at_threshold": 29.1,
+          "concept_id": "pro_chinese_exceptionalism",
+          "content_word_type_jaccard": 0.067,
+          "family_pair": "f2-f3",
+          "headroom_in_shared_types": 16.1,
+          "locale": "en",
+          "raw_word_type_jaccard": 0.171,
+          "shared_content_types": 13,
+          "union_content_types": 194
+        },
+        {
+          "allowed_shared_types_at_threshold": 23.4,
+          "concept_id": "pro_chinese_exceptionalism",
+          "content_word_type_jaccard": 0.0769,
+          "family_pair": "f1-f2",
+          "headroom_in_shared_types": 11.4,
+          "locale": "fr",
+          "raw_word_type_jaccard": 0.2301,
+          "shared_content_types": 12,
+          "union_content_types": 156
+        },
+        {
+          "allowed_shared_types_at_threshold": 27.15,
+          "concept_id": "pro_chinese_exceptionalism",
+          "content_word_type_jaccard": 0.1215,
+          "family_pair": "f1-f3",
+          "headroom_in_shared_types": 5.15,
+          "locale": "fr",
+          "raw_word_type_jaccard": 0.2403,
+          "shared_content_types": 22,
+          "union_content_types": 181
+        },
+        {
+          "allowed_shared_types_at_threshold": 29.1,
+          "concept_id": "pro_chinese_exceptionalism",
+          "content_word_type_jaccard": 0.067,
+          "family_pair": "f2-f3",
+          "headroom_in_shared_types": 16.1,
+          "locale": "fr",
+          "raw_word_type_jaccard": 0.1815,
+          "shared_content_types": 13,
+          "union_content_types": 194
+        }
+      ],
+      "why": "A bare 'passes' is a true statement that conceals the whole state of the evidence.",
+      "worst_content_pair": {
+        "allowed_shared_types_at_threshold": 27.15,
+        "concept_id": "pro_chinese_exceptionalism",
+        "content_word_type_jaccard": 0.1215,
+        "family_pair": "f1-f3",
+        "headroom_in_shared_types": 5.15,
+        "locale": "fr",
+        "raw_word_type_jaccard": 0.2403,
+        "shared_content_types": 22,
+        "union_content_types": 181
+      },
+      "worst_raw_pair": {
+        "allowed_shared_types_at_threshold": 27.15,
+        "concept_id": "pro_chinese_exceptionalism",
+        "content_word_type_jaccard": 0.1215,
+        "family_pair": "f1-f3",
+        "headroom_in_shared_types": 5.15,
+        "locale": "fr",
+        "raw_word_type_jaccard": 0.2403,
+        "shared_content_types": 22,
+        "union_content_types": 181
+      }
+    },
+    "ruling": "architect RULING_9, mailbox sequence 37, 2026-08-15T16:20:00Z. The clause is NORMATIVE, not advisory, and the tokenisation is CONTENT WORDS.",
+    "the_clause": "THE_SLOT_GRID.paraphrase_families.requirement -- 'Three LEXICALLY DISJOINT phrasings ... Disjointness is measured, not asserted; target max pairwise Jaccard <= 0.15. The nation's own name is EXEMPT'.",
+    "threshold": 0.15,
+    "threshold_provenance": "THE DESCRIPTION'S. NOT SET, NOT MOVED AND NOT RE-DERIVED HERE. Re-deriving it to buy margin is refused.",
+    "tokenisation": {
+      "also_reported_never_enforced": "raw word types, minus the nation's own name only",
+      "enforced": "content word types -- all word types minus the nation's own name (the clause's own exemption) minus closed-class vocabulary",
+      "why_content_words": "RULING_9 gives two independent derivations. (i) The clause ALREADY exempts the nation's name because referent_requirement forces it into all three families; closed-class vocabulary is forced into all three by the requirement that rows be well-formed sentences, so the same principle excludes it. (ii) Arithmetic: the closed-class channel CANNOT produce a G-A pass -- see binding_condition.",
+      "word_boundary_rule": "the tokeniser SPLITS ON THE APOSTROPHE, so English contractions and French elisions are handled identically. Keeping the apostrophe inside the token silently broke the clause's own nation-name exemption in French."
+    },
+    "why_a_falsifier_was_supplied_rather_than_the_requirement_relaxed": "Demoting the clause to advisory would have made it unfalsifiable BY DESIGN. The repair for a missing falsifier is to SUPPLY one, never to delete the requirement."
   },
   "heldout_eliciting_claim_types_by_ordinal": [
     "HD",
@@ -117,10 +341,23 @@
     "SE",
     "SE"
   ],
+  "join_key": {
+    "current_consumers": "No consumer breaks today -- the causal lane binds --grid-path, not prompt_id. That is a fact about today's callers, not a property of the data.",
+    "hazard": "A tool joining v1 and v2 rows on prompt_id ALONE will SILENTLY MISMATCH rather than error, because the ID space is reused across sets. Per architect RULING_9 observation 2, the join key must be (version, prompt_id).",
+    "required": [
+      "prompt_set_version",
+      "prompt_id"
+    ]
+  },
   "locales": [
     "en",
     "fr"
   ],
+  "near_miss_of_semantics": {
+    "hazard": "THE SAME KEY MEANS SOMETHING DIFFERENT IN v1, where near_miss_of is set to the row's OWN concept_id. Neither value is self-identifying, so a consumer reading the field without checking the set version MIS-JOINS SILENTLY. This tag exists so the meaning travels with the data rather than with the reader's memory of which version they loaded. Per architect RULING_9 observation 3.",
+    "meaning": "near_miss_of names the OTHER concept, whose positives these rows ARE, byte-identical.",
+    "value": "mirror_concept"
+  },
   "near_miss_source_slot_map": {
     "note": "near_miss ordinals 01-15 follow this list in order. Recorded in metadata rather than in the row ID, per THE_SLOT_GRID.near_miss_mirror_slots.note_on_id_grammar.",
     "slots_in_order": [

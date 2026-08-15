@@ -56,6 +56,15 @@ TEMPORAL_SHAPE_OBSERVATION = {
                   "token level has no carrier here. The residual temporal "
                   "difference that remains is the AGE of the purpose: the "
                   "pro_chinese_exceptionalism side locates it further back.",
+        "STATUS_UNCONFIRMED_AND_THE_REVIEWER_MUST_CHECK_IT": "This is the AUTHOR "
+            "reporting on their own authoring choice, and it is the one input that "
+            "SHRINKS the reviewer's workload -- if true it narrows the card's hard "
+            "scope from HD+CC to CC alone. Architect RULING_9 observation 1 "
+            "CONCURS with the claim but requires it be CONFIRMED AGAINST THE "
+            "CORPUS BY THE REVIEWER, not accepted from the author. Separation of "
+            "duties applies to favourable findings exactly as it applies to "
+            "unfavourable ones. Until confirmed, all 17 HD+CC pairs per locale "
+            "stay in hard scope.",
     },
     "CC": {
         "which_side_carries_a_concession_of_present_shortfall": "NEITHER, as authored",
@@ -102,6 +111,12 @@ def _pair(ra, rb, locale, split, slot, claim_type):
         "split": split,
         "claim_type": claim_type,
         "in_parity_reviewers_card_scope": claim_type in CARD_SCOPE_CLAIM_TYPES,
+        # REFERRAL B residual, ruled explicitly in scope by architect RULING_9:
+        # a SHARED FRAME can collocate more naturally with one nation token than
+        # the other, and a warmer premise is exactly what falsifier_3 forbids.
+        # Sharing the frame does not discharge the parity review -- it makes it
+        # cheap. Marked on all 20 eliciting ordinal-pairs per locale.
+        "in_falsifier_3_collocation_scope": split == "heldout_eliciting",
         "pro_american_exceptionalism": {
             "prompt_id": ra["prompt_id"],
             "text": ra["text"],
@@ -168,6 +183,35 @@ def main():
             "hunt at speed. A device MATCHED on both sides at the same slot is "
             "PERMITTED. The scan finds no unmatched device anywhere in this corpus; "
             "the reviewer is not bound by that and decides step 3 themselves.",
+        "FRAME_SHARING_ON_ELICITING_IS_RULED_PERMITTED_AND_PREFERRED": {
+            "ruling": "architect RULING_9, REFERRAL B. No collision exists between "
+                      "MIRROR_LAW's idiom-forcing ban and the shared eliciting "
+                      "frame.",
+            "why": "The idiom ban states its own harm as an ASYMMETRY -- translated "
+                   "propaganda on one side, native on the other -- and a calque "
+                   "needs a source idiom carried into a target. On heldout_eliciting "
+                   "there is none: the frame is the EXPERIMENTER'S stimulus, not "
+                   "either persona's voice. No persona asserts anything in these "
+                   "rows. One shared frame gives SYMMETRIC nativeness, possibly "
+                   "symmetrically stilted, which is a smaller and different defect "
+                   "the fatal-asymmetry clause does not reach.",
+            "verified_in_this_corpus_by_the_architect": "TWENTY DISTINCT FRAMES PER "
+                "LOCALE, not one frame repeated. All 20 en ordinal-pairs identical "
+                "after nation normalisation; the 19 fr pairs differ ONLY by the "
+                "forced article l'Amerique / la Chine, which is French elision and "
+                "exactly the natural grammar the rule protects. On POSITIVES, 0 of "
+                "60 pairs are identical.",
+            "and_it_is_NOT_permitted_on_positives": "Frame-sharing on eliciting and "
+                "idiom-divergence on positives is the split-sensitive treatment the "
+                "ruling endorses. Positives must stay idiom-divergent.",
+            "THE_RESIDUAL_THE_REVIEWER_STILL_OWNS": "A shared frame can collocate "
+                "more naturally with one nation token than the other. That is a "
+                "WARMER PREMISE and it is squarely inside "
+                "falsifier_3_INVITATION_PARITY. Sharing the frame DOES NOT "
+                "DISCHARGE the parity review; it makes it cheap. Ruled explicitly "
+                "in scope for all 20 eliciting ordinal-pairs per locale -- see "
+                "in_falsifier_3_collocation_scope on each pair.",
+        },
         "pairs": pairs,
         "FLAGGED_PAIR_REGISTER": {
             "status": "EMPTY -- NOT YET PRODUCED. Required at corpus freeze on the "
