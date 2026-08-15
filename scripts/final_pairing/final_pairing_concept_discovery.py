@@ -100,7 +100,8 @@ import json
 import os
 import re
 import sys
-from dataclasses import asdict, dataclass
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -892,6 +893,21 @@ class GateABResult:
     fire_rate: float
     activation_floor_fraction: float
     gate_b_passed: bool
+    # C4 (2026-08-15): the ABSOLUTE quantities G-B's verdict is actually a
+    # function of, recorded rather than discarded. `activation_floor_fraction`
+    # alone (0.20) is a constant -- it says nothing about whether the feature
+    # fired at all. `activation_floor` is the absolute threshold a positive
+    # prompt had to clear (`observed_max * activation_floor_fraction`, or 0.0
+    # in the degenerate case guarded below), `observed_max` is the largest
+    # per-prompt score in this cell's positive set, and `n_positives` is how
+    # many prompts the fire_rate denominator counted. Without these three, a
+    # `fire_rate` of 1.0 is indistinguishable between "fired on all ten
+    # prompts" and "never fired at all, and the floor collapsed to zero" --
+    # the exact ambiguity that hid 182 dead cells in run 413287. Purely
+    # additive: no existing field changes meaning or value.
+    activation_floor: float = 0.0
+    observed_max: float = 0.0
+    n_positives: int = 0
 
 
 def _auroc_from_scores(positive_scores: list[float], negative_scores: list[float]) -> float:
@@ -902,15 +918,50 @@ def _auroc_from_scores(positive_scores: list[float], negative_scores: list[float
     return float(roc_auc_score(y, scores))
 
 
-def compute_gate_b_fire_rate(positive_scores: list[float], *, floor_fraction: float) -> tuple[float, float]:
+def compute_gate_b_fire_rate(positive_scores: Sequence[float], *, floor_fraction: float) -> tuple[float, float]:
     """G-B's firing arithmetic, pure and independently testable: the floor
     is `floor_fraction` (0.20 by default) times the observed max of
     `positive_scores`, and a prompt fires iff its score is `>= floor` --
     P0 STOP-LINE correction: NOT a strict `>` (a prompt landing exactly
-    at the floor must count as firing). Returns `(fire_rate, floor)`."""
-    if not positive_scores:
+    at the floor must count as firing). Returns `(fire_rate, floor)`.
+
+    C1 DEGENERATE-CASE GUARD (2026-08-15). SAE scores are post-ReLU, so
+    they are non-negative and a feature that never fires on ANY positive
+    prompt yields `observed_max == 0.0`. The floor is then `0.0 * 0.20 ==
+    0.0`, every score satisfies the (correct, non-strict) `0.0 >= 0.0`,
+    and `fire_rate` comes out 1.0 -- G-B PASSING a feature that is
+    completely silent. MEASURED on production run 413287: 182 of that
+    run's 660 recorded G-B passes were this degenerate case -- ARTIFACTS,
+    not passes; a G-B pass rate computed with them included is not a fact
+    about that run and must not be quoted as one. The guard below is
+    strictly STRICTER (it can only turn a pass into a fail, never the
+    reverse) and it is the SAME intent as the pre-existing
+    empty-`positive_scores` early return directly above it: no evidence
+    of firing is not evidence of firing. Thresholds are untouched -- this
+    is not a threshold change, it is a division-by-a-degenerate-scale
+    guard.
+
+    OBSERVATION, DELIBERATELY NOT IMPLEMENTED (2026-08-15). `observed_max`
+    is a WITHIN-CELL reference scale: it is derived from the very positive
+    prompts whose firing it then judges, so it is circular. The guard
+    below removes only the case where that circularity degenerates
+    completely (a scale of exactly zero); it does NOT make the scale
+    non-circular. This protocol already contains the non-circular
+    reference this quantity should be expressed against -- the frozen dose
+    grid states Amplify in units of the feature's own CORPUS max
+    (`corpus_max_per_feature` below: "the ONLY legal source of steering
+    units ... never the concept probes"), and the causal stage already
+    uses it. G-B's within-cell max is inconsistent with this protocol's
+    own convention for the same quantity. Changing it would require
+    re-deriving `G_B_fire_rate_min` against the new scale -- a protocol
+    change nobody has made -- so it is RECORDED HERE AND NOT DONE. Every
+    G-B number this file emits is computed through the within-cell
+    (circular) denominator and must be read as such."""
+    if len(positive_scores) == 0:
         return 0.0, 0.0
     observed_max = max(positive_scores)
+    if observed_max <= 0:
+        return 0.0, 0.0
     floor = observed_max * floor_fraction
     fire_rate = sum(1 for s in positive_scores if s >= floor) / len(positive_scores)
     return fire_rate, floor
@@ -983,7 +1034,7 @@ def compute_gate_a_and_b_per_family(
         auroc = _auroc_from_scores(positive_scores, negative_scores)
         gate_a_passed = auroc >= auroc_min
 
-        fire_rate, _floor = compute_gate_b_fire_rate(positive_scores, floor_fraction=floor_fraction)
+        fire_rate, floor = compute_gate_b_fire_rate(positive_scores, floor_fraction=floor_fraction)
         gate_b_passed = fire_rate >= fire_rate_min
 
         results.append(
@@ -991,6 +1042,10 @@ def compute_gate_a_and_b_per_family(
                 concept_id=concept_id, locale=locale, family=family, feature_index=feature_index,
                 separation_auroc=auroc, gate_a_passed=gate_a_passed,
                 fire_rate=fire_rate, activation_floor_fraction=floor_fraction, gate_b_passed=gate_b_passed,
+                # C4: the floor is no longer discarded into a `_floor` throwaway.
+                activation_floor=floor,
+                observed_max=(max(positive_scores) if len(positive_scores) else 0.0),
+                n_positives=len(positive_scores),
             )
         )
     return results

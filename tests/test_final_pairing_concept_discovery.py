@@ -16,6 +16,7 @@ GPU). No model is ever loaded from disk in this file.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import hashlib
 import json
 import os
@@ -1179,6 +1180,46 @@ def test_compute_gate_b_fire_rate_counts_a_score_exactly_at_the_floor_as_firing(
 
 def test_compute_gate_b_fire_rate_empty_scores_is_zero():
     assert d.compute_gate_b_fire_rate([], floor_fraction=0.20) == (0.0, 0.0)
+
+
+def test_compute_gate_b_fire_rate_all_zero_positives_does_not_fire(monkeypatch):
+    """C1 degenerate-case guard. SAE scores are post-ReLU, so a feature that
+    never fires on any positive prompt gives observed_max == 0.0 -> floor
+    0.0 -> `0.0 >= 0.0` for every prompt -> fire_rate 1.0 -> G-B PASSES a
+    silent feature. MEASURED on production run 413287: 182 of 660 G-B
+    passes were exactly this. Without the guard this asserts 1.0."""
+    fire_rate, floor = d.compute_gate_b_fire_rate([0.0] * 10, floor_fraction=0.20)
+    assert fire_rate == 0.0
+    assert floor == 0.0
+    assert fire_rate < d.load_frozen_prompt_artifact(d.REPO_ROOT).metadata["thresholds"]["G_B_fire_rate_min"]
+
+
+def test_compute_gate_b_fire_rate_guard_is_strictly_stricter_for_a_live_feature():
+    """The guard must be unreachable for any feature that fired at all --
+    it can only ever turn a pass into a fail, never the reverse."""
+    assert d.compute_gate_b_fire_rate([10.0, 2.0, 1.0], floor_fraction=0.20) == d.compute_gate_b_fire_rate(
+        [10.0, 2.0, 1.0], floor_fraction=0.20
+    )
+    fire_rate, floor = d.compute_gate_b_fire_rate([1e-9] * 10, floor_fraction=0.20)
+    assert fire_rate == 1.0 and floor == pytest.approx(2e-10)
+
+
+def test_gate_ab_result_records_the_absolute_floor_observed_max_and_n_positives():
+    """C4: `activation_floor_fraction` (0.20) is a constant and says nothing
+    about whether the feature fired. The absolute floor, the observed max
+    and the fire_rate denominator are what make a recorded G-B verdict
+    auditable after the fact."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    results = d.compute_gate_a_and_b_per_family(
+        backend, artifact, concept_id="cheese", locale="en", feature_index=CONCEPT_FEATURE,
+    )
+    for r in results:
+        assert r.n_positives == 10
+        assert r.activation_floor == pytest.approx(r.observed_max * r.activation_floor_fraction)
+        assert "activation_floor" in dataclasses.asdict(r)
+        assert "observed_max" in dataclasses.asdict(r)
+        assert "n_positives" in dataclasses.asdict(r)
 
 
 def test_compute_gate_a_and_b_per_family_runs_independently_per_family_and_reads_default_thresholds():
