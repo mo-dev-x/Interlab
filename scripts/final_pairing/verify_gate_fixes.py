@@ -245,18 +245,69 @@ def _surrogate_backend(module):
     return backend, model
 
 
-def _load_pre_c2_module(rev: str = "98a7108"):
-    """Loads the pre-C2 file straight out of git, under its own module name,
-    from a path inside scripts/final_pairing/ so its REPO_ROOT and sys.path
-    bootstrap resolve exactly as they did at that revision."""
-    import importlib.util
+_PRE_C2_PINNED_REV = "98a7108"
+_PRE_C2_SNAPSHOT_NAME = "_pre_c2_snapshot_98a7108.py"
+_PRE_C2_PINNED_SHA256 = "e170799b296a0c3d9cd2c9903e4545865e95466b4abe0206a85d46cec252867d"
+
+
+def _pre_c2_source(rev: str):
+    """Returns (source_text, origin) for the pre-C2 file.
+
+    Prefers `git show`, but the cluster runs from a TARBALL EXTRACT with no
+    .git, where `git show` exits 128 and C2 died before it ran (job at
+    3ed2de3, 2026-08-15). So a byte-identical snapshot ships in the tree.
+
+    EITHER PATH IS CHECKED AGAINST A PINNED DIGEST. A fallback free to load
+    some other source would let C2 report PASS without ever exercising the
+    pre-C2 code path -- the exact defect class this harness exists to catch.
+    A non-default rev has no pin, so it stays git-only rather than silently
+    comparing against the pinned snapshot's bytes."""
+    import hashlib
     import subprocess
+
+    rel = "scripts/final_pairing/final_pairing_concept_discovery.py"
+    raw = None
+    origin = ""
+    try:
+        raw = subprocess.run(
+            ["git", "show", f"{rev}:{rel}"],
+            cwd=SCRIPT_DIR.parents[1], capture_output=True, check=True,
+        ).stdout
+        origin = f"git {rev}"
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        raw = None
+
+    if raw is None:
+        if rev != _PRE_C2_PINNED_REV:
+            raise RuntimeError(
+                f"pre-C2 source for rev {rev} needs a git checkout; only "
+                f"{_PRE_C2_PINNED_REV} has a shipped snapshot"
+            )
+        snapshot = SCRIPT_DIR / _PRE_C2_SNAPSHOT_NAME
+        if not snapshot.exists():
+            raise RuntimeError(f"no git checkout and no snapshot at {snapshot}")
+        raw = snapshot.read_bytes()
+        origin = f"snapshot {_PRE_C2_SNAPSHOT_NAME}"
+
+    if rev == _PRE_C2_PINNED_REV:
+        digest = hashlib.sha256(raw).hexdigest()
+        if digest != _PRE_C2_PINNED_SHA256:
+            raise RuntimeError(
+                f"pre-C2 source from {origin} has sha256 {digest}, expected "
+                f"{_PRE_C2_PINNED_SHA256} -- refusing to compare against unknown bytes"
+            )
+    return raw.decode("utf-8"), origin
+
+
+def _load_pre_c2_module(rev: str = _PRE_C2_PINNED_REV):
+    """Loads the pre-C2 file under its own module name, from a path inside
+    scripts/final_pairing/ so its REPO_ROOT and sys.path bootstrap resolve
+    exactly as they did at that revision."""
+    import importlib.util
     import tempfile
 
-    source = subprocess.run(
-        ["git", "show", f"{rev}:scripts/final_pairing/final_pairing_concept_discovery.py"],
-        cwd=SCRIPT_DIR.parents[1], capture_output=True, text=True, check=True,
-    ).stdout
+    source, origin = _pre_c2_source(rev)
+    print(f"[C2] pre-C2 source loaded from {origin}", flush=True)
     tmp = Path(tempfile.mkdtemp(dir=SCRIPT_DIR, prefix="_pre_c2_")) / "pre_c2_discovery.py"
     tmp.parent.mkdir(parents=True, exist_ok=True)
     # One directory deeper would break `parents[2]`; keep the file directly
