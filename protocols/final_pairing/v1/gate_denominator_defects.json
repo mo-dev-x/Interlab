@@ -1,0 +1,57 @@
+{
+  "$comment": "GATING FOR EVERY G-A/G-B/G-C CLAIM. Rules the two referred gate-semantics items. Both defects are in the DENOMINATOR, not the threshold, and in both cases fixing the denominator invalidates the threshold's calibration -- so neither is a code change. Authorizes no threshold movement.",
+  "protocol_version": "final-pairing-gate-denominator-defects/1.0.0",
+  "gating": {"gabc_claims": true, "producer_change": true, "selection_replacement": true, "gpu_generation": false},
+  "supersedes": null,
+  "binding_for_this_document": {"describes_concepts": "all fourteen, as a property of the gates", "prompt_set_version": "v1", "prompt_sets_sha256": "b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f"},
+
+  "ITEM_1_G_B_CONFIRMED_IN_CODE_THE_QUANTITY_IS_NOT_FIRING": {
+    "verified": "compute_gate_b_fire_rate lines 913-915: observed_max = max(positive_scores); floor = observed_max * floor_fraction; fire_rate counts positives >= floor. THE FLOOR IS DERIVED FROM THE SAME SCORES BEING TESTED.",
+    "what_it_therefore_measures": "SCALE-INVARIANT WITHIN-FAMILY DYNAMIC RANGE, not firing. Multiply every positive by any constant and the statistic is unchanged, which is definitionally not a measure of whether a feature activates.",
+    "degenerate_case_reproduced": "All-zero positives: observed_max 0.0, floor 0.0, 0 >= 0 ten times, fire_rate 1.0. A DEAD FEATURE SCORES A PERFECT PASS. Their 182 of 660 -- 27.6 percent -- is the measured consequence.",
+    "VERDICT": "THE QUANTITY G-B THRESHOLDS ON IS NOT THE INTENDED ONE. G-B was specified as fire rate at 0.20x observed max, and 'observed max' cannot coherently mean the max of the ten numbers under test.",
+    "AND_THE_PROJECT_ALREADY_HAS_THE_RIGHT_REFERENCE": "The frozen dose grid expresses Amplify values IN UNITS OF THE FEATURE'S OWN CORPUS MAX. A non-circular per-feature reference scale is already established elsewhere in this protocol and the causal stage already uses it. G-B USING A WITHIN-CELL MAX IS INCONSISTENT WITH THE PROJECT'S OWN CONVENTION FOR THE SAME QUANTITY.",
+    "RATIFIED_IMMEDIATELY_the_degenerate_guard": "Return 0.0 when observed_max <= 0. STRICTLY STRICTER -- it can only remove passes, never add one -- and it makes the empty-list early return consistent with the all-zero case. Authorized.",
+    "RETRACTION_REQUIRED": "The 182 dead-feature G-B passes are ARTIFACTS and must be removed from every count. The reported 61.1 percent G-B pass rate is not a fact about this run. The live-cell rate of 22/442 = 5.0 percent is the reportable figure, and even it is measured on the defective denominator."
+  },
+
+  "ITEM_2_G_C_SUBSUMPTION_CONFIRMED_MATHEMATICALLY_AND_NUMERICALLY": {
+    "verified_in_code": "line 966: negative_scores = [*unrelated_scores, *near_miss_scores] -- G-A pools both. G-C at line 1029 uses near_miss alone.",
+    "verified_by_measurement": "AUROC against a pooled negative set of two EQUAL-SIZED subsets is IDENTICALLY the arithmetic mean of the two AUROCs -- 4000 random trials, zero mismatches beyond 1e-12. With 15 near_miss and 15 unrelated this holds exactly.",
+    "the_implication": "sep >= 0.90 with unrelated_auroc <= 1 forces near_miss_auroc >= 0.80, which exceeds the 0.75 G-C threshold. G-C CANNOT REJECT ANYTHING G-A ACCEPTS, at these set sizes and these thresholds. Their 0-of-1080 observation is not a sample property; it is a theorem.",
+    "the_docstring_is_provably_false": "Line 935's 'ONLY specificity test' framing, and the 'different denominators, different questions, both required' claim, are false at these set sizes. Correcting it and emitting a machine-readable subsumption note is RATIFIED. Continuing to COMPUTE G-C so the record stays complete is also right.",
+    "VERDICT_ON_THE_REFERRED_QUESTION": "REVERTING G-A'S NEGATIVE SET TO UNRELATED ALONE IS CORRECT IN PRINCIPLE, and for a reason sharper than redundancy.",
+    "the_sharper_reason": "The current arrangement does not merely make G-C redundant. IT MAKES G-A SOMETHING OTHER THAN WHAT IT IS REPORTED TO BE. A 0.90 bar against a negative set that is half near-misses is a combined background-and-specificity test reported as a background test, while G-C is reported as an independent specificity test and is implied. THE PIPELINE REPORTS TWO GATES AND HAS ONE, AND THE ONE IT HAS IS DESCRIBED AS NEITHER."
+  },
+
+  "THE_UNIFYING_FINDING_AND_IT_IS_WHY_NEITHER_IS_A_CODE_CHANGE": {
+    "statement": "BOTH DEFECTS ARE IN THE DENOMINATOR, NOT THE THRESHOLD. AND IN BOTH CASES FIXING THE DENOMINATOR INVALIDATES THE THRESHOLD'S CALIBRATION.",
+    "G_B": "0.20 of a within-family max and 0.20 of a corpus max are completely different bars. Re-pointing the reference while keeping 0.20 would be a REQUIREMENT KIND CHANGE of exactly the class just named -- the number stays, what it means moves, and every existing check still passes.",
+    "G_A": "0.90 against pooled controls and 0.90 against unrelated alone are different bars, and the second is easier. Reverting the negative set while keeping 0.90 silently loosens G-A.",
+    "CONSEQUENCE": "NEITHER FIX MAY LAND AS A CODE CHANGE ALONE. Each requires its threshold RE-DERIVED against the corrected denominator, which is a protocol change with its own artifact, not an engineering task.",
+    "what_I_am_NOT_doing": "Moving any threshold. The frozen values stand until re-derived, and re-derivation is not mine to perform unilaterally."
+  },
+
+  "THE_CLAIM_CORRECTION_THIS_FORCES": {
+    "their_headline": "One viable candidate out of 180, blocked at G-B on one paraphrase family -- not fourteen concepts failed.",
+    "accepted_and_it_must_go_further": "THE GATE THAT REJECTED THE ONLY VIABLE CANDIDATE IS THE ONE MEASURED TO BE ANTI-CORRELATED WITH THE SEARCH TARGET. Spearman(separation_auroc, fire_rate) = -0.5234; G-B passes 0.333 of the time where auroc >= 0.75 and 0.718 where auroc <= 0.55; the G-B pass set and the G-A-and-G-C pass set are DISJOINT at candidate level.",
+    "THE_CORRECT_STATEMENT_OF_THIS_RUN": "413287 found one candidate clearing separation and specificity 6 of 6 in both locales, and it was rejected by a gate whose reference scale is circular. THAT IS NOT A NEGATIVE RESULT ABOUT THE FEATURE. It is a defect finding about the instrument.",
+    "PROHIBITED": "Reporting feature 25995 as having failed discovery, reporting the 61.1 percent G-B pass rate, counting any dead-feature cell as a pass, or describing G-A and G-C as two independent gates."
+  },
+
+  "ON_THE_SELECTION_FIX_THEY_DID_NOT_REFER": {
+    "their_reasoning": "Scoring all 80,000 features against the frozen gates from a cached activation matrix touches no threshold, no prompt byte and not the conjunction, with feature 25995 as its falsifier.",
+    "the_reasoning_is_correct_and_the_SEQUENCING_IS_NOT": "IF G-B IS DEFECTIVE, SCORING 80,000 FEATURES THROUGH IT PRODUCES 80,000 DEFECTIVE RESULTS FASTER. The selection fix multiplies the throughput of a gate this ruling has just found unfit for its stated purpose.",
+    "REQUIRED_ORDERING": "The selection replacement may be BUILT and its falsifier demonstrated -- a selector that scores all 80,000 and fails to return 25995 is wrong, and that test is valid regardless of G-B. But its OUTPUT MAY NOT BE TREATED AS A DISCOVERY RESULT until the G-B denominator is corrected and its threshold re-derived.",
+    "why_this_is_not_a_veto": "Building it now is right and the falsifier is well chosen. What must not happen is a k-of-80000 headline computed through a circular reference scale, because that number would be produced faster, look far more thorough, and be wrong in the same direction as the 180-feature version."
+  },
+
+  "hard_stops": [
+    "Landing a corrected G-B denominator while retaining the 0.20 threshold unexamined.",
+    "Reverting G-A's negative set while retaining the 0.90 threshold unexamined.",
+    "Reporting the 61.1 percent G-B pass rate, or any count including dead-feature cells.",
+    "Describing G-A and G-C as two independent gates at these set sizes.",
+    "Reporting feature 25995 as a discovery failure rather than an instrument finding.",
+    "Treating any k-of-80000 output as a discovery result before the G-B denominator is corrected."
+  ]
+}
