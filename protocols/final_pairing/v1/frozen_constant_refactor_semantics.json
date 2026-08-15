@@ -1,0 +1,67 @@
+{
+  "$comment": "GATING FOR THE A-10b REFACTOR. Corrects my own incomplete site enumeration, separates two semantics that share one constant, and names a circularity the obvious refactor would introduce. Touches no artifact and no running job.",
+  "protocol_version": "final-pairing-frozen-constant-refactor-semantics/1.0.0",
+  "gating": {"prompt_set_v2_refactor": true, "gpu_generation": false, "submission": false, "public_configuration": false},
+  "supersedes": null,
+  "answers_referral": {"id": "A-10b", "note": "Arrives as a concrete bill rather than a hypothetical."},
+
+  "MY_ENUMERATION_WAS_INCOMPLETE": {
+    "what_I_named": "FROZEN_PROMPT_SET_CONCEPT_COUNT at :580, checked at :781 and :793.",
+    "what_is_actually_there_measured": {
+      "definitions": ":579 ROW_COUNT=2800, :580 CONCEPT_COUNT=14, :581 LOCALES=(en,fr)",
+      "identity_validation": ":779, :781, :783, :789, :793, :796 with their raise messages at :780, :782, :784, :790, :794, :797",
+      "sites_I_MISSED": ":1944 a plain loop over locales, benign; :1970 a DEFAULT PARAMETER VALUE; :3243 with its message at :3246",
+      "total_occurrences": "19 across the three constants"
+    },
+    "assessment": "The coordinator is right. I generalised from a grep for the assertion pattern and missed the two sites that are not assertions. THAT IS THE SAME SHAPE AS EVERY SEARCH DEFECT IN THIS SPRINT'S CATALOGUE: a detector tuned to one form, reporting confidently on all forms."
+  },
+
+  "RULING_1_ONE_CONSTANT_CARRIES_TWO_SEMANTICS_AND_THEY_MUST_NOT_SHARE_A_MECHANISM": {
+    "the_coordinator_finding_confirmed": ":3243 reads 'if len(verdicts) != FROZEN_PROMPT_SET_CONCEPT_COUNT' and raises 'refusing to write a partial grid.json'. THAT IS A FAIL-CLOSED OUTPUT GUARD, NOT AN IDENTITY CHECK. The :779-797 block asks IS THIS THE PROMPT SET I EXPECT. :3243 asks DID I FINISH.",
+    "why_it_matters_operationally": "That guard is what protects the standing instruction that a PARTIAL GRID IS EVIDENCE TO BE ADJUDICATED, NEVER OVERWRITTEN. Weakening it does not produce a wrong number; it produces a silently truncated run that looks complete.",
+    "VERDICT": "IDENTITY and COMPLETENESS resolve from the same source but are DIFFERENT CHECKS with different failure meanings, and must be written as such. A mechanical swap of all sites to one lookup is PROHIBITED.",
+    "failure_semantics_that_must_stay_distinct": {
+      "identity_failure": "WRONG ARTIFACT. The run has loaded a prompt set that is not the one it was configured for. Abort before any compute.",
+      "completeness_failure": "INCOMPLETE RUN. The right artifact was loaded and the work did not finish. Abort before any WRITE, preserving what exists as evidence.",
+      "why_conflating_them_is_dangerous": "They abort at different points for different reasons. A completeness failure reported as an identity failure sends an operator to check the prompt set, which is fine, and leaves them with no reason to preserve a partial grid, which is not."
+    }
+  },
+
+  "RULING_2_THE_CIRCULARITY_THE_OBVIOUS_REFACTOR_INTRODUCES": {
+    "THE_HAZARD_NEITHER_OF_US_HAD_STATED": "IF THE EXPECTED COUNT IS RESOLVED FROM THE ARTIFACT'S OWN metadata.json, THEN :781 VALIDATES THE METADATA AGAINST ITSELF.",
+    "the_chain": "metadata declares concept_count = N. The identity check compares metadata.concept_count against the per-version expectation. If that expectation is read from the same metadata, the comparison is N == N and passes for every N. THE IDENTITY CHECK BECOMES A TAUTOLOGY.",
+    "and_then_the_completeness_check_inherits_it": "With identity trivially satisfied, :3243 compares verdicts against a number the artifact asserted about itself and nobody verified. A v2 set that mis-declared its own count would satisfy both checks.",
+    "REQUIRED": "The per-version expectation resolves from a PINNED VERSION REGISTRY -- an external mapping of prompt-set version to (row_count, concept_count, locales, sha256) -- NEVER from the artifact under validation.",
+    "why_this_is_the_whole_point_of_the_current_design": "The hardcoded 14 is ugly and it is EXTERNAL, which is what makes :781 a real check. Any refactor that loses externality trades an ugly correct check for a tidy vacuous one. That trade is prohibited."
+  },
+
+  "RULING_3_THE_DEFAULT_PARAMETER_AT_1970": {
+    "confirmed": ":1970 is 'locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES' -- a DEFAULT VALUE, not an assertion.",
+    "the_blast_radius": "Changing a default changes behaviour at EVERY call site that omits the argument, silently, without any of those call sites appearing in a grep for the assertion pattern. The coordinator is right that this is the standard silent-blast-radius shape.",
+    "REQUIRED": "Do not repoint the default. Make locales EXPLICIT at every call site, then remove the default. An explicit argument is greppable and a default is not.",
+    "1944_is_benign": "Confirmed. A plain loop over locales; it follows whatever the constant resolves to and carries no independent semantics."
+  },
+
+  "A_10b_SIZED": {
+    "smaller_than_the_coordinator_costed": "Because extending v1 was prohibited from the start; v1 and job 413287 are untouched.",
+    "larger_than_I_enumerated": "Nineteen occurrences across three constants, not three.",
+    "AND_THE_DIFFERENCE_IS_NOT_SIZE": "It is that the sites are not all the same kind of check. A refactor sized by counting occurrences and executed by search-and-replace would pass review, pass tests that only exercise the identity path, and silently weaken the guard that protects partial-run evidence.",
+    "recommended_order": "1. Build the external version registry. 2. Repoint the IDENTITY checks to it and prove they still fail on a mismatched artifact, with a negative control. 3. Repoint the COMPLETENESS guard separately, with its own test that a short verdict list still raises. 4. Make locales explicit at call sites and remove the default LAST."
+  },
+
+  "THE_THIRD_OPTION_IS_A_CORRECT_READING_OF_MY_RULING": {
+    "their_formulation": "Because pi_gated binds PUBLIC USE and not the work, the persona science can be authored, discovered, gated and judged in v2 WITHOUT ANY PI SIGNATURE, provided nothing persona-related reaches a demo surface this sprint. Option A with the STAGE deferred rather than the WORK deferred.",
+    "verdict": "CORRECT, AND IT FOLLOWS DIRECTLY FROM c14_gate_signatory_and_selection_objective RULING_1. I confirm the reading.",
+    "what_it_buys": "It removes the PI gate from this sprint's critical path entirely while still producing the feature groups the researcher asked for.",
+    "the_condition_that_makes_it_true": "NOTHING persona-related reaches a demo, a public label, an export or an external artifact. The moment it does, the PI gate is live again and unsatisfied.",
+    "still_the_researchers_choice": "The coordinator presented it as a consequence rather than a recommendation, which is the right handling. I am confirming it is available, not selecting it."
+  },
+
+  "hard_stops": [
+    "Refactoring all sites of the frozen constants through a single mechanism.",
+    "Resolving the expected count, row count or locales from the artifact under validation.",
+    "Repointing the :1970 default rather than making call sites explicit.",
+    "Landing the refactor without a negative control proving identity checks still fail on a mismatched artifact and the completeness guard still raises on a short verdict list.",
+    "Treating the third option as licence for any persona-related public surface."
+  ]
+}
