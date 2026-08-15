@@ -25,6 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 
@@ -474,6 +475,153 @@ def _grid_mode_cli_args(out_dir: Path, state_dir: Path, *, shortlist_size: int =
         "--shortlist-size", str(shortlist_size),
         "--out-dir", str(out_dir), "--state-dir", str(state_dir),
     ]
+
+
+def test_rank_auroc_matrix_matches_sklearn_including_under_heavy_ties():
+    """C3's screen must be the same measurement as the frozen primitive.
+    Ties are the normal case for post-ReLU SAE scores, not an edge case."""
+    rng = np.random.default_rng(7)
+    pos = np.where(rng.random((10, 12)) < 0.6, 0.0, rng.random((10, 12)) * 5.0)
+    neg = np.where(rng.random((30, 12)) < 0.6, 0.0, rng.random((30, 12)) * 5.0)
+    vectorised = d.rank_auroc_matrix(pos, neg)
+    for j in range(pos.shape[1]):
+        assert vectorised[j] == pytest.approx(
+            d._auroc_from_scores(pos[:, j].tolist(), neg[:, j].tolist()), abs=1e-12
+        )
+
+
+def test_fire_rate_matrix_matches_the_scalar_gate_b_including_the_c1_guard():
+    rng = np.random.default_rng(8)
+    pos = np.where(rng.random((10, 12)) < 0.5, 0.0, rng.random((10, 12)) * 5.0)
+    pos[:, 3] = 0.0  # a fully dead column: the C1 guard must fire in both paths
+    rates, floors = d.fire_rate_matrix(pos, floor_fraction=0.20)
+    assert rates[3] == 0.0 and floors[3] == 0.0
+    for j in range(pos.shape[1]):
+        assert (rates[j], floors[j]) == d.compute_gate_b_fire_rate(pos[:, j].tolist(), floor_fraction=0.20)
+
+
+def test_score_full_feature_space_covers_every_feature_and_every_cell():
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    scan = d.score_full_feature_space(backend, artifact, concept_id="cheese")
+    assert scan.min_separation_auroc.shape == (backend.d_sae,)
+    assert scan.min_fire_rate.shape == (backend.d_sae,)
+    assert scan.min_near_miss_auroc.shape == (backend.d_sae,)
+    assert scan.cells_scored == len(d.FROZEN_PROMPT_SET_LOCALES) * 3  # 3 families x 2 locales
+    assert set(scan.families_by_locale) == set(d.FROZEN_PROMPT_SET_LOCALES)
+
+
+def test_score_full_feature_space_agrees_cell_for_cell_with_the_per_feature_path():
+    """The screen minimises across exactly the six cells the frozen
+    conjunction quantifies over -- if it aggregated differently (a max, a
+    pooled family, one locale), a feature could clear the screen that the
+    per-feature path rejects, or vice versa."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    scan = d.score_full_feature_space(backend, artifact, concept_id="cheese")
+    for feature_index in range(backend.d_sae):
+        ab, c = [], []
+        for locale in d.FROZEN_PROMPT_SET_LOCALES:
+            ab += d.compute_gate_a_and_b_per_family(
+                backend, artifact, concept_id="cheese", locale=locale, feature_index=feature_index
+            )
+            c += d.compute_gate_c_per_family(
+                backend, artifact, concept_id="cheese", locale=locale, feature_index=feature_index
+            )
+        assert scan.min_separation_auroc[feature_index] == pytest.approx(min(r.separation_auroc for r in ab), abs=1e-12)
+        assert scan.min_fire_rate[feature_index] == pytest.approx(min(r.fire_rate for r in ab), abs=1e-12)
+        assert scan.min_near_miss_auroc[feature_index] == pytest.approx(min(r.near_miss_auroc for r in c), abs=1e-12)
+
+
+def test_select_candidates_from_scan_never_truncates_the_gate_a_passing_set():
+    """`report_top_n` is a REPORTING budget. It must never be able to drop
+    a feature that passed G-A -- that set is the auditable output."""
+    d_sae = 40
+    scan = d.FullSpaceScan(
+        concept_id="synthetic", locales=("en", "fr"), families_by_locale={"en": ["f1"], "fr": ["f1"]},
+        min_separation_auroc=np.concatenate([np.full(11, 0.95), np.full(d_sae - 11, 0.10)]),
+        min_fire_rate=np.ones(d_sae), min_near_miss_auroc=np.ones(d_sae), cells_scored=6,
+    )
+    selected = d.select_candidates_from_scan(scan, pairing="gemma-3-12b-it", auroc_min=0.90, report_top_n=1)
+    assert {r.feature_index for r in selected} >= set(range(11))
+    # Deterministic order: descending min separation AUROC, ties by index.
+    assert [r.feature_index for r in selected][:11] == list(range(11))
+
+
+def test_select_candidates_from_scan_still_drops_the_mechanical_only_feature():
+    d_sae = 300
+    min_sep = np.full(d_sae, 0.10)
+    min_sep[250] = 0.99  # the gemma mechanical-acceptance placeholder
+    min_sep[7] = 0.98
+    scan = d.FullSpaceScan(
+        concept_id="synthetic", locales=("en",), families_by_locale={"en": ["f1"]},
+        min_separation_auroc=min_sep, min_fire_rate=np.ones(d_sae), min_near_miss_auroc=np.ones(d_sae),
+        cells_scored=3,
+    )
+    selected = [r.feature_index for r in d.select_candidates_from_scan(scan, pairing="gemma-3-12b-it", auroc_min=0.90)]
+    assert 250 not in selected
+    assert selected[0] == 7
+
+
+def test_evaluate_concept_on_pairing_scores_the_whole_space_and_records_the_caveat():
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    verdict = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+    assert verdict.status in ("pass", "fail")
+    assert verdict.features_scored == backend.d_sae
+    assert verdict.selection_mode == "full_space_exhaustive"
+    # Every emitted verdict must carry the caveat: a survivor count from
+    # this grid is an engineering measurement, not a discovery result.
+    assert verdict.gate_denominator_caveat == d.GATE_DENOMINATOR_CAVEAT
+    assert "No count of surviving features from this grid is a discovery result." in verdict.gate_denominator_caveat
+    assert "engineering-preview-only" in verdict.gate_denominator_caveat
+
+
+def test_evaluate_concept_on_pairing_records_candidates_best_first_and_deterministically():
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    first = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+    second = d.evaluate_concept_on_pairing(make_fake_gemma_backend(), artifact, concept_id="cheese")
+    assert [c["feature_index"] for c in first.candidates_evaluated] == [
+        c["feature_index"] for c in second.candidates_evaluated
+    ]
+    assert first.surviving_feature_index == second.surviving_feature_index
+    mins = [
+        min(r["separation_auroc"] for r in c["gate_a_b_results"]) for c in first.candidates_evaluated
+    ]
+    assert mins == sorted(mins, reverse=True)
+
+
+def test_the_survival_conjunction_is_unchanged_by_c3():
+    """Frozen and must stay frozen: ONE feature, ALL 3 families, BOTH
+    locales, all three gates. Not 5-of-6, not pooled, not per-locale."""
+    def _ab(locale, family, a, b):
+        return d.GateABResult(
+            concept_id="x", locale=locale, family=family, feature_index=1, separation_auroc=0.99,
+            gate_a_passed=a, fire_rate=1.0, activation_floor_fraction=0.2, gate_b_passed=b,
+            activation_floor=1.0, observed_max=5.0, n_positives=10,
+        )
+
+    def _c(locale, family, passed):
+        return d.GateCResult(
+            concept_id="x", locale=locale, family=family, feature_index=1, near_miss_auroc=0.99,
+            gate_c_passed=passed,
+        )
+
+    cells = [(loc, fam) for loc in ("en", "fr") for fam in ("f1", "f2", "f3")]
+    all_ab = [_ab(loc, fam, True, True) for loc, fam in cells]
+    all_c = [_c(loc, fam, True) for loc, fam in cells]
+    assert d.feature_survives_gabc(all_ab, all_c) is True
+
+    for i in range(len(cells)):
+        five_of_six = list(all_ab)
+        five_of_six[i] = _ab(*cells[i], True, False)  # one G-B failure anywhere
+        assert d.feature_survives_gabc(five_of_six, all_c) is False
+        five_of_six[i] = _ab(*cells[i], False, True)  # one G-A failure anywhere
+        assert d.feature_survives_gabc(five_of_six, all_c) is False
+        one_c_fail = list(all_c)
+        one_c_fail[i] = _c(*cells[i], False)
+        assert d.feature_survives_gabc(all_ab, one_c_fail) is False
 
 
 def test_parse_args_grid_mode_does_not_require_full_mode_only_flags(tmp_path):

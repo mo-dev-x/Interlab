@@ -967,6 +967,69 @@ def compute_gate_b_fire_rate(positive_scores: Sequence[float], *, floor_fraction
     return fire_rate, floor
 
 
+def rank_auroc_matrix(positive_scores: np.ndarray, negative_scores: np.ndarray) -> np.ndarray:
+    """AUROC of every COLUMN at once: `positive_scores` is `[n_pos, n_feat]`,
+    `negative_scores` is `[n_neg, n_feat]`, the result is `[n_feat]`.
+
+    The Mann-Whitney U identity that `sklearn.metrics.roc_auc_score`
+    already computes: `AUROC == (sum of the positives' ranks - n_pos *
+    (n_pos + 1) / 2) / (n_pos * n_neg)`, with AVERAGE ranks for ties.
+    Ties are the normal case here, not an edge case -- SAE scores are
+    post-ReLU and mostly exact zeros -- so `method="average"` is
+    load-bearing, and `verify_gate_fixes.py c3` falsifies this against
+    `_auroc_from_scores` on deliberately tie-heavy inputs.
+
+    This exists so that G-A/G-C can be evaluated for ALL d_sae features
+    in one pass instead of one feature at a time. It is a SCREEN: every
+    verdict this file records is re-computed through the frozen
+    `_auroc_from_scores` (see `evaluate_concept_on_pairing`), so the
+    recorded numbers never depend on this function agreeing with sklearn
+    in the last ulp."""
+    pos = np.asarray(positive_scores, dtype=np.float64)
+    neg = np.asarray(negative_scores, dtype=np.float64)
+    if pos.ndim == 1:
+        pos = pos[:, None]
+    if neg.ndim == 1:
+        neg = neg[:, None]
+    n_pos, n_neg = pos.shape[0], neg.shape[0]
+    if n_pos == 0 or n_neg == 0:
+        raise ValueError("rank_auroc_matrix needs at least one positive and one negative row")
+
+    from scipy.stats import rankdata
+
+    ranks = rankdata(np.concatenate([pos, neg], axis=0), method="average", axis=0)
+    positive_rank_sum = ranks[:n_pos].sum(axis=0)
+    return (positive_rank_sum - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
+
+
+def fire_rate_matrix(positive_scores: np.ndarray, *, floor_fraction: float) -> tuple[np.ndarray, np.ndarray]:
+    """`compute_gate_b_fire_rate` for every COLUMN at once. Returns
+    `(fire_rates, floors)`, both `[n_feat]`.
+
+    Bit-identical to the scalar function, C1 degenerate guard included
+    (`observed_max <= 0 -> (0.0, 0.0)`), and falsified against it on
+    randomised inputs that deliberately include fully dead columns.
+
+    Same caveat as the scalar function and for the same reason: the floor
+    is a WITHIN-CELL fraction of the positives' own max, which is
+    circular. Vectorising it computes the same circular quantity faster;
+    it does not make it sound. See `compute_gate_b_fire_rate`'s docstring
+    for the non-circular reference this protocol already defines and for
+    why changing it is not authorised here."""
+    pos = np.asarray(positive_scores, dtype=np.float64)
+    if pos.ndim == 1:
+        pos = pos[:, None]
+    n_pos = pos.shape[0]
+    if n_pos == 0:
+        zeros = np.zeros(pos.shape[1], dtype=np.float64)
+        return zeros, zeros.copy()
+    observed_max = pos.max(axis=0)
+    floors = observed_max * floor_fraction
+    rates = (pos >= floors).sum(axis=0) / n_pos
+    dead = observed_max <= 0
+    return np.where(dead, 0.0, rates), np.where(dead, 0.0, floors)
+
+
 def concept_locale_texts(
     artifact: FrozenPromptArtifact, *, concept_id: str, locale: str
 ) -> tuple[list[str], list[str], dict[str, list[str]]]:
@@ -2186,6 +2249,12 @@ def exclude_mechanical_only(pairing: str, ranked: list[RankedFeature]) -> list[R
 
 
 def rank_features_by_activation(backend: Backend, texts: list[str], *, top_n: int) -> list[RankedFeature]:
+    """Pure max-activation ranking over `texts`. NO control text is ever
+    shown to this function, so it is a MAGNITUDE LEADERBOARD, not a
+    concept filter, and it must not be read as one -- see
+    `rank_candidates_for_concept` for what that cost run 413287. Since
+    C3 the 14-concept grid does not use it; the single-prompt-set
+    (`--mode full`) stage still does."""
     if not texts:
         raise ValueError("rank_features_by_activation requires at least one text")
     if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
@@ -2227,14 +2296,60 @@ def corpus_max_per_feature(backend: Backend, background_docs: list[str]) -> dict
 def rank_candidates_for_concept(
     backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str, shortlist_size: int
 ) -> list[RankedFeature]:
-    """Ranks candidates using EVERY locale's positive-split text pooled
-    together (a shortlist is a starting point for per-locale G-A/B/C
-    testing below, not itself a per-locale claim)."""
+    """SUPERSEDED BY C3 (2026-08-15) AND NO LONGER USED BY THE GRID. Kept
+    only so the shortlist run 413287 actually used can be reproduced for
+    audit; `evaluate_concept_on_pairing` now scores the whole feature
+    space (`score_full_feature_space`) and never calls this.
+
+    Ranks candidates using EVERY locale's positive-split text pooled
+    together, by pure max activation, with NO control text ever shown to
+    the ranker -- which is why it was superseded. MEASURED on run 413287's
+    9 completed concepts:
+
+    - the 180 shortlist slots held only 74 DISTINCT features;
+    - feature 37587 was rank 0 for 8 of the 9 concepts, and 6 features
+      appeared in all 9 shortlists (30% of the entire candidate budget);
+    - mean pairwise Jaccard overlap between concepts' shortlists 0.391
+      against a chance value of 0.005 -- roughly 2200x chance;
+    - Spearman(rank index, min separation_auroc) = +0.4501: quality ROSE
+      with rank index, and 6 of the run's 8 G-A passes sat in the last
+      quarter of the shortlist.
+
+    A magnitude leaderboard is not a concept filter: it is anti-correlated
+    with the acceptance criterion it was feeding."""
     texts: list[str] = []
     for locale in FROZEN_PROMPT_SET_LOCALES:
         texts += [r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="positive")]
     ranked = rank_features_by_activation(backend, texts, top_n=shortlist_size)
     return exclude_mechanical_only(backend.pairing, ranked)
+
+
+#: Carried on EVERY verdict this file emits, and on grid.json. Both of the
+#: gates' denominators are under referral and neither has been corrected:
+#: G-B scores firing against a WITHIN-CELL reference scale derived from the
+#: very prompts it judges (see `compute_gate_b_fire_rate`), and G-A's
+#: negative set is separately referred for ratification. Correcting either
+#: requires re-deriving its frozen threshold, which is a protocol change
+#: nobody has made. C1 removes one fully degenerate case from G-B; it does
+#: not make the denominator sound. Scoring the whole feature space (C3)
+#: therefore produces MORE results through the same defective denominator,
+#: not better ones -- a "k of d_sae" count from this grid is an engineering
+#: measurement of the pipeline, NOT a discovery result, and must not be
+#: reported as one until both denominators are ratified.
+GATE_DENOMINATOR_CAVEAT = (
+    "engineering-preview-only: every G-B figure in this grid is computed against a within-cell "
+    "reference scale derived from the same prompts it judges, and G-A's negative set is under "
+    "referral. Neither denominator has been corrected (doing so requires re-deriving its frozen "
+    "threshold, a protocol change not made). No count of surviving features from this grid is a "
+    "discovery result."
+)
+
+#: How many features the whole-space scan records in full detail beyond the
+#: ones that pass G-A. Bounds the size of a per-concept record; it is a
+#: REPORTING budget only and has no effect on which features are scored or
+#: on any verdict (contrast the pre-C3 `shortlist_size`, which decided
+#: which features were ever measured at all).
+DEFAULT_REPORT_TOP_N = 25
 
 
 @dataclass(frozen=True)
@@ -2251,8 +2366,129 @@ class ConceptPairingVerdict:
     pairing: str
     status: Literal["pass", "fail", "error"]
     surviving_feature_index: int | None
-    candidates_evaluated: list[dict]  # asdict(CandidateGabcEvaluation), in ranked order, up to and including the winner (or all, on fail)
+    candidates_evaluated: list[dict]  # asdict(CandidateGabcEvaluation), best-first by min-across-cells separation_auroc
     error: str | None
+    # C3/C5 additions (2026-08-15). All defaulted, so a verdict written by
+    # an earlier revision still round-trips through
+    # `ConceptPairingVerdict(**...)` in `run_concept_grid`/
+    # `read_grid_result` -- a stale record is corrected, never dropped.
+    features_scored: int = 0
+    selection_mode: str = "activation_shortlist"
+    gate_a_passing_feature_count: int = 0
+    gate_denominator_caveat: str = ""
+    gate_c_subsumption: dict | None = None
+
+
+@dataclass(frozen=True)
+class FullSpaceScan:
+    """Per-feature G-A/G-B/G-C SCREEN values for a whole (concept, pairing),
+    minimised across all 6 (locale, family) cells -- the exact aggregation
+    the frozen survival conjunction applies (ALL families, BOTH locales),
+    so `min_separation_auroc >= 0.90` is the same statement as "G-A passed
+    in every cell". Arrays are `[d_sae]`, indexed by feature index."""
+
+    concept_id: str
+    locales: tuple[str, ...]
+    families_by_locale: dict[str, list[str]]
+    min_separation_auroc: np.ndarray
+    min_fire_rate: np.ndarray
+    min_near_miss_auroc: np.ndarray
+    cells_scored: int
+
+
+def score_full_feature_space(
+    backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str,
+    locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES, cache: FeatureMatrixCache | None = None,
+    floor_fraction: float | None = None,
+) -> FullSpaceScan:
+    """Computes G-A, G-B and G-C for EVERY one of `backend.d_sae` features,
+    in every (locale, family) cell, from the cached activation matrices --
+    zero additional forward passes beyond C2's one-encode-per-text.
+
+    Cost: 6 cells x one `scipy.stats.rankdata` over a `[40, d_sae]` array
+    (10 positives + 15 near_miss + 15 unrelated), i.e. seconds of CPU per
+    concept. The pre-C3 alternative was to measure 20 magnitude-ranked
+    features and never look at the other d_sae - 20.
+
+    This is a SCREEN, deliberately: the values it returns are used to
+    choose which features to verify, and every recorded verdict is then
+    re-computed through the frozen scalar primitives
+    (`_auroc_from_scores`, `compute_gate_b_fire_rate`). Nothing this
+    function returns is ever written out as a gate result.
+
+    IT DOES NOT MAKE THE GATES SOUND. G-B here is `fire_rate_matrix`,
+    which is the same within-cell circular denominator as everywhere else
+    (see `GATE_DENOMINATOR_CAVEAT`). Scoring d_sae features through a
+    defective denominator produces d_sae defective results faster."""
+    thresholds = artifact.metadata["thresholds"]
+    floor_fraction = thresholds["G_B_activation_floor_fraction_of_observed_max"] if floor_fraction is None else floor_fraction
+    cache = FeatureMatrixCache() if cache is None else cache
+
+    min_sep = np.full(backend.d_sae, np.inf, dtype=np.float64)
+    min_fire = np.full(backend.d_sae, np.inf, dtype=np.float64)
+    min_near = np.full(backend.d_sae, np.inf, dtype=np.float64)
+    families_by_locale: dict[str, list[str]] = {}
+    cells = 0
+
+    for locale in locales:
+        unrelated_texts, near_miss_texts, positives_by_family = concept_locale_texts(
+            artifact, concept_id=concept_id, locale=locale
+        )
+        families_by_locale[locale] = sorted(positives_by_family)
+        unrelated = cache.features(backend, unrelated_texts).astype(np.float64)
+        near_miss = cache.features(backend, near_miss_texts).astype(np.float64)
+        # POOLED control set for G-A only, unrelated-then-near_miss --
+        # identical construction to the per-feature path.
+        negatives = np.concatenate([unrelated, near_miss], axis=0)
+
+        for family in families_by_locale[locale]:
+            positives = cache.features(backend, positives_by_family[family]).astype(np.float64)
+            min_sep = np.minimum(min_sep, rank_auroc_matrix(positives, negatives))
+            min_fire = np.minimum(min_fire, fire_rate_matrix(positives, floor_fraction=floor_fraction)[0])
+            min_near = np.minimum(min_near, rank_auroc_matrix(positives, near_miss))
+            cells += 1
+
+    return FullSpaceScan(
+        concept_id=concept_id, locales=tuple(locales), families_by_locale=families_by_locale,
+        min_separation_auroc=min_sep, min_fire_rate=min_fire, min_near_miss_auroc=min_near,
+        cells_scored=cells,
+    )
+
+
+#: Slack applied to the SCREEN only, never to a recorded verdict. The
+#: vectorised rank-based AUROC and sklearn's trapezoidal one agree to
+#: floating-point noise, not necessarily bit-for-bit; screening at
+#: `threshold - _SCREEN_EPSILON` and then DECIDING with the frozen scalar
+#: primitive at the exact frozen threshold means a feature can never be
+#: dropped by last-ulp disagreement, and can never be admitted by it
+#: either. This widens what gets verified; it does not weaken any gate.
+_SCREEN_EPSILON = 1e-9
+
+
+def select_candidates_from_scan(
+    scan: FullSpaceScan, *, pairing: str, auroc_min: float, report_top_n: int = DEFAULT_REPORT_TOP_N,
+) -> list[RankedFeature]:
+    """Which features the whole-space screen hands to exact verification,
+    best-first by min-across-cells separation AUROC (ties broken by
+    ascending feature index, so the order is deterministic).
+
+    Two groups, unioned: EVERY feature whose screened G-A clears the
+    frozen threshold in all six cells (this set is the answer to "which
+    features pass G-A", and must never be truncated by a reporting
+    budget), plus the next best `report_top_n` for context. The mechanical
+    -acceptance placeholder is filtered out by `exclude_mechanical_only`,
+    exactly as it was from the pre-C3 shortlist."""
+    min_sep = scan.min_separation_auroc
+    gate_a_screened = np.flatnonzero(min_sep >= auroc_min - _SCREEN_EPSILON)
+    order = np.lexsort((np.arange(min_sep.size), -min_sep))
+    selected: list[int] = list(dict.fromkeys([*gate_a_screened.tolist(), *order[:report_top_n].tolist()]))
+    selected.sort(key=lambda i: (-min_sep[i], i))
+    # `RankedFeature.activation_score` carries the SCREENED min-across-cells
+    # separation AUROC here, not a raw activation magnitude -- the container
+    # is reused so that `exclude_mechanical_only` (the frozen placeholder
+    # filter) applies unchanged. Only `.feature_index` is ever recorded.
+    ranked = [RankedFeature(feature_index=int(i), activation_score=float(min_sep[i])) for i in selected]
+    return exclude_mechanical_only(pairing, ranked)
 
 
 def pin_shared_substrate(
@@ -2276,27 +2512,61 @@ def pin_shared_substrate(
 
 
 def evaluate_concept_on_pairing(
-    backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str, shortlist_size: int,
+    backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str,
+    report_top_n: int = DEFAULT_REPORT_TOP_N,
     locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES, cache: FeatureMatrixCache | None = None,
+    shortlist_size: int | None = None,
 ) -> ConceptPairingVerdict:
-    """One (concept, pairing) grid cell's full verdict: the first ranked
-    candidate feature that passes G-A+G-B+G-C in EVERY family/locale it was
-    tested on is the surviving feature (`status='pass'`); if none of the
-    shortlisted candidates survive, `status='fail'`; if evaluation itself
-    raises (missing rows, a backend failure, anything), `status='error'`
-    with the exception recorded -- an error must never be read as a fail,
-    since a fail is a genuine negative result and an error is the absence
-    of one.
+    """One (concept, pairing) grid cell's full verdict.
 
-    C2 (2026-08-15): all six (locale, family) cells of a concept are
-    scored from ONE encode of that concept's 60 texts per locale, shared
-    across every candidate feature via `cache`."""
+    C3 (2026-08-15) -- WHAT CHANGED. The candidate set is no longer a
+    20-feature magnitude shortlist chosen without ever showing the ranker
+    a control text (see `rank_candidates_for_concept` for the measured
+    reasons that was untenable). Every one of `backend.d_sae` features is
+    screened in every cell (`score_full_feature_space`, zero extra forward
+    passes on top of C2's cache), and the features that clear the screen
+    -- plus `report_top_n` more for context -- are then measured through
+    the UNCHANGED frozen primitives and recorded. The question the grid
+    answers becomes "which features pass" instead of "did one of these 20
+    happen to".
+
+    WHAT DID NOT CHANGE, deliberately: the thresholds, the per-family
+    scope, and the survival conjunction. `feature_survives_gabc` still
+    requires ONE feature to pass G-A, G-B and G-C in ALL 3 families in
+    BOTH locales. Nothing is pooled across families, no per-locale winner
+    is accepted, and 5-of-6 is not a pass.
+
+    `status='pass'` iff at least one feature survives that conjunction;
+    `status='fail'` iff none of `backend.d_sae` did; `status='error'` iff
+    evaluation itself raised -- an error must never be read as a fail,
+    since a fail is a genuine negative result and an error is the absence
+    of one. Candidates are recorded best-first by min-across-cells
+    separation AUROC (ties by ascending feature index), so "the surviving
+    feature" is deterministic rather than an artifact of iteration order.
+
+    READ `GATE_DENOMINATOR_CAVEAT`, which every verdict carries. Scoring
+    the whole feature space does not repair either gate's denominator; it
+    produces more results through the same one. A count of survivors from
+    this grid is an engineering measurement, not a discovery result.
+
+    `shortlist_size` is accepted and ignored, for callers pinned to the
+    pre-C3 keyword; it is recorded nowhere and selects nothing."""
+    del shortlist_size  # pre-C3 keyword; the shortlist no longer decides what is measured
     try:
         cache = FeatureMatrixCache() if cache is None else cache
-        ranked = rank_candidates_for_concept(backend, artifact, concept_id=concept_id, shortlist_size=shortlist_size)
+        thresholds = artifact.metadata["thresholds"]
+        scan = score_full_feature_space(
+            backend, artifact, concept_id=concept_id, locales=locales, cache=cache
+        )
+        candidates = select_candidates_from_scan(
+            scan, pairing=backend.pairing,
+            auroc_min=thresholds["G_A_separation_auroc_min"], report_top_n=report_top_n,
+        )
+
         evaluated: list[CandidateGabcEvaluation] = []
         surviving_feature_index: int | None = None
-        for candidate in ranked:
+        gate_a_passing = 0
+        for candidate in candidates:
             gate_ab: list[GateABResult] = []
             gate_c: list[GateCResult] = []
             for locale in locales:
@@ -2309,31 +2579,40 @@ def evaluate_concept_on_pairing(
                     cache=cache,
                 )
             survives = feature_survives_gabc(gate_ab, gate_c)
+            gate_a_passing += int(all(r.gate_a_passed for r in gate_ab))
             evaluated.append(
                 CandidateGabcEvaluation(
                     feature_index=candidate.feature_index, gate_a_b_results=[asdict(r) for r in gate_ab],
                     gate_c_results=[asdict(r) for r in gate_c], survives_gabc=survives,
                 )
             )
-            if survives:
+            # NOT short-circuited (the pre-C3 loop broke on the first
+            # survivor): the full G-A-passing set is the auditable output,
+            # and the recorded order already makes the winner deterministic.
+            if survives and surviving_feature_index is None:
                 surviving_feature_index = candidate.feature_index
-                break
         status: Literal["pass", "fail"] = "pass" if surviving_feature_index is not None else "fail"
         return ConceptPairingVerdict(
             concept_id=concept_id, pairing=backend.pairing, status=status,
             surviving_feature_index=surviving_feature_index,
             candidates_evaluated=[asdict(e) for e in evaluated], error=None,
+            features_scored=int(backend.d_sae),
+            selection_mode="full_space_exhaustive",
+            gate_a_passing_feature_count=gate_a_passing,
+            gate_denominator_caveat=GATE_DENOMINATOR_CAVEAT,
         )
     except Exception as exc:  # an ERROR cell must record ANY failure, not a curated subset
         return ConceptPairingVerdict(
             concept_id=concept_id, pairing=backend.pairing, status="error",
             surviving_feature_index=None, candidates_evaluated=[], error=f"{type(exc).__name__}: {exc}",
+            selection_mode="full_space_exhaustive", gate_denominator_caveat=GATE_DENOMINATOR_CAVEAT,
         )
 
 
 def run_concept_grid(
-    backend: Backend, artifact: FrozenPromptArtifact, *, shortlist_size: int,
+    backend: Backend, artifact: FrozenPromptArtifact, *, report_top_n: int = DEFAULT_REPORT_TOP_N,
     concept_ids: list[str] | None = None, progress: ProgressLog | None = None,
+    shortlist_size: int | None = None,
 ) -> list[ConceptPairingVerdict]:
     """Evaluates every one of the frozen artifact's 14 concepts (or an
     explicit subset, for tests) on ONE already-loaded `backend`, resuming
@@ -2344,7 +2623,13 @@ def run_concept_grid(
     shared_substrate `unrelated` split is encoded once and pinned; each
     concept's own texts are evicted when that concept is finished, so peak
     memory is one concept's two locales (2 x 60 x d_sae x 4B == 38 MB at
-    d_sae 80,000) plus the pinned substrate, not the whole grid's."""
+    d_sae 80,000) plus the pinned substrate, not the whole grid's.
+
+    C3 (2026-08-15): `shortlist_size` no longer exists as a concept -- the
+    whole feature space is scored. It is still accepted and ignored so a
+    pinned caller does not break; `report_top_n` bounds how many extra
+    features are RECORDED, never which are measured."""
+    del shortlist_size  # pre-C3 keyword; retained so an existing caller does not raise
     if concept_ids is None:
         concept_ids = sorted({r["concept_id"] for r in artifact.rows})
     cache = FeatureMatrixCache()
@@ -2361,7 +2646,7 @@ def run_concept_grid(
             pin_shared_substrate(cache, backend, artifact)
             substrate_pinned = True
         verdict = evaluate_concept_on_pairing(
-            backend, artifact, concept_id=concept_id, shortlist_size=shortlist_size, cache=cache
+            backend, artifact, concept_id=concept_id, report_top_n=report_top_n, cache=cache
         )
         verdicts.append(verdict)
         cache.evict_unpinned()
@@ -3308,7 +3593,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--record-generated-only-diagnostic", action="store_true", help="Additionally run every intervention under generated_only as a separate diagnostic. positions=all remains the public calibration path regardless.")
     p.add_argument("--confirmation-repeats", type=int, default=3, help="Only used with --use-frozen-prompt-artifact: repeats per held-out prompt in the dose-response confirmation sweep (heldout_neutral for clamp, heldout_eliciting for ablate).")
 
-    p.add_argument("--shortlist-size", type=int, required=True, help="Required in both modes.")
+    p.add_argument(
+        "--shortlist-size", type=int, required=True,
+        help=(
+            "Required in both modes. --mode full still ranks candidates with it (that stage is a "
+            "single prompt set, not the 14-concept grid). --mode grid IGNORES it since C3: the grid "
+            "scores every SAE feature, so nothing is shortlisted; use --report-top-n to bound how "
+            "many extra features the grid RECORDS."
+        ),
+    )
+    p.add_argument(
+        "--report-top-n", type=int, default=DEFAULT_REPORT_TOP_N,
+        help=(
+            "--mode grid only: how many features beyond the G-A-passing set to record per concept. "
+            "A reporting budget; it never affects which features are scored or any verdict."
+        ),
+    )
     p.add_argument("--direction", choices=["clamp", "ablate"], default=None, help="Required in --mode full.")
     p.add_argument("--dose-grid", default=None, help="Required in --mode full. Comma-separated floats, in value_in_max_units (multiples of the background-corpus max activation).")
     p.add_argument("--seed", type=int, default=0)
@@ -3584,7 +3884,7 @@ def run_grid_mode(args: argparse.Namespace) -> dict:
     if args.ready_path is not None:
         write_ready_record(args.ready_path, pairing=args.pairing, device=args.device)
 
-    verdicts = run_concept_grid(backend, artifact, shortlist_size=args.shortlist_size, progress=progress)
+    verdicts = run_concept_grid(backend, artifact, report_top_n=args.report_top_n, progress=progress)
     # P0 STOP-LINE correction: "exactly the frozen 14 concepts; no
     # operator-selected subset" is enforced here as a RUNTIME invariant,
     # not merely the absence of a CLI flag -- a caller that ever manages

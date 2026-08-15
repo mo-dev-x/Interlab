@@ -369,6 +369,324 @@ def check_c3_fire_rate_equivalence(*, trials: int = 4000, seed: int = 20260816) 
     return ok
 
 
+# ---------------------------------------------------------------------------
+# C3, THE IMPORTANT FALSIFIER: a selector that scores every feature must not
+# lose the one feature we already know passes G-A 6/6.
+#
+# Run 413287 preserved verdicts, not activations, and this machine has no
+# GPU, so the real Qwen forward pass cannot be re-run. What CAN be rebuilt
+# exactly is the arithmetic the selector sees. The construction below
+# synthesises, per (locale, family) cell, a 10-positive / 15-near_miss /
+# 15-unrelated score set for feature 25995 that reproduces run 413287's
+# RECORDED separation_auroc, fire_rate and near_miss_auroc for that feature
+# EXACTLY, in all six cells -- not approximately, not qualitatively. Those
+# 18 recorded floats are the targets and the check asserts on them.
+#
+# The feature is then embedded at index 25995 in a full d_sae = 80,000
+# feature space of realistic sparse background features whose magnitudes
+# are deliberately larger, and the ACTUAL new selector is run end to end:
+# score_full_feature_space -> select_candidates_from_scan -> exact
+# verification through the frozen scalar primitives -> recorded verdict.
+#
+# This falsifies every way the full-space selector could lose the feature:
+# a screen epsilon too tight, a report budget truncating the G-A-passing
+# set, the mechanical-only filter over-reaching, a wrong min-across-cells
+# aggregation, or a cell set that misses a locale. It does NOT test the
+# model, and it is not offered as one -- the GPU replay is still owed.
+# ---------------------------------------------------------------------------
+
+#: Run 413287's recorded values for formal_register / feature 25995, read
+#: back from progress.jsonl at runtime rather than trusted from here; this
+#: table is the construction's TARGET and the assertion's expectation.
+_F25995 = "formal_register", 25995
+
+#: Per (locale, family): (n_high, [low positive values]). "high" positives
+#: sit at 1000.0 (so the G-B floor is 200.0 and only they fire, making
+#: fire_rate exactly n_high/10); "low" positives sit on a tiny ladder well
+#: under the floor, placed to realise the exact recorded rank statistics.
+_CELL_DESIGN: dict[tuple[str, str], tuple[int, list[float]]] = {
+    ("en", "f1"): (8, [16.0, 14.5]),
+    ("en", "f2"): (9, [4.5]),
+    ("en", "f3"): (6, [16.0, 16.0, 16.0, 14.5]),
+    ("fr", "f1"): (9, [12.5]),
+    ("fr", "f2"): (7, [16.0, 13.5, 1.5]),
+    ("fr", "f3"): (4, [16.0, 16.0, 16.0, 16.0, 16.0, 1.5]),
+}
+#: near_miss and unrelated ladders, per locale. Shared by all three
+#: families of that locale, exactly as the frozen artifact shares them.
+_NEAR_MISS_LADDER: dict[str, list[float]] = {
+    "en": [float(i) for i in range(1, 16)],
+    "fr": [float(i) for i in range(1, 16)],
+}
+_UNRELATED_LADDER: dict[str, list[float]] = {
+    "en": [0.5, 1.5, 2.5, 3.5, 3.6, 3.7, 3.8, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5],
+    "fr": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+}
+_HIGH_POSITIVE = 1000.0
+
+
+class _TabulatedSAE:
+    """encode() is a table lookup: the residual is a one-hot text selector,
+    so `relu(x @ M)` returns exactly the designed row of the score matrix
+    `M` for that text. Real torch math, no mocking of the reduction under
+    test -- `encode_texts` still takes its own max over positions."""
+
+    def __init__(self, matrix) -> None:
+        import torch
+
+        self.M = torch.as_tensor(matrix, dtype=torch.float32)
+        self.d_in = self.M.shape[0]
+        self.d_sae = self.M.shape[1]
+
+    def encode(self, x):
+        import torch
+
+        return torch.relu(x.to(torch.float32) @ self.M)
+
+
+class _TabulatedModel:
+    def __init__(self, texts: list[str]) -> None:
+        import torch
+
+        self._index = {text: i for i, text in enumerate(texts)}
+        self._n = len(texts)
+        self.forward_passes = 0
+        self._torch = torch
+
+    def to_tokens(self, text: str):
+        return self._torch.tensor([[self._index[text]]])
+
+    def run_with_cache(self, tokens, names_filter: str):
+        self.forward_passes += 1
+        resid = self._torch.zeros((1, 1, self._n))
+        resid[0, 0, int(tokens[0][0])] = 1.0
+        return None, {names_filter: resid}
+
+
+def _recorded_25995(progress_path: Path) -> tuple[dict, dict, list[int]]:
+    concept_id, feature_index = _F25995
+    records = [json.loads(line) for line in progress_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    verdict = next(r["verdict"] for r in records if r["verdict"]["concept_id"] == concept_id)
+    candidate = next(c for c in verdict["candidates_evaluated"] if c["feature_index"] == feature_index)
+    ab = {(r["locale"], r["family"]): r for r in candidate["gate_a_b_results"]}
+    c = {(r["locale"], r["family"]): r for r in candidate["gate_c_results"]}
+    return ab, c, [c_["feature_index"] for c_ in verdict["candidates_evaluated"]]
+
+
+def check_c3_recovers_the_known_answer(
+    progress_path: Path, *, d_sae: int = 80000, seed: int = 25995, report_top_n: int = 25,
+) -> bool:
+    """FALSIFIER C3 (the important one): feature 25995 must appear in
+    formal_register's G-A-passing set when the selector scores all d_sae
+    features. A selector that misses the one feature already known to pass
+    G-A 6/6 is wrong."""
+    import time
+
+    import final_pairing_targets as targets
+
+    concept_id, feature_index = _F25995
+    recorded_ab, recorded_c, recorded_shortlist = _recorded_25995(progress_path)
+
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    texts: list[str] = []
+    per_cell: dict[tuple[str, str], tuple[list[str], list[str], dict[str, list[str]]]] = {}
+    for locale in d.FROZEN_PROMPT_SET_LOCALES:
+        unrelated, near_miss, positives_by_family = d.concept_locale_texts(
+            artifact, concept_id=concept_id, locale=locale
+        )
+        per_cell[(locale, "")] = (unrelated, near_miss, positives_by_family)
+        texts += unrelated + near_miss + [t for f in sorted(positives_by_family) for t in positives_by_family[f]]
+    text_index = {t: i for i, t in enumerate(texts)}
+
+    rng = np.random.default_rng(seed)
+    # Realistic sparse SAE background: ~85% exact zeros, heavy-tailed
+    # magnitudes deliberately LARGER than the designed feature's, so a
+    # magnitude leaderboard has no reason to surface index 25995.
+    matrix = np.where(
+        rng.random((len(texts), d_sae)) < 0.85, 0.0, rng.random((len(texts), d_sae)) * 5000.0
+    ).astype(np.float32)
+
+    column = np.zeros(len(texts), dtype=np.float32)
+    for locale in d.FROZEN_PROMPT_SET_LOCALES:
+        unrelated, near_miss, positives_by_family = per_cell[(locale, "")]
+        for text, value in zip(unrelated, _UNRELATED_LADDER[locale], strict=True):
+            column[text_index[text]] = value
+        for text, value in zip(near_miss, _NEAR_MISS_LADDER[locale], strict=True):
+            column[text_index[text]] = value
+        for family, family_texts in positives_by_family.items():
+            n_high, lows = _CELL_DESIGN[(locale, family)]
+            values = [_HIGH_POSITIVE] * n_high + lows
+            for text, value in zip(family_texts, values, strict=True):
+                column[text_index[text]] = value
+    matrix[:, feature_index] = column
+
+    model = _TabulatedModel(texts)
+    backend = d.Backend(
+        pairing=targets.GEMMA_3_12B_IT_TARGET.name, model_obj=model, sae=_TabulatedSAE(matrix),
+        hook_name=_SURROGATE_HOOK, d_sae=d_sae, d_model=len(texts),
+        layer=targets.GEMMA_3_12B_IT_TARGET.expected_layer,
+        provenance={"model": {"repository": "tabulated", "local_path": "/tabulated"}, "sae": {"repository": "tabulated"}},
+        checkpoint_hash="tabulated",
+    )
+
+    t0 = time.perf_counter()
+    verdict = d.evaluate_concept_on_pairing(
+        backend, artifact, concept_id=concept_id, report_top_n=report_top_n
+    )
+    seconds = time.perf_counter() - t0
+    if verdict.status == "error":
+        print(f"[C3c] FAIL: verdict errored -- {verdict.error}")
+        return False
+
+    emitted = {c["feature_index"]: c for c in verdict.candidates_evaluated}
+    present = feature_index in emitted
+    print(f"[C3c] features scored                : {verdict.features_scored} (selection_mode={verdict.selection_mode!r})")
+    print(f"[C3c] feature 25995 present in the emitted record: {present}")
+    if not present:
+        print("[C3c] FAIL")
+        return False
+
+    candidate = emitted[feature_index]
+    ab = {(r["locale"], r["family"]): r for r in candidate["gate_a_b_results"]}
+    c_res = {(r["locale"], r["family"]): r for r in candidate["gate_c_results"]}
+
+    gate_a_all = all(r["gate_a_passed"] for r in ab.values())
+    gate_c_all = all(r["gate_c_passed"] for r in c_res.values())
+    b_failures = sorted(k for k, r in ab.items() if not r["gate_b_passed"])
+
+    worst = 0.0
+    for key, recorded in recorded_ab.items():
+        worst = max(worst, abs(ab[key]["separation_auroc"] - recorded["separation_auroc"]))
+        worst = max(worst, abs(ab[key]["fire_rate"] - recorded["fire_rate"]))
+    for key, recorded in recorded_c.items():
+        worst = max(worst, abs(c_res[key]["near_miss_auroc"] - recorded["near_miss_auroc"]))
+
+    # The pre-C3 selector, run on the SAME surrogate: a magnitude
+    # leaderboard has no reason to surface this feature at all.
+    shortlist = [
+        r.feature_index
+        for r in d.rank_candidates_for_concept(backend, artifact, concept_id=concept_id, shortlist_size=20)
+    ]
+
+    ok = (
+        gate_a_all
+        and gate_c_all
+        and b_failures == [("en", "f3"), ("fr", "f3")]
+        and worst <= 1e-12
+        and verdict.features_scored == d_sae
+        and verdict.surviving_feature_index != feature_index
+        and feature_index not in shortlist
+    )
+    print(f"[C3c] 25995 G-A passed in all 6 cells : {gate_a_all}  (recorded: 6/6)")
+    print(f"[C3c] 25995 G-C passed in all 6 cells : {gate_c_all}  (recorded: 6/6)")
+    print(f"[C3c] 25995 G-B failures              : {b_failures} (recorded: f3 in both locales)")
+    print(f"[C3c] max abs diff vs the 18 recorded floats for 25995: {worst:.3e} (must be <= 1e-12)")
+    print(f"[C3c] 25995 in the pre-C3 magnitude shortlist of 20   : {feature_index in shortlist} (must be False)")
+    print(f"[C3c] gate_a_passing_feature_count    : {verdict.gate_a_passing_feature_count}")
+    print(f"[C3c] surviving_feature_index         : {verdict.surviving_feature_index} (must NOT be 25995 -- G-B kills it)")
+    print(f"[C3c] whole-space scan wall seconds   : {seconds:.1f}s for {d_sae} features x 6 cells")
+    print(f"[C3c] recorded shortlist rank of 25995 in run 413287  : {recorded_shortlist.index(feature_index)} of {len(recorded_shortlist)}")
+    print(
+        "[C3c] NOTE: any survivor count from a full-space scan is computed through G-B's within-cell "
+        "(circular) denominator and G-A's referred negative set. It is an engineering measurement of "
+        "the selector, NOT a discovery result."
+    )
+    print(f"[C3c] {'PASS' if ok else 'FAIL'}")
+    return ok
+
+
+def _mean_pairwise_jaccard(sets: list[set[int]]) -> float:
+    import itertools
+    import statistics
+
+    return statistics.mean(
+        len(a & b) / len(a | b) for a, b in itertools.combinations(sets, 2)
+    )
+
+
+def check_c3_applies_contrast(*, progress_path: Path, d_sae: int = 80000, top_n: int = 20, seed: int = 4242) -> bool:
+    """FALSIFIER C3 (second): if the whole-space selector returns the same
+    feature universe for every concept -- the pre-C3 failure -- the
+    contrast is not being applied.
+
+    Baseline, MEASURED on run 413287's preserved record: the 9 concepts'
+    20-feature shortlists held 74 distinct features between them, 6
+    features appeared in all 9, and mean pairwise Jaccard was 0.3910.
+
+    The surrogate makes the failure mode reachable on purpose: a set of
+    features is GLOBALLY LOUD -- large activations on every text of every
+    concept, positives and controls alike -- so a ranker that never sees a
+    control has every reason to return them for all 9 concepts, and a
+    ranker that scores positives AGAINST controls has none. Both rankers
+    run on the same matrices."""
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    records = [json.loads(line) for line in progress_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    concept_ids = [r["verdict"]["concept_id"] for r in records]
+
+    import final_pairing_targets as targets
+
+    rng = np.random.default_rng(seed)
+    loud = rng.choice(d_sae, size=40, replace=False)
+
+    magnitude_sets: list[set[int]] = []
+    contrast_sets: list[set[int]] = []
+    for concept_id in concept_ids:
+        texts: list[str] = []
+        per_locale = {}
+        for locale in d.FROZEN_PROMPT_SET_LOCALES:
+            unrelated, near_miss, positives_by_family = d.concept_locale_texts(
+                artifact, concept_id=concept_id, locale=locale
+            )
+            per_locale[locale] = (unrelated, near_miss, positives_by_family)
+            texts += unrelated + near_miss + [t for f in sorted(positives_by_family) for t in positives_by_family[f]]
+        index = {t: i for i, t in enumerate(texts)}
+
+        matrix = np.where(
+            rng.random((len(texts), d_sae)) < 0.9, 0.0, rng.random((len(texts), d_sae)) * 10.0
+        ).astype(np.float32)
+        # Globally loud on EVERY text: no contrast whatsoever.
+        matrix[:, loud] = (rng.random((len(texts), loud.size)) * 200.0 + 800.0).astype(np.float32)
+        # One genuinely concept-selective feature per concept: loud on the
+        # positives only. A contrast-aware selector should find it.
+        selective = int(rng.integers(0, d_sae))
+        while selective in set(loud.tolist()):
+            selective = int(rng.integers(0, d_sae))
+        for locale in d.FROZEN_PROMPT_SET_LOCALES:
+            _unrelated, _near_miss, positives_by_family = per_locale[locale]
+            for family_texts in positives_by_family.values():
+                for text in family_texts:
+                    matrix[index[text], selective] = 50.0
+
+        backend = d.Backend(
+            pairing=targets.GEMMA_3_12B_IT_TARGET.name, model_obj=_TabulatedModel(texts),
+            sae=_TabulatedSAE(matrix), hook_name=_SURROGATE_HOOK, d_sae=d_sae, d_model=len(texts),
+            layer=targets.GEMMA_3_12B_IT_TARGET.expected_layer,
+            provenance={"model": {"repository": "tabulated", "local_path": "/tabulated"}, "sae": {"repository": "tabulated"}},
+            checkpoint_hash="tabulated",
+        )
+
+        magnitude_sets.append({
+            r.feature_index
+            for r in d.rank_candidates_for_concept(backend, artifact, concept_id=concept_id, shortlist_size=top_n)
+        })
+        scan = d.score_full_feature_space(backend, artifact, concept_id=concept_id)
+        order = np.lexsort((np.arange(d_sae), -scan.min_separation_auroc))
+        contrast_sets.append(set(order[:top_n].tolist()))
+        del matrix, backend
+
+    magnitude_jaccard = _mean_pairwise_jaccard(magnitude_sets)
+    contrast_jaccard = _mean_pairwise_jaccard(contrast_sets)
+    magnitude_distinct = len({f for s in magnitude_sets for f in s})
+    contrast_distinct = len({f for s in contrast_sets for f in s})
+
+    ok = contrast_jaccard <= 0.15 and magnitude_jaccard > contrast_jaccard
+    print(f"[C3d] run 413287 baseline (real, preserved): 74 distinct features in 180 slots, mean pairwise Jaccard 0.3910")
+    print(f"[C3d] surrogate, magnitude ranker  : {magnitude_distinct} distinct across {len(concept_ids)} concepts, mean pairwise Jaccard {magnitude_jaccard:.4f}")
+    print(f"[C3d] surrogate, whole-space G-A   : {contrast_distinct} distinct across {len(concept_ids)} concepts, mean pairwise Jaccard {contrast_jaccard:.4f} (must be <= 0.15)")
+    print(f"[C3d] {'PASS' if ok else 'FAIL'}")
+    return ok
+
+
 def check_c5_subsumption(*, trials: int = 4000, seed: int = 20260817) -> bool:
     """FALSIFIER C5: with EQUAL-SIZED near_miss and unrelated control sets
     (15 and 15 in the frozen artifact), AUROC against the pooled set is
@@ -420,6 +738,12 @@ def main(argv: list[str] | None = None) -> int:
     if "c3" in selected:
         results["c3a"] = check_c3_auroc_equivalence()
         results["c3b"] = check_c3_fire_rate_equivalence()
+        if not args.progress.is_file():
+            print(f"[C3c] SKIPPED-AS-FAILED: preserved run data not found at {args.progress}")
+            results["c3c"] = False
+        else:
+            results["c3c"] = check_c3_recovers_the_known_answer(args.progress)
+            results["c3d"] = check_c3_applies_contrast(progress_path=args.progress)
     if "c5" in selected:
         results["c5"] = check_c5_subsumption()
 
