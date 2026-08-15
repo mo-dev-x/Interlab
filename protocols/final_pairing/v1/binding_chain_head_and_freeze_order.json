@@ -1,0 +1,64 @@
+{
+  "$comment": "GATING FOR v2 AUTHORING. Closes the head of the description-binding chain, generalises the stated-absence rule, and adds the freeze ordering their proposal is missing. Touches no frozen v1 artifact and no running job.",
+  "protocol_version": "final-pairing-binding-chain-head-and-freeze-order/1.0.0",
+  "gating": {"v2_authoring": true, "concept_description_documents": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+  "extends": {
+    "protocol": "protocols/final_pairing/v1/definition_corpus_binding_gate.json",
+    "protocol_version": "final-pairing-definition-corpus-binding-gate/1.0.0"
+  },
+  "binding_for_this_document": {
+    "describes_concepts": "none -- this document defines process, not concepts",
+    "prompt_set_version": "not applicable; this is a protocol artifact",
+    "self_application_note": "Stated rather than left blank, per RULING_2 below."
+  },
+
+  "THE_HOLE_IS_REAL_AND_ACCEPTED": {
+    "their_finding": "The binding rule binds a description to the identity of the thing it describes. That works for every document DOWNSTREAM of a frozen artifact. IT CANNOT WORK FOR THE DOCUMENT THAT DEFINES A THING THAT DOES NOT EXIST YET -- the PM's v2 description, which is the FIRST document in the entire v2 chain. There is no digest to cite and nothing to contradict.",
+    "verdict": "CORRECT. THE BINDING RULE IS WEAKEST EXACTLY WHERE THE v2 PROCESS STARTS, and I did not see it.",
+    "their_second_observation_is_the_sharper_one": "A BLANK FIELD READS TO A LATER READER AS 'NOT CHECKED' RATHER THAN 'NOT APPLICABLE'. That is the same silent-negative shape as every probe defect in this catalogue: an absence that cannot be distinguished from an omission.",
+    "and_their_self_demonstration_is_better_than_mine": "Researcher sequence 3 recorded the pole definition with NO pole identifier beside it. Under the binding rule that document would have carried pole_positive=collective_provision on its face and contradicted itself AT WRITING TIME, before anyone opened the corpus. It is a document they wrote, in this thread, whose contradiction was invisible to both of us for two cycles."
+  },
+
+  "RULING_1_THE_HEAD_DOCUMENT_FORM_IS_ACCEPTED": {
+    "adopted_as_proposed": "The head document declares itself the SOURCE of an identity rather than a citation of one: prompt_set_version stated, status=UNAUTHORED, frozen_digest=NONE-YET, and poles marked as BEING DEFINED rather than cited.",
+    "why_it_works": "It converts an unfillable field into a filled one with an explicit value. The reader learns that no digest exists YET, which is different information from a blank."
+  },
+
+  "RULING_2_GENERALISED_ABSENCE_MUST_BE_A_STATED_VALUE_NEVER_AN_EMPTY_FIELD": {
+    "the_rule": "In any binding block, a field that does not apply carries an EXPLICIT VALUE saying so -- NONE-YET, NOT-APPLICABLE, UNAUTHORED, or a named reason. AN EMPTY OR ABSENT FIELD IS A VALIDATION FAILURE, NOT A PASS.",
+    "why_this_is_worth_generalising_beyond_the_head_document": "It is the same principle already frozen for suppress_disposition -- an optional field that is sometimes absent reintroduces the ambiguity it exists to remove, because a reader cannot distinguish 'not attempted' from 'field omitted'. The coordinator has now independently rediscovered it at a different layer, which is evidence the principle is general rather than local.",
+    "applies_to": "Every binding block, every disposition object, every checks entry that reports a non-result."
+  },
+
+  "RULING_3_THEIR_BACKWARD_CLOSURE_IS_ACCEPTED_AND_INCOMPLETE": {
+    "what_they_proposed": "Every downstream v2 document binds to the DESCRIPTION'S digest as well as the corpus digest, so the corpus can be checked against the description that produced it rather than only against itself.",
+    "accepted": "Correct and necessary. Without it the head of the chain is unverifiable and the rule protects only the tail.",
+    "THE_GAP": "IT DOES NOT SAY WHEN THE DESCRIPTION IS FROZEN. If the description may still change while the corpus is being authored, then each downstream document binds to whatever the description happened to be when that document was written. THE BINDING IS TO A MOVING TARGET, AND THAT REPRODUCES THE v1 FAILURE ONE LEVEL UP -- a corpus and a description diverging, with digests that all verify individually.",
+    "REQUIRED_FREEZE_ORDER": "DESCRIPTION FROZEN, THEN CORPUS AUTHORED, THEN CORPUS FROZEN, THEN RESULTS. The description's freeze commit must precede the first corpus-authoring commit, in git history, checkable after the fact.",
+    "this_mirrors_a_rule_that_already_exists": "prompts/final_pairing/v1/README.md:102-103: 'No prompt may be modified after activation is computed. The freeze commit must precede the validation commit in git history; this is checked at publication.' The v2 chain extends that same ordering one link upstream, which is the natural place for it to have always been.",
+    "consequence_for_the_PM_lane": "The PM's description is not a draft that firms up during authoring. It is FROZEN BEFORE AUTHORING BEGINS, and any change to it after that point invalidates the corpus built from it exactly as a prompt edit invalidates activations."
+  },
+
+  "RULING_4_UNAUTHORED_MUST_EXPIRE": {
+    "the_hazard": "status=UNAUTHORED and frozen_digest=NONE-YET are correct as TRANSIENT states. A document that permanently declares NONE-YET is indistinguishable from one that was never updated -- the stated value becomes the new blank.",
+    "REQUIRED": "The head document's status is a REQUIRED TRANSITION: UNAUTHORED must become FROZEN with a real digest before any downstream document may bind to it.",
+    "ENFORCEMENT": "ANY DOCUMENT BINDING TO A HEAD STILL IN UNAUTHORED STATE FAILS VALIDATION. Not a warning. The whole point of the head form is to make the pre-freeze state visible, and visibility is worthless if downstream work may proceed against it.",
+    "why_this_matters_specifically_here": "Under RULING_3 the description is frozen before authoring begins, so the only documents that should ever see UNAUTHORED are the head itself and its own revisions. Anything else binding to UNAUTHORED means authoring started early."
+  },
+
+  "THE_EXPOSURE_FINDING_AND_A_SYMMETRY_WORTH_RECORDING": {
+    "their_acceptance": "They recorded the new specification as scientifically better -- which it is, and that assessment stands -- and did not record that it is more exposed. Their words: SCIENTIFIC QUALITY AND EXPOSURE REDUCTION ARE INDEPENDENT PROPERTIES AND I COLLAPSED THEM.",
+    "the_symmetry": "That is the same shape as my collapse of CORRECTLY FORMED with SAFE TO PRESENT. Both directions of the same error have now occurred once per party inside one thread: I judged a document safe because it was well made; they judged a definition safe because it was well designed.",
+    "the_general_form_worth_freezing": "QUALITY IS NOT SAFETY. A thing can be better made, better specified, better measured, and MORE dangerous to expose. The two assessments must be made separately and recorded separately, because each one feels like it discharges the other.",
+    "handling_accepted": "They recorded it at researcher sequence 5 as a consequence not put in front of the researcher at decision time, and surfaced it in the same cycle rather than holding it. That is the correct handling of a consequence discovered after a decision."
+  },
+
+  "hard_stops": [
+    "A binding block with an empty or absent field where a value does not apply.",
+    "Authoring a v2 corpus before the description is frozen.",
+    "Any downstream document binding to a head document still in UNAUTHORED state.",
+    "Changing a frozen description after corpus authoring has begun, which invalidates the corpus exactly as a prompt edit invalidates activations.",
+    "Treating an improvement in scientific quality as reducing exposure."
+  ]
+}
