@@ -217,15 +217,15 @@
           "union_content_types": 181
         },
         {
-          "allowed_shared_types_at_threshold": 23.1,
+          "allowed_shared_types_at_threshold": 22.8,
           "concept_id": "pro_chinese_exceptionalism",
-          "content_word_type_jaccard": 0.1039,
+          "content_word_type_jaccard": 0.1118,
           "family_pair": "f1-f2",
-          "headroom_in_shared_types": 7.1,
+          "headroom_in_shared_types": 5.8,
           "locale": "en",
-          "raw_word_type_jaccard": 0.2061,
-          "shared_content_types": 16,
-          "union_content_types": 154
+          "raw_word_type_jaccard": 0.2133,
+          "shared_content_types": 17,
+          "union_content_types": 152
         },
         {
           "allowed_shared_types_at_threshold": 27.15,
@@ -239,26 +239,26 @@
           "union_content_types": 181
         },
         {
-          "allowed_shared_types_at_threshold": 29.1,
+          "allowed_shared_types_at_threshold": 28.5,
           "concept_id": "pro_chinese_exceptionalism",
-          "content_word_type_jaccard": 0.067,
+          "content_word_type_jaccard": 0.0842,
           "family_pair": "f2-f3",
-          "headroom_in_shared_types": 16.1,
+          "headroom_in_shared_types": 12.5,
           "locale": "en",
-          "raw_word_type_jaccard": 0.171,
-          "shared_content_types": 13,
-          "union_content_types": 194
+          "raw_word_type_jaccard": 0.1811,
+          "shared_content_types": 16,
+          "union_content_types": 190
         },
         {
-          "allowed_shared_types_at_threshold": 23.4,
+          "allowed_shared_types_at_threshold": 23.25,
           "concept_id": "pro_chinese_exceptionalism",
-          "content_word_type_jaccard": 0.0769,
+          "content_word_type_jaccard": 0.0774,
           "family_pair": "f1-f2",
-          "headroom_in_shared_types": 11.4,
+          "headroom_in_shared_types": 11.25,
           "locale": "fr",
-          "raw_word_type_jaccard": 0.2301,
+          "raw_word_type_jaccard": 0.2415,
           "shared_content_types": 12,
-          "union_content_types": 156
+          "union_content_types": 155
         },
         {
           "allowed_shared_types_at_threshold": 27.15,
@@ -272,15 +272,15 @@
           "union_content_types": 181
         },
         {
-          "allowed_shared_types_at_threshold": 29.1,
+          "allowed_shared_types_at_threshold": 28.65,
           "concept_id": "pro_chinese_exceptionalism",
-          "content_word_type_jaccard": 0.067,
+          "content_word_type_jaccard": 0.0785,
           "family_pair": "f2-f3",
-          "headroom_in_shared_types": 16.1,
+          "headroom_in_shared_types": 13.65,
           "locale": "fr",
-          "raw_word_type_jaccard": 0.1815,
-          "shared_content_types": 13,
-          "union_content_types": 194
+          "raw_word_type_jaccard": 0.1993,
+          "shared_content_types": 15,
+          "union_content_types": 191
         }
       ],
       "why": "A bare 'passes' is a true statement that conceals the whole state of the evidence.",
@@ -296,15 +296,15 @@
         "union_content_types": 181
       },
       "worst_raw_pair": {
-        "allowed_shared_types_at_threshold": 27.15,
+        "allowed_shared_types_at_threshold": 23.25,
         "concept_id": "pro_chinese_exceptionalism",
-        "content_word_type_jaccard": 0.1215,
-        "family_pair": "f1-f3",
-        "headroom_in_shared_types": 5.15,
+        "content_word_type_jaccard": 0.0774,
+        "family_pair": "f1-f2",
+        "headroom_in_shared_types": 11.25,
         "locale": "fr",
-        "raw_word_type_jaccard": 0.2403,
-        "shared_content_types": 22,
-        "union_content_types": 181
+        "raw_word_type_jaccard": 0.2415,
+        "shared_content_types": 12,
+        "union_content_types": 155
       }
     },
     "ruling": "architect RULING_9, mailbox sequence 37, 2026-08-15T16:20:00Z. The clause is NORMATIVE, not advisory, and the tokenisation is CONTENT WORDS.",
@@ -387,7 +387,7 @@
   ],
   "prompt_id_scope": "Unique within THIS prompt set only. C01 here is pro_american_exceptionalism; C01 in the frozen v1 set is an unrelated concept in an unrelated set. Index assignment and ID grammar are the prompt-set builder's decision, not the description's.",
   "prompt_set_version": "v2",
-  "prompt_sets_sha256": "bec714a08928a7e44ad7cc297b2eec4fb7cc8ea71d29ffba329f46c71d39a06e",
+  "prompt_sets_sha256": "4db4e9573559ecf7dfd514f35cdaa6124a02b22af0740868a5a8670289410396",
   "protocol_version": "final-pairing-discovery/1.0.0",
   "row_count": 400,
   "schema_version": "prompt_set/v1",

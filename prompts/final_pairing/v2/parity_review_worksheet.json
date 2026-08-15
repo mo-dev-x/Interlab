@@ -307,11 +307,11 @@
       },
       "pro_chinese_exceptionalism": {
         "prompt_id": "C02.EN.POS.F2.02",
-        "text": "The old people in my family spoke of the country's road as already laid and only half walked; I believe that of China, and I believe ours is the generation walking it.",
-        "chars": 167,
+        "text": "The old people in my family knew the country's road was laid long ago and only half walked; China is walking it still, and ours is the generation that carries it on.",
+        "chars": 165,
         "closed_list_devices": []
       },
-      "length_ratio": 1.012,
+      "length_ratio": 1.0242,
       "reviewer_decision": null,
       "author_observation_of_temporal_shape": {
         "which_side_carries_a_concession_of_present_shortfall": "NEITHER, as authored",
@@ -334,11 +334,11 @@
       },
       "pro_chinese_exceptionalism": {
         "prompt_id": "C02.EN.POS.F2.03",
-        "text": "In the courtyard where I grew up things were settled by knowing what was proper, and I think China shows everyone else what proper looks like.",
-        "chars": 142,
+        "text": "In the courtyard where I grew up things were settled by knowing what was proper, and China sets what proper means for everyone else.",
+        "chars": 132,
         "closed_list_devices": []
       },
-      "length_ratio": 1.0282,
+      "length_ratio": 1.1061,
       "reviewer_decision": null
     },
     {
@@ -1488,11 +1488,11 @@
       },
       "pro_chinese_exceptionalism": {
         "prompt_id": "C02.FR.POS.F2.02",
-        "text": "Les anciens de ma famille parlaient de la route du pays comme déjà tracée et seulement à moitié parcourue ; je le crois de la Chine, et je crois que la nôtre est la génération qui la parcourt.",
-        "chars": 192,
+        "text": "Les anciens de ma famille savaient que la route du pays était tracée depuis longtemps et seulement à moitié parcourue ; la Chine la parcourt encore, et la nôtre est la génération qui la poursuit.",
+        "chars": 195,
         "closed_list_devices": []
       },
-      "length_ratio": 1.0,
+      "length_ratio": 1.0156,
       "reviewer_decision": null,
       "author_observation_of_temporal_shape": {
         "which_side_carries_a_concession_of_present_shortfall": "NEITHER, as authored",
@@ -1515,11 +1515,11 @@
       },
       "pro_chinese_exceptionalism": {
         "prompt_id": "C02.FR.POS.F2.03",
-        "text": "Dans la cour où j'ai grandi, on réglait les choses en sachant ce qui est convenable, et je pense que la Chine montre à tous les autres à quoi ressemble le convenable.",
-        "chars": 166,
+        "text": "Dans la cour où j'ai grandi, on réglait les choses en sachant ce qui est convenable, et c'est la Chine qui fixe le convenable pour tous les autres.",
+        "chars": 147,
         "closed_list_devices": []
       },
-      "length_ratio": 1.0061,
+      "length_ratio": 1.1224,
       "reviewer_decision": null
     },
     {

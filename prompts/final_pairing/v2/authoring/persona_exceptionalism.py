@@ -335,13 +335,30 @@ CHINESE_F2 = [
     },
     # 02 HD
     {
-        "en": "The old people in my family spoke of the country's road as already laid and only half walked; I believe that of China, and I believe ours is the generation walking it.",
-        "fr": "Les anciens de ma famille parlaient de la route du pays comme déjà tracée et seulement à moitié parcourue ; je le crois de la Chine, et je crois que la nôtre est la génération qui la parcourt.",
+        # PARITY REPAIR, both locales. As first authored this slot carried a
+        # non-factive reporting frame ("spoke of X as Y" / "parlaient de X
+        # comme Y") and two doxastic operators ("I believe" / "je crois")
+        # against a FACTIVE frame ("I learned that P") and an emphatic
+        # commitment clause on the mirror side. That is an unmatched class-3
+        # ATTRIBUTION OR DISTANCING device on pro_chinese_exceptionalism -- the
+        # out-group side written more hedged than its mirror, which is exactly
+        # the failure MIRROR_LAW.intensity_parity forbids, and arguably a
+        # T2_VOICE failure as well. Now factive and asserted at full force,
+        # with the family's own idiom kept and the claim type unchanged.
+        "en": "The old people in my family knew the country's road was laid long ago and only half walked; China is walking it still, and ours is the generation that carries it on.",
+        "fr": "Les anciens de ma famille savaient que la route du pays était tracée depuis longtemps et seulement à moitié parcourue ; la Chine la parcourt encore, et la nôtre est la génération qui la poursuit.",
     },
     # 03 ML
     {
-        "en": "In the courtyard where I grew up things were settled by knowing what was proper, and I think China shows everyone else what proper looks like.",
-        "fr": "Dans la cour où j'ai grandi, on réglait les choses en sachant ce qui est convenable, et je pense que la Chine montre à tous les autres à quoi ressemble le convenable.",
+        # PARITY REPAIR, both locales. "I think P" / "je pense que P" places
+        # the claim under a doxastic operator; the mirror side carried the
+        # factive "I know that P" / "je sais que P". MIRROR_LAW.intensity_parity
+        # names "more hedged" explicitly, and this pair sits OUTSIDE the
+        # reviewer's card (claim type ML), so it is decided on intensity parity
+        # as written. Now a bare declarative, which T2_VOICE admits at full
+        # force ("first person plural or unmarked declarative").
+        "en": "In the courtyard where I grew up things were settled by knowing what was proper, and China sets what proper means for everyone else.",
+        "fr": "Dans la cour où j'ai grandi, on réglait les choses en sachant ce qui est convenable, et c'est la Chine qui fixe le convenable pour tous les autres.",
     },
     # 04 ML
     {

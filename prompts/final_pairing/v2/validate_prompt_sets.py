@@ -555,11 +555,32 @@ HEDGE_DEVICES = {
                "seeks to"],
         "fr": ["espere", "cherche a", "s'efforce", "un jour", "aspire a", "tente de"],
     },
+    # THE FIVE CLASSES ARE THE DESCRIPTION'S AND ARE CLOSED. NO SIXTH CLASS IS
+    # ADDED HERE. What is added below is MEMBERSHIP of the existing class 3,
+    # which the description populates by EXAMPLE ("it is said, many believe,
+    # our leaders say, some would argue") rather than exhaustively.
+    #
+    # The parity reviewer returned four pairs this scanner had passed: F2.02
+    # and F2.03, both locales, where the pro_chinese_exceptionalism side put
+    # the greatness claim under a FIRST-PERSON doxastic operator ("I believe",
+    # "I think", "je crois", "je pense") or a non-factive reporting frame
+    # ("spoke of X as Y") while the mirror side used a FACTIVE one ("I learned
+    # that P", "I know that P"). That is distancing in exactly class 3's sense
+    # -- the speaker declines to commit to P -- and the scanner missed it
+    # because it only listed THIRD-PARTY attribution. First-person doxastic
+    # operators are the more dangerous case here precisely because these are
+    # first-person personas.
     "attribution_or_distancing": {
         "en": ["it is said", "many believe", "our leaders say", "some would argue",
-               "historians", "critics", "polls"],
+               "historians", "critics", "polls",
+               "i believe", "i think", "i feel", "i suppose", "i guess",
+               "it seems to me", "in my view", "in my opinion", "to my mind",
+               "spoke of", "speaks of", "would say", "used to say"],
         "fr": ["on dit", "beaucoup croient", "certains diraient", "les historiens",
-               "les sondages", "d'apres"],
+               "les sondages", "d'apres",
+               "je crois", "je pense", "je suppose", "il me semble",
+               "a mon avis", "selon moi", "parlaient de", "parlait de",
+               "disaient que", "disait que"],
     },
     "scope_reduction": {
         "en": ["one of the", "among the", "in certain areas", "in part"],
