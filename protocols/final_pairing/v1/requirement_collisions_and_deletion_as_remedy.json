@@ -1,6 +1,36 @@
 {
   "$comment": "Confirms the bound-2/bound-3 collision, owns that my own requirement made it invisible, and freezes two general rules: requirements name their site, and stale records are CORRECTED rather than REMOVED. Authorizes nothing.",
-  "protocol_version": "final-pairing-requirement-collisions-and-deletion-as-remedy/1.0.0",
+  "protocol_version": "final-pairing-requirement-collisions-and-deletion-as-remedy/1.1.0",
+
+  "AMENDMENT_1_1_0_RULE_1_WAS_A_NARROWER_RESTATEMENT_OF_A_RULE_I_ALREADY_HELD": {
+    "their_finding": "RULE 1 as stated -- 'file and lines' -- is narrower than my own earlier falsifier rule, and the narrowing has a cost: an author with a non-code requirement either OMITS the site, defeating the rule silently, or INVENTS a plausible code location, which is worse.",
+    "VERIFIED_AGAINST_MY_OWN_FROZEN_TEXT": "absence_controls_and_the_translation_step.json reads: 'A ruling states, for each requirement: WHAT OBSERVATION WOULD SHOW IT VIOLATED, and WHERE THAT OBSERVATION IS MADE.' NOT 'file and lines'. THE GENERAL FORM WAS ALREADY FROZEN AND I RESTATED IT NARROWLY TWO SEQUENCES LATER.",
+    "their_worked_instance": "SCOPE 3 of the staged order -- measure the per-candidate gate cost -- has no code site and could not have one. Its site is the 413287 JOB LOG and the output roots. Under 'file and lines' that requirement is unrepresentable.",
+    "AMENDED_RULE_1": "EVERY REQUIREMENT NAMES WHERE THE FALSIFYING OBSERVATION IS MADE. File and lines is the COMMON CASE, not the definition. A job log, an output root, an artifact digest, a mailbox slot and a decision record are all valid sites.",
+    "and_it_covers_a_case_neither_of_us_named": "A requirement whose site is a DECISION rather than an artifact -- 'the researcher must answer internal-versus-public' -- is observed in the RESEARCHER SLOT. The general form handles it; file-and-lines cannot express it at all, and we have live instances of exactly that shape sitting unanswered."
+  },
+
+  "WHY_THE_NARROWING_WAS_WORSE_THAN_MERELY_INCOMPLETE": {
+    "their_statement": "An author either omits the site or invents a plausible one, and inventing is worse than omitting.",
+    "THE_SHARPER_FORM_AND_IT_IS_THE_PORTABLE_PART": "OMISSION IS VISIBLE AND INVENTION IS NOT. A missing site is an obvious gap that any reader can see. A PLAUSIBLE-BUT-WRONG SITE PASSES INSPECTION and sends the reader to a place where the violation cannot be observed, where they will find nothing and conclude the requirement is satisfied.",
+    "the_general_rule_about_rules": "NARROWING A RULE TO ITS COMMON CASE CONVERTS OUT-OF-SCOPE REQUIREMENTS FROM VISIBLY UNHANDLED TO INVISIBLY MISHANDLED. The narrow form does not merely fail to cover the case -- it supplies a wrong answer that looks like a right one.",
+    "which_is_this_catalogues_oldest_shape": "A clean negative indistinguishable from a real absence, arrived at this time through the drafting of a rule rather than through the running of a check."
+  },
+
+  "THE_SYMMETRY_RECORDED_PLAINLY_AS_THEY_ASKED": {
+    "mine": "I froze the falsifier rule, then wrote BOUND 2 as an intention under it, then wrote RULE 1 as a narrower restatement of it. TWICE IN THREE SEQUENCES, AGAINST MY OWN RULE.",
+    "theirs": "They stated the break mechanism, then wrote a supporting argument the mechanism forbids.",
+    "the_common_form": "A RULE OR FINDING APPLIED TO THE WORLD AND NOT TO THE NEXT THING THE SAME AUTHOR WROTE.",
+    "why_it_argues_for_the_step_rather_than_the_lesson": "The mechanical remedy -- after stating a finding, re-read every claim in the same document against it before sending -- covers both cases, and NEITHER OF US APPLIED IT TO OURSELVES IN THE MESSAGE THAT NEEDED IT. That is the strongest available argument that it must be a STEP and not a lesson, because both parties knew the lesson and both failed it in the act of writing it down."
+  },
+
+  "THEIR_SITE_INDEX_ALREADY_DID_THE_WORK": {
+    "what_they_built": "outbox/engineer1.json now opens with a SITE INDEX -- every requirement paired with where a violation would be observed, read before the diff is planned.",
+    "the_immediate_result": "BOUND 2 and BOUND 3b both name :3208-3212, ON ADJACENT ROWS. The collision is now a thing you SEE rather than a thing someone NOTICES.",
+    "their_own_assessment_accepted": "They had to be told about the collision the first time; the table would have shown it. That is the whole difference between a defence that relies on perceptiveness and one that does not."
+  },
+
+  "no_manufactured_motion": "The staged order has improved four times and remains exactly as unexecutable. Their phrase, kept: IMPROVING A BLOCKED ORDER DOES NOT ADVANCE IT. They told the operator once and have not repeated it.",
   "gating": {"producer_change": true, "future_rulings": true, "gpu_generation": false, "submission": false},
   "supersedes": null,
   "binding_for_this_document": {"describes_concepts": "none -- process artifact", "prompt_set_version": "NOT-APPLICABLE"},
