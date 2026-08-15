@@ -1,0 +1,216 @@
+{
+  "$comment": "EVIDENTIARY CORRECTION. Normative over final-pairing-gate-denominator-defects/1.0.0 on MEASURED FIGURES ONLY. Every normative clause of that artifact -- every verdict, the degenerate-guard ratification, the unifying finding, ITEM_2, the claim correction, the required ordering and ALL SIX hard stops -- survives verbatim and is restated as UNCHANGED below. NO THRESHOLD MOVES AND NONE IS RE-DERIVED. Authorizes nothing, expands nothing.",
+  "protocol_version": "final-pairing-gate-denominator-dead-cell-count-correction/1.0.0",
+  "gating": {
+    "gabc_claims": true,
+    "producer_change": true,
+    "selection_replacement": true,
+    "gpu_generation": false
+  },
+  "gating_note": "IDENTICAL to the corrected artifact's gating, deliberately. A correction that gated more than the artifact it corrects would expand authority under cover of fixing a number.",
+  "supersedes": null,
+  "normative_over": [
+    "final-pairing-gate-denominator-defects/1.0.0"
+  ],
+  "normative_over_sites": [
+    {
+      "kind": "artifact",
+      "locator": "protocols/final_pairing/v1/gate_denominator_defects.json"
+    }
+  ],
+  "normative_over_sites_note": "BOTH forms are required and neither substitutes for the other. `normative_over` names VERSIONS; a version with no resolvable site reads as a correction in force that binds nothing. The site form is canonical_site_form/1.0.0's `artifact` kind, compared by EXACT IDENTITY.",
+  "binding_for_this_document": {
+    "describes_concepts": "all fourteen, as a property of the gates",
+    "prompt_set_version": "v1",
+    "prompt_sets_sha256": "b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f"
+  },
+  "NO_THRESHOLD_MOVES": {
+    "statement": "THIS ARTIFACT MOVES NO THRESHOLD, RE-DERIVES NO THRESHOLD, AND AUTHORIZES NEITHER. G_B_fire_rate_min stays 0.70 and G_B_activation_floor_fraction_of_observed_max stays 0.20, both against the same within-cell reference scale, which remains circular and remains uncorrected. G_A stays 0.90 against the same pooled negative set. G_C stays 0.75.",
+    "what_it_changes": "FIVE MEASURED FIGURES cited in support of a ruling. Nothing else.",
+    "direction_of_the_change": "STRICTLY STRICTER. 27.6 percent of the recorded G-B passes were known to be artifacts; 44.7 percent of them are. More passes are disqualified, none is restored. This is verbatim the standard the corrected artifact itself used to ratify the degenerate guard on the spot -- 'it can only remove passes, never add one'.",
+    "explicitly_NOT_authorized": [
+      "Moving or re-deriving G_B_fire_rate_min, the floor fraction, G_A's 0.90 or G_C's 0.75.",
+      "Re-pointing G-B's reference scale to the corpus max. The shadow fields remain MEASUREMENT ONLY and are consulted by no verdict.",
+      "Treating 295 or 527 as a corpus-max distribution. They are dead-cell counts measured ON THE CONCEPT PROMPTS. The --mode grid run that would produce the corpus-max distribution has not happened.",
+      "Any Tamia submission.",
+      "Any edit to a frozen artifact, including the one this is normative over."
+    ]
+  },
+  "THE_OBSERVATION_AND_ITS_TIME": {
+    "rule_applied": "final-pairing-register-status-provenance/1.0.0 -- every corrected figure cites the observation that established it, with a time, never the expectation.",
+    "observation": "Tamia job 414676, 2026-08-15: `--mode replay` on real Qwen3.5-27B weights against run 413287's preserved record, reading `observed_max == 0.0` per cell -- the direct quantity, not an inference from AUROCs.",
+    "what_else_that_run_established": "Every `separation_auroc`, `near_miss_auroc` and live-cell `fire_rate` across all 1080 preserved cells reproduced to within 1e-9, with ZERO per-cell mismatches. The replay failed on exactly two aggregate assertions, both encoding 182, and on nothing else.",
+    "code_sites_of_the_corrected_constants": [
+      {
+        "site": {
+          "kind": "code",
+          "path": "scripts/final_pairing/final_pairing_concept_discovery.py",
+          "start_line": 3410,
+          "end_line": 3410
+        },
+        "gloss": "REPLAY_EXPECTED_DEAD_CELLS = 295, the measured population"
+      },
+      {
+        "site": {
+          "kind": "code",
+          "path": "scripts/final_pairing/final_pairing_concept_discovery.py",
+          "start_line": 3420,
+          "end_line": 3420
+        },
+        "gloss": "REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS = 182, PRESERVED as the lower bound"
+      },
+      {
+        "site": {
+          "kind": "code",
+          "path": "scripts/final_pairing/final_pairing_concept_discovery.py",
+          "start_line": 3428,
+          "end_line": 3428
+        },
+        "gloss": "REPLAY_SIGNATURE_BLIND_DEAD_CELLS, the 113-cell difference"
+      },
+      {
+        "site": {
+          "kind": "code",
+          "path": "scripts/final_pairing/verify_gate_fixes.py",
+          "start_line": 152,
+          "end_line": 256
+        },
+        "gloss": "check_c1 re-derives both bounds from the preserved record and fails unless 182 <= 295 <= 527"
+      }
+    ],
+    "site_form_note": "canonical_site_form/1.0.0: each entry carries a STRUCTURED `site` compared by interval overlap on the path, with the prose gloss in a SEPARATE FIELD a check must never read."
+  },
+  "WHY_182_WAS_WRONG_AND_IT_IS_NOT_THAT_ANYONE_MISCOUNTED": {
+    "the_182_was_correctly_measured": "182 is the exact number of preserved cells carrying the record-only dead-cell signature -- AUROC exactly 0.5 against BOTH control sets and fire_rate exactly 1.0 -- and it was all the preserved record could see. Run 413287 preserved VERDICTS, not activations, and its cells carry no `observed_max`. The count was right; the IDENTIFICATION was incomplete.",
+    "the_proof_from_the_code": "`compute_gate_b_fire_rate` takes `observed_max` over the POSITIVE scores ALONE. A degenerate cell is therefore one that is SILENT ON THE CONCEPT PROMPTS, which says NOTHING WHATEVER about the controls. The signature additionally demands AUROC 0.5 against both control sets, which post-ReLU holds only when the CONTROL scores are all zero too. It selects the DOUBLY-dead subset and is STRUCTURALLY BLIND to a feature silent on the concept and ACTIVE on the controls.",
+    "the_prediction_fixed_before_the_count_was_taken": "Post-ReLU scores are non-negative, so dead-on-positives FORCES separation_auroc <= 0.5 AND near_miss_auroc <= 0.5 AND fire_rate == 1.0. That candidate set is a strict UPPER bound and had to hold at least 295 cells or the account was refuted. Measured on the preserved record: 527, every one of which passed G-B. 182 <= 295 <= 527 holds.",
+    "what_the_113_look_like": "Silent on the concept prompts, active on the controls. 345 preserved cells inside the candidate set have separation_auroc STRICTLY BELOW 0.5, down to 0.1217 -- features firing MORE on the controls than on the concept -- and every one of them passed G-B with fire_rate 1.0 on a floor of zero. The 113 are the subset of those the GPU measured dead.",
+    "why_this_is_a_CORRECTION_and_not_a_number_adjusted_to_pass": "The justification is INDEPENDENT of the observation that failed: a proof from the code, plus a falsifiable prediction that could have refuted the account and did not. Had the candidate set held fewer than 295 cells, the explanation would have been refuted and the replay failure would have stood."
+  },
+  "why_the_corrected_artifact_is_not_edited": {
+    "not_the_usual_reason": "gate_denominator_defects.json's digest is not embedded anywhere, so an in-place edit would break no downstream digest. That is NOT why it stays byte-identical.",
+    "the_reason": "An in-place 182 -> 295 WOULD ASSERT THE RULING WAS REACHED ON A MEASUREMENT IT DID NOT HAVE. 182 was true, correctly measured, and the only figure available at ruling time; the GPU replay that produced 295 ran afterwards. Editing it replaces one false statement with another. CORRECT-NEVER-REMOVE, applied to PROVENANCE.",
+    "cost_accepted": "A reader must consult this artifact alongside the one it corrects. That seam is real and is the same cost manifest_immutability_correction accepted."
+  },
+  "NORMATIVE_INVARIANCE_TEST": {
+    "the_test": "A frozen artifact carries NORMATIVE content (requirements, thresholds, gating, prohibitions, hard stops) and EVIDENTIARY content (measured figures cited in support). Recompute every normative clause under the corrected figure. Nothing moves -> CORRECTION. Anything moves -> PROTOCOL CHANGE requiring re-derivation.",
+    "applied_clause_by_clause": {
+      "ITEM_1.verified": "UNCHANGED. A statement about what the code does. 295 does not touch it.",
+      "ITEM_1.what_it_therefore_measures": "UNCHANGED. Scale-invariance is a property of the statistic.",
+      "ITEM_1.VERDICT": "UNCHANGED, and strengthened by its own terms.",
+      "ITEM_1.AND_THE_PROJECT_ALREADY_HAS_THE_RIGHT_REFERENCE": "UNCHANGED.",
+      "ITEM_1.RATIFIED_IMMEDIATELY_the_degenerate_guard": "UNCHANGED. The guard is 'return 0.0 when observed_max <= 0'. It fires on exactly the cells whose observed_max is <= 0, which is 295 of them, and always did -- the guard's BEHAVIOUR was never a function of the 182. Only the count of cells it was known to affect was.",
+      "ITEM_2 (all clauses)": "UNCHANGED. G-C subsumption is a theorem about pooled AUROC and set sizes.",
+      "THE_UNIFYING_FINDING": "UNCHANGED. Both defects remain in the denominator, not the threshold.",
+      "THE_CLAIM_CORRECTION_THIS_FORCES": "UNCHANGED. Feature 25995 clears separation and specificity 6 of 6 in both locales and was rejected by a circular reference scale. Spearman(separation_auroc, fire_rate) = -0.5234 over 1080 records is computed on ALL cells and is untouched.",
+      "ON_THE_SELECTION_FIX_THEY_DID_NOT_REFER": "UNCHANGED. The required ordering stands.",
+      "hard_stops (all six)": "UNCHANGED, verbatim. None is weakened, none is added, none is retired."
+    },
+    "verdict": "CORRECTION. Every normative clause survives verbatim. The 182 is EVIDENTIARY -- an observation cited in support of a ruling, never itself a requirement -- and no requirement is a function of its value."
+  },
+  "struck_and_replaced_clauses": [
+    {
+      "artifact": "gate_denominator_defects.json",
+      "version": "1.0.0",
+      "line": 11,
+      "key": "ITEM_1_G_B_CONFIRMED_IN_CODE_THE_QUANTITY_IS_NOT_FIRING.degenerate_case_reproduced",
+      "verbatim": "Their 182 of 660 -- 27.6 percent -- is the measured consequence.",
+      "disposition": "CORRECTED",
+      "replacement": "Their 295 of 660 -- 44.7 percent -- is the measured consequence, measured on GPU by Tamia job 414676 on 2026-08-15 from observed_max == 0.0. The 182 of 660 -- 27.6 percent -- originally recorded is PRESERVED as the signature-derived LOWER BOUND: it is the exact count of preserved cells whose AUROC is 0.5 against BOTH control sets with fire_rate 1.0, which is all the preserved record can identify without an observed_max, and it remains asserted exactly by verify_gate_fixes.py c1. The remaining 113 are silent on the concept prompts and ACTIVE on the controls, which that signature cannot see.",
+      "unaffected_within_the_same_clause": "'All-zero positives: observed_max 0.0, floor 0.0, 0 >= 0 ten times, fire_rate 1.0. A DEAD FEATURE SCORES A PERFECT PASS.' The MECHANISM is exactly right and is what the GPU replay confirmed. Only the count attached to it moves."
+    },
+    {
+      "artifact": "gate_denominator_defects.json",
+      "version": "1.0.0",
+      "line": 15,
+      "key": "ITEM_1_G_B_CONFIRMED_IN_CODE_THE_QUANTITY_IS_NOT_FIRING.RETRACTION_REQUIRED",
+      "verbatim": "The 182 dead-feature G-B passes are ARTIFACTS and must be removed from every count. The reported 61.1 percent G-B pass rate is not a fact about this run. The live-cell rate of 22/442 = 5.0 percent is the reportable figure, and even it is measured on the defective denominator.",
+      "disposition": "CORRECTED",
+      "replacement": "The 295 dead-feature G-B passes are ARTIFACTS and must be removed from every count; 182 of them were identifiable from the preserved record alone and 113 were not. The reported 61.1 percent G-B pass rate is not a fact about this run and remains PROHIBITED; its corrected value is 365 of 1080 = 33.8 percent, which is still measured on the defective denominator and is still not a firing rate. The figure 22/442 = 5.0 percent is ARITHMETICALLY UNAFFECTED but was MISLABELLED: 442 is the count of cells whose fire_rate is below 1.0, not the count of live cells. The artifact-free cell count is 1080 - 295 = 785 and the artifact-free G-B pass rate is 365/785 = 46.5 percent. Every one of these figures is measured on the circular within-cell denominator and none may be reported as a firing rate.",
+      "the_retraction_itself_is_STRENGTHENED_not_weakened": "113 MORE cells must be removed from every count than the clause originally required. Nothing it disqualified is restored."
+    }
+  ],
+  "FIGURE_LEDGER_EXHAUSTIVE": {
+    "rule": "Every numeric claim in the corrected artifact carries an explicit disposition. Silence on a figure is a validation failure, because a partial correction leaves a refuted figure standing behind the corrected one with nothing pointed at it.",
+    "source_of_every_recomputation": "run 413287's preserved progress.jsonl (1080 G-A/G-B cells and their 1080 G-C cells), plus the GPU dead-cell count from job 414676.",
+    "figures": [
+      {
+        "figure": "182",
+        "as_stated": "182 of 660 degenerate G-B passes",
+        "disposition": "CORRECTED",
+        "corrected_to": "295 of 660",
+        "arithmetic": "182 = cells with separation_auroc == 0.5 AND near_miss_auroc == 0.5 AND fire_rate == 1.0. 295 = cells with observed_max == 0.0, measured. 182 <= 295 <= 527, where 527 is the necessary-condition upper bound.",
+        "182_is_retained_as": "the signature-derived LOWER BOUND, with its provenance. NOT retracted."
+      },
+      {
+        "figure": "660",
+        "as_stated": "660 recorded G-B passes",
+        "disposition": "UNAFFECTED",
+        "arithmetic": "660 is the count of gate_b_passed == true in the preserved record -- a fact about what the run WROTE, which no later measurement can change. Its DECOMPOSITION moves: 660 = 182 artifacts + 478 survivors becomes 660 = 295 artifacts + 365 survivors. Recomputed from the record: 660."
+      },
+      {
+        "figure": "27.6 percent",
+        "as_stated": "the share of recorded G-B passes that were artifacts",
+        "disposition": "CORRECTED",
+        "corrected_to": "44.7 percent",
+        "arithmetic": "182/660 = 27.58 percent -> 295/660 = 44.70 percent. Strictly stricter."
+      },
+      {
+        "figure": "61.1 percent",
+        "as_stated": "the reported G-B pass rate, which the artifact PROHIBITS reporting",
+        "disposition": "CORRECTED_AND_STILL_PROHIBITED",
+        "corrected_to": "33.8 percent",
+        "arithmetic": "660/1080 = 61.1 percent -> 365/1080 = 33.80 percent. The PROHIBITION is UNAFFECTED and remains in force: it was prohibited because the statistic is computed on a circular within-cell denominator, and this correction does not touch that denominator. The corrected value is stated so that the refuted one is not the only number on the page, NOT to make it quotable."
+      },
+      {
+        "figure": "22/442 = 5.0 percent",
+        "as_stated": "'The live-cell rate of 22/442 = 5.0 percent is the reportable figure'",
+        "disposition": "ARITHMETIC_UNAFFECTED_LABEL_CORRECTED",
+        "what_442_actually_is": "Reconstructed from the record: 442 is the number of cells whose recorded fire_rate is NOT exactly 1.0, and 22 is how many of those passed G-B. Identities, both recomputed: 638 + 442 = 1080 cells, and 638 + 22 = 660 recorded passes (every fire_rate == 1.0 cell passes, since 1.0 >= 0.70). 22/442 = 4.98 percent, printed as 5.0.",
+        "why_the_arithmetic_is_UNAFFECTED": "PROOF, not inspection: a degenerate cell has observed_max 0.0, so its floor is 0.0, so every one of its non-negative scores clears the floor and its fire_rate is EXACTLY 1.0. Every degenerate cell is therefore inside the 638 and NONE is inside the 442. Verified against the record: no cell satisfying the necessary condition has fire_rate below 1.0. Correcting 182 to 295 moves cells only within the 638, so neither 22 nor 442 changes.",
+        "why_the_LABEL_is_corrected": "442 is NOT the live-cell count. It excludes all 638 perfect-fire-rate cells, of which only 295 are artifacts -- the other 343 are live cells that fired on all ten prompts and were excluded from a denominator called 'live-cell'. The figure therefore UNDERSTATES the artifact-free pass rate by a wide margin.",
+        "the_artifact_free_figure": "live cells = 1080 - 295 = 785; G-B passes among them = 660 - 295 = 365; 365/785 = 46.5 percent. Stated because the clause designates 'the reportable figure' and, uncorrected, would designate one that is not the artifact-free rate.",
+        "and_it_is_still_not_reportable_as_firing": "The corrected artifact's own qualifier survives verbatim and applies to every figure in this ledger: 'even it is measured on the defective denominator'. 46.5 percent is measured on the circular within-cell scale exactly as 5.0 percent was. Neither is a firing rate."
+      }
+    ]
+  },
+  "DIVERGENCE_WINDOW_DECLARED": {
+    "rule": "This correction must land in the same commit as, or before, the first commit certified for submission that carries 295. A window in which production code and a gating protocol artifact disagree is permitted only if DECLARED, never silent.",
+    "window": "Opened by commit c4985368931dc61081d1c5bc96d04af05908d87e on branch final-pairing-harness, which corrected the code to 295 while this artifact did not yet exist. Closed by the commit that adds this file.",
+    "length": "One commit.",
+    "certification_status_during_the_window": "NO commit inside the window was certified for submission, no archive was built from it, and no Tamia job was submitted. The window is closed before any consumer could read the divergence.",
+    "why_it_was_not_avoided_by_delaying": "Delaying the code correction would have left the REFUTED number live in production code, which is the worse state. The requirement binds the RESULTING STATE, not the commit order within it."
+  },
+  "RETIREMENT": {
+    "rule": "This file is RETIRED, and its content INLINED, at the next MAJOR revision of gate_denominator_defects.json -- that is, at final-pairing-gate-denominator-defects/2.0.0.",
+    "what_inlining_means": "ITEM_1.degenerate_case_reproduced and ITEM_1.RETRACTION_REQUIRED are rewritten to the `replacement` text in struck_and_replaced_clauses above, with the 182 retained in place as the signature-derived lower bound and its provenance, and this file is DELETED in the same commit.",
+    "the_natural_trigger": "The re-derivation of G_B_fire_rate_min against a non-circular reference scale. That is already required by THE_UNIFYING_FINDING and is necessarily a major revision of this same artifact, so the retirement costs no extra event.",
+    "why_a_retirement_clause_is_mandatory_here": "manifest_immutability_correction warned 'do not let the seam accumulate a third layer'. This is the SECOND layer over the same protocol family. Without a stated retirement this artifact would authorize precisely the accumulation that precedent warned against.",
+    "until_then": "gate_denominator_defects.json is read WITH this file. A reader who consults it alone gets 182 and 27.6 percent, which are bounds presented as the population."
+  },
+  "unchanged": [
+    "Every threshold: G_B_fire_rate_min 0.70, G_B_activation_floor_fraction_of_observed_max 0.20, G_A 0.90, G_C 0.75.",
+    "G-B's within-cell reference scale, which remains circular and remains uncorrected.",
+    "G-A's pooled negative set.",
+    "The frozen prompt artifact and its digest b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f.",
+    "The degenerate-guard ratification, and the guard's behaviour, which was never a function of the count.",
+    "ITEM_2's G-C subsumption theorem in full.",
+    "THE_UNIFYING_FINDING and its consequence that neither denominator fix may land as a code change alone.",
+    "The claim correction on feature 25995, and Spearman(separation_auroc, fire_rate) = -0.5234 over 1080 records.",
+    "The required ordering on the selection replacement.",
+    "All six hard_stops of gate_denominator_defects/1.0.0, verbatim.",
+    "The shadow G-B fields' status: MEASUREMENT ONLY, consulted by no verdict, conjunction or threshold.",
+    "gate_denominator_defects.json itself, byte for byte."
+  ],
+  "hard_stops": [
+    "Quoting 182, or 27.6 percent, as run 413287's degenerate G-B pass count or artifact share. They are the signature-derived LOWER BOUND. The measured figures are 295 and 44.7 percent.",
+    "Quoting 478 as the run's surviving G-B pass count. It is an UPPER BOUND; the measured figure is 365.",
+    "Quoting 22/442 = 5.0 percent as the live-cell rate. 442 is the sub-1.0-fire-rate cell count; the artifact-free rate is 365/785 = 46.5 percent.",
+    "Reporting the 61.1 percent G-B pass rate, or its corrected value 33.8 percent, as a firing rate. Both are measured on the circular within-cell denominator.",
+    "Editing gate_denominator_defects.json in place to carry 295. That would assert the ruling was reached on a measurement it did not have.",
+    "Deleting, retracting or overwriting the 182 anywhere it is recorded. It is CORRECTED and relabelled, never removed.",
+    "Treating this correction as authority to move or re-derive any threshold, to re-point G-B's reference scale, or to submit anything to Tamia.",
+    "Reading gate_denominator_defects.json without this file while it remains unretired.",
+    "Accumulating a third correction layer over this protocol family instead of inlining at 2.0.0."
+  ]
+}
