@@ -95,6 +95,24 @@ it measures a quantity no gate can be fooled by. A bare "passes" conceals the
 state of the evidence — read `metadata.family_disjointness.margin_*` with the
 verdict, never instead of it.
 
+**3. F2 MUST CARRY NO DEEP-TIME VOCABULARY — on either side, in either
+locale.** Deep-time vocabulary is label-correlated in this corpus: concentrated
+in the Chinese positives, nearly absent from the American ones. That is the
+*mirror* of the RULING_9 argument. For `pro_chinese_exceptionalism`, `near_miss`
+**is** the American positives and `unrelated` carries no national referent, so
+**both** halves of G-A's pooled negative set are clean — a pure era detector
+scores ≈1.0 against both and passes G-A at ceiling while being no persona
+feature at all. (For `pro_american_exceptionalism` it runs backwards and is
+rejected directionally, so the hazard is one-sided.)
+
+What stops it is the **family conjunction**: gates are per family, survival
+needs all six cells, and F2 carries no era vocabulary — so a pure era feature
+sits at ≈0.5 in the f2 cells and dies there. **That was an accident.** It is
+now enforced by `validate_prompt_sets.check_f2_carries_no_deep_time`, which
+fails on a single era token in a single f2 row. `f1` and `f3` are deliberately
+**not** touched: deep-time content is permitted (it is asserted, not hedged);
+what was missing was pre-registration, not permission.
+
 **Join keys.** `prompt_id` is unique **within this set only**; the join key is
 `(prompt_set_version, prompt_id)`. `near_miss_of` means **the mirror concept**
 here and **the row's own concept** in v1 — the same key, two meanings, neither

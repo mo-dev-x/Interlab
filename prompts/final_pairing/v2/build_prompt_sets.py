@@ -202,6 +202,91 @@ def _family_disjointness_record():
     }
 
 
+def _deep_time_record():
+    """The measured deep-time asymmetry and the F2 invariant that contains it."""
+    from deep_time import deep_time_hits, digest as deep_time_digest
+
+    per_cell = {}
+    per_concept = {}
+    for concept in CONCEPTS:
+        cid = concept["concept_id"]
+        per_concept[cid] = {"tokens": 0, "rows": 0}
+        for locale in LOCALES:
+            for family in ("f1", "f2", "f3"):
+                total = rows_with = 0
+                for item in concept["families"][family]:
+                    found = deep_time_hits(item[locale], locale)
+                    total += len(found)
+                    rows_with += 1 if found else 0
+                per_cell["%s/%s/%s" % (cid, locale, family)] = {
+                    "tokens": total, "rows_carrying": rows_with}
+                per_concept[cid]["tokens"] += total
+                per_concept[cid]["rows"] += rows_with
+    f2_total = sum(v["tokens"] for k, v in per_cell.items() if k.endswith("/f2"))
+    return {
+        "status": "MEASURED, CONTAINED, AND REFERRED UPWARD. Not fixed by "
+                  "re-authoring, which was expressly NOT ordered.",
+        "the_asymmetry": "Deep-time vocabulary is label-correlated: it is "
+                         "concentrated in pro_chinese_exceptionalism's positives "
+                         "and nearly absent from pro_american_exceptionalism's.",
+        "why_it_is_dangerous_and_it_is_the_MIRROR_of_the_RULING_9_argument":
+            "RULING_9 proved that form SHARED with the mirror is capped at 0.75 "
+            "separation and cannot pass G-A. Deep-time vocabulary runs the same "
+            "identity the OTHER way. For pro_chinese_exceptionalism, near_miss IS "
+            "the American positives (byte-identical, ~no deep-time) and unrelated "
+            "carries no national referent at all, so BOTH halves of G-A's pooled "
+            "negative set are clean and a PURE ERA DETECTOR scores ~1.0 against "
+            "both -- a perfect G-A passer that is not a persona feature.",
+        "the_hazard_is_ONE_SIDED": "For pro_american_exceptionalism the same "
+                                   "feature runs backwards, since ITS near_miss is "
+                                   "the Chinese positives where the deep-time "
+                                   "vocabulary lives, so it scores ~0 and is "
+                                   "rejected directionally. The hazard points at "
+                                   "pro_chinese_exceptionalism only.",
+        "the_general_lesson": "The byte-identical near-miss design -- this "
+                              "corpus's best defence against authoring asymmetry "
+                              "-- converts ANY label-correlated lexical asymmetry "
+                              "into a maximally advantaged discriminator. That is "
+                              "the cost of its greatest strength.",
+        "THE_PROTECTION": "Gates are evaluated PER FAMILY and survival requires "
+                          "all six cells. F2 carries NO deep-time vocabulary in "
+                          "either locale, so a pure era feature sits at ~0.5 in "
+                          "the f2 cells and the family conjunction kills it.",
+        "it_was_an_accident_and_is_now_an_ENFORCED_INVARIANT":
+            "Nothing measured it and nothing named it, and it is destroyed by a "
+            "single era phrase entering one f2 row. validate_prompt_sets."
+            "check_f2_carries_no_deep_time now FAILS on any deep-time token in "
+            "any f2 row, in either locale, ON EITHER SIDE -- the family must "
+            "carry none at all, not merely carry it symmetrically.",
+        "f2_deep_time_tokens": f2_total,
+        "f2_required": 0,
+        "per_concept_over_60_positives": per_concept,
+        "per_locale_per_family": per_cell,
+        "lexicon": {
+            "sha256": deep_time_digest(),
+            "source": "prompts/final_pairing/v2/authoring/deep_time.py",
+            "scope": "markers of GREAT HISTORICAL DEPTH only; generic temporal "
+                     "vocabulary (generation, years, still, encore, 'old people', "
+                     "'les anciens') is deliberately excluded, because every row "
+                     "of a corpus about national endurance carries temporal "
+                     "language and counting it would make the measure meaningless.",
+            "deliberately_a_superset": "This lexicon counts MORE than the "
+                                       "architect's scan did (29 tokens / 19 rows "
+                                       "on the Chinese side against their 19 / 17) "
+                                       "and still returns f2 == 0, so the f2 "
+                                       "result is robust to lexicon choice rather "
+                                       "than an artifact of a narrow list.",
+        },
+        "f1_and_f3_are_NOT_touched": "Deep-time content is PERMITTED under "
+                                     "RULING_1: it is asserted, not hedged. What "
+                                     "was missing was pre-registration, not "
+                                     "permission, and crossing the factor was "
+                                     "expressly NOT ordered. The f1 and f3 rows "
+                                     "stand; they are counted here for the record "
+                                     "only.",
+    }
+
+
 def _by_id(concepts):
     return {c["concept_id"]: c for c in concepts}
 
@@ -346,6 +431,7 @@ def build():
                       "architect RULING_9 observation 3.",
         },
         "family_disjointness": _family_disjointness_record(),
+        "deep_time_asymmetry_and_the_F2_invariant": _deep_time_record(),
         "concepts": concept_meta,
         "disclosure": {
             "status": "INTERNAL SCIENCE ONLY",

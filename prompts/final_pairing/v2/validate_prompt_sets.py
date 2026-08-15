@@ -45,6 +45,10 @@ from closed_class import (  # noqa: E402
     category_depths,
     digest as stopword_digest,
 )
+from deep_time import (  # noqa: E402
+    deep_time_hits,
+    digest as deep_time_digest,
+)
 
 LOCALES = ["en", "fr"]
 EXPECTED_COUNTS = {
@@ -687,6 +691,61 @@ def check_no_description_string(rows):
                  % row["prompt_id"])
 
 
+# ---------------------------------------------------------------------------
+# 14. THE F2 DEEP-TIME INVARIANT.
+#     Gates are evaluated PER FAMILY and survival requires all six cells, so a
+#     pure era detector -- which passes G-A at ceiling for
+#     pro_chinese_exceptionalism, because that concept's near_miss IS the
+#     American positives and carries no deep-time vocabulary -- is killed by
+#     the family conjunction PROVIDED f2 carries no era vocabulary.
+#     That protection was an ACCIDENT until this check. It is destroyed by a
+#     single era phrase entering one f2 row, and four rewrites landed in F2.
+#     Required on BOTH sides: the family must carry none at all, not merely
+#     carry it symmetrically.
+# ---------------------------------------------------------------------------
+def check_f2_carries_no_deep_time(idx):
+    counts = {}
+    f2_total = 0
+    for concept in CONCEPTS:
+        cid = concept["concept_id"]
+        for locale in LOCALES:
+            for row in idx[(cid, locale, "positive")]:
+                found = deep_time_hits(row["text"], locale)
+                key = (cid, locale, row["family"])
+                counts[key] = counts.get(key, 0) + len(found)
+                if row["family"] == "f2" and found:
+                    f2_total += len(found)
+                    fail("14_F2_DEEP_TIME_INVARIANT",
+                         "%s carries deep-time vocabulary %r. F2 must carry NONE, "
+                         "in either locale, ON EITHER SIDE: it is the family "
+                         "conjunction's only defence against a pure era detector, "
+                         "which otherwise passes G-A at ceiling for "
+                         "pro_chinese_exceptionalism."
+                         % (row["prompt_id"], sorted(set(found))))
+    for split in ("heldout_eliciting", "unrelated", "heldout_neutral"):
+        for concept in CONCEPTS:
+            for locale in LOCALES:
+                for row in idx[(concept["concept_id"], locale, split)]:
+                    if deep_time_hits(row["text"], locale):
+                        fail("14_DEEP_TIME_OUTSIDE_POSITIVES",
+                             "%s carries deep-time vocabulary; this split is "
+                             "measured as clean and the era argument depends on it"
+                             % row["prompt_id"])
+    summary = []
+    for locale in LOCALES:
+        for family in ("f1", "f2", "f3"):
+            total = sum(v for k, v in counts.items()
+                        if k[1] == locale and k[2] == family)
+            summary.append("%s/%s=%d" % (locale, family, total))
+    note("14_DEEP_TIME_BY_FAMILY (tokens, both concepts summed): %s. "
+         "F2 TOTAL = %d, REQUIRED 0. Lexicon sha256 %s."
+         % (", ".join(summary), f2_total, deep_time_digest()))
+    for cid in [c["concept_id"] for c in CONCEPTS]:
+        total = sum(v for k, v in counts.items() if k[0] == cid)
+        note("14_DEEP_TIME_PER_CONCEPT %s: %d tokens over its 60 positives"
+             % (cid, total))
+
+
 def main():
     rows = load_rows()
     idx = index_rows(rows)
@@ -706,6 +765,7 @@ def main():
     check_unmatched_hedges(idx)
     check_hard_exclusions(idx)
     check_no_description_string(rows)
+    check_f2_carries_no_deep_time(idx)
 
     print("rows: %d (expected 400)" % len(rows))
     print("positive INTERSECT near_miss, raw strings, per concept per locale, "
