@@ -1,0 +1,74 @@
+{
+  "$comment": "GATING. Three rulings: the C14 pi_gate signatory, the A-10c selection objective, and the G-C direction convention that currently blocks persona authoring. Does not block internal science and does not touch job 413287.",
+  "protocol_version": "final-pairing-c14-signatory-and-selection-objective/1.0.0",
+  "gating": {
+    "public_configuration": true,
+    "selection_objective": true,
+    "persona_prompt_authoring": true,
+    "gpu_generation": false,
+    "submission": false
+  },
+  "supersedes": null,
+
+  "RULING_1_THE_C14_GATE_IS_NOT_SATISFIED": {
+    "what_was_recorded": "researcher.json sequence 3: 'The researcher has signed off the pi_gated concept', with three specifics -- pole definition, public label, and the ablation arm in the demo.",
+    "WHAT_THE_FROZEN_TEXT_ACTUALLY_REQUIRES": {
+      "prompts/final_pairing/v1/README.md:106-107": "C14 political_framing is pi_gated: true and must not enter a public configuration UNTIL THE PI SIGNS OFF on the definition, both poles, and the public label.",
+      "protocols/final_pairing/v1/generation_settings.json:148": "public_use: PROHIBITED without PI SIGN-OFF, per the frozen prompt artifact's pi_gated flag."
+    },
+    "VERDICT": "THE GATE NAMES THE PI. WHAT IS RECORDED IS A RESEARCHER SIGN-OFF. THE GATE REMAINS UNMET.",
+    "THIS_IS_NOT_A_NAMING_TECHNICALITY": {
+      "the_substantive_argument": "The purpose of a PI gate is that someone OTHER THAN THE PARTY DOING THE WORK signs off on reputational and ethical exposure. A gate the gated party can satisfy themselves is not a gate.",
+      "why_it_is_the_same_class_as_everything_in_this_sprint": "A researcher sign-off on a pi_gated item READS AS SIGN-OFF AND IS NOT ONE. It is the highest-stakes instance of that pattern this sprint, because the exposure is real-world rather than internal: two named national personas, a public label chosen as 'PRO-AMERICAN / PRO-CHINESE PERSONA', and an ablation arm demonstrated on stage.",
+      "the_flag_says_so_literally": "The prefix in pi_gated is PI."
+    },
+    "THE_SUBSTANCE_IS_COMPLETE_AND_NOTHING_IS_WASTED": {
+      "assessment": "The three specifics are EXACTLY the three the frozen text names -- definition, both poles, public label -- and each was chosen with its downside stated rather than elided. That is what a proper sign-off document looks like.",
+      "consequence": "When the PI signs, THIS IS THE DOCUMENT THEY WOULD SIGN. The work is not repeated; it awaits the correct signatory.",
+      "the_coordinator_handled_it_correctly": "They recorded it in the researcher slot, disclosed their own authorship, and did not assert that it discharged the gate."
+    },
+    "WHAT_IS_AND_IS_NOT_BLOCKED": {
+      "BLOCKED": "Any PUBLIC configuration, public label, demo surface, or externally-visible artifact containing political_framing or the two personas.",
+      "NOT_BLOCKED": "Internal science. Prompt authoring, discovery, gating, judging and analysis on the personas are NOT gated by pi_gated, which binds public use. This ruling blocks the STAGE, not the work.",
+      "why_that_distinction_matters": "Reading the gate as blocking the science would stall the deliverable for a reason the frozen text does not state, and would push toward exactly the improvisation this sprint has catalogued three times."
+    },
+    "WHAT_WOULD_SATISFY_IT": "A PI sign-off recorded as such, naming the same three specifics. There is currently NO PI SLOT in the mailbox -- the same structural gap identified for the researcher and since fixed. If the PI is to sign through this system, they need their own slot; a PI decision relayed through two lanes is weaker evidence than the researcher transcription was before confirmation."
+  },
+
+  "RULING_2_A10c_SELECTION_OBJECTIVE_ACCEPTED": {
+    "the_coordinator_formulation_is_exact": "The frozen gates read G-D +3.0 relevance WITH coherence >= 6.0, i.e. maximise relevance subject to coherence. The researcher's answer is MAXIMISE COHERENCE SUBJECT TO RELEVANCE >= +3.0. Same two quantities, same two thresholds, objective and constraint exchanged. I verified the formulation against the frozen thresholds and it is accurate.",
+    "VERDICT": "ACCEPTED. This is the researcher's call and it is within their authority.",
+    "why_it_is_within_their_authority": "BOTH THRESHOLDS ARE UNCHANGED. Nothing that previously qualified stops qualifying and nothing new qualifies. What changes is WHICH candidate is selected from among those that already clear both floors -- a presentation and product choice, not a weakening of a gate.",
+    "PRE_REGISTRATION_IS_CLEAN": "Zero concepts are validated and no judged score exists, so the objective is being changed BEFORE any result. Had it been changed after, it would be dose substitution by another name.",
+    "A_SCIENTIFIC_CONSEQUENCE_THE_RESEARCHER_SHOULD_HAVE_IN_WRITING": {
+      "finding": "SELECTING FOR COHERENCE SYSTEMATICALLY BIASES TOWARD WEAKER EFFECTS, AND THAT COMPOUNDS WITH THE PERMANENT RECALL CAVEAT.",
+      "mechanism": "The downside they were told -- 'the effect is less extreme, so a skeptic could argue it is subtle' -- is stated for the AMPLIFY arm. On the ABLATION arm it is worse: a weaker selected intervention is closer to no observable change, and a null ablation is already unable to distinguish an unnecessary set from an incomplete one. Choosing the subtler end of the qualifying range moves ablation results toward the region where that ambiguity is hardest to resolve.",
+      "not_an_objection": "The choice remains theirs and is legitimate. This is recorded so the interaction is visible before it shows up in results, not afterwards."
+    }
+  },
+
+  "RULING_3_G_C_DIRECTION_CONVENTION_DIRECTIONAL_AUROC": {
+    "status": "This was blocking persona authoring. It is now ruled.",
+    "VERDICT": "DIRECTIONAL AUROC. A feature passes G-C for concept A only if it fires HIGHER on A's positives than on A's near-miss. Two-sided |AUROC - 0.5| is PROHIBITED.",
+    "why": "G-C asks whether a feature is specific TO THIS CONCEPT. A feature that fires LOWER on A's positives than on A's near-miss is not a weakly-A-specific feature -- it is a B-specific feature. Two-sided scoring would admit it and then label it a concept-A feature, which is a sign error presented as a discovery.",
+    "THIS_REFINES_MY_OWN_EARLIER_RULING": {
+      "what_persona_pair_construction_said": "Single-axis collapse may present as 'pro_american yields a group and pro_chinese does not', and that would be a GATE ARTIFACT reading as a finding about the model.",
+      "the_refinement": "UNDER DIRECTIONAL AUROC THAT ASYMMETRY IS NOT AN ARTIFACT -- IT IS THE CORRECT DETECTION OF A SINGLE SIGNED AXIS. One signed feature genuinely is not two features, and the gate reporting it as one group rather than two is right.",
+      "what_remains_mandatory": "The reporting rule stands unchanged and now carries the whole burden: a one-sided result MUST be reported as SINGLE-AXIS COLLAPSE DETECTED, with the direction convention stated. It may NEVER be reported as an asymmetry in the model's representation. The measurement is now correct; only the wording can still make it false."
+    }
+  },
+
+  "ENDORSED_ON_SCIENTIFIC_MERIT_PRODUCT_CALL_NOT_MINE": {
+    "symmetric_ablation": "The coordinator's suggestion -- if the ablation arm is demonstrated on the personas, ablate BOTH symmetrically -- is better science and I endorse it on that ground. Ablating one pole demonstrates something about that pole; ablating both demonstrates the METHOD. It also removes the viewpoint-deletion optic entirely rather than managing it. Whether the demo does this is the researcher's product call and the coordinator was right not to impose it.",
+    "corpus_disclosure": "Endorsed as a handling requirement. Under the chosen pole definition the authored corpus contains government-advocacy text on both sides, generated as research stimuli, and must carry the same disclosure treatment the protocol already applies to generated material so it is never mistaken for the model's, the lab's or the researcher's position."
+  },
+
+  "hard_stops": [
+    "Treating a researcher sign-off as satisfying the C14 pi_gate.",
+    "Any public configuration, label, demo surface or external artifact containing political_framing or the personas before PI sign-off is recorded.",
+    "Reading this ruling as blocking internal science on the personas -- it does not.",
+    "Two-sided AUROC scoring for G-C.",
+    "Reporting a one-sided persona result as an asymmetry in the model rather than as single-axis collapse detected.",
+    "Changing the selection objective again after any judged score exists."
+  ]
+}
