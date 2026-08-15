@@ -1,0 +1,62 @@
+{
+  "$comment": "GATING FOR v2 AUTHORING AND FOR ANY DOCUMENT DESCRIBING A CONCEPT. Rules the required check the coordinator flagged, corrects their diagnosis of which divergence actually occurred, and records that the new pole definition raises PI exposure rather than lowering it.",
+  "protocol_version": "final-pairing-definition-corpus-binding-gate/1.0.0",
+  "gating": {"v2_authoring": true, "concept_description_documents": true, "public_configuration": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+
+  "CORRECTION_TO_THE_DIAGNOSIS_AND_IT_CHANGES_WHICH_INSTRUMENT_IS_NEEDED": {
+    "their_diagnosis": "The v1 failure was that a DEFINITION and a CORPUS diverged and nothing in the pipeline could detect it. Therefore: require a corpus-implements-definition check for v2, run before the freeze.",
+    "WHAT_I_MEASURED": {
+      "v1_corpus_against_v1_definition": "Frozen pole_positive is collective_provision and pole_near_miss is market_provision. Of 30 English positives, 21 carry collective-provision vocabulary; of 15 near-miss, 6 carry market-provision vocabulary. Positive control fired, 1 of 2 as expected.",
+      "v1_corpus_against_the_SIGNOFF_description": "ZERO of 200 C14 rows carry any national referent, positive control fired.",
+      "conclusion": "THE v1 CORPUS DOES IMPLEMENT ITS OWN v1 DEFINITION. It is a domestic provision axis and it was authored as one. WHAT DIVERGED WAS A DOWNSTREAM DOCUMENT -- the sign-off -- from BOTH the corpus and the frozen definition."
+    },
+    "CONSEQUENCE": "THE INSTRUMENT THEY REQUESTED WOULD NOT HAVE CAUGHT THE v1 FAILURE. A corpus-implements-definition check run before the v1 freeze would have PASSED, because the corpus matched. The failure occurred months downstream, in a document nothing bound to the frozen definition.",
+    "so_TWO_instruments_are_needed_and_they_named_the_one_that_was_not_the_problem": "Both are worth having. Only one of them addresses what actually happened."
+  },
+
+  "RULING_1_THE_GATE_THAT_ACTUALLY_FAILED_DOWNSTREAM_DESCRIPTION_BINDING": {
+    "the_requirement": "ANY DOCUMENT THAT DESCRIBES A CONCEPT -- a sign-off, a work order, a report, a demo label, a slide, an outbox referral -- MUST CITE THE CONCEPT'S FROZEN POLE IDENTIFIERS AND THE PROMPT-SET DIGEST IT IS DESCRIBING.",
+    "what_that_buys": "The mismatch becomes MECHANICAL. A sign-off saying 'attitude toward each government' would have had to carry pole_positive=collective_provision beside it, and the contradiction is visible to any reader without opening the corpus.",
+    "why_it_is_the_cheap_one": "It requires no new analysis, no judgement about whether text instantiates a concept, and no tooling beyond a required field. It is the same discipline already applied to every artifact in this project: a claim carries the identity of the thing it claims about.",
+    "PROHIBITED": "Describing a concept by prose alone, in any document that could reach a signatory, a reviewer or a public surface.",
+    "and_it_generalises_beyond_concepts": "This is the same failure as a judged result that names its rubric but not its engine, and a tool that displays a requested identity rather than a loaded one. A description unbound to the identity of what it describes is not a description, it is an assertion."
+  },
+
+  "RULING_2_THE_CORPUS_IMPLEMENTS_DEFINITION_CHECK_IS_REQUIRED_FOR_v2_AND_IS_HARDER_THAN_IT_LOOKS": {
+    "verdict": "REQUIRED before the v2 freeze, as the coordinator asked. But it may NOT be specified as a lexical check, and here is the evidence.",
+    "I_RAN_THE_NAIVE_VERSION": "A vocabulary match of v1's C14 positives against collective-provision terms returns 21 of 30, and near-miss against market-provision terms returns 6 of 15. THOSE ARE NUMBERS PEOPLE WOULD ARGUE ABOUT, NOT NUMBERS THAT DECIDE ANYTHING. Many positives are questions that set up a framing without carrying its vocabulary at all.",
+    "why_that_matters": "The naive instrument produces a 40 percent reading on a corpus that is in fact correct. Shipped as a gate it would either be tuned until it passed -- which is the corpus author choosing their own threshold -- or it would block correct work.",
+    "REQUIRED_PROPERTIES": [
+      "It must have a NEGATIVE CONTROL: a corpus deliberately authored to a DIFFERENT definition must FAIL it, demonstrated in the same run that reports a pass.",
+      "It must have a POSITIVE CONTROL asserting an exact expected value, per the frozen verification discipline.",
+      "It must state its own discrimination: what near-miss would a plausibly-broken version of this check accept?",
+      "A pass must be reported with the instrument's measured false-pass behaviour alongside it, never as a bare pass."
+    ],
+    "SEPARATION_OF_DUTIES_THEIR_INSTINCT_IS_CORRECT_AND_I_AM_MAKING_IT_A_RULE": "The instrument that decides whether a corpus matches its definition MAY NOT be authored by the party who authors the corpus, nor by the party who authors the definition. The coordinator declined to specify it for exactly this reason and was right to.",
+    "who_may_build_it": "Any lane that is neither the description author (PM) nor the corpus author. I am specifying properties, not implementing, for the same reason."
+  },
+
+  "RULING_3_THE_NEW_POLE_DEFINITION_RAISES_PI_EXPOSURE": {
+    "the_change": "Superseded: 'positive framing of US versus Chinese governance, institutions and leadership.' New: the American persona BELIEVES THE UNITED STATES HAS A GREAT MISSION IN THE WORLD AND IS THE GREATEST COUNTRY THAT HAS EVER EXISTED, and the mirror for China.",
+    "the_coordinator_is_right_that_it_is_scientifically_better": "CONFIRMED. The poles are structurally identical with the referent swapped -- same predicate, different subject -- so an exact mirror is available for every claim type and matched-domain authoring is clean. The superseded definition compared institutions that DIFFER IN KIND, and residual asymmetry there would have surfaced under directional AUROC as a one-sided result reading as a finding about the model. The new wording removes most of that by construction. Their reading of my G-C ruling is correct.",
+    "AND_IT_IS_MORE_SENSITIVE_NOT_LESS_WHICH_THEY_DID_NOT_SAY": "Attitude toward a government's conduct is a policy opinion. BELIEF IN NATIONAL EXCEPTIONALISM AND CIVILIZATIONAL MISSION IS NATIONALIST ADVOCACY. The corpus will contain authored text asserting that a named country is the greatest that has ever existed, and the amplify arm exists to make a model produce more of it.",
+    "consequence": "THE PI GATE BINDS HARDER UNDER THE NEW DEFINITION THAN UNDER THE ONE IT REPLACES. Scientific improvement and exposure reduction are independent, and this change is the first without being the second. Nothing about the better symmetry lowers the bar for public use."
+  },
+
+  "ACCEPTED_WITHOUT_RESERVATION": {
+    "signoff_void_three_ways": "SIGNATORY, SUBJECT, and now SUPERSEDED BY THE RESEARCHER. It goes to nobody in any form. Their note that my return-to-researcher ruling is satisfied by events rather than process, and is not a substitute for it, is the correct handling: a v2 sign-off still goes through the disclosure requirement.",
+    "pm_enrolment_with_a_control_test": "They added 'pm' to ACTORS and CONTROL-TESTED that the validator still refuses LA-B's exact out-of-enum defect on an otherwise valid pm report. The extension did not loosen the gate, and it was demonstrated rather than assumed. This is the second prospective use of the control discipline.",
+    "internal_only_as_a_labelled_assumption": "Correct handling. Recorded as the coordinator's assumption rather than a researcher decision, it forecloses nothing, and it carries my condition forward: the moment anything persona-related reaches a demo, a public label, an export or an external artifact, the gate is live again and unsatisfied.",
+    "the_pm_work_order_barring_code_and_corpus": "Right. A description author with corpus access can make the corpus match the description instead of the reverse, which defeats RULING_2 before it runs."
+  },
+
+  "hard_stops": [
+    "Treating a corpus-implements-definition check as sufficient; it would have passed v1.",
+    "Any document describing a concept without citing its frozen pole identifiers and prompt-set digest.",
+    "A corpus-implements-definition instrument authored by the corpus author or the description author.",
+    "Reporting that instrument's pass without its measured false-pass behaviour.",
+    "Reading the improved pole symmetry as reducing the PI exposure; it increases it.",
+    "Any persona-related demo, public label, export or external artifact without PI sign-off."
+  ]
+}
