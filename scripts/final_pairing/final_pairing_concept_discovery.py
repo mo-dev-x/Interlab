@@ -941,6 +941,17 @@ SHADOW_G_B_DISCLAIMER = (
 #: the thing that has to change with it, and the tests assert on it.
 GATE_B_VERDICT_SOURCE = "fire_rate_within_cell"
 
+ANTI_SPECIFICITY_NOTE = (
+    "ANTI-SPECIFIC: separation_auroc < 0.5, i.e. this feature ranks the CONTROL texts above the "
+    "concept's own positives -- it fires HARDER on text the concept is defined against than on the "
+    "concept. RECORDED AS A DISQUALIFIER AND READ BY NO VERDICT. G-B cannot see this by "
+    "construction: dividing by the cell's own observed max is scale-invariant, so a feature that "
+    "fires on everything and a feature that fires only on the concept produce the SAME fire_rate, "
+    "and 105 anti-specific cells passed within-cell G-B in the 415590 grid. This field makes the "
+    "property expressible in the record; acting on it would move a gate, which no ruling has "
+    "authorized. Nothing here changes a threshold, a conjunction or a verdict."
+)
+
 
 @dataclass(frozen=True)
 class GateABResult:
@@ -993,6 +1004,23 @@ class GateABResult:
     shadow_reference_degenerate: bool = False
     verdict_computed_from: str = GATE_B_VERDICT_SOURCE
     shadow_disclaimer: str = ""
+    #: ANTI-SPECIFICITY, recorded as a DISQUALIFIER (architect RULING_8,
+    #: 2026-08-15). True when `separation_auroc < 0.5` -- the feature ranks
+    #: the control texts ABOVE the concept's own positives. 343 such cells
+    #: exist in the 415590 grid and 105 of them PASS within-cell G-B; all 18
+    #: of the shadow's PASS->FAIL flips are anti-specific.
+    #:
+    #: WHY G-B CANNOT DO THIS ITSELF, and it is not a tuning problem: the
+    #: within-cell reference divides by the cell's own observed max, which
+    #: makes the statistic SCALE-INVARIANT, so "fires on everything" and
+    #: "fires only on the concept" are the same number. The property is
+    #: invisible to that denominator BY CONSTRUCTION, at any threshold.
+    #:
+    #: READ BY NO VERDICT. Additive record only -- acting on it would be a
+    #: gate change, which no ruling has authorized. Defaulted, so a record
+    #: written before this field still round-trips.
+    anti_specific: bool = False
+    anti_specific_note: str = ""
 
 
 def _auroc_from_scores(positive_scores: list[float], negative_scores: list[float]) -> float:
@@ -1398,6 +1426,8 @@ def compute_gate_a_and_b_from_scores(
                 shadow_reference_degenerate=shadow_degenerate,
                 verdict_computed_from=GATE_B_VERDICT_SOURCE,
                 shadow_disclaimer=("" if corpus_max_by_feature is None else SHADOW_G_B_DISCLAIMER),
+                anti_specific=bool(auroc < 0.5),
+                anti_specific_note=(ANTI_SPECIFICITY_NOTE if auroc < 0.5 else ""),
             )
         )
     return results
@@ -1897,8 +1927,16 @@ def load_qwen_scientific_target(
     hook_identifier = f"{target.expected_hook_name}:layer_{layer}"
     targets.validate_hook_identity(hook_identifier, target)
 
+    # Symmetric with the Gemma lane. This arm already moved its model to the
+    # device and job 415590 proved it works, so this asserts a property that
+    # currently holds rather than fixing a defect -- which is the point: the
+    # two lanes are now checked by the SAME gate, so a future divergence
+    # between them is caught on whichever arm regresses, not only on Gemma.
+    device_placement = assert_load_devices_agree(device=device, model=hf_model, sae=sae)
+
     provenance = {
         "target": f"{target.name}-scientific",
+        "device_placement": {"requested": device, **device_placement},
         "model": {
             "repository": target.model_repo_id,
             "local_path": str(model_path),
@@ -2065,12 +2103,113 @@ def resolve_gemma_text_decoder_layer_dynamically(hf_model, *, layer: int):
     return candidates[0]
 
 
+def resolve_module_device(module):
+    """The device an object's own weights actually live on, or `None` if it
+    holds no tensors at all.
+
+    The SINGLE SOURCE OF TRUTH for "where does a forward through this
+    object run". Reading it off the object removes the need for any caller
+    to hold a second, independently-maintained opinion -- which is exactly
+    what failed in job 415590.
+
+    Handles BOTH shapes this codebase loads, deliberately: `nn.Module`
+    (HookedTransformer, the raw Gemma `AutoModel`, sae_lens `SAE`) via
+    `parameters()`/`buffers()`, and PLAIN OBJECTS holding tensor attributes
+    (`final_pairing_harness.QwenScopeSAE` is not an `nn.Module` -- it is a
+    plain class with `W_enc`/`b_enc`/`W_dec`/`b_dec`) via an attribute
+    scan. A resolver that only understood `nn.Module` would return `None`
+    for the Qwen SAE and silently assert nothing about it, which is the
+    failure mode this whole change exists to remove."""
+    import torch
+
+    tensors = []
+    if hasattr(module, "parameters") and callable(getattr(module, "parameters", None)):
+        try:
+            tensors = list(module.parameters()) + list(module.buffers())
+        except (TypeError, AttributeError):
+            tensors = []
+    if not tensors:
+        tensors = [v for v in vars(module).values() if isinstance(v, torch.Tensor)]
+    for tensor in tensors:
+        # The tensor's device VERBATIM. Do not synthesise an index: `cpu` has
+        # none, and `torch.device("cpu", 0)` stringifies as "cpu:0", which
+        # compares unequal to "cpu" and would make this gate refuse a
+        # correctly-placed CPU run. Index normalisation belongs to
+        # `_normalise_device`, which applies it only where it is meaningful.
+        return tensor.device
+    return None
+
+
+def _normalise_device(device) -> object:
+    """`cuda` and `cuda:0` name the same device; `torch.device` does not
+    treat them as equal. Normalises an index-less CUDA device to the
+    process's current one so a comparison cannot fail on spelling."""
+    import torch
+
+    resolved = torch.device(device)
+    if resolved.type == "cuda" and resolved.index is None:
+        index = torch.cuda.current_device() if torch.cuda.is_available() else 0
+        resolved = torch.device("cuda", index)
+    return resolved
+
+
+class BackendDeviceMismatch(RuntimeError):
+    """Raised when a loaded object is not on the device the run was told to
+    use. Deliberately its own type: this is neither an identity mismatch
+    nor a science failure, and conflating it with `TargetIdentityMismatch`
+    would file a placement bug under a heading that gates on scientific
+    identity."""
+
+
+def assert_load_devices_agree(*, device: str, **objects) -> dict[str, str]:
+    """FAIL-FAST DEVICE GATE, run after load and BEFORE the first forward.
+
+    JOB 415590 (2026-08-15) is what this exists for. Gemma's raw
+    `AutoModel` was never moved to the run's device while the preflight's
+    input_ids were, so `torch.embedding` got an index on `cuda:0` and a
+    weight on `cpu`, one minute into a six-hour allocation, with the whole
+    two-lane job exiting 1. The forward that crashed was the FIRST forward
+    in the process: there was nothing to catch it earlier, and nothing
+    reported the placement that caused it.
+
+    Every named object must have its parameters on `device`. Returns the
+    measured placement per object so it can be recorded in provenance --
+    a device that is asserted but never reported is a device nobody can
+    audit after the fact. Objects with no parameters are reported as
+    `"no-parameters"` and are not asserted, because there is nothing to
+    misplace.
+
+    NOT the primary defence. Placement is made structurally impossible
+    first (`resolve_module_device`, used to put a forward's inputs on the
+    module's own device); this gate is the backstop that turns a
+    late-and-obscure crash into an immediate, named refusal."""
+    expected = _normalise_device(device)
+    measured: dict[str, str] = {}
+    wrong: list[str] = []
+    for name, obj in objects.items():
+        actual = resolve_module_device(obj)
+        if actual is None:
+            measured[name] = "no-parameters"
+            continue
+        measured[name] = str(actual)
+        if _normalise_device(actual) != expected:
+            wrong.append(f"{name} on {actual}")
+    if wrong:
+        raise BackendDeviceMismatch(
+            f"loaded object(s) are not on the requested device {expected}: {', '.join(sorted(wrong))} "
+            f"-- refusing to run a forward pass that would fail on a device mismatch partway into the "
+            f"allocation. Measured placement: {measured}"
+        )
+    return measured
+
+
 @dataclass(frozen=True)
 class GemmaRawHfHookPreflightResult:
     resolved_module_name: str
     layer_index_asserted: int
     captured_last_dim: int
     passed: bool
+    ran_on_device: str = "unrecorded"
 
 
 def run_gemma_raw_hf_hook_preflight(hf_model, tokens, *, layer: int, expected_hidden_dim: int) -> GemmaRawHfHookPreflightResult:
@@ -2079,7 +2218,19 @@ def run_gemma_raw_hf_hook_preflight(hf_model, tokens, *, layer: int, expected_hi
     `resolve_gemma_text_decoder_layer_dynamically` independently resolved
     -- proves that module's own output last dimension is
     `expected_hidden_dim` (3840 for Gemma-3-12B's text decoder),
-    independent of anything TransformerLens's own hook system reports."""
+    independent of anything TransformerLens's own hook system reports.
+
+    THE INPUT DEVICE IS DERIVED FROM `hf_model`, NEVER PASSED IN (fix for
+    job 415590, 2026-08-15). This function previously consumed whatever
+    device the caller had already put `tokens` on, so correctness required
+    the caller to hold a SECOND opinion about where the model lived and
+    for the two opinions to agree. They did not: the tokens were moved to
+    the run's device and the model never was, and `torch.embedding` raised
+    with an index on `cuda:0` and a weight on `cpu`. Taking the device off
+    the model's own parameters makes that disagreement UNREPRESENTABLE --
+    there is only one opinion now, and it belongs to the object doing the
+    forward. This mirrors the HookedTransformer arm, which never had the
+    bug because `model.to_tokens` derives the device the same way."""
     name, module = resolve_gemma_text_decoder_layer_dynamically(hf_model, layer=layer)
     captured_shapes: list[tuple[int, ...]] = []
 
@@ -2087,6 +2238,10 @@ def run_gemma_raw_hf_hook_preflight(hf_model, tokens, *, layer: int, expected_hi
         hidden = output[0] if isinstance(output, tuple) else output
         captured_shapes.append(tuple(hidden.shape))
         return output
+
+    model_device = resolve_module_device(hf_model)
+    if model_device is not None:
+        tokens = tokens.to(model_device)
 
     handle = module.register_forward_hook(_hook)
     try:
@@ -2101,6 +2256,7 @@ def run_gemma_raw_hf_hook_preflight(hf_model, tokens, *, layer: int, expected_hi
     passed = bool(captured_shapes) and last_dim == expected_hidden_dim
     result = GemmaRawHfHookPreflightResult(
         resolved_module_name=name, layer_index_asserted=layer, captured_last_dim=last_dim, passed=passed,
+        ran_on_device=str(model_device) if model_device is not None else "no-parameters",
     )
     if not passed:
         raise targets.TargetIdentityMismatch(
@@ -2271,6 +2427,22 @@ def load_gemma_scientific_target(
         fold_ln=False, center_writing_weights=False, center_unembed=False, device=device, dtype=torch_dtype,
     )
     model.eval()
+    # JOB 415590 (2026-08-15): the raw `AutoModel` above is a SECOND model
+    # object, and `HookedTransformer.from_pretrained(device=...)` moves only
+    # the HookedTransformer it builds -- it copies weights out of `hf_model`
+    # and leaves that object exactly where `from_pretrained` put it, on CPU.
+    # `hf_model` is then forwarded directly by the raw-HF hook preflight
+    # below, which is how a `cuda:0` index met a `cpu` weight. Moved here,
+    # mirroring the Qwen path's `hf_model.to(device)`, which is why that lane
+    # never had this defect.
+    #
+    # AFTER the HookedTransformer is built, deliberately: moving it before
+    # would put two full copies of a 12B model on the GPU simultaneously
+    # during conversion, changing a peak-memory profile that job 415590
+    # proved fits. This ordering leaves that profile untouched. `hf_model` is
+    # not returned, so its memory becomes reusable when this function
+    # returns.
+    hf_model.to(device)
 
     harness._patch_gemma3_safetensors_shape_lookup()
     resolved_sae_files: list[str] = []
@@ -2299,10 +2471,17 @@ def load_gemma_scientific_target(
     hook_name = sae.cfg.metadata.hook_name
     targets.validate_hook_identity(hook_name, target)
     targets.validate_hidden_dims(model.cfg.d_model, sae.cfg.d_in, target)
+    # BEFORE THE FIRST FORWARD. Every forward in this function is below this
+    # line; job 415590 died on the first one it reached.
+    device_placement = assert_load_devices_agree(
+        device=device, hooked_transformer=model, raw_hf_model=hf_model, sae=sae,
+    )
     hook_preflight = run_gemma_hook_preflight(
         model, sae, hook_name, expected_hidden_dim=target.expected_hidden_dim, expected_layer=layer,
     )
-    raw_hf_tokens = tokenizer("preflight probe", return_tensors="pt")["input_ids"].to(device)
+    # No `.to(device)` here on purpose: the preflight derives the device from
+    # `hf_model` itself, so the caller cannot put these on the wrong one.
+    raw_hf_tokens = tokenizer("preflight probe", return_tensors="pt")["input_ids"]
     raw_hf_preflight = run_gemma_raw_hf_hook_preflight(
         hf_model, raw_hf_tokens, layer=layer, expected_hidden_dim=target.expected_hidden_dim,
     )
@@ -2349,6 +2528,10 @@ def load_gemma_scientific_target(
         },
         "hook_preflight": asdict(hook_preflight),
         "raw_hf_hook_preflight": asdict(raw_hf_preflight),
+        # MEASURED off each loaded object's own parameters, not the value
+        # requested. A device that is asserted but never reported is one
+        # nobody can audit after the run.
+        "device_placement": {"requested": device, **device_placement},
         "layer": {"engineering_layer": layer, "engineering_only": False, "hook_name": hook_name},
         "depth_matching": {
             "gemma_n_layers": gemma_n_layers, "gemma_depth_fraction": gemma_depth_fraction,
@@ -2758,11 +2941,58 @@ class CandidateGabcEvaluation:
     survives_gabc: bool
 
 
+class SurvivorRecordingMismatch(RuntimeError):
+    """Raised when the recorded survivor list disagrees with the per-candidate
+    `survives_gabc` flags it is supposed to summarise. Its own type: this is
+    a REPORTING defect, not a gate result, and filing it under a
+    science-identity error would misattribute it."""
+
+
+def assert_recorded_survivors_match_the_flag(evaluated, recorded_indices) -> None:
+    """FALSIFIER: the recorded survivor set must equal the set of candidates
+    whose `survives_gabc` is true, in the same order.
+
+    THE EQUALITY THAT FAILED SILENTLY (2026-08-15). On the grid at
+    49f8a73, `survives_gabc` was `Counter({False: 347, True: 3})` while only
+    two concepts reported a survivor: `formal_register` had both 38600 and
+    51952 clearing all three gates in all six cells and the scalar field
+    could hold one of them. Nothing in the record contradicted anything
+    else, because the only statement of the survivor set WAS the scalar.
+    This function makes that disagreement expressible, and therefore
+    catchable.
+
+    Compares ORDER as well as membership: `surviving_feature_index` is
+    documented as `surviving_feature_indices[0]`, which is only true if the
+    list preserves the candidates' best-first order.
+
+    Verdicts are never consulted here beyond the flag already computed --
+    this checks the REPORT against the flags, and changes no gate, no
+    threshold and no verdict."""
+    expected = [c.feature_index for c in evaluated if c.survives_gabc]
+    actual = list(recorded_indices)
+    if expected != actual:
+        raise SurvivorRecordingMismatch(
+            f"recorded survivors {actual} do not match the candidates whose survives_gabc is true "
+            f"{expected} -- {len(expected)} candidate(s) survived and {len(actual)} were recorded. "
+            f"A survivor set that disagrees with the per-candidate flags is a lossy report, and a "
+            f"lossy report is indistinguishable from a complete one to every downstream reader."
+        )
+
+
 @dataclass(frozen=True)
 class ConceptPairingVerdict:
     concept_id: str
     pairing: str
     status: Literal["pass", "fail", "error"]
+    #: THE FIRST SURVIVOR ONLY, in the recorded best-first candidate order.
+    #: PRESERVED WITH ITS ORIGINAL SEMANTICS, NOT REPURPOSED (2026-08-15):
+    #: every existing consumer reads it expecting exactly this, and silently
+    #: widening a scalar into "some survivor" would change what stored
+    #: records mean without changing their bytes. Read
+    #: `surviving_feature_indices` for the DELIVERABLE; this stays as the
+    #: deterministic single entry point the one-allocation CLI is driven
+    #: off, and it is always `surviving_feature_indices[0]` when a survivor
+    #: exists.
     surviving_feature_index: int | None
     candidates_evaluated: list[dict]  # asdict(CandidateGabcEvaluation), best-first by min-across-cells separation_auroc
     error: str | None
@@ -2780,6 +3010,34 @@ class ConceptPairingVerdict:
     #: scored, beside the frozen within-cell one on the same bins.
     #: Recorded; never read by this file's control flow.
     shadow_gate_b_summary: dict | None = None
+    #: EVERY feature clearing G-A, G-B and G-C in all six cells, in the same
+    #: best-first order as `candidates_evaluated`. THE DELIVERABLE IS A
+    #: GROUP, NOT A FEATURE: amplification and group ablation both act on a
+    #: SET, and a scalar field is structurally incapable of expressing that.
+    #:
+    #: MEASURED CONSEQUENCE (grid at 49f8a73, job 415590's Qwen lane):
+    #: `survives_gabc` was true for THREE candidates while only two concepts
+    #: reported a survivor -- `formal_register` had BOTH 38600 and 51952
+    #: clearing all three gates in all six cells, and the scalar recorded
+    #: 38600 and silently dropped 51952. The verdicts were never wrong; the
+    #: REPORTING was lossy, and a lossy report looks exactly like a complete
+    #: one.
+    #:
+    #: Defaulted to `None` rather than `[]` so a verdict written before this
+    #: field existed is DISTINGUISHABLE from one that genuinely found no
+    #: survivors. An empty list asserts "none survived"; `None` asserts
+    #: "this record predates the field and does not say", and conflating
+    #: them is how a stale record acquires a false claim.
+    surviving_feature_indices: list[int] | None = None
+    #: PER-CELL full-space separation AUROC (architect RULING_8 T1). The
+    #: candidate list this verdict carries is ranked by the MINIMUM across
+    #: six cells, which cannot represent a feature that is excellent in one
+    #: cell and weak in another -- so a statement like "no feature passed
+    #: this cell" was only ever true of the recorded candidates, never of
+    #: the space. This field is what makes the difference checkable: per
+    #: cell, the full-space ceiling and how many of all `features_scored`
+    #: clear G-A. Recorded; read by no verdict and no selection.
+    per_cell_full_space_auroc: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -2802,6 +3060,87 @@ class FullSpaceScan:
     #: and not a survivor count. None when no shadow reference was supplied.
     #: Consulted by nothing; `select_candidates_from_scan` does not read it.
     shadow_fire_rate_summary: dict | None = None
+    #: PER-CELL full-space separation AUROC summary (architect RULING_8 T1,
+    #: 2026-08-15). The `min_*` arrays above collapse six cells into one
+    #: number per feature, and a MINIMUM cannot represent a feature that is
+    #: excellent in one cell and weak in another -- so the grid was
+    #: STRUCTURALLY BLIND to single-cell champions, and every candidate list
+    #: it produced was ranked by a statistic anti-correlated with
+    #: complementarity. This retains what the minimum destroys. None when
+    #: not computed. Recorded; read by no verdict and by no selection.
+    per_cell_separation_auroc: dict | None = None
+
+
+#: How many per-cell full-space leaders `summarise_per_cell_auroc` keeps.
+#: See its docstring for why this is a TRUNCATION and what it costs.
+PER_CELL_FULL_SPACE_TOP_K = 25
+
+
+def summarise_per_cell_auroc(
+    per_cell: dict[str, np.ndarray], *, auroc_min: float, top_k: int = PER_CELL_FULL_SPACE_TOP_K,
+) -> dict:
+    """The per-cell full-space separation AUROC, retained instead of thrown
+    away (architect RULING_8 T1, 2026-08-15).
+
+    WHAT WAS BROKEN. `score_full_feature_space` computes
+    `rank_auroc_matrix` for all `d_sae` features in every cell and then
+    folds each vector straight into a running MINIMUM. The per-cell matrix
+    was discarded and never written, so a feature scoring 1.00 in `en/f1`
+    and 0.40 in `fr/f2` recorded a min of 0.40, fell below the candidate
+    cut, and was never seen. The grid was structurally incapable of seeing
+    a SINGLE-CELL CHAMPION, and `select_candidates_from_scan` ranks by that
+    same minimum -- a criterion anti-correlated with complementarity by
+    construction.
+
+    WHAT THIS DECIDES. Per cell: the ceiling (`max_separation_auroc`) and
+    how many features clear G-A (`features_at_or_above_gate_a`). If a
+    concept's failing cell contains a full-space feature at or above the
+    G-A bar, that cell's failure is a SELECTION artifact. If the cell's
+    ceiling sits below the bar, the failure is a property of the encoding
+    at this layer under this SAE. Those are opposite conclusions and
+    nothing in the previous record could tell them apart.
+
+    THIS IS A TRUNCATION AND HERE IS EXACTLY WHAT IT COSTS. The full matrix
+    is `d_sae x cells` -- 81920 x 6 = 491520 float64, 3.9 MB in memory per
+    concept and roughly 10 MB as JSON, so ~140 MB of grid.json across 14
+    concepts. That is refused. RETAINED per cell: the max, the G-A-clearing
+    count, and the `top_k` leading features with their AUROCs (~1.5 KB per
+    cell, ~130 KB per grid). DISCARDED: the AUROC of every feature outside
+    each cell's top `top_k`. Stated rather than done silently, because a
+    silent truncation here would recreate the exact defect being fixed --
+    the previous code also "summarised", to one number, and said nothing.
+
+    Peak memory is UNCHANGED: the per-cell vector was already materialised
+    to compute the minimum; this summarises it before it goes out of scope
+    rather than allocating anything new. Zero new prompts, zero new forward
+    passes -- purely a recording change, and no threshold, gate or verdict
+    reads any of it.
+
+    `auroc_min` is READ from the frozen thresholds by the caller and used
+    only to COUNT. Nothing here moves it."""
+    summary: dict = {
+        "gate_a_auroc_min_used_for_the_count": float(auroc_min),
+        "top_k_retained_per_cell": int(top_k),
+        "truncation": (
+            "per cell: max, the count at or above the G-A bar, and the top_k leading features. The "
+            "AUROC of every feature outside a cell's top_k is NOT retained -- the full d_sae x cells "
+            "matrix is ~3.9 MB per concept in memory and ~10 MB as JSON, which is refused. This is a "
+            "stated truncation, not a silent one."
+        ),
+        "cells": {},
+    }
+    for cell, values in per_cell.items():
+        values = np.asarray(values, dtype=np.float64)
+        order = np.argsort(-values, kind="stable")[:top_k]
+        summary["cells"][cell] = {
+            "max_separation_auroc": float(values.max()) if values.size else None,
+            "features_at_or_above_gate_a": int((values >= auroc_min).sum()),
+            "features_scored": int(values.size),
+            "top_features": [
+                {"feature_index": int(i), "separation_auroc": float(values[i])} for i in order
+            ],
+        }
+    return summary
 
 
 def summarise_shadow_distribution(
@@ -2880,6 +3219,7 @@ def score_full_feature_space(
     locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES, cache: FeatureMatrixCache | None = None,
     floor_fraction: float | None = None,
     corpus_max_by_feature: np.ndarray | None = None, fire_rate_min: float | None = None,
+    auroc_min: float | None = None,
 ) -> FullSpaceScan:
     """Computes G-A, G-B and G-C for EVERY one of `backend.d_sae` features,
     in every (locale, family) cell, from the cached activation matrices --
@@ -2910,8 +3250,12 @@ def score_full_feature_space(
     thresholds = artifact.metadata["thresholds"]
     floor_fraction = thresholds["G_B_activation_floor_fraction_of_observed_max"] if floor_fraction is None else floor_fraction
     fire_rate_min = thresholds["G_B_fire_rate_min"] if fire_rate_min is None else fire_rate_min
+    # READ, never chosen: used only to COUNT how many features clear the
+    # frozen G-A bar per cell. No threshold moves.
+    auroc_min = thresholds["G_A_separation_auroc_min"] if auroc_min is None else auroc_min
     cache = FeatureMatrixCache() if cache is None else cache
 
+    per_cell_sep: dict[str, np.ndarray] = {}
     min_sep = np.full(backend.d_sae, np.inf, dtype=np.float64)
     min_fire = np.full(backend.d_sae, np.inf, dtype=np.float64)
     min_near = np.full(backend.d_sae, np.inf, dtype=np.float64)
@@ -2939,7 +3283,14 @@ def score_full_feature_space(
 
         for family in families_by_locale[locale]:
             positives = cache.features(backend, positives_by_family[family]).astype(np.float64)
-            min_sep = np.minimum(min_sep, rank_auroc_matrix(positives, negatives))
+            # RULING_8 T1: keep the per-cell vector long enough to summarise
+            # it. It was previously consumed directly by `np.minimum` and
+            # lost on the same line -- which is what made a single-cell
+            # champion unrepresentable. Same array, same arithmetic, no
+            # extra allocation: only its lifetime changes.
+            cell_sep = rank_auroc_matrix(positives, negatives)
+            per_cell_sep[f"{locale}/{family}"] = cell_sep
+            min_sep = np.minimum(min_sep, cell_sep)
             cell_fire = fire_rate_matrix(positives, floor_fraction=floor_fraction)[0]
             min_fire = np.minimum(min_fire, cell_fire)
             min_near = np.minimum(min_near, rank_auroc_matrix(positives, near_miss))
@@ -2970,6 +3321,7 @@ def score_full_feature_space(
         concept_id=concept_id, locales=tuple(locales), families_by_locale=families_by_locale,
         min_separation_auroc=min_sep, min_fire_rate=min_fire, min_near_miss_auroc=min_near,
         cells_scored=cells, shadow_fire_rate_summary=shadow_summary,
+        per_cell_separation_auroc=summarise_per_cell_auroc(per_cell_sep, auroc_min=auroc_min),
     )
 
 
@@ -3104,6 +3456,7 @@ def evaluate_concept_on_pairing(
 
         evaluated: list[CandidateGabcEvaluation] = []
         surviving_feature_index: int | None = None
+        surviving_feature_indices: list[int] = []
         gate_a_passing = 0
         for candidate in candidates:
             gate_ab: list[GateABResult] = []
@@ -3128,12 +3481,23 @@ def evaluate_concept_on_pairing(
             # NOT short-circuited (the pre-C3 loop broke on the first
             # survivor): the full G-A-passing set is the auditable output,
             # and the recorded order already makes the winner deterministic.
-            if survives and surviving_feature_index is None:
-                surviving_feature_index = candidate.feature_index
+            if survives:
+                surviving_feature_indices.append(candidate.feature_index)
+                if surviving_feature_index is None:
+                    surviving_feature_index = candidate.feature_index
+        # THE FALSIFIER FOR THE DEFECT ITSELF. Every candidate whose
+        # `survives_gabc` is true must appear in the recorded survivor list.
+        # This is precisely the equality that failed silently before the list
+        # existed: three candidates survived and one concept's second
+        # survivor was dropped, with nothing in the record disagreeing with
+        # anything else. Raised, never warned -- a lossy record that reports
+        # itself as complete is the failure mode.
+        assert_recorded_survivors_match_the_flag(evaluated, surviving_feature_indices)
         status: Literal["pass", "fail"] = "pass" if surviving_feature_index is not None else "fail"
         return ConceptPairingVerdict(
             concept_id=concept_id, pairing=backend.pairing, status=status,
             surviving_feature_index=surviving_feature_index,
+            surviving_feature_indices=surviving_feature_indices,
             candidates_evaluated=[asdict(e) for e in evaluated], error=None,
             features_scored=int(backend.d_sae),
             selection_mode="full_space_exhaustive",
@@ -3141,11 +3505,13 @@ def evaluate_concept_on_pairing(
             gate_denominator_caveat=GATE_DENOMINATOR_CAVEAT,
             gate_c_subsumption=gate_c_subsumption_note(artifact, concept_id=concept_id, locales=locales),
             shadow_gate_b_summary=scan.shadow_fire_rate_summary,
+            per_cell_full_space_auroc=scan.per_cell_separation_auroc,
         )
     except Exception as exc:  # an ERROR cell must record ANY failure, not a curated subset
         return ConceptPairingVerdict(
             concept_id=concept_id, pairing=backend.pairing, status="error",
-            surviving_feature_index=None, candidates_evaluated=[], error=f"{type(exc).__name__}: {exc}",
+            surviving_feature_index=None, surviving_feature_indices=[],
+            candidates_evaluated=[], error=f"{type(exc).__name__}: {exc}",
             selection_mode="full_space_exhaustive", gate_denominator_caveat=GATE_DENOMINATOR_CAVEAT,
         )
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import hashlib
+import inspect
 import json
 import os
 import shutil
@@ -1836,6 +1837,130 @@ def test_run_gemma_raw_hf_hook_preflight_fails_closed_on_a_dimension_mismatch():
 
 
 # ---------------------------------------------------------------------------
+# JOB 415590 device placement. The Gemma lane died one minute into a six-hour
+# allocation because the raw AutoModel stayed on cpu while its preflight's
+# input_ids were moved to cuda:0.
+#
+# WHAT THESE TESTS CAN AND CANNOT DO, STATED RATHER THAN IMPLIED. This box is
+# torch CPU-only (no CUDA, device_count 0), so NO test here can construct the
+# cuda tensor that produced the original RuntimeError. What they DO exercise,
+# with real torch.device objects and real nn.Modules rather than mocks:
+#   * the fail-fast gate, against the EXACT placement job 415590 had
+#     (weights on cpu, run requested cuda:0) -- torch.device comparison needs
+#     no CUDA runtime, so this is the real predicate on the real values;
+#   * the structural fix, that the preflight derives its input device from
+#     the model instead of trusting the caller.
+# The end-to-end GPU reproduction on google/gemma-3-12b-it is OWED and is
+# NOT simulated here.
+# ---------------------------------------------------------------------------
+
+
+def test_assert_load_devices_agree_refuses_the_exact_job_415590_placement():
+    """The regression, as a test: weights on cpu, run requested cuda:0. The
+    gate must refuse BEFORE any forward rather than let torch.embedding
+    raise partway into the allocation."""
+    model = _TinyGemmaLikeModel(n_layers=2, hidden_dim=6, include_vision_collision=False)
+    with pytest.raises(d.BackendDeviceMismatch, match="raw_hf_model on cpu"):
+        d.assert_load_devices_agree(device="cuda:0", raw_hf_model=model)
+
+
+def test_assert_load_devices_agree_names_every_misplaced_object_not_just_the_first():
+    model = _TinyGemmaLikeModel(n_layers=2, hidden_dim=6, include_vision_collision=False)
+    other = _TinyGemmaLikeModel(n_layers=2, hidden_dim=6, include_vision_collision=False)
+    with pytest.raises(d.BackendDeviceMismatch) as excinfo:
+        d.assert_load_devices_agree(device="cuda:0", raw_hf_model=model, sae=other)
+    assert "raw_hf_model on cpu" in str(excinfo.value)
+    assert "sae on cpu" in str(excinfo.value)
+
+
+def test_assert_load_devices_agree_passes_and_reports_measured_placement():
+    """It returns the MEASURED placement so provenance records where things
+    actually were, not where they were asked to be."""
+    model = _TinyGemmaLikeModel(n_layers=2, hidden_dim=6, include_vision_collision=False)
+    measured = d.assert_load_devices_agree(device="cpu", raw_hf_model=model)
+    assert measured == {"raw_hf_model": "cpu"}
+
+
+def test_assert_load_devices_agree_treats_cuda_and_cuda_0_as_the_same_device():
+    """`cuda` and `cuda:0` name one device. A gate that failed on spelling
+    would refuse a correctly-placed run."""
+    assert d._normalise_device("cuda") == d._normalise_device("cuda:0")
+
+
+def test_assert_load_devices_agree_reports_a_parameterless_object_rather_than_asserting():
+    class _NoTensors:
+        pass
+
+    assert d.assert_load_devices_agree(device="cuda:0", thing=_NoTensors()) == {"thing": "no-parameters"}
+
+
+def test_resolve_module_device_reads_a_plain_object_that_is_not_an_nn_module():
+    """`QwenScopeSAE` is a plain class holding W_enc/b_enc/W_dec/b_dec, NOT
+    an nn.Module. A resolver that only understood nn.Module would return
+    None for it and silently assert nothing -- the exact silence this
+    change exists to remove."""
+
+    class _PlainSae:
+        def __init__(self):
+            self.W_enc = torch.zeros((4, 8))
+            self.b_enc = torch.zeros((8,))
+
+    assert str(d.resolve_module_device(_PlainSae())) == "cpu"
+    assert d.assert_load_devices_agree(device="cpu", sae=_PlainSae()) == {"sae": "cpu"}
+    with pytest.raises(d.BackendDeviceMismatch, match="sae on cpu"):
+        d.assert_load_devices_agree(device="cuda:0", sae=_PlainSae())
+
+
+def test_a_model_on_another_device_really_does_raise_on_caller_supplied_inputs():
+    """THE CONTROL, and it runs FIRST for a reason: it establishes that this
+    fixture reproduces a genuine cross-device failure on a CPU-only box, so
+    the test below is not passing vacuously.
+
+    `meta` is a real torch device present on every build. Feeding a cpu
+    tensor to a meta-resident module makes the dispatcher raise, exactly as
+    feeding a cuda:0 tensor to a cpu-resident module did in job 415590.
+    This is the PRE-FIX behaviour: the caller placed the inputs, the model
+    was somewhere else, and torch refused."""
+    model = _TinyGemmaLikeModel(n_layers=3, hidden_dim=6, include_vision_collision=False).to("meta")
+    with pytest.raises(RuntimeError, match="device"):
+        model(torch.zeros((1, 4)))
+
+
+def test_raw_hf_preflight_derives_its_input_device_from_the_model_not_the_caller():
+    """THE STRUCTURAL FIX, against the failure the control just demonstrated.
+
+    Same meta-resident model, same cpu-resident tokens the caller hands in
+    -- the combination that raises. Going through the preflight it does NOT
+    raise, because the preflight moves the inputs onto the model's own
+    device instead of trusting the caller's. Verified by capturing the
+    tensor the module actually received, not by trusting the argument that
+    went in."""
+    model = _TinyGemmaLikeModel(n_layers=3, hidden_dim=6, include_vision_collision=False).to("meta")
+    seen: list[torch.device] = []
+    original_forward = model.forward
+
+    def _recording_forward(input_ids):
+        seen.append(input_ids.device)
+        return original_forward(input_ids)
+
+    model.forward = _recording_forward
+    result = d.run_gemma_raw_hf_hook_preflight(
+        model, torch.zeros((1, 4)), layer=1, expected_hidden_dim=6
+    )
+    assert seen == [torch.device("meta")]
+    assert result.passed is True
+    assert result.ran_on_device == "meta"
+
+
+def test_raw_hf_preflight_no_longer_reads_a_caller_supplied_device():
+    """A caller CANNOT misplace this forward any more: the signature has no
+    device argument, so the two-opinions state that produced job 415590 is
+    unrepresentable rather than merely discouraged."""
+    signature = inspect.signature(d.run_gemma_raw_hf_hook_preflight)
+    assert "device" not in signature.parameters
+
+
+# ---------------------------------------------------------------------------
 # Baseline (CONTROL) generation: no hook attached at all -- the paired
 # unsteered counterpart G-D/G-E's evaluate_gate_d/evaluate_gate_e need.
 # ---------------------------------------------------------------------------
@@ -2576,6 +2701,238 @@ def test_run_concept_grid_can_be_run_without_the_shadow_record_and_is_verdict_id
     ]
     assert without[0].shadow_gate_b_summary is None
     assert d.aggregate_shadow_summaries(without) is None
+
+
+# ---------------------------------------------------------------------------
+# RULING_8: anti-specificity, recorded as a disqualifier and read by nothing.
+# ---------------------------------------------------------------------------
+
+
+def test_anti_specificity_is_recorded_on_a_feature_that_prefers_the_controls():
+    """A feature ranking controls above its own concept (separation_auroc <
+    0.5) is recorded ANTI-SPECIFIC. The record gains the property; no
+    verdict reads it.
+
+    OTHER_FEATURE is deterministically anti-specific in most of cheese's
+    cells and specific in at least one, so BOTH branches of the flag are
+    exercised by real computed AUROCs rather than by construction."""
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    backend = make_fake_gemma_backend()
+    results = [
+        r for locale in ("en", "fr")
+        for r in d.compute_gate_a_and_b_per_family(
+            backend, artifact, concept_id="cheese", locale=locale, feature_index=OTHER_FEATURE,
+        )
+    ]
+    anti = [r for r in results if r.separation_auroc < 0.5]
+    specific = [r for r in results if r.separation_auroc >= 0.5]
+    assert anti and specific, "fixture must produce BOTH kinds of cell or this test cannot discriminate"
+    for r in anti:
+        assert r.anti_specific is True
+        assert "ANTI-SPECIFIC" in r.anti_specific_note
+    for r in specific:
+        assert r.anti_specific is False
+        assert r.anti_specific_note == ""
+
+
+def test_anti_specificity_changes_no_verdict():
+    """THE CONSTRAINT. Recording a disqualifier is not applying one: G-A and
+    G-B verdicts must be exactly what the thresholds say, on an
+    anti-specific cell as on any other."""
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    backend = make_fake_gemma_backend()
+    thresholds = artifact.metadata["thresholds"]
+    seen_anti = False
+    for feature in (CONCEPT_FEATURE, OTHER_FEATURE):
+        for locale in ("en", "fr"):
+            for r in d.compute_gate_a_and_b_per_family(
+                backend, artifact, concept_id="cheese", locale=locale, feature_index=feature,
+            ):
+                seen_anti = seen_anti or r.anti_specific
+                assert r.gate_a_passed == (r.separation_auroc >= thresholds["G_A_separation_auroc_min"])
+                assert r.gate_b_passed == (r.fire_rate >= thresholds["G_B_fire_rate_min"])
+    assert seen_anti, "an anti-specific cell must be among those checked or the constraint is untested"
+
+
+def test_anti_specificity_is_invisible_to_the_within_cell_fire_rate_by_construction():
+    """WHY the record needs the field: the within-cell statistic is
+    scale-invariant, so a feature firing on everything and a feature firing
+    only on the concept produce the SAME fire_rate. No threshold on that
+    number can separate them -- which is why this is a record change and not
+    a threshold change."""
+    concept_only = [10.0, 9.0, 8.0, 10.0, 9.0]
+    fires_on_everything = [x * 37.0 for x in concept_only]
+    quiet_rate, quiet_floor = d.compute_gate_b_fire_rate(concept_only, floor_fraction=0.20)
+    loud_rate, loud_floor = d.compute_gate_b_fire_rate(fires_on_everything, floor_fraction=0.20)
+    # The RATE -- the thing G-B thresholds on -- is identical.
+    assert quiet_rate == pytest.approx(loud_rate)
+    # The floor moved by the full factor, which is precisely why the rate did
+    # not: the reference scales with the data, so the ratio is fixed. No
+    # threshold on this number can separate the two cases.
+    assert loud_floor == pytest.approx(quiet_floor * 37.0)
+
+
+def test_a_gate_ab_record_written_before_the_anti_specificity_field_still_round_trips():
+    stale = {
+        "concept_id": "cheese", "locale": "en", "family": "f1", "feature_index": 3,
+        "separation_auroc": 0.2, "gate_a_passed": False, "fire_rate": 1.0,
+        "activation_floor_fraction": 0.2, "gate_b_passed": True,
+    }
+    record = d.GateABResult(**stale)
+    assert record.anti_specific is False
+    assert record.anti_specific_note == ""
+
+
+# ---------------------------------------------------------------------------
+# RULING_8 T1: the per-cell full-space AUROC that used to be discarded.
+# ---------------------------------------------------------------------------
+
+
+def test_per_cell_summary_sees_the_single_cell_champion_the_minimum_cannot():
+    """THE DEFECT, as a test. A feature that is excellent in one cell and
+    weak in another has a LOW minimum, so it never reaches the candidate
+    list and the old record could not show it existed. The per-cell summary
+    must report it at its cell's ceiling, and the minimum must still miss
+    it -- both asserted, so the test shows the difference rather than
+    asserting the new field in isolation."""
+    champion, mediocre = 7, 3
+    per_cell = {
+        "en/f1": np.full(16, 0.50),
+        "fr/f2": np.full(16, 0.50),
+    }
+    per_cell["en/f1"][champion] = 0.99   # excellent HERE
+    per_cell["fr/f2"][champion] = 0.20   # weak there -> min 0.20
+    per_cell["en/f1"][mediocre] = 0.62
+    per_cell["fr/f2"][mediocre] = 0.61   # min 0.61, ranks ABOVE the champion
+
+    minimum = np.minimum(per_cell["en/f1"], per_cell["fr/f2"])
+    assert minimum[champion] < minimum[mediocre]  # the min-ranking prefers the mediocre feature
+
+    summary = d.summarise_per_cell_auroc(per_cell, auroc_min=0.90)
+    assert summary["cells"]["en/f1"]["max_separation_auroc"] == pytest.approx(0.99)
+    assert summary["cells"]["en/f1"]["features_at_or_above_gate_a"] == 1
+    assert summary["cells"]["fr/f2"]["features_at_or_above_gate_a"] == 0
+    assert summary["cells"]["en/f1"]["top_features"][0]["feature_index"] == champion
+
+
+def test_per_cell_summary_answers_selection_artifact_versus_encoding_property():
+    """The question T1 exists to decide, in both directions. A failing cell
+    whose full-space ceiling clears G-A means the failure was SELECTION; a
+    ceiling below G-A means it is a property of the encoding."""
+    artifact_cell = {"en/f1": np.array([0.95, 0.10, 0.20])}
+    encoding_cell = {"en/f1": np.array([0.62, 0.10, 0.20])}
+    assert d.summarise_per_cell_auroc(artifact_cell, auroc_min=0.90)["cells"]["en/f1"][
+        "features_at_or_above_gate_a"] == 1
+    assert d.summarise_per_cell_auroc(encoding_cell, auroc_min=0.90)["cells"]["en/f1"][
+        "features_at_or_above_gate_a"] == 0
+
+
+def test_per_cell_summary_states_its_truncation_rather_than_truncating_silently():
+    """A silent truncation here would recreate the defect being fixed: the
+    previous code also summarised to one number and said nothing."""
+    summary = d.summarise_per_cell_auroc({"en/f1": np.linspace(0, 1, 100)}, auroc_min=0.90, top_k=5)
+    assert summary["top_k_retained_per_cell"] == 5
+    assert len(summary["cells"]["en/f1"]["top_features"]) == 5
+    assert summary["cells"]["en/f1"]["features_scored"] == 100
+    assert "NOT retained" in summary["truncation"]
+
+
+def test_per_cell_summary_records_the_gate_a_bar_it_counted_against_and_moves_nothing():
+    """The bar is READ and reported so the count is interpretable. Reading a
+    threshold to count is not moving it."""
+    summary = d.summarise_per_cell_auroc({"en/f1": np.array([0.91])}, auroc_min=0.90)
+    assert summary["gate_a_auroc_min_used_for_the_count"] == 0.90
+
+
+def test_full_space_scan_retains_per_cell_auroc_for_every_cell_it_scored():
+    """End to end through the real scan on the fake backend: one entry per
+    (locale, family) cell actually scored, and the minimum still present."""
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    backend = make_fake_gemma_backend()
+    scan = d.score_full_feature_space(backend, artifact, concept_id="cheese")
+    assert scan.per_cell_separation_auroc is not None
+    assert len(scan.per_cell_separation_auroc["cells"]) == scan.cells_scored
+    for cell in scan.per_cell_separation_auroc["cells"].values():
+        assert cell["features_scored"] == backend.d_sae
+    # The min is KEPT as well as the per-cell values, not replaced by them.
+    assert scan.min_separation_auroc.shape == (backend.d_sae,)
+
+
+# ---------------------------------------------------------------------------
+# JOB 415590 survivor recording. `survives_gabc` was true for THREE candidates
+# while only two concepts reported a survivor: formal_register had BOTH 38600
+# and 51952 clearing all six cells, and the scalar field could hold one.
+# ---------------------------------------------------------------------------
+
+
+def _evaluation(feature_index: int, *, survives: bool):
+    return d.CandidateGabcEvaluation(
+        feature_index=feature_index, gate_a_b_results=[], gate_c_results=[], survives_gabc=survives,
+    )
+
+
+def test_survivor_falsifier_catches_the_exact_formal_register_drop():
+    """THE DEFECT, as a test: two candidates survive, one is recorded. Before
+    the survivor list existed this state was unrepresentable, so nothing
+    could disagree with anything and the loss was silent."""
+    evaluated = [_evaluation(38600, survives=True), _evaluation(51952, survives=True)]
+    with pytest.raises(d.SurvivorRecordingMismatch, match=r"\[38600\].*\[38600, 51952\]"):
+        d.assert_recorded_survivors_match_the_flag(evaluated, [38600])
+
+
+def test_survivor_falsifier_accepts_the_complete_set():
+    evaluated = [_evaluation(38600, survives=True), _evaluation(7, survives=False),
+                 _evaluation(51952, survives=True)]
+    d.assert_recorded_survivors_match_the_flag(evaluated, [38600, 51952])
+
+
+def test_survivor_falsifier_catches_a_recorded_feature_that_did_not_survive():
+    """The other direction: reporting a survivor the flag does not support is
+    equally a mismatch, not a rounding-up."""
+    evaluated = [_evaluation(38600, survives=True), _evaluation(51952, survives=False)]
+    with pytest.raises(d.SurvivorRecordingMismatch):
+        d.assert_recorded_survivors_match_the_flag(evaluated, [38600, 51952])
+
+
+def test_survivor_falsifier_enforces_order_so_the_scalar_stays_the_first_entry():
+    """`surviving_feature_index` is documented as `surviving_feature_indices[0]`.
+    That is only true if the list keeps the candidates' best-first order, so
+    order is asserted, not just membership."""
+    evaluated = [_evaluation(38600, survives=True), _evaluation(51952, survives=True)]
+    with pytest.raises(d.SurvivorRecordingMismatch):
+        d.assert_recorded_survivors_match_the_flag(evaluated, [51952, 38600])
+
+
+def test_a_verdict_recorded_before_the_survivor_list_is_distinguishable_from_no_survivors():
+    """CORRECT-NEVER-REMOVE, at the record layer. A pre-field verdict must
+    round-trip and must NOT claim an empty survivor set -- `None` says 'this
+    record does not state it', `[]` says 'none survived'. Conflating them
+    would let a stale record acquire a false claim."""
+    stale = {
+        "concept_id": "cheese", "pairing": "gemma-3-12b-it", "status": "fail",
+        "surviving_feature_index": None, "candidates_evaluated": [], "error": None,
+    }
+    verdict = d.ConceptPairingVerdict(**stale)
+    assert verdict.surviving_feature_indices is None
+
+    genuinely_none = d.ConceptPairingVerdict(**stale, surviving_feature_indices=[])
+    assert genuinely_none.surviving_feature_indices == []
+    assert verdict.surviving_feature_indices != genuinely_none.surviving_feature_indices
+
+
+def test_scalar_survivor_field_keeps_its_original_meaning_as_the_first_survivor():
+    """The scalar is PRESERVED, not repurposed: it remains the first survivor
+    in recorded order, which is what every existing consumer reads."""
+    evaluated = [_evaluation(38600, survives=True), _evaluation(51952, survives=True)]
+    survivors = [c.feature_index for c in evaluated if c.survives_gabc]
+    verdict = d.ConceptPairingVerdict(
+        concept_id="formal_register", pairing="qwen3.5-27b", status="pass",
+        surviving_feature_index=survivors[0], surviving_feature_indices=survivors,
+        candidates_evaluated=[], error=None,
+    )
+    assert verdict.surviving_feature_index == 38600
+    assert verdict.surviving_feature_indices == [38600, 51952]
+    assert verdict.surviving_feature_index == verdict.surviving_feature_indices[0]
 
 
 def test_a_verdict_recorded_before_the_shadow_fields_still_round_trips():

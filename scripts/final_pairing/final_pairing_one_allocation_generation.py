@@ -1514,7 +1514,32 @@ def run_generation_mode(args: argparse.Namespace) -> dict:
         )
 
     verdicts = _d.read_grid_result(args.grid_path)
-    feature_by_concept = {v.concept_id: v.surviving_feature_index for v in verdicts if v.pairing == args.pairing and v.status == "pass"}
+    # DELIBERATELY THE SCALAR, AND THAT IS NOT THE SAME AS THE ONLY SURVIVOR
+    # (2026-08-15). `one_allocation_dose_generation.json` frames this stage
+    # around ONE feature per concept, so taking the first survivor here is
+    # correct by protocol -- but the grid can now record SEVERAL
+    # (`surviving_feature_indices`; formal_register had 38600 AND 51952 in
+    # job 415590's Qwen lane). Narrowing to one is a PROTOCOL CHOICE made
+    # here on purpose; it used to be indistinguishable from the grid having
+    # found exactly one, because the grid could not say otherwise.
+    #
+    # Whether the causal stage should act on the GROUP is
+    # joint_intervention_lane's question and is NOT decided here. What is
+    # fixed here is that the narrowing is now VISIBLE: the dropped
+    # co-survivors are recorded below rather than lost.
+    verdicts_this_pairing_passing = [v for v in verdicts if v.pairing == args.pairing and v.status == "pass"]
+    feature_by_concept = {v.concept_id: v.surviving_feature_index for v in verdicts_this_pairing_passing}
+    co_survivors_not_used = {
+        v.concept_id: [i for i in (v.surviving_feature_indices or []) if i != v.surviving_feature_index]
+        for v in verdicts_this_pairing_passing
+        if len(v.surviving_feature_indices or []) > 1
+    }
+    if co_survivors_not_used:
+        print(
+            f"[one-allocation] NOTE: {len(co_survivors_not_used)} concept(s) have co-surviving features "
+            f"this single-feature stage does NOT use: {co_survivors_not_used}. This is the protocol's "
+            f"one-feature-per-concept narrowing, not an absence of other survivors."
+        )
     concept_ids = order_concepts_for_causal_generation(list(feature_by_concept))
     # Engineer 3 delta (commit 9a32246): skipped_for_gate_failure is an
     # ARRAY OF CONCEPT IDS, not a bool -- every concept that failed G-A/

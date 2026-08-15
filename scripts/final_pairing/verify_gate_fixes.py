@@ -785,6 +785,12 @@ def check_c3_recovers_the_known_answer(
         and worst <= 1e-12
         and verdict.features_scored == d_sae
         and verdict.surviving_feature_index != feature_index
+        # STRICTER since the survivor set became recordable: 25995 must be
+        # absent from the WHOLE survivor list, not merely from its first
+        # entry. Checking only the scalar would pass on a run where 25995
+        # survived in second place -- the exact blind spot that dropped
+        # formal_register's 51952.
+        and feature_index not in (verdict.surviving_feature_indices or [])
         and feature_index not in shortlist
     )
     print(f"[C3c] 25995 G-A passed in all 6 cells : {gate_a_all}  (recorded: 6/6)")
@@ -794,6 +800,7 @@ def check_c3_recovers_the_known_answer(
     print(f"[C3c] 25995 in the pre-C3 magnitude shortlist of 20   : {feature_index in shortlist} (must be False)")
     print(f"[C3c] gate_a_passing_feature_count    : {verdict.gate_a_passing_feature_count}")
     print(f"[C3c] surviving_feature_index         : {verdict.surviving_feature_index} (must NOT be 25995 -- G-B kills it)")
+    print(f"[C3c] surviving_feature_indices (ALL) : {verdict.surviving_feature_indices} (25995 must be absent from ALL of it)")
     print(f"[C3c] whole-space scan wall seconds   : {seconds:.1f}s for {d_sae} features x 6 cells")
     print(f"[C3c] recorded shortlist rank of 25995 in run 413287  : {recorded_shortlist.index(feature_index)} of {len(recorded_shortlist)}")
     print(
