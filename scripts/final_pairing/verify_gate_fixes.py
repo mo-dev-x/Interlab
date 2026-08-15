@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Falsifiers for the 2026-08-15 zero-survivor fixes (C1/C2/C3/C5).
+"""Falsifiers for the 2026-08-15 zero-survivor fixes (C1/C2/C3/C5) and for
+the SHADOW G-B measurement (SHADOW-A/B/C).
 
 Every check here is a FALSIFIER, not a demonstration: each one states, up
 front, the exact number that must come out, and exits non-zero when it does
@@ -9,6 +10,7 @@ result.
 Run:  python scripts/final_pairing/verify_gate_fixes.py --all
       python scripts/final_pairing/verify_gate_fixes.py c1 \
           --progress D:/devcache/tmp/fp413287/primary/qwen/grid/state/progress.jsonl
+      python scripts/final_pairing/verify_gate_fixes.py shadow
 
 READ THIS BEFORE QUOTING ANY NUMBER THIS SCRIPT PRINTS. The 182 records the
 C1 check flips are ARTIFACTS of the degenerate-scale defect, not G-B passes.
@@ -19,6 +21,13 @@ reference scale that is derived from the very prompts it judges (see
 `compute_gate_b_fire_rate`'s own docstring). C1 removes the fully
 degenerate case; it does not make that denominator non-circular, and
 correcting the scale is explicitly not authorised here.
+
+The SHADOW checks do not correct it either. They MEASURE what the corrected
+statistic would look like -- against the background reference this protocol
+already uses for the same quantity -- and record the distribution, so that
+whoever re-derives `G_B_fire_rate_min` has evidence instead of an
+assertion. Every verdict in this codebase is still computed from the frozen
+within-cell statistic, and SHADOW-C asserts that it still is.
 """
 
 from __future__ import annotations
@@ -145,7 +154,17 @@ def check_c1(progress_path: Path) -> bool:
 # 98a7108) and the post-C2 code path, side by side, every emitted float
 # compared. That tests exactly what the refactor could break -- whether the
 # arithmetic moved -- and tests nothing about the model. The GPU replay
-# against progress.jsonl remains OWED before any production rerun.
+# against progress.jsonl remains OWED before any production rerun -- it is
+# now EXECUTABLE rather than merely owed:
+#
+#   python scripts/final_pairing/final_pairing_concept_discovery.py \
+#       --mode replay --replay-progress <the preserved progress.jsonl> ...
+#
+# which re-scores exactly the preserved 9 concepts x 20 features on the real
+# backend and asserts every emitted separation_auroc / fire_rate_within_cell
+# / near_miss_auroc to 1e-9, failing loudly. Until that has been RUN on GPU,
+# the surrogate result below is a structural equivalence proof and is not a
+# model-level replay, and this comment stays.
 #
 # C1 is held CONSTANT across both arms (the pre-C2 module's
 # `compute_gate_b_fire_rate` is replaced with the patched one) so that any
@@ -757,14 +776,315 @@ def check_c5_subsumption(*, trials: int = 4000, seed: int = 20260817) -> bool:
     return ok
 
 
+# ---------------------------------------------------------------------------
+# SHADOW G-B (2026-08-15). MEASUREMENT ONLY -- no check in this section may
+# change a gate, a threshold or a verdict, and none of them do: they read
+# `d.compute_shadow_fire_rate_corpus_max` / `d.shadow_fire_rate_matrix`,
+# which are recorded beside the frozen statistic and consulted by nothing.
+#
+# The question these checks exist to serve is the one that has never had
+# evidence behind it: what does the CORRECTED G-B statistic's distribution
+# actually look like, so that `G_B_fire_rate_min` can be re-derived against
+# it instead of asserted? Nothing here proposes a new threshold.
+# ---------------------------------------------------------------------------
+
+
+def check_shadow_arithmetic(*, trials: int = 3000, seed: int = 20260818) -> bool:
+    """FALSIFIER SHADOW-A: three properties of the shadow statistic, each of
+    which is what makes the measurement interpretable at all.
+
+    1. VECTORISED == SCALAR, bit-for-bit, dead columns and zero references
+       included. Otherwise the run-level distribution is not the same
+       quantity as the per-cell record.
+    2. AT `corpus_max == observed_max` THE SHADOW STATISTIC IS EXACTLY THE
+       FROZEN ONE. This is what makes the two comparable: the ONLY
+       difference between them is the reference scale.
+    3. THE SHADOW STATISTIC IS NON-INCREASING IN `corpus_max`. Combined
+       with (2) this fixes the direction of every possible correction
+       without measuring a single activation: a cell's shadow rate is >=
+       its within-cell rate iff the feature's background max is <= its
+       within-cell max, and <= it otherwise.
+
+    Property 3 is the whole reason a re-derivation is tractable: it means
+    'would this cell clear 0.70 under the corrected scale' reduces to one
+    measurable comparison per cell, not a new calibration per cell."""
+    rng = np.random.default_rng(seed)
+    vector_mismatches = 0
+    identity_mismatches = 0
+    monotonicity_violations = 0
+    for _ in range(trials):
+        n_pos, n_feat = 10, 6
+        pos = np.where(rng.random((n_pos, n_feat)) < 0.5, 0.0, rng.random((n_pos, n_feat)) * 5.0)
+        if rng.random() < 0.25:
+            pos[:, rng.integers(0, n_feat)] = 0.0
+        reference = np.where(rng.random(n_feat) < 0.2, 0.0, rng.random(n_feat) * 8.0)
+        rates, floors = d.shadow_fire_rate_matrix(pos, floor_fraction=_FLOOR_FRACTION, corpus_max=reference)
+        for j in range(n_feat):
+            column = pos[:, j].astype(float).tolist()
+            ref_rate, ref_floor, _degenerate = d.compute_shadow_fire_rate_corpus_max(
+                column, floor_fraction=_FLOOR_FRACTION, corpus_max=float(reference[j])
+            )
+            vector_mismatches += int(rates[j] != ref_rate or floors[j] != ref_floor)
+
+            observed_max = max(column)
+            frozen_rate, _frozen_floor = d.compute_gate_b_fire_rate(column, floor_fraction=_FLOOR_FRACTION)
+            at_observed_max, _f, _dg = d.compute_shadow_fire_rate_corpus_max(
+                column, floor_fraction=_FLOOR_FRACTION, corpus_max=observed_max
+            )
+            identity_mismatches += int(at_observed_max != frozen_rate)
+
+            previous = 1.1
+            for scale in np.linspace(0.0, max(observed_max, 1.0) * 2.0, 25):
+                rate, _f, _dg = d.compute_shadow_fire_rate_corpus_max(
+                    column, floor_fraction=_FLOOR_FRACTION, corpus_max=float(scale)
+                )
+                monotonicity_violations += int(rate > previous + 1e-15)
+                previous = rate
+
+    ok = vector_mismatches == 0 and identity_mismatches == 0 and monotonicity_violations == 0
+    print(f"[SHADOW-A] vectorised-vs-scalar mismatches over {trials} trials : {vector_mismatches} (expected 0)")
+    print(f"[SHADOW-A] shadow(corpus_max=observed_max) != frozen G-B       : {identity_mismatches} (expected 0)")
+    print(f"[SHADOW-A] monotonicity violations in corpus_max               : {monotonicity_violations} (expected 0)")
+    print(
+        "[SHADOW-A] CONSEQUENCE: for every cell, shadow >= within-cell iff the feature's background "
+        "max <= its within-cell max, with equality when they are equal. The direction of the "
+        "correction is decided by one measurable comparison per cell."
+    )
+    print(f"[SHADOW-A] {'PASS' if ok else 'FAIL'}")
+    return ok
+
+
+def check_shadow_against_the_preserved_record(progress_path: Path) -> bool:
+    """FALSIFIER SHADOW-B: states exactly what the preserved record CAN and
+    CANNOT settle, and measures the part it can.
+
+    CANNOT: run 413287 preserved verdicts, not activations, and its records
+    predate `observed_max`/`activation_floor` being recorded at all (they
+    are absent from every one of its 1080 G-A/G-B cells -- checked below,
+    not assumed). No shadow fire rate is therefore recoverable from this
+    file for ANY cell, including feature 25995's. Producing them requires
+    re-running the model, which is what `final_pairing_concept_discovery.py
+    --mode grid`'s `shadow_gate_b_summary` now emits and what
+    `--mode replay` re-scores. THAT MEASUREMENT IS OWED AND IS NOT MADE
+    HERE.
+
+    CAN: the anti-correlation that motivates the whole question, and the
+    exact inequality each of feature 25995's two failing cells has to
+    satisfy for the corrected statistic to clear the current bar. Both are
+    computed from the preserved floats alone."""
+    ab, c = _load_cells(progress_path)
+    have_observed_max = sum(1 for cell in ab if "observed_max" in cell)
+
+    from scipy.stats import spearmanr
+
+    separation = np.array([cell["separation_auroc"] for cell in ab])
+    fire = np.array([cell["fire_rate"] for cell in ab])
+    rho = float(spearmanr(separation, fire).statistic)
+
+    # The same correlation with the 182 degenerate cells removed -- they are
+    # artifacts, so the honest version of the statistic excludes them.
+    c_by_cell = {(x["concept_id"], x["locale"], x["family"], x["feature_index"]): x for x in c}
+    live = [
+        cell for cell in ab
+        if not _is_dead_cell(cell, c_by_cell[(cell["concept_id"], cell["locale"], cell["family"], cell["feature_index"])])
+    ]
+    rho_live = float(spearmanr(
+        np.array([cell["separation_auroc"] for cell in live]),
+        np.array([cell["fire_rate"] for cell in live]),
+    ).statistic)
+
+    print(f"[SHADOW-B] cells in the preserved record                     : {len(ab)}")
+    print(f"[SHADOW-B] cells carrying observed_max / activation_floor    : {have_observed_max} (pre-C4 record: expected 0)")
+    print(f"[SHADOW-B] Spearman(separation_auroc, fire_rate), all cells  : {rho:+.4f}")
+    print(f"[SHADOW-B] the same with the 182 degenerate cells excluded   : {rho_live:+.4f} over {len(live)} live cells")
+    print(
+        "[SHADOW-B] READ: a G-B statistic ANTI-correlated with the separation the search is for is "
+        "not measuring firing. This is the motivation for the shadow metric, not evidence that the "
+        "shadow metric fixes it -- that requires the GPU distribution, which is owed."
+    )
+
+    # Feature 25995: the exact condition, per failing cell.
+    recorded_ab, _recorded_c, _shortlist = _recorded_25995(progress_path)
+    print("[SHADOW-B] feature 25995 (formal_register), the case the question turns on:")
+    for (locale, family), record in sorted(recorded_ab.items()):
+        fired = round(record["fire_rate"] * 10)
+        print(
+            f"[SHADOW-B]   {locale}/{family}: separation_auroc={record['separation_auroc']:.4f} "
+            f"fire_rate_within_cell={record['fire_rate']:.1f} ({fired}/10 positives at or above "
+            f"0.20 x that cell's own max) gate_b_passed={record['gate_b_passed']}"
+        )
+    print(
+        f"[SHADOW-B]   The two failing cells are en/f3 (0.6) and fr/f3 (0.4). Under the shadow "
+        f"reference each clears 0.70 IFF at least {int(np.ceil(_FIRE_RATE_MIN * 10))} of its 10 "
+        f"positives sit at or above 0.20 x corpus_max, i.e. iff corpus_max <= 5 x p7, where p7 is "
+        f"that cell's 7th-largest positive score."
+    )
+    print(
+        "[SHADOW-B]   NECESSARY CONDITION, derived from the record alone: the within-cell rate of "
+        "0.6 means p7 < 0.20 x p1, so 5 x p7 < p1. The shadow reference can only rescue these cells "
+        "if the feature's max over the background `unrelated` split is STRICTLY BELOW its max on "
+        "these very prompts -- i.e. only if 25995 is genuinely more active on formal_register's f3 "
+        "prompts than anywhere in the background corpus."
+    )
+    print(
+        "[SHADOW-B]   p1 and p7 were NOT preserved. This check therefore reports the inequality, "
+        "not a value. WHAT WOULD SETTLE IT: one GPU run of --mode grid, whose per-cell "
+        "fire_rate_corpus_max / corpus_max fields answer it directly for both cells."
+    )
+
+    ok = have_observed_max == 0 and rho < 0
+    print(f"[SHADOW-B] {'PASS' if ok else 'FAIL'} (asserts the record is pre-C4 and the anti-correlation is negative)")
+    return ok
+
+
+def check_shadow_distribution_shape(progress_path: Path, *, d_sae: int = 80000, seed: int = 25995) -> bool:
+    """FALSIFIER SHADOW-C: an END-TO-END shadow distribution over a full
+    d_sae x 6-cell space, produced by the REAL code path
+    (`score_full_feature_space` -> `summarise_shadow_distribution` ->
+    `aggregate_shadow_summaries`), on the SAME tabulated construction
+    `check_c3_recovers_the_known_answer` uses -- the one that reproduces
+    all 18 of run 413287's recorded floats for feature 25995 exactly.
+
+    WHAT THIS IS: proof that the run-level shadow summary is computed,
+    complete (every (feature, cell) pair binned exactly once), and shaped
+    the way a re-derivation needs, plus a worked example of the two
+    distributions side by side on the same bins.
+
+    WHAT THIS IS NOT: run 413287's distribution. The construction fixes the
+    RANK statistics (that is what the recorded AUROCs and fire rates pin
+    down); it does not and cannot fix the absolute activation scale, and
+    the shadow statistic is a function of the ratio between two absolute
+    scales. Every number below marked SYNTHETIC is a property of the
+    construction. THE REAL DISTRIBUTION IS OWED FROM ONE GPU RUN and is
+    emitted by `--mode grid` as `grid.json`'s `shadow_gate_b_summary`."""
+    import final_pairing_targets as targets
+
+    concept_id, feature_index = _F25995
+    recorded_ab, _recorded_c, _shortlist = _recorded_25995(progress_path)
+
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    texts: list[str] = []
+    per_locale: dict[str, tuple[list[str], list[str], dict[str, list[str]]]] = {}
+    for locale in d.FROZEN_PROMPT_SET_LOCALES:
+        unrelated, near_miss, positives_by_family = d.concept_locale_texts(
+            artifact, concept_id=concept_id, locale=locale
+        )
+        per_locale[locale] = (unrelated, near_miss, positives_by_family)
+        texts += unrelated + near_miss + [t for f in sorted(positives_by_family) for t in positives_by_family[f]]
+    text_index = {t: i for i, t in enumerate(texts)}
+
+    rng = np.random.default_rng(seed)
+    matrix = np.where(
+        rng.random((len(texts), d_sae)) < 0.85, 0.0, rng.random((len(texts), d_sae)) * 5000.0
+    ).astype(np.float32)
+
+    column = np.zeros(len(texts), dtype=np.float32)
+    for locale in d.FROZEN_PROMPT_SET_LOCALES:
+        unrelated, near_miss, positives_by_family = per_locale[locale]
+        for text, value in zip(unrelated, _UNRELATED_LADDER[locale], strict=True):
+            column[text_index[text]] = value
+        for text, value in zip(near_miss, _NEAR_MISS_LADDER[locale], strict=True):
+            column[text_index[text]] = value
+        for family, family_texts in positives_by_family.items():
+            n_high, lows = _CELL_DESIGN[(locale, family)]
+            for text, value in zip(family_texts, [_HIGH_POSITIVE] * n_high + lows, strict=True):
+                column[text_index[text]] = value
+    matrix[:, feature_index] = column
+
+    backend = d.Backend(
+        pairing=targets.GEMMA_3_12B_IT_TARGET.name, model_obj=_TabulatedModel(texts),
+        sae=_TabulatedSAE(matrix), hook_name=_SURROGATE_HOOK, d_sae=d_sae, d_model=len(texts),
+        layer=targets.GEMMA_3_12B_IT_TARGET.expected_layer,
+        provenance={"model": {"repository": "tabulated", "local_path": "/tabulated"}, "sae": {"repository": "tabulated"}},
+        checkpoint_hash="tabulated",
+    )
+
+    cache = d.FeatureMatrixCache()
+    d.pin_shared_substrate(cache, backend, artifact)
+    reference = d.shadow_corpus_max_per_feature(backend, artifact, cache=cache)
+    verdict = d.evaluate_concept_on_pairing(
+        backend, artifact, concept_id=concept_id, cache=cache, corpus_max_by_feature=reference
+    )
+    if verdict.status == "error":
+        print(f"[SHADOW-C] FAIL: verdict errored -- {verdict.error}")
+        return False
+
+    summary = verdict.shadow_gate_b_summary
+    grid_summary = d.aggregate_shadow_summaries([verdict])
+    pairs = summary["feature_cell_pairs"]
+    complete = (
+        pairs == d_sae * 6
+        and sum(summary["fire_rate_within_cell"]["histogram"]) == pairs
+        and sum(summary["fire_rate_corpus_max"]["histogram"]) == pairs
+        and grid_summary["feature_cell_pairs"] == pairs
+    )
+
+    print(f"[SHADOW-C] SYNTHETIC construction: {d_sae} features x {summary['cells']} cells = {pairs} pairs")
+    print(f"[SHADOW-C] every pair binned exactly once, per-concept and grid-level: {complete}")
+    for statistic in ("fire_rate_within_cell", "fire_rate_corpus_max"):
+        q = summary[statistic]["quantiles"]
+        print(
+            f"[SHADOW-C] SYNTHETIC {statistic:>22}: median {q['median']:.2f}  mean {q['mean']:.4f}  "
+            f"p05 {q['p05']:.2f}  p95 {q['p95']:.2f}  pairs >= {summary['current_fire_rate_min']}: "
+            f"{summary[statistic]['pairs_at_or_above_current_min']}"
+        )
+    print(f"[SHADOW-C] SYNTHETIC degenerate references (corpus_max == 0)   : {summary['degenerate_reference_features']}")
+    print(f"[SHADOW-C] SYNTHETIC dead (feature, cell) pairs                : {summary['dead_cell_pairs']}")
+    print(
+        "[SHADOW-C] The counts above are (feature, cell) pairs of ONE gate's statistic. They are NOT "
+        "conjoined with G-A or G-C, NOT minimised across cells, and NOT a survivor count."
+    )
+
+    candidate = next(
+        (x for x in verdict.candidates_evaluated if x["feature_index"] == feature_index), None
+    )
+    if candidate is None:
+        print("[SHADOW-C] FAIL: feature 25995 absent from the emitted record")
+        return False
+    ab = {(r["locale"], r["family"]): r for r in candidate["gate_a_b_results"]}
+
+    worst = max(
+        abs(ab[key]["separation_auroc"] - recorded_ab[key]["separation_auroc"]) for key in recorded_ab
+    )
+    worst = max(worst, max(abs(ab[key]["fire_rate"] - recorded_ab[key]["fire_rate"]) for key in recorded_ab))
+
+    print("[SHADOW-C] feature 25995's six cells under this construction (SYNTHETIC absolute scale):")
+    for key in sorted(ab):
+        r = ab[key]
+        print(
+            f"[SHADOW-C]   {key[0]}/{key[1]}: within_cell={r['fire_rate_within_cell']:.1f} "
+            f"(gate_b_passed={r['gate_b_passed']}, floor={r['activation_floor']:.4g} = 0.20 x observed_max "
+            f"{r['observed_max']:.4g})  |  SHADOW corpus_max={r['corpus_max']:.4g} -> "
+            f"floor={r['shadow_activation_floor']:.4g} -> fire_rate_corpus_max={r['fire_rate_corpus_max']:.1f}"
+        )
+    verdicts_unchanged = (
+        all(r["verdict_computed_from"] == "fire_rate_within_cell" for r in ab.values())
+        and sorted(k for k, r in ab.items() if not r["gate_b_passed"]) == [("en", "f3"), ("fr", "f3")]
+        and all(r["gate_a_passed"] for r in ab.values())
+    )
+    print(f"[SHADOW-C] G-B still fails on exactly en/f3 and fr/f3, from the within-cell statistic: {verdicts_unchanged}")
+    print(f"[SHADOW-C] max abs diff vs the 12 recorded G-A/G-B floats for 25995: {worst:.3e} (must be <= 1e-12)")
+    print(
+        "[SHADOW-C] THE f3 SHADOW VALUES ABOVE ARE A PROPERTY OF THIS CONSTRUCTION'S ABSOLUTE SCALE, "
+        "NOT A MEASUREMENT OF RUN 413287. The construction was built to reproduce the recorded RANK "
+        "statistics; the shadow statistic depends on the ratio corpus_max / observed_max, which no "
+        "recorded value pins down. Falsified by: one GPU run reporting a different "
+        "corpus_max for 25995 -- which is expected and is the point."
+    )
+
+    ok = complete and verdicts_unchanged and worst <= 1e-12
+    print(f"[SHADOW-C] {'PASS' if ok else 'FAIL'}")
+    return ok
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("checks", nargs="*", default=[], help="c1 | c2 | c3 | c5 (default: all)")
+    parser.add_argument("checks", nargs="*", default=[], help="c1 | c2 | c3 | c5 | shadow (default: all)")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--progress", type=Path, default=DEFAULT_PROGRESS, help="preserved run 413287 progress.jsonl")
     args = parser.parse_args(argv)
 
-    all_checks = {"c1", "c2", "c3", "c5"}
+    all_checks = {"c1", "c2", "c3", "c5", "shadow"}
     selected = set(args.checks) or all_checks
     if args.all:
         selected = all_checks
@@ -789,6 +1109,14 @@ def main(argv: list[str] | None = None) -> int:
             results["c3d"] = check_c3_applies_contrast(progress_path=args.progress)
     if "c5" in selected:
         results["c5"] = check_c5_subsumption()
+    if "shadow" in selected:
+        results["shadow_a"] = check_shadow_arithmetic()
+        if not args.progress.is_file():
+            print(f"[SHADOW-B] SKIPPED-AS-FAILED: preserved run data not found at {args.progress}")
+            results["shadow_b"] = False
+        else:
+            results["shadow_b"] = check_shadow_against_the_preserved_record(args.progress)
+            results["shadow_c"] = check_shadow_distribution_shape(args.progress)
 
     failed = [name for name, ok in results.items() if not ok]
     print(f"\n{'ALL FALSIFIERS PASSED' if not failed else 'FALSIFIERS FAILED: ' + ', '.join(sorted(failed))}")

@@ -2333,3 +2333,479 @@ def test_dtype_recording_sae_catches_a_would_be_regression_directly():
     with pytest.raises(RuntimeError, match="dtype"):
         recording_sae.encode(x_bf16)
     assert recording_sae.encode_input_dtypes == [torch.bfloat16]
+
+
+# ---------------------------------------------------------------------------
+# SHADOW G-B (2026-08-15): a MEASUREMENT recorded beside the frozen
+# statistic. Every test in this section exists to prove one of two things --
+# that the shadow number is computed correctly, or that it changes NOTHING.
+# ---------------------------------------------------------------------------
+
+
+def test_the_frozen_g_b_statistic_is_scale_invariant_and_the_shadow_one_is_not():
+    """THE DEFECT, stated as a test. Multiplying every positive score by a
+    million leaves the frozen within-cell fire rate bit-identical -- it
+    divides by the max of the very scores it judges, so it cannot see
+    magnitude at all -- while the shadow statistic, referenced to a fixed
+    background scale, moves. A statistic that cannot distinguish a feature
+    firing at 0.001 from one firing at 1000 is not measuring firing.
+
+    Falsified by: any input where scaling the positives changes
+    `compute_gate_b_fire_rate`'s output, or leaves
+    `compute_shadow_fire_rate_corpus_max`'s output unchanged across a
+    reference that the scaling crosses."""
+    quiet = [0.001, 0.001, 0.0005, 0.0002, 0.0001]
+    loud = [x * 1_000_000 for x in quiet]
+    corpus_max = 1.0
+
+    assert d.compute_gate_b_fire_rate(quiet, floor_fraction=0.2)[0] == d.compute_gate_b_fire_rate(loud, floor_fraction=0.2)[0]
+
+    quiet_shadow, quiet_floor, _ = d.compute_shadow_fire_rate_corpus_max(quiet, floor_fraction=0.2, corpus_max=corpus_max)
+    loud_shadow, loud_floor, _ = d.compute_shadow_fire_rate_corpus_max(loud, floor_fraction=0.2, corpus_max=corpus_max)
+    assert quiet_floor == loud_floor == 0.2
+    assert quiet_shadow == 0.0  # nothing clears a 0.2 floor
+    assert loud_shadow == 1.0
+    assert quiet_shadow != loud_shadow
+
+
+def test_shadow_fire_rate_matches_the_frozen_rule_whenever_the_floor_is_positive():
+    """The ONLY thing under test between the two statistics is the
+    denominator. With a positive floor the shadow function is the frozen
+    `>= floor` rule verbatim: substituting the within-cell max as the
+    reference must reproduce `compute_gate_b_fire_rate` exactly."""
+    rng = np.random.default_rng(20260815)
+    for _ in range(500):
+        scores = np.where(rng.random(10) < 0.4, 0.0, rng.random(10) * 5.0).tolist()
+        if max(scores) <= 0:
+            continue
+        frozen_rate, frozen_floor = d.compute_gate_b_fire_rate(scores, floor_fraction=0.2)
+        shadow_rate, shadow_floor, degenerate = d.compute_shadow_fire_rate_corpus_max(
+            scores, floor_fraction=0.2, corpus_max=max(scores)
+        )
+        assert shadow_floor == frozen_floor
+        assert shadow_rate == frozen_rate
+        assert degenerate is False
+
+
+def test_shadow_fire_rate_does_not_resurrect_the_c1_artifact_on_a_zero_reference():
+    """A zero reference collapses the floor to 0.0, where a bare `>=` would
+    count a score of exactly 0.0 as firing -- the same artifact C1 removed
+    (182 phantom passes in run 413287). The `score > 0` clause is what
+    stops it, and the degenerate flag is what lets those cells be excluded
+    from a re-derivation instead of silently inflating it."""
+    rate, floor, degenerate = d.compute_shadow_fire_rate_corpus_max(
+        [0.0, 0.0, 0.0, 0.0], floor_fraction=0.2, corpus_max=0.0
+    )
+    assert (rate, floor, degenerate) == (0.0, 0.0, True)
+
+    partial_rate, _floor, degenerate = d.compute_shadow_fire_rate_corpus_max(
+        [3.0, 0.0, 0.0, 0.0], floor_fraction=0.2, corpus_max=0.0
+    )
+    assert partial_rate == 0.25  # "fired on 1 of 4", never 1.0
+    assert degenerate is True
+
+
+def test_shadow_matrix_is_bit_identical_to_the_scalar_including_dead_columns():
+    rng = np.random.default_rng(20260816)
+    mismatches = 0
+    for _ in range(300):
+        pos = np.where(rng.random((10, 6)) < 0.5, 0.0, rng.random((10, 6)) * 5.0)
+        pos[:, rng.integers(0, 6)] = 0.0  # a dead column every trial
+        reference = np.where(rng.random(6) < 0.2, 0.0, rng.random(6) * 8.0)
+        rates, floors = d.shadow_fire_rate_matrix(pos, floor_fraction=0.2, corpus_max=reference)
+        for j in range(6):
+            ref_rate, ref_floor, _ = d.compute_shadow_fire_rate_corpus_max(
+                pos[:, j].tolist(), floor_fraction=0.2, corpus_max=float(reference[j])
+            )
+            mismatches += int(rates[j] != ref_rate or floors[j] != ref_floor)
+    assert mismatches == 0
+
+
+def test_shadow_reference_reads_the_unrelated_split_and_costs_no_extra_forward_passes():
+    """The shadow reference is the same background split the causal stage
+    already computes its `corpus_max` from, and it is measured off texts
+    `pin_shared_substrate` has already encoded -- so a grid run pays zero
+    additional forward passes for it. Falsified by any increase in
+    `cache.encode_calls` across the reference computation."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    cache = d.FeatureMatrixCache()
+    d.pin_shared_substrate(cache, backend, artifact)
+    encodes_after_pinning = cache.encode_calls
+
+    reference = d.shadow_corpus_max_per_feature(backend, artifact, cache=cache)
+    assert cache.encode_calls == encodes_after_pinning
+    assert reference.shape == (backend.d_sae,)
+    assert (reference >= 0).all()
+
+    # Same value as measuring the split directly, no caching subtlety.
+    direct = np.zeros(backend.d_sae)
+    for locale in d.FROZEN_PROMPT_SET_LOCALES:
+        texts = [
+            r["text"] for r in d.rows_for_concept(artifact.rows, concept_id="cheese", locale=locale, split="unrelated")
+        ]
+        direct = np.maximum(direct, d.encode_texts(backend, texts)[1].astype(np.float64).max(axis=0))
+    assert np.array_equal(reference, direct)
+
+
+def test_the_shadow_reference_changes_no_verdict_anywhere():
+    """THE LOAD-BEARING TEST. The same concept evaluated with and without
+    the shadow reference must produce identical verdicts, identical gate
+    booleans and identical frozen floats. If this ever fails, the shadow
+    metric has become a control-flow input and must be reverted."""
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    backend = make_fake_gemma_backend()
+    cache = d.FeatureMatrixCache()
+    d.pin_shared_substrate(cache, backend, artifact)
+    reference = d.shadow_corpus_max_per_feature(backend, artifact, cache=cache)
+
+    without = d.evaluate_concept_on_pairing(make_fake_gemma_backend(), artifact, concept_id="cheese")
+    with_shadow = d.evaluate_concept_on_pairing(
+        make_fake_gemma_backend(), artifact, concept_id="cheese", corpus_max_by_feature=reference
+    )
+
+    assert with_shadow.status == without.status
+    assert with_shadow.surviving_feature_index == without.surviving_feature_index
+    assert with_shadow.gate_a_passing_feature_count == without.gate_a_passing_feature_count
+    assert [c["feature_index"] for c in with_shadow.candidates_evaluated] == [
+        c["feature_index"] for c in without.candidates_evaluated
+    ]
+    frozen_fields = ("separation_auroc", "gate_a_passed", "fire_rate", "gate_b_passed", "activation_floor", "observed_max")
+    for a, b in zip(with_shadow.candidates_evaluated, without.candidates_evaluated, strict=True):
+        assert a["survives_gabc"] == b["survives_gabc"]
+        for ra, rb in zip(a["gate_a_b_results"], b["gate_a_b_results"], strict=True):
+            assert [ra[f] for f in frozen_fields] == [rb[f] for f in frozen_fields]
+        assert a["gate_c_results"] == b["gate_c_results"]
+
+    # And the shadow half is actually populated in the shadow run.
+    populated = with_shadow.candidates_evaluated[0]["gate_a_b_results"][0]
+    assert populated["fire_rate_corpus_max"] is not None
+    assert populated["corpus_max"] is not None
+    assert without.candidates_evaluated[0]["gate_a_b_results"][0]["fire_rate_corpus_max"] is None
+
+
+def test_every_g_b_record_names_the_statistic_that_gated_it():
+    """No later reader may have to infer which statistic produced
+    `gate_b_passed`. Every record says so in a field, carries the
+    disclaimer verbatim, and repeats the gating value under an unambiguous
+    name."""
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    backend = make_fake_gemma_backend()
+    cache = d.FeatureMatrixCache()
+    d.pin_shared_substrate(cache, backend, artifact)
+    reference = d.shadow_corpus_max_per_feature(backend, artifact, cache=cache)
+
+    results = d.compute_gate_a_and_b_per_family(
+        backend, artifact, concept_id="cheese", locale="en", feature_index=CONCEPT_FEATURE,
+        cache=cache, corpus_max_by_feature=reference,
+    )
+    assert results
+    for r in results:
+        assert r.verdict_computed_from == d.GATE_B_VERDICT_SOURCE == "fire_rate_within_cell"
+        assert r.fire_rate_within_cell == r.fire_rate
+        assert r.gate_b_passed == (r.fire_rate_within_cell >= artifact.metadata["thresholds"]["G_B_fire_rate_min"])
+        assert r.shadow_disclaimer == d.SHADOW_G_B_DISCLAIMER
+        assert "never consulted by any verdict" in r.shadow_disclaimer
+        assert r.shadow_reference_source == "frozen_artifact:unrelated:max_over_all_locales"
+
+
+def test_grid_json_carries_a_run_level_shadow_distribution_labelled_not_a_survivor_count():
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    backend = make_fake_gemma_backend()
+    concept_ids = sorted({r["concept_id"] for r in artifact.rows})[:2]
+    verdicts = d.run_concept_grid(backend, artifact, concept_ids=concept_ids)
+
+    summary = d.aggregate_shadow_summaries(verdicts)
+    assert summary is not None
+    assert summary["concepts_summarised"] == len(concept_ids)
+    assert summary["reference_split"] == "unrelated"
+    assert "not a discovery result" in summary["not_a_survivor_count"].lower()
+    assert summary["disclaimer"] == d.SHADOW_G_B_DISCLAIMER
+    # The histograms account for every (feature, cell) pair, exactly once.
+    for statistic in ("fire_rate_within_cell", "fire_rate_corpus_max"):
+        assert sum(summary[statistic]["histogram"]) == summary["feature_cell_pairs"]
+    assert summary["feature_cell_pairs"] == backend.d_sae * 6 * len(concept_ids)
+
+    for v in verdicts:
+        assert v.shadow_gate_b_summary is not None
+        assert v.shadow_gate_b_summary["cells"] == 6
+
+
+def test_the_histogram_tail_and_the_threshold_count_are_the_same_set_of_pairs():
+    """A HISTOGRAM THAT DISAGREES WITH THE COUNT BESIDE IT MISLEADS THE ONE
+    READER IT EXISTS FOR. The frozen 0.70 bar is exactly bin 14's lower
+    edge, so `sum(histogram[14:])` must equal `pairs_at_or_above_current_
+    min`, for both statistics, per concept and grid-level.
+
+    This is not hypothetical bookkeeping: `0.7 / 0.05 == 13.999999999999998`
+    in binary, and every rate a 10-prompt split can take sits exactly on a
+    0.05 edge, so a plain truncation puts a fire rate of exactly 0.70 in the
+    0.65 bin and this assertion fails. Falsified by removing the epsilon in
+    `shadow_histogram_bins`."""
+    edges = [round(i * d.SHADOW_HISTOGRAM_BIN_WIDTH, 4) for i in range(d.SHADOW_HISTOGRAM_BINS)]
+    assert edges[14] == 0.70
+
+    # Direct, at the primitive: k/10 for every k must land in bin 2k.
+    for k in range(11):
+        counts = d.shadow_histogram_bins(np.array([k / 10]))
+        assert counts[2 * k] == 1, f"rate {k / 10} landed in bin {int(np.argmax(counts))}, expected {2 * k}"
+
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    backend = make_fake_gemma_backend()
+    concept_ids = sorted({r["concept_id"] for r in artifact.rows})[:2]
+    verdicts = d.run_concept_grid(backend, artifact, concept_ids=concept_ids)
+    summaries = [v.shadow_gate_b_summary for v in verdicts] + [d.aggregate_shadow_summaries(verdicts)]
+    for summary in summaries:
+        assert summary["current_fire_rate_min"] == 0.70
+        for statistic in ("fire_rate_within_cell", "fire_rate_corpus_max"):
+            histogram = summary[statistic]["histogram"]
+            assert sum(histogram[14:]) == summary[statistic]["pairs_at_or_above_current_min"]
+
+
+def test_run_concept_grid_can_be_run_without_the_shadow_record_and_is_verdict_identical():
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    concept_ids = sorted({r["concept_id"] for r in artifact.rows})[:1]
+    with_shadow = d.run_concept_grid(make_fake_gemma_backend(), artifact, concept_ids=concept_ids)
+    without = d.run_concept_grid(make_fake_gemma_backend(), artifact, concept_ids=concept_ids, record_shadow=False)
+    assert [(v.status, v.surviving_feature_index) for v in with_shadow] == [
+        (v.status, v.surviving_feature_index) for v in without
+    ]
+    assert without[0].shadow_gate_b_summary is None
+    assert d.aggregate_shadow_summaries(without) is None
+
+
+def test_a_verdict_recorded_before_the_shadow_fields_still_round_trips():
+    """A stale record is CORRECTED, never REMOVED: a progress log written
+    by the pre-shadow revision must still load."""
+    stale = {
+        "concept_id": "cheese", "pairing": "gemma-3-12b-it", "status": "fail",
+        "surviving_feature_index": None, "candidates_evaluated": [], "error": None,
+        "features_scored": 80000, "selection_mode": "full_space_exhaustive",
+        "gate_a_passing_feature_count": 0, "gate_denominator_caveat": "x", "gate_c_subsumption": None,
+    }
+    verdict = d.ConceptPairingVerdict(**stale)
+    assert verdict.shadow_gate_b_summary is None
+
+
+# ---------------------------------------------------------------------------
+# THE OWED MODEL-LEVEL REPLAY. These tests exercise the COMPARATOR, which is
+# the part that can be wrong on a dev box; the GPU arm is the CLI mode it
+# backs (`--mode replay`), which cannot run here and is not simulated.
+# ---------------------------------------------------------------------------
+
+
+def _replay_cell(concept="cheese", locale="en", family="f1", feature=3, *, auroc=0.95, near=0.85, fire=0.8,
+                 observed_max=4.0, n_positives=10):
+    key = (concept, locale, family, feature)
+    preserved_ab = {
+        "concept_id": concept, "locale": locale, "family": family, "feature_index": feature,
+        "separation_auroc": auroc, "gate_a_passed": auroc >= 0.90, "fire_rate": fire,
+        "activation_floor_fraction": 0.2, "gate_b_passed": fire >= 0.70,
+    }
+    preserved_c = {
+        "concept_id": concept, "locale": locale, "family": family, "feature_index": feature,
+        "near_miss_auroc": near, "gate_c_passed": near >= 0.75,
+    }
+    replayed_ab = {
+        **preserved_ab, "fire_rate_within_cell": (0.0 if observed_max == 0.0 else fire),
+        "observed_max": observed_max, "n_positives": n_positives,
+    }
+    replayed_c = dict(preserved_c)
+    return key, preserved_ab, preserved_c, replayed_ab, replayed_c
+
+
+def _replay_population(n_live=5, n_dead=2):
+    preserved_ab, preserved_c, replayed_ab, replayed_c = {}, {}, {}, {}
+    for i in range(n_live):
+        key, pab, pc, rab, rc = _replay_cell(feature=i)
+        preserved_ab[key], preserved_c[key], replayed_ab[key], replayed_c[key] = pab, pc, rab, rc
+    for i in range(n_dead):
+        key, pab, pc, rab, rc = _replay_cell(feature=1000 + i, auroc=0.5, near=0.5, fire=1.0, observed_max=0.0)
+        preserved_ab[key], preserved_c[key], replayed_ab[key], replayed_c[key] = pab, pc, rab, rc
+    return preserved_ab, preserved_c, replayed_ab, replayed_c
+
+
+def test_replay_comparator_passes_on_an_exact_reproduction_with_the_expected_dead_cells():
+    pab, pc, rab, rc = _replay_population(n_live=5, n_dead=2)
+    report = d.compare_replay_to_preserved(
+        preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2
+    )
+    assert report["passed"] is True
+    assert report["cells_compared"] == 7
+    assert report["dead_cells_measured"] == 2
+    assert report["worst_abs_delta"] == {"separation_auroc": 0.0, "fire_rate_within_cell": 0.0, "near_miss_auroc": 0.0}
+    assert report["booleans_compared"] == []
+
+
+def test_replay_comparator_fails_loudly_on_a_float_mismatch_just_above_tolerance():
+    pab, pc, rab, rc = _replay_population(n_live=5, n_dead=2)
+    key = ("cheese", "en", "f1", 2)
+    rab[key] = {**rab[key], "separation_auroc": rab[key]["separation_auroc"] + 2e-9}
+    with pytest.raises(d.ReplayMismatch, match="separation_auroc"):
+        d.compare_replay_to_preserved(
+            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2
+        )
+
+
+def test_replay_comparator_accepts_a_difference_just_below_tolerance():
+    pab, pc, rab, rc = _replay_population(n_live=5, n_dead=2)
+    key = ("cheese", "en", "f1", 2)
+    rab[key] = {**rab[key], "separation_auroc": rab[key]["separation_auroc"] + 5e-10}
+    report = d.compare_replay_to_preserved(
+        preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2
+    )
+    assert report["passed"] is True
+    assert 0 < report["worst_abs_delta"]["separation_auroc"] <= 1e-9
+
+
+def test_replay_comparator_requires_exactly_the_expected_number_of_dead_cells():
+    pab, pc, rab, rc = _replay_population(n_live=5, n_dead=2)
+    with pytest.raises(d.ReplayMismatch, match="dead-cell count is 2, expected exactly 182"):
+        d.compare_replay_to_preserved(
+            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc,
+            expected_dead_cells=d.REPLAY_EXPECTED_DEAD_CELLS,
+        )
+
+
+def test_replay_comparator_rejects_a_dead_cell_whose_preserved_fire_rate_was_not_one():
+    """The carve-out is not a blanket exemption: a measured-dead cell must
+    show EXACTLY the C1 correction (preserved 1.0 -> replayed 0.0).
+    Anything else is a mismatch, not an artifact."""
+    pab, pc, rab, rc = _replay_population(n_live=5, n_dead=1)
+    key = ("cheese", "en", "f1", 1000)
+    pab[key] = {**pab[key], "fire_rate": 0.9}
+    with pytest.raises(d.ReplayMismatch, match=r"measured-dead cell must be preserved 1\.0"):
+        d.compare_replay_to_preserved(
+            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=1
+        )
+
+
+def test_replay_comparator_cross_checks_the_record_only_dead_signature():
+    """The 182 figure was derived from a RECORD-ONLY signature (0.5/0.5 and
+    fire_rate 1.0). The replay is the first thing that can check that
+    signature against a measured `observed_max == 0.0`, and it must fail if
+    they disagree rather than quietly preferring one."""
+    pab, pc, rab, rc = _replay_population(n_live=5, n_dead=1)
+    key = ("cheese", "en", "f1", 1000)
+    rab[key] = {**rab[key], "observed_max": 2.5, "fire_rate_within_cell": 1.0}
+    with pytest.raises(d.ReplayMismatch, match="disagrees with the measured observed_max"):
+        d.compare_replay_to_preserved(
+            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=0
+        )
+
+
+def test_replay_comparator_never_compares_gate_b_passed():
+    """C1 legitimately flips `gate_b_passed` on the degenerate cells, so
+    the comparator must compare raw floats only. A preserved record whose
+    booleans all disagree with the replay must still pass."""
+    pab, pc, rab, rc = _replay_population(n_live=5, n_dead=2)
+    for key in list(rab):
+        rab[key] = {**rab[key], "gate_a_passed": not rab[key]["gate_a_passed"],
+                    "gate_b_passed": not rab[key]["gate_b_passed"]}
+        rc[key] = {**rc[key], "gate_c_passed": not rc[key]["gate_c_passed"]}
+    report = d.compare_replay_to_preserved(
+        preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2
+    )
+    assert report["passed"] is True
+
+
+def test_replay_comparator_fails_on_a_missing_cell():
+    pab, pc, rab, rc = _replay_population(n_live=5, n_dead=2)
+    del rab[("cheese", "en", "f1", 2)]
+    with pytest.raises(d.ReplayMismatch, match="key sets differ"):
+        d.compare_replay_to_preserved(
+            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2
+        )
+
+
+def test_load_preserved_grid_cells_reads_the_exact_path_and_preserves_the_population(tmp_path):
+    progress = tmp_path / "progress.jsonl"
+    key, pab, pc, _rab, _rc = _replay_cell(feature=11)
+    record = {
+        "key": "grid_gemma-3-12b-it_cheese",
+        "verdict": {
+            "concept_id": "cheese", "pairing": "gemma-3-12b-it", "status": "fail",
+            "candidates_evaluated": [
+                {"feature_index": 11, "gate_a_b_results": [pab], "gate_c_results": [pc], "survives_gabc": False}
+            ],
+        },
+    }
+    progress.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    ab, c, features_by_concept = d.load_preserved_grid_cells(progress)
+    assert set(ab) == set(c) == {key}
+    assert features_by_concept == {"cheese": [11]}
+
+    with pytest.raises(FileNotFoundError):
+        d.load_preserved_grid_cells(tmp_path / "nope.jsonl")
+
+
+def test_replay_preserved_cells_rescores_exactly_the_named_population():
+    """The replay never re-derives its own candidate set: it scores what
+    the preserved record names, and nothing else."""
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    backend = make_fake_gemma_backend()
+    ab, c = d.replay_preserved_cells(
+        backend, artifact, features_by_concept={"cheese": [CONCEPT_FEATURE, 0]}
+    )
+    assert {k[3] for k in ab} == {CONCEPT_FEATURE, 0}
+    assert {k[0] for k in ab} == {"cheese"}
+    assert set(ab) == set(c)
+    assert len(ab) == 2 * 6  # 2 features x 2 locales x 3 families
+    for record in ab.values():
+        assert record["verdict_computed_from"] == "fire_rate_within_cell"
+        assert record["fire_rate_corpus_max"] is not None
+
+
+def test_replay_mode_requires_an_explicit_progress_path():
+    with pytest.raises(SystemExit):
+        d.parse_args([
+            "--mode", "replay", "--pairing", targets.GEMMA_3_12B_IT_TARGET.name,
+            "--model-path", "/fake", "--sae-path", "/fake", "--layer", "29",
+            "--shortlist-size", "20", "--out-dir", "/tmp/out", "--state-dir", "/tmp/state",
+        ])
+
+
+def test_replay_mode_end_to_end_on_a_fake_backend(tmp_path, monkeypatch):
+    """A full `--mode replay` pass whose 'preserved' record is one this
+    same fake backend produced: it must reproduce it exactly and write a
+    passing report. Then a single corrupted float must make the same call
+    RAISE (not warn) and still leave a report behind."""
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    backend = make_fake_gemma_backend()
+    ab, c = d.replay_preserved_cells(backend, artifact, features_by_concept={"cheese": [CONCEPT_FEATURE]})
+
+    progress = tmp_path / "progress.jsonl"
+    progress.write_text(json.dumps({
+        "key": "grid_gemma-3-12b-it_cheese",
+        "verdict": {
+            "concept_id": "cheese", "pairing": targets.GEMMA_3_12B_IT_TARGET.name, "status": "fail",
+            "candidates_evaluated": [{
+                "feature_index": CONCEPT_FEATURE,
+                "gate_a_b_results": list(ab.values()),
+                "gate_c_results": list(c.values()), "survives_gabc": False,
+            }],
+        },
+    }) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(d, "load_backend", lambda **kwargs: make_fake_gemma_backend())
+    monkeypatch.setattr(d, "run_prompt_set_validator", lambda repo_root: None)
+    argv = [
+        "--mode", "replay", "--pairing", targets.GEMMA_3_12B_IT_TARGET.name,
+        "--model-path", "/fake", "--sae-path", "/fake", "--layer", "29",
+        "--shortlist-size", "20", "--out-dir", str(tmp_path / "out"), "--state-dir", str(tmp_path / "state"),
+        "--replay-progress", str(progress), "--replay-expected-dead-cells", "0",
+    ]
+    assert d.main(argv) == 0
+    report = json.loads((tmp_path / "out" / "replay_report.json").read_text(encoding="utf-8"))
+    assert report["passed"] is True
+    assert report["cells_compared"] == 6
+    assert max(report["worst_abs_delta"].values()) == 0.0
+
+    corrupted = json.loads(progress.read_text(encoding="utf-8"))
+    corrupted["verdict"]["candidates_evaluated"][0]["gate_a_b_results"][0]["separation_auroc"] += 1e-6
+    progress.write_text(json.dumps(corrupted) + "\n", encoding="utf-8")
+    with pytest.raises(d.ReplayMismatch):
+        d.main(argv)
+    failed_report = json.loads((tmp_path / "out" / "replay_report.json").read_text(encoding="utf-8"))
+    assert failed_report["passed"] is False
+    assert "separation_auroc" in failed_report["error"]
