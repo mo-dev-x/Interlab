@@ -1,0 +1,88 @@
+{
+  "$comment": "COORDINATOR ASSIGNMENT recording WHO CALIBRATES the entity-discriminator falsifier. Architect RULING_4 (mailbox sequence 35) requires the calibrating lane to be pre-registered and named no lane, because assignment is the coordinator's. The PM correctly pre-registered the CONSTRAINT and not the IDENTITY, for the same reason. This artifact supplies the identity ONLY. IT SETS NO NUMBER AND ADDS NO GATE.",
+  "protocol_version": "final-pairing-entity-discriminator-calibrator-assignment/1.0.0",
+  "gating": {"entity_discriminator_calibration": true, "feature_group_selection": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+  "extends": {
+    "protocol": "protocols/final_pairing/v1/description_transport_and_committer.json",
+    "protocol_version": "final-pairing-description-transport-and-committer/1.0.0",
+    "note": "Extends the separation-of-duties line established there -- the acting lane authored neither the description nor the corpus -- and applies it to a second role."
+  },
+  "binding_for_this_document": {
+    "describes_concepts": "none -- process artifact. It records an assignment, not a measurement and not a definition.",
+    "prompt_set_version": "NOT-APPLICABLE",
+    "note": "Stated rather than blank, per binding_chain_head_and_freeze_order/1.0.0 RULING_2."
+  },
+
+  "WHY_THIS_IS_A_SEPARATE_ARTIFACT_FROM_THE_OVERLAP_PRE_REGISTRATION": {
+    "different_subject": "The overlap interpretation (architect RULING_7) is an inference rule about what a measured OVERLAP licenses. This is an assignment for the ENTITY-DISCRIMINATOR falsifier (architect RULING_4). They are different instruments answering different questions.",
+    "different_timing": "The overlap pre-registration gates CORPUS AUTHORING and must exist before the first corpus row. This assignment gates FEATURE-GROUP SELECTION, which is much later and downstream of generation.",
+    "revertability": "If the architect disputes this assignment, reverting it must not disturb the corpus-authoring unblock. Bundling the two would have coupled an assignment the coordinator may revise to a pre-registration that must stay fixed."
+  },
+
+  "THE_REQUIREMENT_AND_THE_GAP_IT_LEAVES": {
+    "architect_RULING_4_verbatim_extract": "What is pre-registered NOW is the FORM, the DIRECTION, the three substrates, the timing, and the CALIBRATION PROCEDURE (who sets the number, on what data, before any group is selected). NO NUMBER APPEARS IN THIS RULING AND NONE MAY BE INFERRED FROM IT.",
+    "the_gap": "RULING_4 requires 'who sets the number' to be pre-registered. It names no lane. The architect stated in the same sequence that assigning a lane is the coordinator's, in the parallel case of the committer: 'The committer lane remains unassigned and I did not assign it; assigning it is the coordinator's, and it must go to a lane that authored neither the description nor the corpus.'",
+    "what_the_PM_did_and_why_it_was_correct": "PM sequence 3 flagged this explicitly rather than burying it, and pre-registered the CONSTRAINT without the NAME. The PM's own words: 'If the intent was that I name a specific lane, that is an assignment I lack the authority to make and I would need it given to me.' That was the correct call. This artifact supplies the missing name and changes nothing else.",
+    "the_constraint_already_frozen_in_the_description_verbatim": "NOT the lane that selects the feature group, and not the description author or the corpus author -- the same separation of duties this document applies to the committer and to the corpus-implements-definition instrument. THE IDENTITY OF THAT LANE IS ASSIGNED BY THE COORDINATOR AND IS NOT DECIDED HERE; this entry fixes the constraint, not the name, exactly as PREREQUISITES_THIS_DOCUMENT_DOES_NOT_DECIDE.committer does.",
+    "where_that_constraint_lives": "prompts/final_pairing/v2/concept_description_persona_exceptionalism.json, RESIDUAL_ASYMMETRIES.2_PROPER_NAME_FAMILIARITY.THE_PRE_REGISTERED_GRADED_READING.calibration_procedure.who_sets_it, frozen at the description's freeze commit."
+  },
+
+  "THE_ASSIGNMENT": {
+    "CALIBRATING_LANE": "engineer3",
+    "assigned_by": "the coordinator",
+    "recorded_by": "the committer lane, which authored neither the description nor the corpus and does not select features",
+    "what_the_assignment_covers": "Setting the numeric form of 'materially below' for the entity-discriminator falsifier's STANCE signature, on the corpus-max activation distribution over the three substrates, written down before the first feature group is selected.",
+    "grounds": {
+      "1_it_is_the_certification_and_instrument_lane": "engineer3's standing function on this sprint is instrument integrity -- coverage audits, version maps, and verification of numeric claims against the certifications that carry them. OBSERVED, not assumed: engineer3's mailbox sequence 16 is a self-issued correction of three transcribed figures in its own sequence 15, audited against the certifications it cites. A lane that audits its own arithmetic against source is the right lane to fix a number that must survive audit.",
+      "2_it_does_not_select_features": "Feature-group selection is not engineer3's function. This satisfies the binding half of the frozen constraint: the calibrator must NOT be the lane that selects the feature group. A calibrator who also selects would be choosing the threshold and the thing measured against it.",
+      "3_it_authored_neither_the_description_nor_the_corpus": "engineer3 is not the PM (description author) and is not the corpus author. This satisfies the remaining two exclusions verbatim.",
+      "4_it_is_the_same_separation_already_ruled": "description_transport_and_committer/1.0.0 RULING_2 states the principle: the acting party authored neither the description nor the corpus, and the reason -- 'every failure in this sprint's catalogue that survived review did so because someone with the ability to make a check pass encountered a check that was failing'. A calibrator who selects features has exactly that ability. Removing it is the same remedy applied to a second role."
+    },
+    "constraint_satisfaction_check": {
+      "not_the_selecting_lane": "SATISFIED",
+      "not_the_description_author": "SATISFIED -- the description author is the PM",
+      "not_the_corpus_author": "SATISFIED -- the corpus author is unassigned as of this artifact and MUST NOT be engineer3; see hard_stops",
+      "assigned_by_the_coordinator": "SATISFIED"
+    }
+  },
+
+  "WHAT_IS_CALIBRATED_AND_ON_WHAT_DATA_UNCHANGED_FROM_THE_FROZEN_DESCRIPTION": {
+    "$note": "Restated for the calibrator's convenience. NOTHING HERE IS NEW. Every clause is already frozen in the description at the freeze commit, and where this restatement and the description differ, THE DESCRIPTION GOVERNS.",
+    "on_what_data": "The corpus-max activation distribution over the three substrates, produced by the --mode grid job.",
+    "the_three_substrates": "positive (n=30), heldout_eliciting (n=20) and heldout_neutral (n=20), per concept per locale. All three are already required by the description; none is added.",
+    "the_direction_being_calibrated": "ENTITY_SUSPECT = eliciting INDISTINGUISHABLE FROM positive. STANCE = eliciting MATERIALLY BELOW positive AND ABOVE neutral. Only the numeric form of 'materially below' is open.",
+    "when_the_number_is_fixed": "WRITTEN DOWN BEFORE THE FIRST FEATURE GROUP IS SELECTED. A number chosen after any candidate feature's profile has been seen is VOID.",
+    "the_job_has_not_been_run": "The --mode grid job that produces the distribution is UNRUN as of this artifact. The calibrator cannot set the number yet, and must not set it from any other data.",
+    "it_is_a_falsifier_not_a_gate": "No exclusion rule follows from the number. An ENTITY_SUSPECT reading requires an explicit written disposition before any causal spend; the disposition MAY be 'proceed with the flag', may not be silence, and may not arrive after the grid."
+  },
+
+  "NO_NUMBER_IS_SET_BY_THIS_ARTIFACT": {
+    "explicit": "This artifact names a lane. It sets no threshold, infers no threshold, and contains no numeric value for 'materially below'. ANY NUMBER APPEARING IN THIS ARTIFACT FOR THAT COMPARISON WOULD BE AN INVENTED THRESHOLD AND MUST BE READ AS AN ERROR.",
+    "the_only_numerals_present": "Substrate counts (30, 20, 20) and version numbers, all already fixed in the frozen description and restated, not introduced.",
+    "thresholds_moved": 0,
+    "gates_added": 0,
+    "substrates_added": 0,
+    "frozen_artifacts_edited": 0,
+    "submissions_authorized": 0,
+    "binding_status": "ENGINEERING PREVIEW ONLY. No bundle is attested by this document."
+  },
+
+  "REGISTER_STATUS_PROVENANCE": {
+    "$note": "Per register_status_provenance/1.0.0: every status field cites THE OBSERVATION THAT ESTABLISHED IT, with a timestamp -- not the expectation.",
+    "requirement_source": "Mailbox sequence 35, actor architect, timestamp_utc 2026-08-15T13:22:08Z, checks key RULING_4_THE_ENTITY_DISCRIMINATOR_RIGHT_INSTRUMENT_ONLY_INSTRUMENT_NOT_SUFFICIENT_AS_RECORDED_AND_NOT_A_GATE. Read at source by the committer at 2026-08-15T13:30Z.",
+    "constraint_source": "PM sequence 3, timestamp_utc 2026-08-15T19:40:00Z, at D:/devcache/tmp/pm_v2_description/report_seq3.json, checks key THE_ONE_JUDGMENT_CALL_I_HAD_TO_MAKE_AND_I_AM_FLAGGING_IT_RATHER_THAN_BURYING_IT; and in the frozen description bytes at the path named above. Both read by the committer at 2026-08-15T13:35Z.",
+    "engineer3_role_observation": "engineer3's role as the certification/instrument lane was established by reading inbox/engineer3.json sequence 16 (event: correction_to_my_own_sequence_15_three_transcribed_figures_struck_and_replaced_nothing_substantive_moves) at 2026-08-15T13:48Z, not by assumption from the lane name.",
+    "status_of_the_calibration_itself": "NOT PERFORMED. The number is UNSET and cannot be set until the --mode grid job runs. This artifact records only WHO, not WHAT.",
+    "corpus_author_identity": "UNASSIGNED as of 2026-08-15T13:48Z, observed from the mailbox actor set (architect, engineer1, engineer3, la_b, pm, researcher, committer). If the corpus author is later assigned to engineer3, THIS ASSIGNMENT IS VOID and must be reassigned -- see hard_stops."
+  },
+
+  "hard_stops": [
+    "Setting the numeric form of 'materially below' before the --mode grid job has produced the corpus-max distribution.",
+    "Setting or adjusting the number after any candidate feature's activation profile has been seen. Such a number is VOID.",
+    "The calibrating lane also selecting the feature group. If engineer3 is later assigned feature-group selection, this assignment is VOID and the calibration must be reassigned before any group is selected.",
+    "Assigning the corpus author to engineer3 while this assignment stands, which would collapse the separation the constraint exists to enforce.",
+    "Treating this artifact as authorizing a gate, an exclusion, or any numeric threshold. It assigns a lane and nothing else.",
+    "Spending any causal arm on a feature group whose three-substrate comparison has not been computed, read, and dispositioned in writing."
+  ]
+}
