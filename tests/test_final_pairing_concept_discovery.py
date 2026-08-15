@@ -1552,6 +1552,55 @@ def test_compute_gate_a_and_b_per_family_pools_near_miss_into_the_negative_set()
     assert hard.separation_auroc < easy.separation_auroc
 
 
+def test_gate_c_subsumption_note_records_that_gate_c_cannot_reject_what_gate_a_accepted():
+    """C5. With 15 near_miss and 15 unrelated, AUROC against the pooled set
+    is identically the mean of the two components, so G-A >= 0.90 forces
+    near_miss AUROC >= 0.80 > G-C's 0.75. The note must say so, machine
+    readably, and must re-derive it from the artifact rather than assert
+    it."""
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    note = d.gate_c_subsumption_note(artifact, concept_id="cheese")
+    assert note["holds"] is True
+    assert note["gate_c_still_computed_and_recorded"] is True
+    for locale in d.FROZEN_PROMPT_SET_LOCALES:
+        per_locale = note["per_locale"][locale]
+        assert per_locale["n_near_miss"] == per_locale["n_unrelated"] == 15
+        assert per_locale["implied_near_miss_auroc_floor_given_gate_a_pass"] == pytest.approx(0.80)
+        assert per_locale["gate_c_subsumed_by_gate_a"] is True
+    assert note["identity"].startswith("separation_auroc ==")
+    assert "referred for ratification" in note["gate_a_negative_set_change"]
+
+
+def test_gate_c_subsumption_is_the_pooled_mean_identity_not_a_sample_property():
+    """The identity the note rests on: for equal-sized control subsets,
+    AUROC(pos vs pooled) == mean of the two component AUROCs, exactly."""
+    rng = np.random.default_rng(31)
+    for _ in range(200):
+        pos = (rng.random(10) * 5.0).tolist()
+        near = (rng.random(15) * 5.0).tolist()
+        unrel = (rng.random(15) * 5.0).tolist()
+        pooled = d._auroc_from_scores(pos, [*unrel, *near])
+        assert pooled == pytest.approx(
+            (d._auroc_from_scores(pos, near) + d._auroc_from_scores(pos, unrel)) / 2.0, abs=1e-12
+        )
+        if pooled >= 0.90:
+            assert d._auroc_from_scores(pos, near) >= 0.80 - 1e-12
+
+
+def test_grid_result_carries_the_subsumption_note_and_the_denominator_caveat(tmp_path):
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    verdict = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+    assert verdict.gate_c_subsumption is not None
+    path = d.write_grid_result(tmp_path, "gemma-3-12b-it", [verdict])
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["gate_denominator_caveat"] == d.GATE_DENOMINATOR_CAVEAT
+    assert payload["gate_c_subsumption"]["holds"] is True
+    assert payload["verdicts"][0]["gate_c_subsumption"]["holds"] is True
+    # And the stale record is CORRECTED, never removed: G-C is still there.
+    assert payload["verdicts"][0]["candidates_evaluated"][0]["gate_c_results"]
+
+
 def test_compute_gate_c_per_family_is_unaffected_by_the_g_a_pooling_change():
     """G-C (compute_gate_c_per_family) remains the SEPARATE positive-vs-
     near_miss-ONLY specificity test -- it must report the SAME (low) AUROC

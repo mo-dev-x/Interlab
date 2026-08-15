@@ -38,8 +38,10 @@ import final_pairing_concept_discovery as d  # noqa: E402
 
 DEFAULT_PROGRESS = Path("D:/devcache/tmp/fp413287/primary/qwen/grid/state/progress.jsonl")
 
-#: Run 413287's frozen G-B parameters, read back from the artifact rather
-#: than restated here wherever the artifact is reachable.
+#: The G-B parameters run 413287 was ACTUALLY scored with, pinned here on
+#: purpose: this check re-scores a historical record, so it must use that
+#: run's values even if the artifact's frozen thresholds later move. They
+#: are asserted against the artifact below rather than merely asserted.
 _FIRE_RATE_MIN = 0.70
 _FLOOR_FRACTION = 0.20
 
@@ -77,6 +79,13 @@ def check_c1(progress_path: Path) -> bool:
     gate_b_passed true -> false, and the grid-wide count must go 660 ->
     478. Any other numbers mean the guard is not firing on the population
     it was written for."""
+    thresholds = d.load_frozen_prompt_artifact(d.REPO_ROOT).metadata["thresholds"]
+    if (thresholds["G_B_fire_rate_min"], thresholds["G_B_activation_floor_fraction_of_observed_max"]) != (
+        _FIRE_RATE_MIN, _FLOOR_FRACTION
+    ):
+        print("[C1] FAIL: the frozen G-B thresholds no longer match the ones run 413287 was scored with")
+        return False
+
     ab, c = _load_cells(progress_path)
     c_by_cell = {(x["concept_id"], x["locale"], x["family"], x["feature_index"]): x for x in c}
 
@@ -250,7 +259,14 @@ def check_c2(*, concept_id: str = "formal_register", shortlist_size: int = 20, r
     near_miss_auroc must be identical between the pre-C2 and post-C2 code
     paths (tolerance 1e-9; anything above it means the refactor changed
     the measurement and must be reverted), and the forward-pass count must
-    drop by at least 20x."""
+    drop by at least 20x.
+
+    Scoped to the MEASUREMENT, not the selection: both arms are handed the
+    SAME feature list (the pre-C2 shortlist, so the comparison covers
+    exactly the 20 x 6 cells run 413287 would have emitted for this
+    concept). C3 changes WHICH features get measured and is falsified
+    separately; mixing the two here would compare different populations
+    and prove nothing about either."""
     import time
 
     pre, tmp_path = _load_pre_c2_module(rev)
@@ -261,43 +277,54 @@ def check_c2(*, concept_id: str = "formal_register", shortlist_size: int = 20, r
         artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
 
         old_backend, old_model = _surrogate_backend(pre)
-        t0 = time.perf_counter()
-        old_verdict = pre.evaluate_concept_on_pairing(
-            old_backend, artifact, concept_id=concept_id, shortlist_size=shortlist_size
-        )
-        old_seconds = time.perf_counter() - t0
-
         new_backend, new_model = _surrogate_backend(d)
-        t0 = time.perf_counter()
-        new_verdict = d.evaluate_concept_on_pairing(
-            new_backend, artifact, concept_id=concept_id, shortlist_size=shortlist_size
-        )
-        new_seconds = time.perf_counter() - t0
 
-        if old_verdict.status == "error" or new_verdict.status == "error":
-            print(f"[C2] FAIL: verdict errored -- old={old_verdict.error!r} new={new_verdict.error!r}")
-            return False
+        features = [
+            r.feature_index
+            for r in pre.rank_candidates_for_concept(
+                old_backend, artifact, concept_id=concept_id, shortlist_size=shortlist_size
+            )
+        ]
+        # The ranking pass itself is identical in both arms and is not
+        # what C2 changed; count only the gate evaluation below.
+        old_model.forward_passes = 0
 
-        def _cells(verdict):
+        def _collect(module, backend, cache_kwargs):
             out = {}
-            for candidate in verdict.candidates_evaluated:
-                for r in candidate["gate_a_b_results"]:
-                    out[("A", r["feature_index"], r["locale"], r["family"])] = r["separation_auroc"]
-                    out[("B", r["feature_index"], r["locale"], r["family"])] = r["fire_rate"]
-                for r in candidate["gate_c_results"]:
-                    out[("C", r["feature_index"], r["locale"], r["family"])] = r["near_miss_auroc"]
+            for feature_index in features:
+                for locale in module.FROZEN_PROMPT_SET_LOCALES:
+                    for r in module.compute_gate_a_and_b_per_family(
+                        backend, artifact, concept_id=concept_id, locale=locale,
+                        feature_index=feature_index, **cache_kwargs,
+                    ):
+                        out[("A", feature_index, locale, r.family)] = r.separation_auroc
+                        out[("B", feature_index, locale, r.family)] = r.fire_rate
+                    for r in module.compute_gate_c_per_family(
+                        backend, artifact, concept_id=concept_id, locale=locale,
+                        feature_index=feature_index, **cache_kwargs,
+                    ):
+                        out[("C", feature_index, locale, r.family)] = r.near_miss_auroc
             return out
 
-        old_cells, new_cells = _cells(old_verdict), _cells(new_verdict)
+        t0 = time.perf_counter()
+        old_cells = _collect(pre, old_backend, {})
+        old_seconds = time.perf_counter() - t0
+
+        cache = d.FeatureMatrixCache()
+        d.pin_shared_substrate(cache, new_backend, artifact)
+        t0 = time.perf_counter()
+        new_cells = _collect(d, new_backend, {"cache": cache})
+        new_seconds = time.perf_counter() - t0
         same_keys = set(old_cells) == set(new_cells)
         worst = max((abs(old_cells[k] - new_cells[k]) for k in old_cells if k in new_cells), default=float("inf"))
         exact = sum(1 for k in old_cells if k in new_cells and old_cells[k] == new_cells[k])
 
         pass_ratio = old_model.forward_passes / max(new_model.forward_passes, 1)
         time_ratio = old_seconds / max(new_seconds, 1e-9)
-        ok = same_keys and worst <= 1e-9 and pass_ratio >= 20.0
+        ok = same_keys and worst <= 1e-9 and pass_ratio >= 20.0 and len(old_cells) == len(features) * 6 * 3
 
-        print(f"[C2] concept                        : {concept_id} ({len(old_cells)} emitted values compared)")
+        print(f"[C2] concept                        : {concept_id}, {len(features)} features x 6 cells x 3 metrics")
+        print(f"[C2] emitted values compared        : {len(old_cells)}")
         print(f"[C2] identical (feature,locale,family) key sets: {same_keys}")
         print(f"[C2] max abs diff pre-C2 vs post-C2 : {worst:.3e} (must be <= 1e-9)")
         print(f"[C2] bit-exact values               : {exact}/{len(old_cells)}")
@@ -680,7 +707,7 @@ def check_c3_applies_contrast(*, progress_path: Path, d_sae: int = 80000, top_n:
     contrast_distinct = len({f for s in contrast_sets for f in s})
 
     ok = contrast_jaccard <= 0.15 and magnitude_jaccard > contrast_jaccard
-    print(f"[C3d] run 413287 baseline (real, preserved): 74 distinct features in 180 slots, mean pairwise Jaccard 0.3910")
+    print("[C3d] run 413287 baseline (real, preserved): 74 distinct features in 180 slots, mean pairwise Jaccard 0.3910")
     print(f"[C3d] surrogate, magnitude ranker  : {magnitude_distinct} distinct across {len(concept_ids)} concepts, mean pairwise Jaccard {magnitude_jaccard:.4f}")
     print(f"[C3d] surrogate, whole-space G-A   : {contrast_distinct} distinct across {len(concept_ids)} concepts, mean pairwise Jaccard {contrast_jaccard:.4f} (must be <= 0.15)")
     print(f"[C3d] {'PASS' if ok else 'FAIL'}")
@@ -697,8 +724,15 @@ def check_c5_subsumption(*, trials: int = 4000, seed: int = 20260817) -> bool:
     rng = np.random.default_rng(seed)
     worst = 0.0
     worst_c_min = 1.0
-    for _ in range(trials):
-        pos = rng.random(10) * 5.0
+    gate_a_passes = 0
+    gate_a_pass_gate_c_fail = 0
+    g_c_min = 0.75
+    for trial in range(trials):
+        # The offset is swept so that a large fraction of trials actually
+        # land in the G-A-passing regime -- a check that never reaches
+        # that regime would pass vacuously.
+        offset = 5.0 * (trial % 40) / 40.0
+        pos = rng.random(10) * 5.0 + offset
         near = rng.random(15) * 5.0
         unrel = rng.random(15) * 5.0
         pooled = d._auroc_from_scores(pos.tolist(), [*unrel.tolist(), *near.tolist()])
@@ -706,10 +740,19 @@ def check_c5_subsumption(*, trials: int = 4000, seed: int = 20260817) -> bool:
         a_unrel = d._auroc_from_scores(pos.tolist(), unrel.tolist())
         worst = max(worst, abs(pooled - (a_near + a_unrel) / 2.0))
         if pooled >= 0.90:
+            gate_a_passes += 1
             worst_c_min = min(worst_c_min, a_near)
-    ok = worst <= 1e-12 and worst_c_min >= 0.80 - 1e-12
+            gate_a_pass_gate_c_fail += int(a_near < g_c_min)
+    ok = (
+        worst <= 1e-12
+        and gate_a_passes > 0
+        and worst_c_min >= 0.80 - 1e-12
+        and gate_a_pass_gate_c_fail == 0
+    )
     print(f"[C5] max |pooled - mean(component)| over {trials} trials: {worst:.3e} (must be <= 1e-12)")
-    print(f"[C5] lowest near_miss AUROC seen among cells with pooled AUROC >= 0.90: {worst_c_min:.4f} (must be >= 0.80)")
+    print(f"[C5] trials that actually passed G-A (>= 0.90): {gate_a_passes} (must be > 0 -- otherwise vacuous)")
+    print(f"[C5] lowest near_miss AUROC among them: {worst_c_min:.4f} (must be >= 0.80, G-C's floor is {g_c_min})")
+    print(f"[C5] G-A pass with G-C fail: {gate_a_pass_gate_c_fail} (expected 0; run 413287 recorded 0 of 1080)")
     print(f"[C5] {'PASS' if ok else 'FAIL'}")
     return ok
 

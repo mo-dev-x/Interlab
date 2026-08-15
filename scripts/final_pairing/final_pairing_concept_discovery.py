@@ -101,7 +101,7 @@ import os
 import re
 import sys
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -1115,14 +1115,44 @@ def compute_gate_a_and_b_per_family(
     (never invented by this file) but may be overridden explicitly by a
     caller who has a reason to.
 
-    P0 FINAL DELTA correction: G-A's negative/control set is now the POOL
-    of `near_miss` + `unrelated` (previously `unrelated` alone). G-C
+    P0 FINAL DELTA correction (PROVENANCE, RETAINED): G-A's negative/
+    control set is the POOL of `near_miss` + `unrelated`; it was
+    `unrelated` alone before that correction. G-C
     (`compute_gate_c_per_family` below) remains the SEPARATE, near_miss-
-    ONLY specificity test -- pooling near_miss into G-A does not make G-C
-    redundant: G-A asks "does this feature separate the concept from
-    background text in general, including its closest foils", while G-C
-    asks specifically "does it separate from just its closest foils".
-    Different denominators, different questions, both required.
+    ONLY specificity test. The reason recorded at the time was that G-A
+    asks "does this feature separate the concept from background text in
+    general, including its closest foils" while G-C asks "does it
+    separate from just its closest foils" -- "different denominators,
+    different questions, BOTH REQUIRED".
+
+    C5 CORRECTION (2026-08-15) -- THE "BOTH REQUIRED" HALF OF THAT CLAIM
+    IS FALSE, AS AN ACCEPTANCE CLAIM. The two questions do differ, but
+    G-C cannot reject anything G-A accepted, so it adds no acceptance
+    power. AUROC against a pooled control set built from two EQUAL-SIZED
+    subsets is identically the arithmetic mean of the two component
+    AUROCs, and the frozen artifact has exactly 15 `near_miss` and 15
+    `unrelated` rows per (concept, locale). Therefore
+
+        separation_auroc == (near_miss_auroc + unrelated_auroc) / 2
+
+    identically -- not approximately, and not as a property of any
+    particular sample. Since `unrelated_auroc <= 1`, G-A's frozen
+    threshold of 0.90 forces `near_miss_auroc >= 2 * 0.90 - 1 == 0.80`,
+    which already clears G-C's frozen 0.75. VERIFIED: 0 of run 413287's
+    1080 recorded cells had G-A pass while G-C failed, and the identity
+    itself is falsified over random inputs by `verify_gate_fixes.py c5`.
+
+    G-C IS STILL COMPUTED AND STILL RECORDED, deliberately: under C2 it
+    costs nothing (the scores are already in the cache), the record must
+    stay complete, and the subsumption is a consequence of the CURRENT
+    equal-sized splits and the CURRENT thresholds -- change either and it
+    stops holding. `gate_c_subsumption_note` re-derives it from the
+    artifact actually loaded, per concept and locale, rather than
+    asserting it from here; it is emitted machine-readably on every
+    verdict so a downstream reader is never left to infer it.
+
+    This corrects the DOCSTRING only. G-A's negative set is separately
+    referred for ratification and is NOT changed here.
 
     `unrelated` is the shared_substrate split (identical across all 14
     concepts by design) -- `rows_for_concept` is called once per family
@@ -1176,6 +1206,67 @@ class GateCResult:
     feature_index: int
     near_miss_auroc: float
     gate_c_passed: bool
+
+
+def gate_c_subsumption_note(
+    artifact: FrozenPromptArtifact, *, concept_id: str,
+    locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES,
+) -> dict:
+    """C5 (2026-08-15): the machine-readable record that, under THIS
+    artifact's split sizes and THESE frozen thresholds, G-C cannot reject
+    anything G-A accepted.
+
+    AUROC against a pooled control set of two EQUAL-SIZED subsets is
+    identically the mean of the two component AUROCs. With 15 `near_miss`
+    and 15 `unrelated` rows per (concept, locale), `separation_auroc ==
+    (near_miss_auroc + unrelated_auroc) / 2`, so `separation_auroc >=
+    G_A_min` forces `near_miss_auroc >= 2 * G_A_min - 1` (because
+    `unrelated_auroc <= 1`). At the frozen values that floor is 0.80,
+    above G-C's frozen 0.75.
+
+    Re-derived from the artifact actually loaded, per locale, rather than
+    asserted: if a future artifact carries unequal control splits, or a
+    future threshold moves, `holds` comes back False and G-C regains
+    independent acceptance power. This is a REPORT, never a control flow
+    input -- G-C is computed and recorded either way, and nothing in this
+    file skips it."""
+    thresholds = artifact.metadata["thresholds"]
+    g_a_min = thresholds["G_A_separation_auroc_min"]
+    g_c_min = thresholds["G_C_specificity_auroc_vs_near_miss_min"]
+
+    per_locale: dict[str, dict] = {}
+    for locale in locales:
+        unrelated_texts, near_miss_texts, _positives = concept_locale_texts(
+            artifact, concept_id=concept_id, locale=locale
+        )
+        equal_sized = len(unrelated_texts) == len(near_miss_texts)
+        implied_floor = 2.0 * g_a_min - 1.0 if equal_sized else None
+        per_locale[locale] = {
+            "n_unrelated": len(unrelated_texts),
+            "n_near_miss": len(near_miss_texts),
+            "control_sets_equal_sized": equal_sized,
+            "implied_near_miss_auroc_floor_given_gate_a_pass": implied_floor,
+            "gate_c_subsumed_by_gate_a": bool(equal_sized and implied_floor >= g_c_min),
+        }
+
+    return {
+        "corrected_claim": (
+            "G-A and G-C ask different questions, but G-C cannot REJECT anything G-A accepted under "
+            "this artifact's equal-sized control splits and these frozen thresholds; the docstring's "
+            "'both required' was false as an acceptance claim."
+        ),
+        "identity": "separation_auroc == (near_miss_auroc + unrelated_auroc) / 2 when |near_miss| == |unrelated|",
+        "g_a_separation_auroc_min": g_a_min,
+        "g_c_specificity_auroc_vs_near_miss_min": g_c_min,
+        "holds": all(v["gate_c_subsumed_by_gate_a"] for v in per_locale.values()),
+        "per_locale": per_locale,
+        "measured_evidence": (
+            "0 of run 413287's 1080 recorded cells had G-A pass while G-C failed; the identity is "
+            "falsified over random inputs by scripts/final_pairing/verify_gate_fixes.py c5."
+        ),
+        "gate_c_still_computed_and_recorded": True,
+        "gate_a_negative_set_change": "NOT made here -- referred for ratification",
+    }
 
 
 def compute_gate_c_from_scores(
@@ -2600,6 +2691,7 @@ def evaluate_concept_on_pairing(
             selection_mode="full_space_exhaustive",
             gate_a_passing_feature_count=gate_a_passing,
             gate_denominator_caveat=GATE_DENOMINATOR_CAVEAT,
+            gate_c_subsumption=gate_c_subsumption_note(artifact, concept_id=concept_id, locales=locales),
         )
     except Exception as exc:  # an ERROR cell must record ANY failure, not a curated subset
         return ConceptPairingVerdict(
@@ -2663,7 +2755,20 @@ def write_grid_result(out_dir: str | Path, pairing: str, verdicts: list[ConceptP
     path = Path(out_dir) / "grid.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps({"schema_version": SCHEMA_VERSION, "pairing": pairing, "verdicts": [asdict(v) for v in verdicts]}, indent=2),
+        json.dumps(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "pairing": pairing,
+                # Grid-level, so a reader never has to open a verdict to
+                # find them. Both are also carried per verdict.
+                "gate_denominator_caveat": GATE_DENOMINATOR_CAVEAT,
+                "gate_c_subsumption": next(
+                    (v.gate_c_subsumption for v in verdicts if v.gate_c_subsumption is not None), None
+                ),
+                "verdicts": [asdict(v) for v in verdicts],
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
     return path
