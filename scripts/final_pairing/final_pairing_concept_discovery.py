@@ -89,6 +89,37 @@ Never-do list, enforced in code, not just prose:
   targets.py`'s validators on any other repo/revision/subdirectory). This
   file adds nothing on top for that -- it is not re-derived, it is
   inherited.
+
+SHADOW G-B, AND WHICH STATISTIC GATES (2026-08-15). Every `gate_b_passed`
+this file has ever written is computed from `fire_rate_within_cell`: the
+fraction of a cell's ten positive prompts scoring at or above 0.20 x the
+max of those same ten scores. That reference is derived from the very
+prompts it judges, so the statistic is scale-invariant and measures
+within-cell dynamic range rather than firing; on run 413287 it is measured
+ANTI-correlated with the search target (Spearman(separation_auroc,
+fire_rate) = -0.5234 over 1080 cells, recomputed by `verify_gate_fixes.py
+shadow`). Correcting it requires re-deriving `G_B_fire_rate_min` against
+the new scale, which is a protocol change nobody has made, SO IT IS NOT
+CORRECTED HERE. What IS done: the same arithmetic is ALSO computed against
+the reference this protocol already uses for this quantity -- the feature's
+max over the background `unrelated` split, the same scale the frozen dose
+grid and the causal stage express Amplify in -- and recorded beside it as
+`fire_rate_corpus_max`, with `corpus_max`, the explicit
+`fire_rate_within_cell`, and `verdict_computed_from` on every record.
+`shadow_gate_b_summary` (per verdict and grid-level) carries the resulting
+distribution over every (feature, cell) pair so the 0.70 bar can be
+re-derived against measured evidence rather than asserted. THE SHADOW VALUE
+IS RECORDED AND NEVER CONSULTED (`SHADOW_G_B_DISCLAIMER`); no gate,
+threshold or conjunction reads it.
+
+`--mode replay` (2026-08-15) is the owed MODEL-LEVEL falsifier: given a
+preserved grid `progress.jsonl` it re-scores exactly that file's (concept,
+feature) population on the real backend and asserts every emitted
+separation_auroc / fire_rate_within_cell / near_miss_auroc reproduces the
+preserved value to 1e-9, failing loudly rather than warning. It compares
+raw floats, never booleans (C1 legitimately flips `gate_b_passed` on the
+degenerate cells), and asserts the C1 correction applies to EXACTLY the
+expected number of dead cells and nowhere else.
 """
 
 from __future__ import annotations
@@ -100,7 +131,7 @@ import json
 import os
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -882,6 +913,35 @@ class JudgeIdentity:
     prompt_version: str
 
 
+#: The split the SHADOW G-B reference scale is measured over. NOT a new
+#: choice: `final_pairing_one_allocation_generation.py` already computes the
+#: causal stage's `corpus_max` from exactly this split ("`unrelated`
+#: (shared_substrate, identical text across all 14 concepts by design) is
+#: the same concept-agnostic negative/background role G-A already reads; the
+#: frozen artifact carries no field explicitly named 'background_corpus' of
+#: its own, so this is a disclosed re-use, not an invented split"), and the
+#: frozen dose grid states Amplify in multiples of it. The shadow metric
+#: expresses G-B in the units this protocol ALREADY uses for the same
+#: quantity, instead of in the within-cell units G-B invented.
+SHADOW_G_B_REFERENCE_SPLIT = "unrelated"
+
+#: Carried on every record that has a shadow value, so no later reader can
+#: mistake which statistic produced a verdict.
+SHADOW_G_B_DISCLAIMER = (
+    "fire_rate_corpus_max is a SHADOW MEASUREMENT ONLY. Every gate_b_passed in this file is "
+    "computed from fire_rate_within_cell (the frozen within-cell statistic) and from nothing else; "
+    "the shadow value is recorded and never consulted by any verdict, conjunction or threshold. "
+    "Re-deriving G_B_fire_rate_min against the corpus-max scale is a protocol change nobody has "
+    "made, and this field does not make it."
+)
+
+#: The single string every emitted G-A/G-B record carries in
+#: `verdict_computed_from`. A literal, not a formatted value: if a future
+#: edit ever routes a verdict through the shadow statistic, this constant is
+#: the thing that has to change with it, and the tests assert on it.
+GATE_B_VERDICT_SOURCE = "fire_rate_within_cell"
+
+
 @dataclass(frozen=True)
 class GateABResult:
     concept_id: str
@@ -908,6 +968,26 @@ class GateABResult:
     activation_floor: float = 0.0
     observed_max: float = 0.0
     n_positives: int = 0
+    # SHADOW G-B (2026-08-15). MEASUREMENT ONLY -- see
+    # `SHADOW_G_B_DISCLAIMER`, which every populated record carries in
+    # `shadow_disclaimer`. `fire_rate_within_cell` is the SAME NUMBER as
+    # `fire_rate` above, named explicitly so the two statistics can never
+    # be confused in a downstream reader; it is the one the verdict is
+    # computed from, and `verdict_computed_from` says so on every record.
+    # `fire_rate_corpus_max` is the same arithmetic against the protocol's
+    # own background reference scale (`shadow_corpus_max_per_feature`), and
+    # `corpus_max`/`shadow_reference_source` record the reference value and
+    # where it came from. All defaulted and purely additive: no existing
+    # field changes meaning or value, and a record written before this
+    # change still round-trips.
+    fire_rate_within_cell: float = 0.0
+    fire_rate_corpus_max: float | None = None
+    corpus_max: float | None = None
+    shadow_activation_floor: float | None = None
+    shadow_reference_source: str = "not_computed"
+    shadow_reference_degenerate: bool = False
+    verdict_computed_from: str = GATE_B_VERDICT_SOURCE
+    shadow_disclaimer: str = ""
 
 
 def _auroc_from_scores(positive_scores: list[float], negative_scores: list[float]) -> float:
@@ -1030,6 +1110,170 @@ def fire_rate_matrix(positive_scores: np.ndarray, *, floor_fraction: float) -> t
     return np.where(dead, 0.0, rates), np.where(dead, 0.0, floors)
 
 
+def shadow_corpus_max_per_feature(
+    backend: Backend, artifact: FrozenPromptArtifact, *,
+    locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES, cache: FeatureMatrixCache | None = None,
+) -> np.ndarray:
+    """The SHADOW G-B reference scale: each feature's max activation over the
+    frozen artifact's `unrelated` split, both locales, as a `[d_sae]` array.
+
+    This is the non-circular reference the protocol already defines for
+    this quantity (see `SHADOW_G_B_REFERENCE_SPLIT`), computed the same way
+    `corpus_max_per_feature` computes the causal stage's: a max over
+    background text that is NEVER the concept probes under judgement. Two
+    deliberate consequences follow, and they are the whole point:
+
+    1. It is the SAME number in every (concept, locale, family) cell of the
+       run, so a fire rate expressed against it is not scale-invariant --
+       unlike the within-cell statistic, which divides by the max of the
+       ten scores it is judging and therefore measures dynamic range
+       rather than firing.
+    2. It is measured on text the feature was not selected on, so a
+       concept-selective feature can legitimately score a corpus max well
+       BELOW its within-cell max. The within-cell reference can never
+       produce that ordering.
+
+    Costs ZERO additional forward passes in a grid run: `pin_shared_substrate`
+    already encodes and pins exactly these texts for the whole run, so this
+    is a cache read plus a column-wise max. Both locales are pooled (the
+    causal stage's own corpus max reads the `en` subset only, because it
+    generates in `en`); pooling is the conservative direction -- it can only
+    RAISE the reference and therefore only LOWER a shadow fire rate.
+
+    DISCLOSED CHOICE -- why the BACKGROUND split and not "every text the
+    run touched". A reference taken over ALL of the run's text would
+    include each cell's own positives, so `corpus_max >= observed_max`
+    would hold by construction in every cell. The shadow fire rate is
+    non-increasing in the reference and equals the frozen statistic exactly
+    at `corpus_max == observed_max` (both falsified by
+    `verify_gate_fixes.py shadow`, SHADOW-A), so such a reference could
+    only ever produce a rate at or BELOW the within-cell one: a uniformly
+    stricter gate whose direction is known in advance and which therefore
+    measures nothing new. The background split is the only reference that
+    can move a cell in either direction, and it is the one the protocol
+    already uses. Neither choice is a threshold change; both are recorded
+    quantities.
+
+    Never raises for a missing split on one concept: the `unrelated` rows
+    are shared_substrate and identical across all 14 concepts, so the first
+    concept that has them supplies them, exactly as `pin_shared_substrate`
+    does."""
+    cache = FeatureMatrixCache() if cache is None else cache
+    reference = np.zeros(backend.d_sae, dtype=np.float64)
+    texts_seen = 0
+    for locale in locales:
+        for concept_id in sorted({r["concept_id"] for r in artifact.rows}):
+            texts = [
+                r["text"] for r in rows_for_concept(
+                    artifact.rows, concept_id=concept_id, locale=locale, split=SHADOW_G_B_REFERENCE_SPLIT
+                )
+            ]
+            if texts:
+                reference = np.maximum(reference, cache.features(backend, texts).astype(np.float64).max(axis=0))
+                texts_seen += len(texts)
+                break
+    if texts_seen == 0:
+        raise ValueError(
+            f"shadow_corpus_max_per_feature found no {SHADOW_G_B_REFERENCE_SPLIT!r} rows in the "
+            f"artifact for locales {locales} -- refusing to invent a reference scale"
+        )
+    return reference
+
+
+def compute_shadow_fire_rate_corpus_max(
+    positive_scores: Sequence[float], *, floor_fraction: float, corpus_max: float
+) -> tuple[float, float, bool]:
+    """The SHADOW G-B statistic: the same fire-rate arithmetic as
+    `compute_gate_b_fire_rate`, with the floor taken at `floor_fraction *
+    corpus_max` (`shadow_corpus_max_per_feature`, the protocol's own
+    background scale) instead of at `floor_fraction * max(positive_scores)`
+    (the same ten scores under test). Returns `(fire_rate, floor,
+    reference_degenerate)`.
+
+    READ `SHADOW_G_B_DISCLAIMER`. Nothing computed here decides anything.
+    No verdict, gate, threshold or conjunction reads this function's return
+    value; `gate_b_passed` is and remains `fire_rate_within_cell >=
+    G_B_fire_rate_min`. This exists so that whoever re-derives that 0.70
+    bar against the corrected scale has a measured distribution instead of
+    an assertion.
+
+    Firing rule, stated exactly: a positive prompt fires iff `score >=
+    floor AND score > 0`. When `floor > 0` the second clause is a no-op
+    (it is implied), so on every non-degenerate cell this is bit-for-bit
+    the frozen `>=` rule with a different floor -- the only difference
+    under test is the DENOMINATOR. The second clause exists for the
+    degenerate reference case `corpus_max == 0` (a feature completely
+    silent on the background corpus), where the floor collapses to 0.0 and
+    the frozen non-strict `>=` would count a score of exactly 0.0 as firing
+    -- the identical artifact C1 removed from the within-cell statistic,
+    which produced 182 phantom passes in run 413287. `reference_degenerate`
+    is returned so those cells can be counted and excluded rather than
+    silently folded into a distribution. Note a degenerate reference is
+    NOT the same thing as a dead cell: `corpus_max == 0` with a live
+    positive set is maximal selectivity (the feature fires on the concept
+    and nowhere in the background), and it scores 1.0 here on purpose."""
+    if len(positive_scores) == 0:
+        return 0.0, 0.0, corpus_max <= 0
+    floor = max(float(corpus_max), 0.0) * floor_fraction
+    fired = sum(1 for s in positive_scores if s >= floor and s > 0)
+    return fired / len(positive_scores), floor, corpus_max <= 0
+
+
+def shadow_fire_rate_matrix(
+    positive_scores: np.ndarray, *, floor_fraction: float, corpus_max: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """`compute_shadow_fire_rate_corpus_max` for every COLUMN at once, given
+    a `[n_feat]` vector of per-feature corpus maxima. Returns `(fire_rates,
+    floors)`, both `[n_feat]`. Falsified against the scalar function on
+    randomised inputs (including dead columns and zero references) by
+    `verify_gate_fixes.py shadow`.
+
+    Feeds the run-level shadow DISTRIBUTION only. Like the scalar function
+    it decides nothing -- see `SHADOW_G_B_DISCLAIMER`."""
+    pos = np.asarray(positive_scores, dtype=np.float64)
+    if pos.ndim == 1:
+        pos = pos[:, None]
+    reference = np.maximum(np.asarray(corpus_max, dtype=np.float64), 0.0)
+    n_pos = pos.shape[0]
+    if n_pos == 0:
+        zeros = np.zeros(pos.shape[1], dtype=np.float64)
+        return zeros, zeros.copy()
+    floors = reference * floor_fraction
+    fired = (pos >= floors) & (pos > 0)
+    return fired.sum(axis=0) / n_pos, floors
+
+
+#: Bin width of the shadow-distribution histogram: 0.05 over [0, 1], 21
+#: bins, lower edge inclusive. Deliberately a width the frozen threshold
+#: (0.70) and every rate a 10-prompt positive split can take (k/10) land
+#: exactly ON an edge of, so "bins 14 and above" and "at or above 0.70" are
+#: the same set of pairs -- see `shadow_histogram_bins` for the binary
+#: floating-point care that requires, and the test that falsifies it.
+SHADOW_HISTOGRAM_BIN_WIDTH = 0.05
+SHADOW_HISTOGRAM_BINS = 21
+
+
+def shadow_histogram_bins(rates: np.ndarray) -> np.ndarray:
+    """Counts per fixed 0.05-wide bin, as a `[21]` integer array. Fixed bins,
+    never data-derived ones: two runs' histograms have to be comparable
+    without re-binning.
+
+    THE EPSILON IS LOAD-BEARING, not defensive padding. 0.05 and 0.7 are
+    both inexact in binary: `0.7 / 0.05 == 13.999999999999998`, so a plain
+    truncation files a fire rate of exactly 0.70 -- the frozen threshold
+    itself -- into the 0.65 bin, and the histogram then disagrees with the
+    `>= fire_rate_min` count computed beside it. Every rate a 10-prompt
+    split can take (k/10) sits exactly on a 0.05 edge, so this is the
+    common case here, not an edge case. Nudging by 1e-9 before the floor
+    restores lower-edge-inclusive semantics; it can only move a value that
+    is within 1e-9 of an edge, and only up to the bin that edge opens."""
+    idx = np.clip(
+        np.floor(np.asarray(rates, dtype=np.float64) / SHADOW_HISTOGRAM_BIN_WIDTH + 1e-9).astype(np.int64),
+        0, SHADOW_HISTOGRAM_BINS - 1,
+    )
+    return np.bincount(idx, minlength=SHADOW_HISTOGRAM_BINS)
+
+
 def concept_locale_texts(
     artifact: FrozenPromptArtifact, *, concept_id: str, locale: str
 ) -> tuple[list[str], list[str], dict[str, list[str]]]:
@@ -1066,6 +1310,7 @@ def compute_gate_a_and_b_from_scores(
     *, concept_id: str, locale: str, feature_index: int,
     positive_scores_by_family: dict[str, Sequence[float]], negative_scores: Sequence[float],
     auroc_min: float, floor_fraction: float, fire_rate_min: float,
+    corpus_max_by_feature: Sequence[float] | Mapping[int, float] | None = None,
 ) -> list[GateABResult]:
     """G-A and G-B, per family, from ALREADY-EXTRACTED per-prompt score
     vectors -- no backend, no feature index lookup, no forward pass.
@@ -1076,7 +1321,17 @@ def compute_gate_a_and_b_from_scores(
     UNCHANGED and deliberately so: the same `_auroc_from_scores`, the same
     pooled negative set, the same `compute_gate_b_fire_rate`, in the same
     family order. Any difference in an emitted number between this and the
-    pre-C2 path is a refactor defect, not an improvement."""
+    pre-C2 path is a refactor defect, not an improvement.
+
+    SHADOW G-B (2026-08-15): `corpus_max_by_feature`, when supplied, adds
+    the shadow fields (`fire_rate_corpus_max` and friends) to every emitted
+    record. IT CHANGES NO VERDICT AND NO EXISTING FIELD: `gate_b_passed`
+    below is `fire_rate >= fire_rate_min` on the frozen within-cell
+    statistic whether the shadow reference is supplied or not, and the
+    tests assert that the two call shapes emit identical
+    `gate_a_passed`/`gate_b_passed`/`separation_auroc`/`fire_rate`. Omit it
+    and the shadow fields stay at their `not_computed` defaults."""
+    reference: float | None = None
     results = []
     for family in sorted(positive_scores_by_family):
         positive_scores = list(positive_scores_by_family[family])
@@ -1085,7 +1340,21 @@ def compute_gate_a_and_b_from_scores(
         gate_a_passed = auroc >= auroc_min
 
         fire_rate, floor = compute_gate_b_fire_rate(positive_scores, floor_fraction=floor_fraction)
+        # THE VERDICT, AND THE ONLY PLACE IT IS DECIDED: the frozen
+        # within-cell statistic, compared against the frozen threshold. The
+        # shadow value computed below is not in this expression and must
+        # never be put into it without re-deriving `G_B_fire_rate_min`.
         gate_b_passed = fire_rate >= fire_rate_min
+
+        shadow_rate = shadow_floor = None
+        shadow_degenerate = False
+        shadow_source = "not_computed"
+        if corpus_max_by_feature is not None:
+            reference = float(corpus_max_by_feature[feature_index])
+            shadow_rate, shadow_floor, shadow_degenerate = compute_shadow_fire_rate_corpus_max(
+                positive_scores, floor_fraction=floor_fraction, corpus_max=reference
+            )
+            shadow_source = f"frozen_artifact:{SHADOW_G_B_REFERENCE_SPLIT}:max_over_all_locales"
 
         results.append(
             GateABResult(
@@ -1096,6 +1365,17 @@ def compute_gate_a_and_b_from_scores(
                 activation_floor=floor,
                 observed_max=(max(positive_scores) if positive_scores else 0.0),
                 n_positives=len(positive_scores),
+                # Shadow block. `fire_rate_within_cell` is deliberately the
+                # SAME value as `fire_rate` -- an explicit name for the
+                # statistic that gated, not a second measurement.
+                fire_rate_within_cell=fire_rate,
+                fire_rate_corpus_max=shadow_rate,
+                corpus_max=reference,
+                shadow_activation_floor=shadow_floor,
+                shadow_reference_source=shadow_source,
+                shadow_reference_degenerate=shadow_degenerate,
+                verdict_computed_from=GATE_B_VERDICT_SOURCE,
+                shadow_disclaimer=("" if corpus_max_by_feature is None else SHADOW_G_B_DISCLAIMER),
             )
         )
     return results
@@ -1105,6 +1385,7 @@ def compute_gate_a_and_b_per_family(
     backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str, locale: str, feature_index: int,
     auroc_min: float | None = None, activation_floor_fraction: float | None = None, fire_rate_min: float | None = None,
     cache: FeatureMatrixCache | None = None,
+    corpus_max_by_feature: Sequence[float] | Mapping[int, float] | None = None,
 ) -> list[GateABResult]:
     """G-A (separation AUROC, positive vs. POOLED controls: near_miss +
     unrelated, within the same locale/family) and G-B (activation floor /
@@ -1195,6 +1476,10 @@ def compute_gate_a_and_b_per_family(
         },
         negative_scores=negative_scores,
         auroc_min=auroc_min, floor_fraction=floor_fraction, fire_rate_min=fire_rate_min,
+        # Shadow reference, recorded on the emitted records and consulted by
+        # nothing (see `SHADOW_G_B_DISCLAIMER`). Passing None simply omits
+        # the shadow fields; it cannot change a verdict either way.
+        corpus_max_by_feature=corpus_max_by_feature,
     )
 
 
@@ -2468,6 +2753,11 @@ class ConceptPairingVerdict:
     gate_a_passing_feature_count: int = 0
     gate_denominator_caveat: str = ""
     gate_c_subsumption: dict | None = None
+    #: SHADOW G-B evidence for this concept: the distribution of the
+    #: corpus-max-referenced fire rate over every (feature, cell) pair
+    #: scored, beside the frozen within-cell one on the same bins.
+    #: Recorded; never read by this file's control flow.
+    shadow_gate_b_summary: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -2485,12 +2775,86 @@ class FullSpaceScan:
     min_fire_rate: np.ndarray
     min_near_miss_auroc: np.ndarray
     cells_scored: int
+    #: SHADOW G-B distribution over EVERY (feature, cell) pair this scan
+    #: touched -- `d_sae x cells_scored` values, not a per-feature minimum
+    #: and not a survivor count. None when no shadow reference was supplied.
+    #: Consulted by nothing; `select_candidates_from_scan` does not read it.
+    shadow_fire_rate_summary: dict | None = None
+
+
+def summarise_shadow_distribution(
+    within_cell_counts: np.ndarray, corpus_max_counts: np.ndarray, *,
+    within_cell_values: np.ndarray, corpus_max_values: np.ndarray,
+    degenerate_reference_features: int, dead_cell_pairs: int, cells: int, d_sae: int,
+    fire_rate_min: float, floor_fraction: float,
+) -> dict:
+    """The run-level shadow evidence, in the shape someone re-deriving the
+    0.70 bar actually needs: two histograms on the SAME fixed bins (the
+    frozen within-cell statistic and the shadow corpus-max one), quantiles
+    of each, and how many (feature, cell) pairs each statistic puts at or
+    above the CURRENT bar.
+
+    THAT LAST NUMBER IS NOT A SURVIVOR COUNT AND MUST NOT BE READ AS ONE.
+    It counts (feature, cell) pairs of ONE gate's statistic. It is not
+    conjoined with G-A or G-C, not minimised across cells, and not filtered
+    to any candidate set; a feature contributes up to `cells` separate
+    counts. It exists to describe where the mass of each distribution sits
+    relative to 0.70, which is exactly the question a re-derivation asks."""
+    def _q(values: np.ndarray) -> dict:
+        if values.size == 0:
+            return {}
+        qs = np.quantile(values, [0.0, 0.05, 0.25, 0.5, 0.75, 0.95, 1.0])
+        return {
+            "min": float(qs[0]), "p05": float(qs[1]), "p25": float(qs[2]), "median": float(qs[3]),
+            "p75": float(qs[4]), "p95": float(qs[5]), "max": float(qs[6]), "mean": float(values.mean()),
+        }
+
+    total_pairs = int(d_sae * cells)
+    return {
+        "disclaimer": SHADOW_G_B_DISCLAIMER,
+        "not_a_survivor_count": (
+            "Every count below is over (feature, cell) PAIRS of a single gate's statistic -- never "
+            "conjoined with G-A/G-C, never minimised across cells, never filtered to a candidate "
+            "set. It is a distribution, not a discovery result."
+        ),
+        "reference_split": SHADOW_G_B_REFERENCE_SPLIT,
+        "floor_fraction": float(floor_fraction),
+        "current_fire_rate_min": float(fire_rate_min),
+        "cells": int(cells),
+        "d_sae": int(d_sae),
+        "feature_cell_pairs": total_pairs,
+        "histogram_bin_width": SHADOW_HISTOGRAM_BIN_WIDTH,
+        "histogram_bin_lower_edges": [round(i * SHADOW_HISTOGRAM_BIN_WIDTH, 4) for i in range(SHADOW_HISTOGRAM_BINS)],
+        "fire_rate_within_cell": {
+            "histogram": [int(x) for x in within_cell_counts],
+            "quantiles": _q(within_cell_values),
+            "pairs_at_or_above_current_min": int((within_cell_values >= fire_rate_min).sum()),
+        },
+        "fire_rate_corpus_max": {
+            "histogram": [int(x) for x in corpus_max_counts],
+            "quantiles": _q(corpus_max_values),
+            "pairs_at_or_above_current_min": int((corpus_max_values >= fire_rate_min).sum()),
+        },
+        "degenerate_reference_features": int(degenerate_reference_features),
+        "degenerate_reference_note": (
+            "features whose corpus_max is 0.0 -- completely silent on the background split, so the "
+            "shadow floor collapses to 0.0 and the shadow rate degenerates to 'fraction of positives "
+            "with any activation at all'. Counted here so they can be excluded from a re-derivation."
+        ),
+        "dead_cell_pairs": int(dead_cell_pairs),
+        "dead_cell_note": (
+            "(feature, cell) pairs whose positive scores are all exactly 0.0. Both statistics score "
+            "these 0.0 (the C1 guard); before C1 the within-cell statistic scored them 1.0, which is "
+            "what produced run 413287's 182 phantom G-B passes."
+        ),
+    }
 
 
 def score_full_feature_space(
     backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str,
     locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES, cache: FeatureMatrixCache | None = None,
     floor_fraction: float | None = None,
+    corpus_max_by_feature: np.ndarray | None = None, fire_rate_min: float | None = None,
 ) -> FullSpaceScan:
     """Computes G-A, G-B and G-C for EVERY one of `backend.d_sae` features,
     in every (locale, family) cell, from the cached activation matrices --
@@ -2510,9 +2874,17 @@ def score_full_feature_space(
     IT DOES NOT MAKE THE GATES SOUND. G-B here is `fire_rate_matrix`,
     which is the same within-cell circular denominator as everywhere else
     (see `GATE_DENOMINATOR_CAVEAT`). Scoring d_sae features through a
-    defective denominator produces d_sae defective results faster."""
+    defective denominator produces d_sae defective results faster.
+
+    SHADOW G-B (2026-08-15): when `corpus_max_by_feature` is supplied, the
+    same cells are ALSO scored against the protocol's background reference
+    and the full `d_sae x cells` distribution of both statistics is
+    summarised into `shadow_fire_rate_summary`. That summary feeds the
+    record and nothing else -- `select_candidates_from_scan` reads
+    `min_separation_auroc` only, and no verdict reads any of it."""
     thresholds = artifact.metadata["thresholds"]
     floor_fraction = thresholds["G_B_activation_floor_fraction_of_observed_max"] if floor_fraction is None else floor_fraction
+    fire_rate_min = thresholds["G_B_fire_rate_min"] if fire_rate_min is None else fire_rate_min
     cache = FeatureMatrixCache() if cache is None else cache
 
     min_sep = np.full(backend.d_sae, np.inf, dtype=np.float64)
@@ -2520,6 +2892,14 @@ def score_full_feature_space(
     min_near = np.full(backend.d_sae, np.inf, dtype=np.float64)
     families_by_locale: dict[str, list[str]] = {}
     cells = 0
+    # Shadow accumulators: fixed-bin histograms plus the raw values, which
+    # at d_sae x 6 stay small enough to quantile exactly rather than
+    # estimate off the histogram.
+    within_counts = np.zeros(SHADOW_HISTOGRAM_BINS, dtype=np.int64)
+    shadow_counts = np.zeros(SHADOW_HISTOGRAM_BINS, dtype=np.int64)
+    within_values: list[np.ndarray] = []
+    shadow_values: list[np.ndarray] = []
+    dead_cell_pairs = 0
 
     for locale in locales:
         unrelated_texts, near_miss_texts, positives_by_family = concept_locale_texts(
@@ -2535,14 +2915,36 @@ def score_full_feature_space(
         for family in families_by_locale[locale]:
             positives = cache.features(backend, positives_by_family[family]).astype(np.float64)
             min_sep = np.minimum(min_sep, rank_auroc_matrix(positives, negatives))
-            min_fire = np.minimum(min_fire, fire_rate_matrix(positives, floor_fraction=floor_fraction)[0])
+            cell_fire = fire_rate_matrix(positives, floor_fraction=floor_fraction)[0]
+            min_fire = np.minimum(min_fire, cell_fire)
             min_near = np.minimum(min_near, rank_auroc_matrix(positives, near_miss))
             cells += 1
+
+            if corpus_max_by_feature is not None:
+                cell_shadow = shadow_fire_rate_matrix(
+                    positives, floor_fraction=floor_fraction, corpus_max=corpus_max_by_feature
+                )[0]
+                within_counts += shadow_histogram_bins(cell_fire)
+                shadow_counts += shadow_histogram_bins(cell_shadow)
+                within_values.append(cell_fire)
+                shadow_values.append(cell_shadow)
+                dead_cell_pairs += int((positives.max(axis=0) <= 0).sum())
+
+    shadow_summary = None
+    if corpus_max_by_feature is not None:
+        shadow_summary = summarise_shadow_distribution(
+            within_counts, shadow_counts,
+            within_cell_values=np.concatenate(within_values) if within_values else np.empty(0),
+            corpus_max_values=np.concatenate(shadow_values) if shadow_values else np.empty(0),
+            degenerate_reference_features=int((np.asarray(corpus_max_by_feature) <= 0).sum()),
+            dead_cell_pairs=dead_cell_pairs, cells=cells, d_sae=int(backend.d_sae),
+            fire_rate_min=fire_rate_min, floor_fraction=floor_fraction,
+        )
 
     return FullSpaceScan(
         concept_id=concept_id, locales=tuple(locales), families_by_locale=families_by_locale,
         min_separation_auroc=min_sep, min_fire_rate=min_fire, min_near_miss_auroc=min_near,
-        cells_scored=cells,
+        cells_scored=cells, shadow_fire_rate_summary=shadow_summary,
     )
 
 
@@ -2618,6 +3020,7 @@ def evaluate_concept_on_pairing(
     report_top_n: int = DEFAULT_REPORT_TOP_N,
     locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES, cache: FeatureMatrixCache | None = None,
     shortlist_size: int | None = None,
+    corpus_max_by_feature: np.ndarray | None = None,
 ) -> ConceptPairingVerdict:
     """One (concept, pairing) grid cell's full verdict.
 
@@ -2652,13 +3055,22 @@ def evaluate_concept_on_pairing(
     this grid is an engineering measurement, not a discovery result.
 
     `shortlist_size` is accepted and ignored, for callers pinned to the
-    pre-C3 keyword; it is recorded nowhere and selects nothing."""
+    pre-C3 keyword; it is recorded nowhere and selects nothing.
+
+    `corpus_max_by_feature` is the SHADOW G-B reference scale
+    (`shadow_corpus_max_per_feature`). Supplying it adds the shadow fields
+    to every emitted G-B record and a run-level distribution to
+    `shadow_gate_b_summary`; omitting it omits both. It cannot move a
+    verdict in either direction -- `gate_b_passed`, `feature_survives_gabc`
+    and `status` are computed from the frozen within-cell statistic in both
+    cases, and the tests assert the two runs are verdict-identical."""
     del shortlist_size  # pre-C3 keyword; the shortlist no longer decides what is measured
     try:
         cache = FeatureMatrixCache() if cache is None else cache
         thresholds = artifact.metadata["thresholds"]
         scan = score_full_feature_space(
-            backend, artifact, concept_id=concept_id, locales=locales, cache=cache
+            backend, artifact, concept_id=concept_id, locales=locales, cache=cache,
+            corpus_max_by_feature=corpus_max_by_feature,
         )
         candidates = select_candidates_from_scan(
             scan, pairing=backend.pairing,
@@ -2674,7 +3086,7 @@ def evaluate_concept_on_pairing(
             for locale in locales:
                 gate_ab += compute_gate_a_and_b_per_family(
                     backend, artifact, concept_id=concept_id, locale=locale, feature_index=candidate.feature_index,
-                    cache=cache,
+                    cache=cache, corpus_max_by_feature=corpus_max_by_feature,
                 )
                 gate_c += compute_gate_c_per_family(
                     backend, artifact, concept_id=concept_id, locale=locale, feature_index=candidate.feature_index,
@@ -2703,6 +3115,7 @@ def evaluate_concept_on_pairing(
             gate_a_passing_feature_count=gate_a_passing,
             gate_denominator_caveat=GATE_DENOMINATOR_CAVEAT,
             gate_c_subsumption=gate_c_subsumption_note(artifact, concept_id=concept_id, locales=locales),
+            shadow_gate_b_summary=scan.shadow_fire_rate_summary,
         )
     except Exception as exc:  # an ERROR cell must record ANY failure, not a curated subset
         return ConceptPairingVerdict(
@@ -2715,7 +3128,7 @@ def evaluate_concept_on_pairing(
 def run_concept_grid(
     backend: Backend, artifact: FrozenPromptArtifact, *, report_top_n: int = DEFAULT_REPORT_TOP_N,
     concept_ids: list[str] | None = None, progress: ProgressLog | None = None,
-    shortlist_size: int | None = None,
+    shortlist_size: int | None = None, record_shadow: bool = True,
 ) -> list[ConceptPairingVerdict]:
     """Evaluates every one of the frozen artifact's 14 concepts (or an
     explicit subset, for tests) on ONE already-loaded `backend`, resuming
@@ -2731,12 +3144,22 @@ def run_concept_grid(
     C3 (2026-08-15): `shortlist_size` no longer exists as a concept -- the
     whole feature space is scored. It is still accepted and ignored so a
     pinned caller does not break; `report_top_n` bounds how many extra
-    features are RECORDED, never which are measured."""
+    features are RECORDED, never which are measured.
+
+    SHADOW G-B (2026-08-15): the background reference scale is measured
+    ONCE for the whole grid, immediately after the shared_substrate split
+    is pinned -- it reads exactly those pinned texts, so it costs zero
+    additional forward passes -- and is handed to every concept. It is
+    recorded on every G-B record and summarised per concept; no verdict
+    reads it (`SHADOW_G_B_DISCLAIMER`). `record_shadow` exists to turn it
+    off for a caller that wants the pre-shadow record shape; the verdicts
+    are identical either way."""
     del shortlist_size  # pre-C3 keyword; retained so an existing caller does not raise
     if concept_ids is None:
         concept_ids = sorted({r["concept_id"] for r in artifact.rows})
     cache = FeatureMatrixCache()
     substrate_pinned = False
+    corpus_max_by_feature: np.ndarray | None = None
     verdicts: list[ConceptPairingVerdict] = []
     for concept_id in concept_ids:
         key = f"grid_{backend.pairing}_{concept_id}"
@@ -2748,14 +3171,79 @@ def run_concept_grid(
             # resumed run must not pay a forward pass it will not use.
             pin_shared_substrate(cache, backend, artifact)
             substrate_pinned = True
+            if record_shadow:
+                corpus_max_by_feature = shadow_corpus_max_per_feature(backend, artifact, cache=cache)
         verdict = evaluate_concept_on_pairing(
-            backend, artifact, concept_id=concept_id, report_top_n=report_top_n, cache=cache
+            backend, artifact, concept_id=concept_id, report_top_n=report_top_n, cache=cache,
+            corpus_max_by_feature=corpus_max_by_feature,
         )
         verdicts.append(verdict)
         cache.evict_unpinned()
         if progress is not None:
             progress.record(key, {"verdict": asdict(verdict)})
     return verdicts
+
+
+def aggregate_shadow_summaries(verdicts: list[ConceptPairingVerdict]) -> dict | None:
+    """Sums the per-concept shadow histograms into ONE grid-level
+    distribution -- the artefact a re-derivation of `G_B_fire_rate_min`
+    reads. Returns None when no verdict carries a shadow summary.
+
+    Histograms sum exactly (fixed bins, disjoint (feature, cell) pairs).
+    Quantiles do NOT sum, so the grid-level ones are recomputed FROM the
+    summed histogram and are therefore bin-resolution (0.05) accurate --
+    labelled as such rather than presented as exact. The per-concept
+    summaries keep their exact quantiles and are not replaced."""
+    summaries = [v.shadow_gate_b_summary for v in verdicts if v.shadow_gate_b_summary is not None]
+    if not summaries:
+        return None
+
+    def _sum(statistic: str, field: str) -> list[int]:
+        return [int(sum(s[statistic][field][i] for s in summaries)) for i in range(SHADOW_HISTOGRAM_BINS)]
+
+    def _quantiles_from_histogram(counts: list[int]) -> dict:
+        total = sum(counts)
+        if total == 0:
+            return {}
+        cumulative = np.cumsum(counts)
+        edges = np.array([i * SHADOW_HISTOGRAM_BIN_WIDTH for i in range(SHADOW_HISTOGRAM_BINS)])
+        out = {}
+        for name, q in (("p05", 0.05), ("p25", 0.25), ("median", 0.5), ("p75", 0.75), ("p95", 0.95)):
+            out[name] = float(edges[int(np.searchsorted(cumulative, q * total, side="left"))])
+        return out
+
+    within_hist = _sum("fire_rate_within_cell", "histogram")
+    shadow_hist = _sum("fire_rate_corpus_max", "histogram")
+    return {
+        "disclaimer": SHADOW_G_B_DISCLAIMER,
+        "not_a_survivor_count": summaries[0]["not_a_survivor_count"],
+        "concepts_summarised": len(summaries),
+        "reference_split": summaries[0]["reference_split"],
+        "floor_fraction": summaries[0]["floor_fraction"],
+        "current_fire_rate_min": summaries[0]["current_fire_rate_min"],
+        "feature_cell_pairs": int(sum(s["feature_cell_pairs"] for s in summaries)),
+        "histogram_bin_width": SHADOW_HISTOGRAM_BIN_WIDTH,
+        "histogram_bin_lower_edges": summaries[0]["histogram_bin_lower_edges"],
+        "fire_rate_within_cell": {
+            "histogram": within_hist,
+            "quantiles_from_histogram_bin_resolution": _quantiles_from_histogram(within_hist),
+            "pairs_at_or_above_current_min": int(
+                sum(s["fire_rate_within_cell"]["pairs_at_or_above_current_min"] for s in summaries)
+            ),
+        },
+        "fire_rate_corpus_max": {
+            "histogram": shadow_hist,
+            "quantiles_from_histogram_bin_resolution": _quantiles_from_histogram(shadow_hist),
+            "pairs_at_or_above_current_min": int(
+                sum(s["fire_rate_corpus_max"]["pairs_at_or_above_current_min"] for s in summaries)
+            ),
+        },
+        "dead_cell_pairs": int(sum(s["dead_cell_pairs"] for s in summaries)),
+        "quantile_note": (
+            "grid-level quantiles are read off the summed fixed-bin histogram, so they are accurate "
+            "to the 0.05 bin width; the per-concept summaries carry exact quantiles."
+        ),
+    }
 
 
 def write_grid_result(out_dir: str | Path, pairing: str, verdicts: list[ConceptPairingVerdict]) -> Path:
@@ -2776,6 +3264,10 @@ def write_grid_result(out_dir: str | Path, pairing: str, verdicts: list[ConceptP
                 "gate_c_subsumption": next(
                     (v.gate_c_subsumption for v in verdicts if v.gate_c_subsumption is not None), None
                 ),
+                # Grid-level SHADOW G-B distribution. Measurement only; no
+                # verdict in this file, or in any consumer of this file,
+                # may be computed from it (`SHADOW_G_B_DISCLAIMER`).
+                "shadow_gate_b_summary": aggregate_shadow_summaries(verdicts),
                 "verdicts": [asdict(v) for v in verdicts],
             },
             indent=2,
@@ -2830,6 +3322,324 @@ def compute_primary_completeness_and_shared_count(
         if all(cell.status == "pass" for cell in cells):
             shared_count += 1
     return complete, shared_count
+
+
+# ---------------------------------------------------------------------------
+# THE OWED MODEL-LEVEL REPLAY (2026-08-15).
+#
+# The C2 falsifier could not run its literal form: run 413287 preserved
+# VERDICTS, not activations, and the dev box is CPU-only, so equivalence was
+# proven against a deterministic surrogate with pre/post arms. That is sound
+# structurally and is NOT a model-level replay. What follows makes the real
+# replay executable on GPU: re-score exactly the preserved (concept,
+# feature) population on the real backend and assert every preserved float
+# comes back.
+#
+# It asserts on RAW FLOATS, never on booleans: C1 legitimately changes
+# `gate_b_passed` on the degenerate cells, so a boolean comparison would
+# fail for a reason that is a correction rather than a regression. The one
+# float that is EXPECTED to differ -- `fire_rate` on a cell whose positives
+# are all identically zero, 1.0 before the C1 guard and 0.0 after -- is
+# asserted to differ on EXACTLY the expected number of cells and nowhere
+# else. Anything outside that carve-out is a hard failure.
+# ---------------------------------------------------------------------------
+
+
+class ReplayMismatch(RuntimeError):
+    """Raised when a model-level replay does not reproduce the preserved
+    record. Deliberately an exception and not a returned flag: a replay that
+    quietly warns is a replay nobody acts on."""
+
+
+#: The number of (feature, cell) records in run 413287 whose positive scores
+#: were all identically zero -- the degenerate cells C1 corrects from
+#: `fire_rate 1.0` to `fire_rate 0.0`. Measured from the preserved record by
+#: `verify_gate_fixes.py c1`; asserted, never assumed, by the replay. If the
+#: real model returns a different number, either the guard or the
+#: identification is wrong and the replay must fail rather than absorb it.
+REPLAY_EXPECTED_DEAD_CELLS = 182
+
+#: Every emitted float the replay compares. `fire_rate_within_cell` is
+#: compared against the preserved record's `fire_rate` (the same statistic
+#: under its explicit name); the shadow fields are RECORDED by the replay
+#: and compared against nothing, because the preserved run has no shadow
+#: value to compare to.
+REPLAY_COMPARED_FIELDS = ("separation_auroc", "fire_rate_within_cell", "near_miss_auroc")
+
+REPLAY_TOLERANCE = 1e-9
+
+
+def load_preserved_grid_cells(progress_path: str | Path) -> tuple[dict, dict, dict[str, list[int]]]:
+    """Flattens a preserved grid `progress.jsonl` into
+    `(ab_by_key, c_by_key, feature_indices_by_concept)`, keyed by
+    `(concept_id, locale, family, feature_index)`.
+
+    Reads the EXACT named path (never globs), and preserves the file's own
+    concept order and per-concept candidate order -- the replay must
+    re-score exactly the population that was recorded, not a re-derived
+    one."""
+    path = Path(progress_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"preserved progress log not found at the exact path {path}")
+    ab: dict[tuple, dict] = {}
+    c: dict[tuple, dict] = {}
+    features_by_concept: dict[str, list[int]] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        verdict = json.loads(line)["verdict"]
+        concept_id = verdict["concept_id"]
+        features_by_concept.setdefault(concept_id, [])
+        for candidate in verdict["candidates_evaluated"]:
+            features_by_concept[concept_id].append(candidate["feature_index"])
+            for r in candidate["gate_a_b_results"]:
+                ab[(r["concept_id"], r["locale"], r["family"], r["feature_index"])] = r
+            for r in candidate["gate_c_results"]:
+                c[(r["concept_id"], r["locale"], r["family"], r["feature_index"])] = r
+    return ab, c, features_by_concept
+
+
+def replay_preserved_cells(
+    backend: Backend, artifact: FrozenPromptArtifact, *, features_by_concept: dict[str, list[int]],
+    locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES, cache: FeatureMatrixCache | None = None,
+    record_shadow: bool = True,
+) -> tuple[dict, dict]:
+    """Re-scores exactly `features_by_concept` on the REAL backend, through
+    the same frozen primitives the grid uses, and returns
+    `(ab_by_key, c_by_key)` in the same key shape as
+    `load_preserved_grid_cells`.
+
+    Nothing here selects features: the population comes from the preserved
+    record. The full-space scan is deliberately NOT run -- C3 changed WHICH
+    features are measured, and mixing that in would compare different
+    populations and prove nothing about the measurement."""
+    cache = FeatureMatrixCache() if cache is None else cache
+    pin_shared_substrate(cache, backend, artifact)
+    corpus_max_by_feature = (
+        shadow_corpus_max_per_feature(backend, artifact, locales=locales, cache=cache) if record_shadow else None
+    )
+
+    ab: dict[tuple, dict] = {}
+    c: dict[tuple, dict] = {}
+    for concept_id, feature_indices in features_by_concept.items():
+        for feature_index in feature_indices:
+            for locale in locales:
+                for r in compute_gate_a_and_b_per_family(
+                    backend, artifact, concept_id=concept_id, locale=locale, feature_index=feature_index,
+                    cache=cache, corpus_max_by_feature=corpus_max_by_feature,
+                ):
+                    ab[(r.concept_id, r.locale, r.family, r.feature_index)] = asdict(r)
+                for r in compute_gate_c_per_family(
+                    backend, artifact, concept_id=concept_id, locale=locale, feature_index=feature_index,
+                    cache=cache,
+                ):
+                    c[(r.concept_id, r.locale, r.family, r.feature_index)] = asdict(r)
+        cache.evict_unpinned()
+    return ab, c
+
+
+def _preserved_dead_cell_signature(ab_cell: dict, c_cell: dict) -> bool:
+    """The record-only identification of a degenerate cell, reproduced from
+    `verify_gate_fixes.check_c1` verbatim: AUROC is exactly 0.5 against BOTH
+    control sets and `fire_rate` is exactly 1.0. The replay does not trust
+    it -- it cross-checks it against the measured `observed_max == 0.0` and
+    fails if the two disagree, which is the only direct test the 182 figure
+    has ever had."""
+    return ab_cell["separation_auroc"] == 0.5 and c_cell["near_miss_auroc"] == 0.5 and ab_cell["fire_rate"] == 1.0
+
+
+def compare_replay_to_preserved(
+    *, preserved_ab: dict, preserved_c: dict, replayed_ab: dict, replayed_c: dict,
+    tolerance: float = REPLAY_TOLERANCE, expected_dead_cells: int = REPLAY_EXPECTED_DEAD_CELLS,
+) -> dict:
+    """Asserts the replay reproduces the preserved record. Returns a report
+    dict on success; RAISES `ReplayMismatch` on any failure -- it never
+    warns and never returns a soft verdict.
+
+    What must match, to `tolerance` (1e-9), on every one of the preserved
+    cells: `separation_auroc`, `near_miss_auroc`, and
+    `fire_rate_within_cell` against the preserved `fire_rate`.
+
+    The ONE licensed difference: on a cell whose replayed positives are all
+    identically 0.0 (`observed_max == 0.0`), the preserved `fire_rate` is
+    exactly 1.0 and the replayed `fire_rate_within_cell` is exactly 0.0 --
+    the C1 correction. That is asserted, not tolerated: the preserved value
+    must be exactly 1.0, the replayed exactly 0.0, the record-only dead
+    signature must agree with the measured one, and the count of such cells
+    must equal `expected_dead_cells` EXACTLY. More or fewer is a failure.
+    AUROCs are NOT exempted on those cells (an all-zero cell ties against
+    both control sets, so both AUROCs must still come back exactly 0.5 and
+    they are compared like any other).
+
+    Booleans are never compared. `gate_b_passed` legitimately flips on the
+    degenerate cells and comparing it would report a correction as a
+    regression."""
+    problems: list[str] = []
+    if set(preserved_ab) != set(replayed_ab):
+        missing = sorted(set(preserved_ab) - set(replayed_ab))[:5]
+        extra = sorted(set(replayed_ab) - set(preserved_ab))[:5]
+        problems.append(f"G-A/G-B cell key sets differ: {len(set(preserved_ab) - set(replayed_ab))} missing "
+                        f"(e.g. {missing}), {len(set(replayed_ab) - set(preserved_ab))} extra (e.g. {extra})")
+    if set(preserved_c) != set(replayed_c):
+        problems.append(f"G-C cell key sets differ: {len(set(preserved_c) ^ set(replayed_c))} symmetric-difference cells")
+    if set(preserved_ab) != set(preserved_c):
+        # Every G-A/G-B cell must have a G-C cell to be read beside it.
+        # Raising here rather than letting the loop below KeyError keeps the
+        # failure mode a stated one.
+        problems.append(
+            f"the preserved record's G-A/G-B and G-C cells do not cover the same "
+            f"{len(set(preserved_ab) ^ set(preserved_c))} (concept, locale, family, feature) keys"
+        )
+    if problems:
+        raise ReplayMismatch("; ".join(problems))
+
+    worst = {field: 0.0 for field in REPLAY_COMPARED_FIELDS}
+    worst_key = {field: None for field in REPLAY_COMPARED_FIELDS}
+    dead_cells: list[tuple] = []
+    signature_disagreements: list[tuple] = []
+    mismatches: list[str] = []
+
+    for key in sorted(preserved_ab):
+        old_ab, new_ab = preserved_ab[key], replayed_ab[key]
+        old_c, new_c = preserved_c[key], replayed_c[key]
+
+        measured_dead = float(new_ab["observed_max"]) == 0.0 and int(new_ab["n_positives"]) > 0
+        recorded_dead = _preserved_dead_cell_signature(old_ab, old_c)
+        if measured_dead != recorded_dead:
+            signature_disagreements.append(key)
+
+        for field, old_value in (
+            ("separation_auroc", old_ab["separation_auroc"]),
+            ("near_miss_auroc", old_c["near_miss_auroc"]),
+        ):
+            new_value = new_ab["separation_auroc"] if field == "separation_auroc" else new_c["near_miss_auroc"]
+            delta = abs(float(new_value) - float(old_value))
+            if delta > worst[field]:
+                worst[field], worst_key[field] = delta, key
+            if delta > tolerance:
+                mismatches.append(f"{key} {field}: preserved {old_value!r} vs replayed {new_value!r} (|delta|={delta:.3e})")
+
+        old_fire = float(old_ab["fire_rate"])
+        new_fire = float(new_ab["fire_rate_within_cell"])
+        if measured_dead:
+            dead_cells.append(key)
+            if old_fire != 1.0 or new_fire != 0.0:
+                mismatches.append(
+                    f"{key} fire_rate_within_cell: measured-dead cell must be preserved 1.0 -> replayed 0.0, "
+                    f"got preserved {old_fire!r} -> replayed {new_fire!r}"
+                )
+        else:
+            delta = abs(new_fire - old_fire)
+            if delta > worst["fire_rate_within_cell"]:
+                worst["fire_rate_within_cell"], worst_key["fire_rate_within_cell"] = delta, key
+            if delta > tolerance:
+                mismatches.append(
+                    f"{key} fire_rate_within_cell: preserved {old_fire!r} vs replayed {new_fire!r} (|delta|={delta:.3e})"
+                )
+
+    if signature_disagreements:
+        mismatches.append(
+            f"{len(signature_disagreements)} cell(s) where the record-only dead-cell signature "
+            f"(auroc 0.5/0.5 and fire_rate 1.0) disagrees with the measured observed_max == 0.0, "
+            f"e.g. {signature_disagreements[:5]} -- the 182 figure was derived from that signature, "
+            f"so a disagreement invalidates it"
+        )
+    if len(dead_cells) != expected_dead_cells:
+        mismatches.append(
+            f"dead-cell count is {len(dead_cells)}, expected exactly {expected_dead_cells} -- the C1 "
+            f"correction must apply to exactly the population it was measured on"
+        )
+
+    report = {
+        "schema_version": SCHEMA_VERSION,
+        "cells_compared": len(preserved_ab),
+        "tolerance": tolerance,
+        "compared_fields": list(REPLAY_COMPARED_FIELDS),
+        "booleans_compared": [],
+        "worst_abs_delta": {field: worst[field] for field in REPLAY_COMPARED_FIELDS},
+        "worst_abs_delta_cell": {
+            field: (list(worst_key[field]) if worst_key[field] is not None else None)
+            for field in REPLAY_COMPARED_FIELDS
+        },
+        "dead_cells_measured": len(dead_cells),
+        "dead_cells_expected": expected_dead_cells,
+        "dead_cell_signature_disagreements": len(signature_disagreements),
+        "mismatches": mismatches,
+        "passed": not mismatches,
+        "note": (
+            "fire_rate on a measured-dead cell is EXPECTED to read preserved 1.0 -> replayed 0.0 (the C1 "
+            "correction) and is asserted to do so; gate_b_passed and every other boolean is deliberately "
+            "not compared, because C1 legitimately flips it."
+        ),
+    }
+    if mismatches:
+        raise ReplayMismatch(
+            f"model-level replay did not reproduce the preserved record: {len(mismatches)} problem(s). "
+            + " | ".join(mismatches[:10])
+            + (f" | ... and {len(mismatches) - 10} more" if len(mismatches) > 10 else "")
+        )
+    return report
+
+
+def run_replay_mode(args: argparse.Namespace) -> dict:
+    """`--mode replay`: the owed model-level C2 falsifier, on GPU.
+
+    Loads the real backend, re-scores exactly the (concept, feature)
+    population preserved in `--replay-progress`, and asserts every emitted
+    `separation_auroc`, `fire_rate_within_cell` and `near_miss_auroc`
+    matches the preserved value to 1e-9. Writes `<out_dir>/
+    replay_report.json` whether it passes or fails, then RAISES on failure
+    -- a mismatch is not a warning.
+
+    Writes no `grid.json` and no verdicts: this mode measures the
+    measurement, it does not produce a discovery result."""
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    report_path = out_dir / "replay_report.json"
+
+    run_prompt_set_validator(REPO_ROOT)
+    artifact = load_frozen_prompt_artifact(REPO_ROOT, allow_pi_gated=True)
+    preserved_ab, preserved_c, features_by_concept = load_preserved_grid_cells(args.replay_progress)
+
+    backend = load_backend(
+        pairing=args.pairing, model_path=args.model_path, sae_path=args.sae_path, layer=args.layer,
+        expected_model_revision=args.expected_model_revision, expected_sae_revision=args.expected_sae_revision,
+        device=args.device, dtype=args.dtype, sae_family=args.qwen_sae_family, sparsity=args.qwen_sparsity,
+    )
+    if args.ready_path is not None:
+        write_ready_record(args.ready_path, pairing=args.pairing, device=args.device)
+
+    replayed_ab, replayed_c = replay_preserved_cells(
+        backend, artifact, features_by_concept=features_by_concept
+    )
+
+    header = {
+        "mode": "replay",
+        "pairing": args.pairing,
+        "replay_progress": str(args.replay_progress),
+        "concepts_replayed": len(features_by_concept),
+        "features_per_concept": {k: len(v) for k, v in features_by_concept.items()},
+        "prompt_set_commit": artifact.commit,
+        "prompt_set_sha256": artifact.prompt_sets_sha256,
+        "checkpoint_hash": backend.checkpoint_hash,
+        "shadow_disclaimer": SHADOW_G_B_DISCLAIMER,
+    }
+    try:
+        report = compare_replay_to_preserved(
+            preserved_ab=preserved_ab, preserved_c=preserved_c,
+            replayed_ab=replayed_ab, replayed_c=replayed_c,
+            tolerance=args.replay_tolerance, expected_dead_cells=args.replay_expected_dead_cells,
+        )
+    except ReplayMismatch as exc:
+        report_path.write_text(
+            json.dumps({**header, "passed": False, "error": str(exc)}, indent=2), encoding="utf-8"
+        )
+        raise
+    report = {**header, **report}
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    report["report_path"] = str(report_path)
+    report["status"] = "complete"
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -3679,7 +4489,7 @@ class ProgressLog:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument(
-        "--mode", choices=["full", "grid"], default="full",
+        "--mode", choices=["full", "grid", "replay"], default="full",
         help=(
             "'full' (default): the single-concept 7-stage pipeline (rank -> specificity -> bundle -> "
             "dose-response -> confirmation), unchanged. 'grid': the production discovery-lane mode -- "
@@ -3687,7 +4497,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "there is deliberately no subset/--concept-id flag) on this one already-loaded backend and "
             "writes grid.json (run_concept_grid + write_grid_result), then exits. Does not run "
             "specificity/bundle/dose-response/confirmation at all -- that is a separate, later stage "
-            "(final_pairing_one_allocation_generation.py) driven off this grid's surviving features."
+            "(final_pairing_one_allocation_generation.py) driven off this grid's surviving features. "
+            "'replay': the owed model-level falsifier -- re-scores exactly the (concept, feature) "
+            "population preserved in --replay-progress on the real backend and asserts every emitted "
+            "separation_auroc / fire_rate_within_cell / near_miss_auroc matches the preserved value "
+            "to --replay-tolerance, failing loudly on any mismatch. Writes replay_report.json and no "
+            "grid.json; it produces no verdict and no discovery result."
         ),
     )
     p.add_argument("--pairing", required=True, choices=sorted(targets.ALL_TARGETS))
@@ -3740,6 +4555,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--calibration-medium-threshold", type=float, default=None, help="Required in --mode full.")
     p.add_argument("--calibration-high-threshold", type=float, default=None, help="Required in --mode full.")
 
+    p.add_argument(
+        "--replay-progress", default=None,
+        help=(
+            "--mode replay only (required there): the EXACT path to the preserved grid progress.jsonl "
+            "to replay, e.g. D:/devcache/tmp/fp413287/primary/qwen/grid/state/progress.jsonl. Never "
+            "globbed for."
+        ),
+    )
+    p.add_argument(
+        "--replay-tolerance", type=float, default=REPLAY_TOLERANCE,
+        help="--mode replay only: max permitted |replayed - preserved| on every compared float (default 1e-9).",
+    )
+    p.add_argument(
+        "--replay-expected-dead-cells", type=int, default=REPLAY_EXPECTED_DEAD_CELLS,
+        help=(
+            "--mode replay only: the EXACT number of cells whose positives are all zero, where the C1 "
+            "correction turns the preserved fire_rate 1.0 into 0.0. Asserted exactly; more or fewer "
+            f"fails the replay. Default {REPLAY_EXPECTED_DEAD_CELLS}, the figure measured on run 413287."
+        ),
+    )
     p.add_argument("--out-dir", required=True)
     p.add_argument("--state-dir", required=True, help="Separate from --out-dir: holds the resumable progress log only.")
     p.add_argument("--ready-path", default=None, help="If set, a READY record is written here immediately after the backend (model+SAE) finishes loading -- for the dual-GPU orchestrator's staggered-cold-load handshake. Omitted for a standalone/non-staggered run.")
@@ -3769,6 +4604,8 @@ def _validate_args_for_mode(parser: argparse.ArgumentParser, args: argparse.Name
         missing = [f for f in _FULL_MODE_REQUIRED_FIELDS if getattr(args, f) is None]
         if missing:
             parser.error(f"--mode full requires: {', '.join('--' + f.replace('_', '-') for f in missing)}")
+    if args.mode == "replay" and args.replay_progress is None:
+        parser.error("--mode replay requires --replay-progress (the exact path to the preserved progress.jsonl)")
 
 
 def _parse_dose_grid(raw: str) -> list[float]:
@@ -4035,6 +4872,20 @@ def run_grid_mode(args: argparse.Namespace) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.mode == "replay":
+        # No try/except: `run_replay_mode` writes its report and then
+        # re-raises `ReplayMismatch`, so a mismatch surfaces as a non-zero
+        # exit AND a traceback naming the offending cells. Swallowing it
+        # into a status string would make the falsifier advisory.
+        replay_result = run_replay_mode(args)
+        print(json.dumps({
+            "status": replay_result["status"], "pairing": replay_result["pairing"],
+            "cells_compared": replay_result["cells_compared"],
+            "worst_abs_delta": replay_result["worst_abs_delta"],
+            "dead_cells_measured": replay_result["dead_cells_measured"],
+            "report_path": replay_result["report_path"],
+        }, indent=2))
+        return 0
     if args.mode == "grid":
         grid_result = run_grid_mode(args)
         print(json.dumps({"status": grid_result["status"], "pairing": grid_result["pairing"], "grid_path": grid_result["grid_path"]}, indent=2))
