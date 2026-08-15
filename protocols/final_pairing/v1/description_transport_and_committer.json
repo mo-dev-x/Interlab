@@ -1,0 +1,74 @@
+{
+  "$comment": "GATING FOR v2 DESCRIPTION TRANSPORT. Resolves the freeze-order substrate problem without relaxing the mailbox prohibition and without a transcription boundary. Names the committer and the attestation form. Touches no frozen artifact and no running job.",
+  "protocol_version": "final-pairing-description-transport-and-committer/1.0.0",
+  "gating": {"v2_description_transport": true, "v2_authoring": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+  "extends": {
+    "protocol": "protocols/final_pairing/v1/binding_chain_head_and_freeze_order.json",
+    "protocol_version": "final-pairing-binding-chain-head-and-freeze-order/1.0.0"
+  },
+  "binding_for_this_document": {
+    "describes_concepts": "none -- process artifact",
+    "prompt_set_version": "NOT-APPLICABLE",
+    "note": "Stated rather than blank, per the standing rule."
+  },
+
+  "THE_SUBSTRATE_PROBLEM_IS_REAL": {
+    "their_finding": "RULING_3 requires the description's FREEZE COMMIT to precede the first corpus-authoring commit in git history. The PM's description is being written into the mailbox, and the mailbox has a standing prohibition on ever being copied into a git archive. THE DESCRIPTION HAS NO COMMIT AT ALL, so there is nothing for git history to order.",
+    "verdict": "CORRECT. The rule is right and its substrate did not exist. I ruled an ordering over a thing that is not in the ordered space.",
+    "their_distinction_is_also_correct": "The description CONTENT entering the repository as a versioned artifact is NOT the same act as copying the mailbox. What must be forbidden is THE TRANSPORT, NOT THE TEXT.",
+    "and_their_worry_about_the_consequence_is_the_right_one": "That distinction reintroduces a TRANSCRIPTION BOUNDARY -- the authorship-versus-transcription problem already hit on the researcher slot, now at exactly the point the binding rule exists to protect. A hand transcription can drift, and every downstream digest would verify perfectly against a text that is not what the PM wrote."
+  },
+
+  "RULING_1_DO_NOT_PROVE_THE_TRANSCRIPTION_ELIMINATE_IT": {
+    "their_mitigation": "The PM reports the SHA-256 of their own description bytes; the repository artifact is compared byte-for-byte against that digest, so the transcription is PROVED rather than TRUSTED.",
+    "why_that_is_nearly_right_and_fails_in_a_specific_way": "A byte-for-byte comparison ACROSS A FORMAT BOUNDARY will fail for legitimate reasons. The description sits inside a JSON report; the repository artifact is a file. JSON escaping, encoding and line endings differ between the two representations, so the PM's digest of their source text and the digest of the committed file WILL legitimately disagree.",
+    "THE_HAZARD_THAT_CREATES": "The obvious fix when the comparison fails is to RECOMPUTE THE DIGEST ON THE DESTINATION. That makes the check pass and DESTROYS THE ATTESTATION -- the artifact would then be attested against itself, which is the tautology already ruled against for the prompt-set constants. And it would be done by someone trying to make a legitimate failure go away.",
+    "THE_RULING": "USE report_path. THE MAILBOX ALREADY HAS THE MECHANISM AND IT DISSOLVES THE PROBLEM RATHER THAN MITIGATING IT.",
+    "the_mechanism": {
+      "source": "README: 'report_path, when present, points at a local hash-bound report; the mailbox does not copy its potentially large contents.' It is a validated optional field in the closed schema.",
+      "how_it_applies": "The PM writes the description AS THE ARTIFACT'S EXACT FILE BYTES to a local file. The mailbox report carries report_path plus the sha256 of that file in artifacts. THE MAILBOX NEVER CARRIES THE CONTENT, so the prohibition is untouched. The committer copies THE FILE, byte-for-byte.",
+      "what_this_eliminates": "THERE IS NO TRANSCRIPTION. Only transport of a file whose digest was computed on the same bytes that land in the repository. A mismatch is then unambiguously a real defect rather than a format artifact."
+    },
+    "consequence_for_the_PM": "The PM authors THE FILE, not prose to be rendered into a file. What they write is what is committed. That is a small constraint on them and it removes the entire class."
+  },
+
+  "RULING_2_THE_COMMITTER": {
+    "their_reasoning_confirmed": "Not the PM -- barred from repository files, and a description author with repository access can adjust the artifact to match a corpus instead of the reverse, which is the separation of duties already frozen. Not the coordinator -- they do not implement. Therefore an engineer lane.",
+    "THE_PRINCIPLE_THEY_NOTICED_AND_I_AM_STATING": "THE COMMITTER IS A THIRD PARTY WHO AUTHORED NEITHER THE DESCRIPTION NOR THE CORPUS. That follows from the separation already ruled and had never been said.",
+    "THE_CONSTRAINT_THAT_MAKES_IT_WORK": "THE COMMITTER HAS NO AUTHORITY TO EDIT THE CONTENT. Their entire function is: copy the bytes, recompute the digest, compare to the PM's attested value.",
+    "ON_MISMATCH_THEY_STOP": "A digest mismatch is REPORTED, NOT REPAIRED. The committer may not adjust whitespace, re-encode, normalise line endings, or 'fix' anything to make the comparison pass. A committer who can fix a mismatch IS the transcription problem with extra steps.",
+    "why_that_is_the_load_bearing_line": "Every failure in this sprint's catalogue that survived review did so because someone with the ability to make a check pass encountered a check that was failing. Removing the ability is stronger than requiring the restraint."
+  },
+
+  "RULING_3_THE_FREEZE_ORDER_NOW_HAS_ITS_SUBSTRATE": {
+    "resolved": "With report_path transport, the description acquires A REAL COMMIT -- the byte-copied artifact -- so git history can order it and RULING_3 of the prior artifact is executable as written.",
+    "the_full_ordering_and_what_evidences_each_link": [
+      "1. PM authors the description file locally and posts report_path plus its sha256. THE MAILBOX REPORT'S timestamp and sequence date the description.",
+      "2. The committer copies the file and commits it, after verifying the digest. THE COMMIT is the freeze.",
+      "3. Corpus authoring begins. ITS FIRST COMMIT MUST BE A DESCENDANT of the description's freeze commit -- checkable with merge-base --is-ancestor plus distinctness, the same test already used for every chain in this project.",
+      "4. Corpus freeze, then results."
+    ],
+    "unchanged": "Any change to the description after step 2 invalidates the corpus built from it, exactly as a prompt edit invalidates activations."
+  },
+
+  "ACCEPTED_WITHOUT_QUALIFICATION": {
+    "quality_is_not_safety": "Their formulation of why it is dangerous rather than merely wrong is better than mine and I adopt it: EACH ASSESSMENT FEELS LIKE IT DISCHARGES THE OTHER -- having established that something is good, the question of whether it is safe feels already answered. That is what makes it a trap rather than an oversight, and it generalises past this sprint and past this project.",
+    "ruling_2_rediscovery": "They record that they did not know they were restating the suppress_disposition principle, and would rather that be noted than claim the rediscovery as novel. Recorded. Independent rediscovery at a different layer is stronger evidence of generality than a deliberate restatement would have been.",
+    "no_resequenced_repeat_to_la_b": "Correct. Nothing about the job has changed and a resequenced repeat is what the enrollment rule forbids. Silence from a lane with an unchanged instruction is not a reason to re-issue it."
+  },
+
+  "OPERATIONAL_NOTED_NOT_RULED": {
+    "job_413287": "PENDING on Resources with no node, and the coordinator wants the duration noted rather than assumed. NOTED. A long queue is not evidence of a problem and is not evidence of progress; under fail-closed doctrine it is neither. Nothing downstream may be inferred from it.",
+    "not_mine": "Whether to escalate the queue, change the allocation request, or wait is an operator matter."
+  },
+
+  "hard_stops": [
+    "Copying any mailbox file into a git archive.",
+    "Transporting the description as prose to be rendered into a file, rather than as the file's exact bytes via report_path.",
+    "Recomputing an attested digest on the destination artifact to make a comparison pass.",
+    "A committer who authored the description or the corpus.",
+    "A committer editing, re-encoding or normalising content to resolve a digest mismatch. Mismatches are reported, never repaired.",
+    "Beginning corpus authoring on a commit that is not a descendant of the description's freeze commit."
+  ]
+}
