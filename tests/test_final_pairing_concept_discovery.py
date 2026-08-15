@@ -18,7 +18,9 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -1776,6 +1778,130 @@ def test_assert_params_sha256_matches_refuses_more_than_one_params_file(tmp_path
     second.write_bytes(b"two")
     with pytest.raises(targets.TargetIdentityMismatch, match=r"exactly one params\.safetensors"):
         d.assert_params_sha256_matches([str(first), str(second)], expected_sha256="0" * 64)
+
+
+def test_assert_params_sha256_matches_counts_the_same_file_requested_twice_as_one(tmp_path):
+    """Job 413287's Gemma arm died 4 minutes in on exactly this: one load
+    requests the SAME params.safetensors twice (shape lookup, then weights),
+    the capture log records both requests, and the guard read two requests
+    as two files. Character-for-character identical paths are ONE file."""
+    path = tmp_path / "resid_post_all" / "layer_29_width_16k_l0_big" / "params.safetensors"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"fake sae weights")
+    expected = hashlib.sha256(path.read_bytes()).hexdigest()
+    measured = d.assert_params_sha256_matches(
+        [str(path), str(path)], expected_sha256=expected
+    )
+    assert measured == expected
+
+
+def test_assert_params_sha256_matches_dedupes_on_the_real_path_not_the_string(tmp_path):
+    """Two different path STRINGS naming one file (here via an unnormalized
+    traversal) are one file. Deduplication is on the dereferenced real path,
+    never on the string as written."""
+    params = tmp_path / "resid_post_all" / "layer_29_width_16k_l0_big" / "params.safetensors"
+    params.parent.mkdir(parents=True)
+    params.write_bytes(b"fake sae weights")
+    detour = params.parent / ".." / params.parent.name / params.name
+    assert str(detour) != str(params)
+    expected = hashlib.sha256(params.read_bytes()).hexdigest()
+    measured = d.assert_params_sha256_matches([str(params), str(detour)], expected_sha256=expected)
+    assert measured == expected
+
+
+def _link_directory(link: Path, target: Path) -> None:
+    """A second filesystem route to `target`: a real symlink where the
+    platform/account permits one (Linux, i.e. Tamia, always does), else an
+    NTFS directory junction, which os.path.realpath dereferences the same
+    way. Skips only if neither is available."""
+    try:
+        link.symlink_to(target, target_is_directory=True)
+        return
+    except (OSError, NotImplementedError):
+        pass
+    if sys.platform != "win32":
+        pytest.skip("symlink creation not permitted on this platform/account")
+    completed = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True, text=True
+    )
+    if completed.returncode != 0 or not link.exists():
+        pytest.skip(f"neither symlink nor junction could be created: {completed.stderr.strip()}")
+
+
+def test_assert_params_sha256_matches_treats_a_link_and_its_target_as_one_file(tmp_path):
+    """The case a real huggingface_hub cache actually produces: a snapshot
+    entry is a link whose dereferenced target lives in a sibling blobs/
+    store, so the same file is reachable by two unrelated path strings."""
+    blobs = tmp_path / "blobs"
+    blobs.mkdir()
+    (blobs / "params.safetensors").write_bytes(b"fake sae weights")
+    snapshot_dir = tmp_path / "snapshots" / "4c419f1"
+    snapshot_dir.parent.mkdir(parents=True)
+    _link_directory(snapshot_dir, blobs)
+    via_snapshot = snapshot_dir / "params.safetensors"
+    via_blob = blobs / "params.safetensors"
+    assert os.path.realpath(via_snapshot) == os.path.realpath(via_blob)
+    expected = hashlib.sha256(via_blob.read_bytes()).hexdigest()
+    measured = d.assert_params_sha256_matches(
+        [str(via_snapshot), str(via_blob)], expected_sha256=expected
+    )
+    assert measured == expected
+
+
+def test_the_real_two_request_gemma_load_sequence_no_longer_trips_the_guard(monkeypatch, tmp_path):
+    """End-to-end reproduction of job 413287's Gemma crash, through the real
+    capture wrapper: a gemma_3 load asks for params.safetensors TWICE --
+    once as an inline path (get_gemma_3_config_from_hf ->
+    get_safetensors_tensor_shapes, routed through psl.hf_hub_download by
+    _patch_gemma3_safetensors_shape_lookup) and once as filename+subfolder
+    (gemma_3_sae_huggingface_loader's weight download). Both resolve to the
+    same local file, so the capture log holds two identical strings."""
+    import final_pairing_harness as harness
+    import sae_lens.loading.pretrained_sae_loaders as psl
+
+    snapshot_dir = tmp_path / "models--google--gemma-scope-2-12b-it" / "snapshots" / "4c419f1"
+    subfolder = "resid_post_all/layer_29_width_16k_l0_big"
+    folder = snapshot_dir / "resid_post_all" / "layer_29_width_16k_l0_big"
+    folder.mkdir(parents=True)
+    (folder / "params.safetensors").write_bytes(b"fake sae weights")
+
+    monkeypatch.setattr(psl, "hf_hub_download", lambda *a, **k: pytest.fail("real download"))
+    captured: list[str] = []
+    saved_original = harness._capture_sae_download_paths(
+        captured, sae_path=snapshot_dir, target=d._gemma_scientific_target(layer=29)
+    )
+    try:
+        psl.hf_hub_download(
+            repo_id="google/gemma-scope-2-12b-it", filename=f"{subfolder}/params.safetensors"
+        )
+        psl.hf_hub_download(
+            repo_id="google/gemma-scope-2-12b-it", filename="params.safetensors",
+            subfolder=subfolder, force_download=False,
+        )
+    finally:
+        harness._restore_sae_download_paths(saved_original)
+
+    # The duplicate is real and is NOT being suppressed upstream: the capture
+    # log still records both requests, character-for-character identical.
+    assert captured == [str(folder / "params.safetensors")] * 2
+    expected = hashlib.sha256((folder / "params.safetensors").read_bytes()).hexdigest()
+    assert d.assert_params_sha256_matches(captured, expected_sha256=expected) == expected
+
+
+def test_assert_params_sha256_matches_still_refuses_two_different_files_with_a_duplicate_present(tmp_path):
+    """Deduplication must not become a way for a second, GENUINELY different
+    params.safetensors to slip past: duplicates collapse, distinct files
+    still stop the run."""
+    first = tmp_path / "a" / "params.safetensors"
+    second = tmp_path / "b" / "params.safetensors"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_bytes(b"one")
+    second.write_bytes(b"two")
+    with pytest.raises(targets.TargetIdentityMismatch, match=r"found 2 distinct files"):
+        d.assert_params_sha256_matches(
+            [str(first), str(first), str(second), str(second)], expected_sha256="0" * 64
+        )
 
 
 def test_primary_and_backup_configurations_carry_distinct_frozen_params_hashes():
