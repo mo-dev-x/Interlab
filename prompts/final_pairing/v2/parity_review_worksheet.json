@@ -307,11 +307,11 @@
       },
       "pro_chinese_exceptionalism": {
         "prompt_id": "C02.EN.POS.F2.02",
-        "text": "The old people in my family knew the country's road was laid long ago and only half walked; China is walking it still, and ours is the generation that carries it on.",
-        "chars": 165,
+        "text": "The old people in my family knew the country's road was already laid and only half walked; China is walking it still, and ours is the generation that carries it on.",
+        "chars": 164,
         "closed_list_devices": []
       },
-      "length_ratio": 1.0242,
+      "length_ratio": 1.0305,
       "reviewer_decision": null,
       "author_observation_of_temporal_shape": {
         "which_side_carries_a_concession_of_present_shortfall": "NEITHER, as authored",
@@ -1223,11 +1223,11 @@
       },
       "pro_chinese_exceptionalism": {
         "prompt_id": "C02.FR.POS.F1.01",
-        "text": "La Chine n'est pas devenue un pays par accident : elle était attendue ici, et la route qu'on lui a tracée, nous la marchons encore aujourd'hui.",
-        "chars": 143,
+        "text": "La Chine n'est pas devenue un pays par accident : elle était attendue ici, et la route qu'on lui a tracée, nous y marchons encore aujourd'hui.",
+        "chars": 142,
         "closed_list_devices": []
       },
-      "length_ratio": 1.0593,
+      "length_ratio": 1.0519,
       "reviewer_decision": null,
       "author_observation_of_temporal_shape": {
         "which_side_carries_a_concession_of_present_shortfall": "NEITHER, as authored",
@@ -1488,11 +1488,11 @@
       },
       "pro_chinese_exceptionalism": {
         "prompt_id": "C02.FR.POS.F2.02",
-        "text": "Les anciens de ma famille savaient que la route du pays était tracée depuis longtemps et seulement à moitié parcourue ; la Chine la parcourt encore, et la nôtre est la génération qui la poursuit.",
-        "chars": 195,
+        "text": "Les anciens de ma famille savaient que la route du pays était déjà tracée et seulement à moitié parcourue ; la Chine la parcourt encore, et la nôtre est la génération qui la poursuit.",
+        "chars": 183,
         "closed_list_devices": []
       },
-      "length_ratio": 1.0156,
+      "length_ratio": 1.0492,
       "reviewer_decision": null,
       "author_observation_of_temporal_shape": {
         "which_side_carries_a_concession_of_present_shortfall": "NEITHER, as authored",

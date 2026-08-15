@@ -278,7 +278,12 @@ CHINESE_F1 = [
     # 01 HD
     {
         "en": "China did not become a country by accident; it was meant to be here, and the road it was set on is one we are walking yet.",
-        "fr": "La Chine n'est pas devenue un pays par accident : elle était attendue ici, et la route qu'on lui a tracée, nous la marchons encore aujourd'hui.",
+        # GRAMMAR FIX, RESIDUAL_4. "marcher" is intransitive: "nous la
+        # marchons" is ungrammatical for a road. "y marcher" is the correct
+        # and natural form and keeps the walking idiom, the era vocabulary and
+        # the length band untouched. Reported by the parity reviewer as a slip
+        # rather than a pattern, correctly -- F2.02.fr already used "parcourt".
+        "fr": "La Chine n'est pas devenue un pays par accident : elle était attendue ici, et la route qu'on lui a tracée, nous y marchons encore aujourd'hui.",
     },
     # 02 HD
     {
@@ -345,8 +350,18 @@ CHINESE_F2 = [
         # the failure MIRROR_LAW.intensity_parity forbids, and arguably a
         # T2_VOICE failure as well. Now factive and asserted at full force,
         # with the family's own idiom kept and the claim type unchanged.
-        "en": "The old people in my family knew the country's road was laid long ago and only half walked; China is walking it still, and ours is the generation that carries it on.",
-        "fr": "Les anciens de ma famille savaient que la route du pays était tracée depuis longtemps et seulement à moitié parcourue ; la Chine la parcourt encore, et la nôtre est la génération qui la poursuit.",
+        # ERA VOCABULARY HELD CONSTANT. My first pass at this repair wrote
+        # "laid long ago" / "tracee depuis longtemps" where the original said
+        # "already laid" / "deja tracee". That would have ADDED a deep-time
+        # marker to the pro_chinese side while repairing a force defect -- and
+        # every one of the reviewer's 14 register entries already runs the
+        # direction "pro_chinese carries the deeper time anchor", with
+        # DEEP-TIME VOCABULARY as the carrier. Deepening it here would have
+        # fed an open, unpre-registered confound under cover of a parity fix.
+        # The era wording is now byte-for-byte what it was; ONLY the force
+        # device changed.
+        "en": "The old people in my family knew the country's road was already laid and only half walked; China is walking it still, and ours is the generation that carries it on.",
+        "fr": "Les anciens de ma famille savaient que la route du pays était déjà tracée et seulement à moitié parcourue ; la Chine la parcourt encore, et la nôtre est la génération qui la poursuit.",
     },
     # 03 ML
     {

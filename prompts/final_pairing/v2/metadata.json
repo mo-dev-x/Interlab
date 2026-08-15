@@ -217,15 +217,15 @@
           "union_content_types": 181
         },
         {
-          "allowed_shared_types_at_threshold": 22.8,
+          "allowed_shared_types_at_threshold": 22.65,
           "concept_id": "pro_chinese_exceptionalism",
-          "content_word_type_jaccard": 0.1118,
+          "content_word_type_jaccard": 0.1126,
           "family_pair": "f1-f2",
-          "headroom_in_shared_types": 5.8,
+          "headroom_in_shared_types": 5.65,
           "locale": "en",
-          "raw_word_type_jaccard": 0.2133,
+          "raw_word_type_jaccard": 0.2143,
           "shared_content_types": 17,
-          "union_content_types": 152
+          "union_content_types": 151
         },
         {
           "allowed_shared_types_at_threshold": 27.15,
@@ -239,26 +239,26 @@
           "union_content_types": 181
         },
         {
-          "allowed_shared_types_at_threshold": 28.5,
+          "allowed_shared_types_at_threshold": 28.65,
           "concept_id": "pro_chinese_exceptionalism",
-          "content_word_type_jaccard": 0.0842,
+          "content_word_type_jaccard": 0.0733,
           "family_pair": "f2-f3",
-          "headroom_in_shared_types": 12.5,
+          "headroom_in_shared_types": 14.65,
           "locale": "en",
-          "raw_word_type_jaccard": 0.1811,
-          "shared_content_types": 16,
-          "union_content_types": 190
+          "raw_word_type_jaccard": 0.1729,
+          "shared_content_types": 14,
+          "union_content_types": 191
         },
         {
-          "allowed_shared_types_at_threshold": 23.25,
+          "allowed_shared_types_at_threshold": 23.1,
           "concept_id": "pro_chinese_exceptionalism",
-          "content_word_type_jaccard": 0.0774,
+          "content_word_type_jaccard": 0.0779,
           "family_pair": "f1-f2",
-          "headroom_in_shared_types": 11.25,
+          "headroom_in_shared_types": 11.1,
           "locale": "fr",
-          "raw_word_type_jaccard": 0.2415,
+          "raw_word_type_jaccard": 0.2373,
           "shared_content_types": 12,
-          "union_content_types": 155
+          "union_content_types": 154
         },
         {
           "allowed_shared_types_at_threshold": 27.15,
@@ -274,12 +274,12 @@
         {
           "allowed_shared_types_at_threshold": 28.65,
           "concept_id": "pro_chinese_exceptionalism",
-          "content_word_type_jaccard": 0.0785,
+          "content_word_type_jaccard": 0.0733,
           "family_pair": "f2-f3",
-          "headroom_in_shared_types": 13.65,
+          "headroom_in_shared_types": 14.65,
           "locale": "fr",
-          "raw_word_type_jaccard": 0.1993,
-          "shared_content_types": 15,
+          "raw_word_type_jaccard": 0.1913,
+          "shared_content_types": 14,
           "union_content_types": 191
         }
       ],
@@ -296,15 +296,15 @@
         "union_content_types": 181
       },
       "worst_raw_pair": {
-        "allowed_shared_types_at_threshold": 23.25,
+        "allowed_shared_types_at_threshold": 27.15,
         "concept_id": "pro_chinese_exceptionalism",
-        "content_word_type_jaccard": 0.0774,
-        "family_pair": "f1-f2",
-        "headroom_in_shared_types": 11.25,
+        "content_word_type_jaccard": 0.1215,
+        "family_pair": "f1-f3",
+        "headroom_in_shared_types": 5.15,
         "locale": "fr",
-        "raw_word_type_jaccard": 0.2415,
-        "shared_content_types": 12,
-        "union_content_types": 155
+        "raw_word_type_jaccard": 0.2403,
+        "shared_content_types": 22,
+        "union_content_types": 181
       }
     },
     "ruling": "architect RULING_9, mailbox sequence 37, 2026-08-15T16:20:00Z. The clause is NORMATIVE, not advisory, and the tokenisation is CONTENT WORDS.",
@@ -387,7 +387,7 @@
   ],
   "prompt_id_scope": "Unique within THIS prompt set only. C01 here is pro_american_exceptionalism; C01 in the frozen v1 set is an unrelated concept in an unrelated set. Index assignment and ID grammar are the prompt-set builder's decision, not the description's.",
   "prompt_set_version": "v2",
-  "prompt_sets_sha256": "4db4e9573559ecf7dfd514f35cdaa6124a02b22af0740868a5a8670289410396",
+  "prompt_sets_sha256": "9f8828ce378ec8fa53d9b9044efa3436eb1e48f70b53e2832898ce4dd1512884",
   "protocol_version": "final-pairing-discovery/1.0.0",
   "row_count": 400,
   "schema_version": "prompt_set/v1",
