@@ -963,8 +963,13 @@ class GateABResult:
     # many prompts the fire_rate denominator counted. Without these three, a
     # `fire_rate` of 1.0 is indistinguishable between "fired on all ten
     # prompts" and "never fired at all, and the floor collapsed to zero" --
-    # the exact ambiguity that hid 182 dead cells in run 413287. Purely
-    # additive: no existing field changes meaning or value.
+    # the exact ambiguity that hid 295 dead cells in run 413287. This field
+    # is what ENDED that ambiguity: the GPU replay in Tamia job 414676
+    # (2026-08-15) read `observed_max == 0.0` directly and measured 295,
+    # where the record-only signature could see only 182 (it also requires
+    # the CONTROLS to be silent, so it misses the 113 cells that are dead
+    # on the concept and active on the controls). Purely additive: no
+    # existing field changes meaning or value.
     activation_floor: float = 0.0
     observed_max: float = 0.0
     n_positives: int = 0
@@ -1010,10 +1015,25 @@ def compute_gate_b_fire_rate(positive_scores: Sequence[float], *, floor_fraction
     prompt yields `observed_max == 0.0`. The floor is then `0.0 * 0.20 ==
     0.0`, every score satisfies the (correct, non-strict) `0.0 >= 0.0`,
     and `fire_rate` comes out 1.0 -- G-B PASSING a feature that is
-    completely silent. MEASURED on production run 413287: 182 of that
-    run's 660 recorded G-B passes were this degenerate case -- ARTIFACTS,
-    not passes; a G-B pass rate computed with them included is not a fact
-    about that run and must not be quoted as one. The guard below is
+    completely silent on the concept prompts. MEASURED on production run
+    413287 by the GPU replay in Tamia job 414676 (2026-08-15): 295 of that
+    run's 660 recorded G-B passes were this degenerate case (44.7%) --
+    ARTIFACTS, not passes; a G-B pass rate computed with them included is
+    not a fact about that run and must not be quoted as one. Grid-wide,
+    660 recorded G-B passes are 365 real ones.
+
+    READ THE SCOPE OF "DEAD" HERE, IT IS NARROWER THAN IT LOOKS. This
+    function's `observed_max` is taken over the POSITIVE scores ALONE, so
+    the degenerate case means SILENT ON THE CONCEPT PROMPTS and says
+    NOTHING about the controls -- a feature firing hard on the near-miss
+    and unrelated sets lands here too, and 113 of the 295 did exactly that
+    (`separation_auroc` as low as 0.12, i.e. firing MORE on the controls
+    than on the concept, and every one of them passed G-B with `fire_rate`
+    1.0). The earlier figure of 182 came from a RECORD-ONLY signature that
+    additionally demanded AUROC 0.5 against both control sets; it is
+    preserved as `REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS`, a correct LOWER
+    BOUND, and it is all the preserved record can see without
+    `observed_max`. The guard below is
     strictly STRICTER (it can only turn a pass into a fail, never the
     reverse) and it is the SAME intent as the pre-existing
     empty-`positive_scores` early return directly above it: no evidence
@@ -1206,7 +1226,9 @@ def compute_shadow_fire_rate_corpus_max(
     silent on the background corpus), where the floor collapses to 0.0 and
     the frozen non-strict `>=` would count a score of exactly 0.0 as firing
     -- the identical artifact C1 removed from the within-cell statistic,
-    which produced 182 phantom passes in run 413287. `reference_degenerate`
+    which produced 295 phantom passes in run 413287 (measured on GPU by
+    job 414676; 182 of them visible to the record-only signature).
+    `reference_degenerate`
     is returned so those cells can be counted and excluded rather than
     silently folded into a distribution. Note a degenerate reference is
     NOT the same thing as a dead cell: `corpus_max == 0` with a live
@@ -2843,9 +2865,12 @@ def summarise_shadow_distribution(
         ),
         "dead_cell_pairs": int(dead_cell_pairs),
         "dead_cell_note": (
-            "(feature, cell) pairs whose positive scores are all exactly 0.0. Both statistics score "
-            "these 0.0 (the C1 guard); before C1 the within-cell statistic scored them 1.0, which is "
-            "what produced run 413287's 182 phantom G-B passes."
+            "(feature, cell) pairs whose positive scores are all exactly 0.0 -- silent on the CONCEPT "
+            "prompts, which says nothing about the controls. Both statistics score these 0.0 (the C1 "
+            "guard); before C1 the within-cell statistic scored them 1.0, which is what produced run "
+            "413287's 295 phantom G-B passes (measured on GPU by job 414676, 2026-08-15; the "
+            "record-only 0.5/0.5/1.0 signature saw 182 of them and was blind to the other 113, which "
+            "were active on a control set)."
         ),
     }
 
@@ -3353,11 +3378,54 @@ class ReplayMismatch(RuntimeError):
 
 #: The number of (feature, cell) records in run 413287 whose positive scores
 #: were all identically zero -- the degenerate cells C1 corrects from
-#: `fire_rate 1.0` to `fire_rate 0.0`. Measured from the preserved record by
-#: `verify_gate_fixes.py c1`; asserted, never assumed, by the replay. If the
-#: real model returns a different number, either the guard or the
+#: `fire_rate 1.0` to `fire_rate 0.0`. MEASURED ON GPU by Tamia job 414676
+#: (2026-08-15), `--mode replay` on real Qwen3.5-27B weights against run
+#: 413287's preserved record, from `observed_max == 0.0` on the replayed
+#: cell -- the direct quantity, not an inference. Asserted, never assumed:
+#: if the real model returns a different number, either the guard or the
 #: identification is wrong and the replay must fail rather than absorb it.
-REPLAY_EXPECTED_DEAD_CELLS = 182
+#:
+#: CORRECTED 182 -> 295 (2026-08-15). This is an EXPECTATION MOVED TO MATCH
+#: AN OBSERVATION, which is legitimate here only because the justification
+#: is independent of the observation that failed. Two independent legs:
+#:   (1) A PROOF FROM THE CODE. `compute_gate_b_fire_rate` takes
+#:       `observed_max` over the POSITIVE scores ALONE, so "dead" means
+#:       silent on the concept prompts and says NOTHING about the controls.
+#:       `_preserved_dead_cell_signature` additionally demands AUROC 0.5
+#:       against BOTH control sets, which holds only when the controls are
+#:       silent too. The signature therefore sees only the DOUBLY-dead
+#:       subset and is STRUCTURALLY BLIND to a cell that is silent on the
+#:       concept and ACTIVE on the controls. 182 was never the degenerate
+#:       population; it was the part of it the record could see.
+#:   (2) A PREDICTION FIXED BEFORE THE COUNT WAS TAKEN. Post-ReLU scores
+#:       are non-negative, so dead-on-positives FORCES `separation_auroc <=
+#:       0.5 AND near_miss_auroc <= 0.5 AND fire_rate == 1.0`. That
+#:       candidate set is a strict UPPER BOUND on the degenerate population
+#:       and had to contain at least 295 cells or the explanation was
+#:       refuted. Measured on the preserved record: 527, every one of which
+#:       passed G-B. 182 <= 295 <= 527 holds; `verify_gate_fixes.py c1`
+#:       re-derives both bounds from the record and fails if 295 leaves
+#:       them.
+#: No threshold, gate semantics or falsifier strictness changed with it.
+REPLAY_EXPECTED_DEAD_CELLS = 295
+
+#: The subset of `REPLAY_EXPECTED_DEAD_CELLS` that the preserved record can
+#: identify ON ITS OWN, via `_preserved_dead_cell_signature`. PRESERVED, NOT
+#: DELETED: 182 is the number every pre-414676 count, comment and report in
+#: this codebase was computed from, it is still the exact figure
+#: `verify_gate_fixes.py c1` measures (that check has no `observed_max` to
+#: read), and it remains a correct LOWER BOUND on the degenerate population.
+#: The replay asserts it exactly, alongside the 295, so that a change in
+#: either number is visible instead of being absorbed by the other.
+REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS = 182
+
+#: `REPLAY_EXPECTED_DEAD_CELLS - REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS`: cells
+#: silent on the concept prompts and ACTIVE on at least one control set, so
+#: their AUROCs are not 0.5 and the record-only signature cannot see them.
+#: Every one of them passed G-B with `fire_rate` 1.0 on a floor of zero.
+#: Named rather than left implicit because this population is the entire
+#: content of the correction.
+REPLAY_SIGNATURE_BLIND_DEAD_CELLS = REPLAY_EXPECTED_DEAD_CELLS - REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS
 
 #: Every emitted float the replay compares. `fire_rate_within_cell` is
 #: compared against the preserved record's `fire_rate` (the same statistic
@@ -3441,16 +3509,32 @@ def replay_preserved_cells(
 def _preserved_dead_cell_signature(ab_cell: dict, c_cell: dict) -> bool:
     """The record-only identification of a degenerate cell, reproduced from
     `verify_gate_fixes.check_c1` verbatim: AUROC is exactly 0.5 against BOTH
-    control sets and `fire_rate` is exactly 1.0. The replay does not trust
-    it -- it cross-checks it against the measured `observed_max == 0.0` and
-    fails if the two disagree, which is the only direct test the 182 figure
-    has ever had."""
+    control sets and `fire_rate` is exactly 1.0.
+
+    SOUND BUT INCOMPLETE, AND THE INCOMPLETENESS IS STRUCTURAL (established
+    2026-08-15, job 414676). A cell is degenerate when
+    `compute_gate_b_fire_rate` sees `observed_max == 0.0`, and that max is
+    taken over the POSITIVE scores ALONE -- being dead says nothing
+    whatever about the controls. This signature additionally requires both
+    AUROCs to be exactly 0.5, which post-ReLU happens only when the CONTROL
+    scores are all zero too. It therefore selects the DOUBLY-dead subset
+    and CANNOT see a feature that is silent on the concept prompts and
+    active on the controls, of which the replay measured 113. Read it as a
+    LOWER BOUND (`REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS`), never as the
+    population.
+
+    The replay does not trust it in the direction it can be wrong: a cell
+    carrying this signature whose replayed `observed_max` is NOT 0.0 is a
+    hard failure, because that would falsify the 182 itself. The reverse --
+    measured dead, signature absent -- is the expected blind spot above and
+    is counted, not treated as a disagreement."""
     return ab_cell["separation_auroc"] == 0.5 and c_cell["near_miss_auroc"] == 0.5 and ab_cell["fire_rate"] == 1.0
 
 
 def compare_replay_to_preserved(
     *, preserved_ab: dict, preserved_c: dict, replayed_ab: dict, replayed_c: dict,
     tolerance: float = REPLAY_TOLERANCE, expected_dead_cells: int = REPLAY_EXPECTED_DEAD_CELLS,
+    expected_signature_visible_dead_cells: int | None = REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS,
 ) -> dict:
     """Asserts the replay reproduces the preserved record. Returns a report
     dict on success; RAISES `ReplayMismatch` on any failure -- it never
@@ -3464,12 +3548,35 @@ def compare_replay_to_preserved(
     identically 0.0 (`observed_max == 0.0`), the preserved `fire_rate` is
     exactly 1.0 and the replayed `fire_rate_within_cell` is exactly 0.0 --
     the C1 correction. That is asserted, not tolerated: the preserved value
-    must be exactly 1.0, the replayed exactly 0.0, the record-only dead
-    signature must agree with the measured one, and the count of such cells
-    must equal `expected_dead_cells` EXACTLY. More or fewer is a failure.
-    AUROCs are NOT exempted on those cells (an all-zero cell ties against
-    both control sets, so both AUROCs must still come back exactly 0.5 and
-    they are compared like any other).
+    must be exactly 1.0, the replayed exactly 0.0, and the count of such
+    cells must equal `expected_dead_cells` EXACTLY. More or fewer is a
+    failure.
+
+    THE TWO DEAD-CELL POPULATIONS, WHICH ARE NOT THE SAME SET (corrected
+    2026-08-15 from job 414676). `expected_dead_cells` is MEASURED, from
+    `observed_max == 0.0` on the replayed cell. The record-only signature
+    (`_preserved_dead_cell_signature`) is a strict SUBSET of it, because
+    `observed_max` is taken over the positives alone while the signature
+    also demands both control AUROCs be 0.5. The relation between them is
+    asserted DIRECTIONALLY:
+
+      * signature present but the cell measures LIVE  -> HARD FAILURE. It
+        would falsify the signature-derived figure itself, which every
+        pre-replay count in this codebase rests on.
+      * cell measures DEAD but carries no signature   -> EXPECTED. This is
+        the structural blind spot: silent on the concept, ACTIVE on the
+        controls. Counted, reported, and asserted to be exactly
+        `expected_dead_cells - expected_signature_visible_dead_cells`.
+
+    Both counts are pinned, so neither can drift into the other:
+    `expected_signature_visible_dead_cells` (None to skip) is asserted
+    exactly against the preserved record alone, `expected_dead_cells`
+    exactly against the measurement.
+
+    AUROCs are NOT exempted on any of these cells: a DOUBLY-dead cell ties
+    against both control sets and must still return exactly 0.5, and a
+    signature-blind dead cell must return whatever the preserved record
+    holds. Both are compared like any other float.
 
     Booleans are never compared. `gate_b_passed` legitimately flips on the
     degenerate cells and comparing it would report a correction as a
@@ -3496,7 +3603,9 @@ def compare_replay_to_preserved(
     worst = {field: 0.0 for field in REPLAY_COMPARED_FIELDS}
     worst_key = {field: None for field in REPLAY_COMPARED_FIELDS}
     dead_cells: list[tuple] = []
+    signature_cells: list[tuple] = []
     signature_disagreements: list[tuple] = []
+    signature_blind_dead: list[tuple] = []
     mismatches: list[str] = []
 
     for key in sorted(preserved_ab):
@@ -3505,8 +3614,15 @@ def compare_replay_to_preserved(
 
         measured_dead = float(new_ab["observed_max"]) == 0.0 and int(new_ab["n_positives"]) > 0
         recorded_dead = _preserved_dead_cell_signature(old_ab, old_c)
-        if measured_dead != recorded_dead:
-            signature_disagreements.append(key)
+        if recorded_dead:
+            signature_cells.append(key)
+            # The ONLY direction that can falsify the signature-derived
+            # figure. The reverse is the signature's known structural blind
+            # spot and is collected below, not flagged here.
+            if not measured_dead:
+                signature_disagreements.append(key)
+        elif measured_dead:
+            signature_blind_dead.append(key)
 
         for field, old_value in (
             ("separation_auroc", old_ab["separation_auroc"]),
@@ -3539,15 +3655,42 @@ def compare_replay_to_preserved(
 
     if signature_disagreements:
         mismatches.append(
-            f"{len(signature_disagreements)} cell(s) where the record-only dead-cell signature "
-            f"(auroc 0.5/0.5 and fire_rate 1.0) disagrees with the measured observed_max == 0.0, "
-            f"e.g. {signature_disagreements[:5]} -- the 182 figure was derived from that signature, "
-            f"so a disagreement invalidates it"
+            f"{len(signature_disagreements)} cell(s) CARRY the record-only dead-cell signature "
+            f"(auroc 0.5/0.5 and fire_rate 1.0) but measure observed_max != 0.0, "
+            f"e.g. {signature_disagreements[:5]} -- the signature-derived lower bound "
+            f"({REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS} on run 413287) was derived from that signature, "
+            f"so a cell it names that is not in fact dead invalidates it"
+        )
+    if (
+        expected_signature_visible_dead_cells is not None
+        and len(signature_cells) != expected_signature_visible_dead_cells
+    ):
+        mismatches.append(
+            f"record-only dead-cell signature matches {len(signature_cells)} preserved cell(s), "
+            f"expected exactly {expected_signature_visible_dead_cells} -- this is a property of the "
+            f"PRESERVED RECORD alone, so a change here means a different record, not a different model"
         )
     if len(dead_cells) != expected_dead_cells:
         mismatches.append(
             f"dead-cell count is {len(dead_cells)}, expected exactly {expected_dead_cells} -- the C1 "
             f"correction must apply to exactly the population it was measured on"
+        )
+    if expected_signature_visible_dead_cells is not None:
+        expected_blind = expected_dead_cells - expected_signature_visible_dead_cells
+        if len(signature_blind_dead) != expected_blind:
+            mismatches.append(
+                f"{len(signature_blind_dead)} measured-dead cell(s) are invisible to the record-only "
+                f"signature (silent on the concept, ACTIVE on a control set), expected exactly "
+                f"{expected_blind} = {expected_dead_cells} - {expected_signature_visible_dead_cells}"
+            )
+    # Internal consistency: the two named populations must partition the
+    # measured-dead set. A violation is a defect in this comparator, not in
+    # the replay, and it must not be reported as either kind of drift.
+    if len(signature_cells) - len(signature_disagreements) + len(signature_blind_dead) != len(dead_cells):
+        mismatches.append(
+            f"comparator inconsistency: {len(signature_cells)} signature cell(s) minus "
+            f"{len(signature_disagreements)} disagreement(s) plus {len(signature_blind_dead)} "
+            f"signature-blind dead cell(s) does not equal the {len(dead_cells)} measured-dead cells"
         )
 
     report = {
@@ -3563,6 +3706,13 @@ def compare_replay_to_preserved(
         },
         "dead_cells_measured": len(dead_cells),
         "dead_cells_expected": expected_dead_cells,
+        "signature_visible_dead_cells_measured": len(signature_cells),
+        "signature_visible_dead_cells_expected": expected_signature_visible_dead_cells,
+        "signature_blind_dead_cells_measured": len(signature_blind_dead),
+        "signature_blind_dead_cells_expected": (
+            None if expected_signature_visible_dead_cells is None
+            else expected_dead_cells - expected_signature_visible_dead_cells
+        ),
         "dead_cell_signature_disagreements": len(signature_disagreements),
         "mismatches": mismatches,
         "passed": not mismatches,
@@ -3570,6 +3720,15 @@ def compare_replay_to_preserved(
             "fire_rate on a measured-dead cell is EXPECTED to read preserved 1.0 -> replayed 0.0 (the C1 "
             "correction) and is asserted to do so; gate_b_passed and every other boolean is deliberately "
             "not compared, because C1 legitimately flips it."
+        ),
+        "dead_cell_population_note": (
+            "dead_cells_measured counts observed_max == 0.0 and is the population. "
+            "signature_visible_dead_cells counts the preserved record's auroc-0.5/0.5 + fire_rate-1.0 "
+            "signature and is a strict SUBSET of it -- that signature also requires the CONTROLS to be "
+            "silent, so it cannot see a feature that is dead on the concept and active on the controls. "
+            "signature_blind_dead_cells is exactly that difference. dead_cell_signature_disagreements "
+            "counts only the falsifying direction (signature present, cell measures live) and any "
+            "non-zero value is a hard failure."
         ),
     }
     if mismatches:
@@ -3629,6 +3788,7 @@ def run_replay_mode(args: argparse.Namespace) -> dict:
             preserved_ab=preserved_ab, preserved_c=preserved_c,
             replayed_ab=replayed_ab, replayed_c=replayed_c,
             tolerance=args.replay_tolerance, expected_dead_cells=args.replay_expected_dead_cells,
+            expected_signature_visible_dead_cells=args.replay_expected_signature_visible_dead_cells,
         )
     except ReplayMismatch as exc:
         report_path.write_text(
@@ -4572,7 +4732,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "--mode replay only: the EXACT number of cells whose positives are all zero, where the C1 "
             "correction turns the preserved fire_rate 1.0 into 0.0. Asserted exactly; more or fewer "
-            f"fails the replay. Default {REPLAY_EXPECTED_DEAD_CELLS}, the figure measured on run 413287."
+            f"fails the replay. Default {REPLAY_EXPECTED_DEAD_CELLS}, MEASURED on run 413287's record "
+            "by the GPU replay in Tamia job 414676 (2026-08-15) from observed_max == 0.0."
+        ),
+    )
+    p.add_argument(
+        "--replay-expected-signature-visible-dead-cells", type=int,
+        default=REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS,
+        help=(
+            "--mode replay only: the EXACT number of preserved cells carrying the RECORD-ONLY dead-cell "
+            "signature (auroc 0.5 against both control sets and fire_rate 1.0). A strict SUBSET of "
+            "--replay-expected-dead-cells: the signature also requires the CONTROLS to be silent, so it "
+            f"cannot see a dead-on-concept/active-on-controls cell. Default "
+            f"{REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS} against run 413287, of which "
+            f"{REPLAY_SIGNATURE_BLIND_DEAD_CELLS} of the {REPLAY_EXPECTED_DEAD_CELLS} dead cells are "
+            "invisible to it. Asserted exactly, as is that difference."
         ),
     )
     p.add_argument("--out-dir", required=True)

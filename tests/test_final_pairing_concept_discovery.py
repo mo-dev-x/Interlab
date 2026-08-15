@@ -1463,8 +1463,11 @@ def test_compute_gate_b_fire_rate_all_zero_positives_does_not_fire(monkeypatch):
     """C1 degenerate-case guard. SAE scores are post-ReLU, so a feature that
     never fires on any positive prompt gives observed_max == 0.0 -> floor
     0.0 -> `0.0 >= 0.0` for every prompt -> fire_rate 1.0 -> G-B PASSES a
-    silent feature. MEASURED on production run 413287: 182 of 660 G-B
-    passes were exactly this. Without the guard this asserts 1.0."""
+    feature that is silent ON THE POSITIVES (the max never looks at a
+    control score, so this says nothing about the controls). MEASURED on
+    production run 413287 by the GPU replay in job 414676: 295 of 660 G-B
+    passes were exactly this; the record-only 0.5/0.5/1.0 signature saw
+    182 of them. Without the guard this asserts 1.0."""
     fire_rate, floor = d.compute_gate_b_fire_rate([0.0] * 10, floor_fraction=0.20)
     assert fire_rate == 0.0
     assert floor == 0.0
@@ -2390,7 +2393,8 @@ def test_shadow_fire_rate_matches_the_frozen_rule_whenever_the_floor_is_positive
 def test_shadow_fire_rate_does_not_resurrect_the_c1_artifact_on_a_zero_reference():
     """A zero reference collapses the floor to 0.0, where a bare `>=` would
     count a score of exactly 0.0 as firing -- the same artifact C1 removed
-    (182 phantom passes in run 413287). The `score > 0` clause is what
+    (295 phantom passes in run 413287, measured on GPU by job 414676; 182
+    of them visible to the record-only signature). The `score > 0` clause is what
     stops it, and the degenerate flag is what lets those cells be excluded
     from a re-derivation instead of silently inflating it."""
     rate, floor, degenerate = d.compute_shadow_fire_rate_corpus_max(
@@ -2628,7 +2632,8 @@ def _replay_population(n_live=5, n_dead=2):
 def test_replay_comparator_passes_on_an_exact_reproduction_with_the_expected_dead_cells():
     pab, pc, rab, rc = _replay_population(n_live=5, n_dead=2)
     report = d.compare_replay_to_preserved(
-        preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2
+        preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2,
+        expected_signature_visible_dead_cells=2,
     )
     assert report["passed"] is True
     assert report["cells_compared"] == 7
@@ -2643,7 +2648,8 @@ def test_replay_comparator_fails_loudly_on_a_float_mismatch_just_above_tolerance
     rab[key] = {**rab[key], "separation_auroc": rab[key]["separation_auroc"] + 2e-9}
     with pytest.raises(d.ReplayMismatch, match="separation_auroc"):
         d.compare_replay_to_preserved(
-            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2
+            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2,
+            expected_signature_visible_dead_cells=2,
         )
 
 
@@ -2652,18 +2658,23 @@ def test_replay_comparator_accepts_a_difference_just_below_tolerance():
     key = ("cheese", "en", "f1", 2)
     rab[key] = {**rab[key], "separation_auroc": rab[key]["separation_auroc"] + 5e-10}
     report = d.compare_replay_to_preserved(
-        preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2
+        preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2,
+        expected_signature_visible_dead_cells=2,
     )
     assert report["passed"] is True
     assert 0 < report["worst_abs_delta"]["separation_auroc"] <= 1e-9
 
 
 def test_replay_comparator_requires_exactly_the_expected_number_of_dead_cells():
+    """The expected count is the GPU-MEASURED 295 (job 414676), not the
+    signature-derived 182. The signature expectation is set to the fixture's
+    own value so that the dead-cell count is the ONLY thing under test."""
     pab, pc, rab, rc = _replay_population(n_live=5, n_dead=2)
-    with pytest.raises(d.ReplayMismatch, match="dead-cell count is 2, expected exactly 182"):
+    with pytest.raises(d.ReplayMismatch, match="dead-cell count is 2, expected exactly 295"):
         d.compare_replay_to_preserved(
             preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc,
             expected_dead_cells=d.REPLAY_EXPECTED_DEAD_CELLS,
+            expected_signature_visible_dead_cells=2,
         )
 
 
@@ -2676,22 +2687,87 @@ def test_replay_comparator_rejects_a_dead_cell_whose_preserved_fire_rate_was_not
     pab[key] = {**pab[key], "fire_rate": 0.9}
     with pytest.raises(d.ReplayMismatch, match=r"measured-dead cell must be preserved 1\.0"):
         d.compare_replay_to_preserved(
-            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=1
+            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=1,
+            # fire_rate 0.9 also breaks the record-only signature, so this
+            # cell is signature-BLIND: 0 visible, 1 blind.
+            expected_signature_visible_dead_cells=0,
         )
 
 
 def test_replay_comparator_cross_checks_the_record_only_dead_signature():
     """The 182 figure was derived from a RECORD-ONLY signature (0.5/0.5 and
     fire_rate 1.0). The replay is the first thing that can check that
-    signature against a measured `observed_max == 0.0`, and it must fail if
-    they disagree rather than quietly preferring one."""
+    signature against a measured `observed_max == 0.0`, and it must fail in
+    the direction that FALSIFIES the figure: a cell the signature names as
+    dead which the model says is live. (The opposite direction -- measured
+    dead, no signature -- is the signature's structural blind spot and is
+    covered by the test below.)"""
     pab, pc, rab, rc = _replay_population(n_live=5, n_dead=1)
     key = ("cheese", "en", "f1", 1000)
     rab[key] = {**rab[key], "observed_max": 2.5, "fire_rate_within_cell": 1.0}
-    with pytest.raises(d.ReplayMismatch, match="disagrees with the measured observed_max"):
+    with pytest.raises(d.ReplayMismatch, match=r"but measure observed_max != 0\.0"):
         d.compare_replay_to_preserved(
-            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=0
+            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=0,
+            # None: the signature/blind counts are not what this test is
+            # about, and this fixture is deliberately self-inconsistent.
+            expected_signature_visible_dead_cells=None,
         )
+
+
+def _signature_blind_dead_cell(feature=2000):
+    """A cell that is DEAD ON THE POSITIVES (`observed_max == 0.0`, so C1
+    fires) while ACTIVE on the controls, hence carrying neither AUROC 0.5.
+
+    This is the population the record-only signature cannot see and the
+    entire content of the 182 -> 295 correction: 113 of run 413287's 295
+    degenerate cells look like this, with `separation_auroc` as low as
+    0.12 -- firing MORE on the controls than on the concept -- and every
+    one of them passed G-B with `fire_rate` 1.0."""
+    return _replay_cell(feature=feature, auroc=0.2, near=0.3, fire=1.0, observed_max=0.0)
+
+
+def test_replay_comparator_accepts_a_measured_dead_cell_the_signature_cannot_see():
+    """The correction, as a test. A dead-on-positives / live-on-controls
+    cell must be COUNTED as dead and reported as signature-blind, not
+    flagged as a signature disagreement -- the signature's silence there is
+    a property of the signature, not evidence about the cell."""
+    pab, pc, rab, rc = _replay_population(n_live=5, n_dead=1)
+    key, p_ab, p_c, r_ab, r_c = _signature_blind_dead_cell()
+    pab[key], pc[key], rab[key], rc[key] = p_ab, p_c, r_ab, r_c
+
+    report = d.compare_replay_to_preserved(
+        preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2,
+        expected_signature_visible_dead_cells=1,
+    )
+    assert report["passed"] is True
+    assert report["dead_cells_measured"] == 2
+    assert report["signature_visible_dead_cells_measured"] == 1
+    assert report["signature_blind_dead_cells_measured"] == 1
+    assert report["dead_cell_signature_disagreements"] == 0
+
+
+def test_replay_comparator_pins_the_signature_visible_count_independently():
+    """The two populations may not drift into one another: 295 and 182 are
+    asserted separately, so a record whose signature-visible count changes
+    fails even when the measured dead-cell total is right."""
+    pab, pc, rab, rc = _replay_population(n_live=5, n_dead=1)
+    key, p_ab, p_c, r_ab, r_c = _signature_blind_dead_cell()
+    pab[key], pc[key], rab[key], rc[key] = p_ab, p_c, r_ab, r_c
+
+    with pytest.raises(d.ReplayMismatch, match="signature matches 1 preserved cell"):
+        d.compare_replay_to_preserved(
+            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2,
+            expected_signature_visible_dead_cells=2,
+        )
+
+
+def test_replay_expected_dead_cell_constants_are_the_corrected_figures():
+    """182 is CORRECTED, NOT REMOVED: it stays on the record as the
+    signature-derived lower bound, beside the 295 the GPU measured."""
+    assert d.REPLAY_EXPECTED_DEAD_CELLS == 295
+    assert d.REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS == 182
+    assert d.REPLAY_SIGNATURE_BLIND_DEAD_CELLS == 113
+    assert d.REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS < d.REPLAY_EXPECTED_DEAD_CELLS
 
 
 def test_replay_comparator_never_compares_gate_b_passed():
@@ -2704,7 +2780,8 @@ def test_replay_comparator_never_compares_gate_b_passed():
                     "gate_b_passed": not rab[key]["gate_b_passed"]}
         rc[key] = {**rc[key], "gate_c_passed": not rc[key]["gate_c_passed"]}
     report = d.compare_replay_to_preserved(
-        preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2
+        preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2,
+        expected_signature_visible_dead_cells=2,
     )
     assert report["passed"] is True
 
@@ -2714,7 +2791,8 @@ def test_replay_comparator_fails_on_a_missing_cell():
     del rab[("cheese", "en", "f1", 2)]
     with pytest.raises(d.ReplayMismatch, match="key sets differ"):
         d.compare_replay_to_preserved(
-            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2
+            preserved_ab=pab, preserved_c=pc, replayed_ab=rab, replayed_c=rc, expected_dead_cells=2,
+            expected_signature_visible_dead_cells=2,
         )
 
 
@@ -2794,6 +2872,7 @@ def test_replay_mode_end_to_end_on_a_fake_backend(tmp_path, monkeypatch):
         "--model-path", "/fake", "--sae-path", "/fake", "--layer", "29",
         "--shortlist-size", "20", "--out-dir", str(tmp_path / "out"), "--state-dir", str(tmp_path / "state"),
         "--replay-progress", str(progress), "--replay-expected-dead-cells", "0",
+        "--replay-expected-signature-visible-dead-cells", "0",
     ]
     assert d.main(argv) == 0
     report = json.loads((tmp_path / "out" / "replay_report.json").read_text(encoding="utf-8"))

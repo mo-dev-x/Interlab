@@ -12,10 +12,34 @@ Run:  python scripts/final_pairing/verify_gate_fixes.py --all
           --progress D:/devcache/tmp/fp413287/primary/qwen/grid/state/progress.jsonl
       python scripts/final_pairing/verify_gate_fixes.py shadow
 
-READ THIS BEFORE QUOTING ANY NUMBER THIS SCRIPT PRINTS. The 182 records the
-C1 check flips are ARTIFACTS of the degenerate-scale defect, not G-B passes.
-A G-B pass rate computed with them included is not a fact about run 413287
-and must not be quoted as one. Separately, EVERY G-B figure in this
+READ THIS BEFORE QUOTING ANY NUMBER THIS SCRIPT PRINTS. The records the C1
+check flips are ARTIFACTS of the degenerate-scale defect, not G-B passes. A
+G-B pass rate computed with them included is not a fact about run 413287 and
+must not be quoted as one.
+
+AND THE C1 CHECK'S OWN COUNTS ARE BOUNDS, NOT THE POPULATION (corrected
+2026-08-15 from Tamia job 414676). This check re-scores a preserved record
+that does NOT store `observed_max`, so the only handle it has on a
+degenerate cell is the record-only signature `_is_dead_cell` -- AUROC 0.5
+against BOTH control sets plus `fire_rate` 1.0. A cell is degenerate when
+`compute_gate_b_fire_rate` sees a zero max over the POSITIVES ALONE, which
+says nothing about the controls, so that signature can only ever see the
+DOUBLY-dead subset. What this check measures and what the GPU measured:
+
+    degenerate G-B passes   182 (LOWER bound, here)  ->  295 (GPU, measured)
+    surviving G-B passes    478 (UPPER bound, here)  ->  365 (GPU, measured)
+    share that were artifacts        27.6%           ->  44.7%
+
+The GPU figure came from `--mode replay` on real Qwen3.5-27B weights reading
+`observed_max == 0.0` directly. The 113-cell difference is silent on the
+concept prompts and ACTIVE on the controls -- `separation_auroc` down to
+0.12, i.e. firing MORE on the controls than on the concept, every one
+passing G-B with `fire_rate` 1.0. 182 and 478 are NOT retracted and are
+still asserted exactly below: they are what the record alone establishes,
+and C1 cross-checks that the GPU figure lies inside the bracket the record
+derives. QUOTE 295/365 as the run's figures; quote 182/478 only as bounds.
+
+Separately, EVERY G-B figure in this
 codebase -- before or after C1 -- is computed against a within-cell
 reference scale that is derived from the very prompts it judges (see
 `compute_gate_b_fire_rate`'s own docstring). C1 removes the fully
@@ -76,10 +100,53 @@ def _is_dead_cell(ab_cell: dict, c_cell: dict) -> bool:
     every score in both sets ties, which post-ReLU means every score is
     0.0. Requiring that of BOTH denominators (G-A's pooled near_miss +
     unrelated and G-C's near_miss-only) and of `fire_rate == 1.0`
-    simultaneously is what makes the identification safe: a live feature
+    simultaneously is what makes the identification SOUND: a live feature
     would have to tie against two different control sets AND report a
-    perfect fire rate by coincidence."""
+    perfect fire rate by coincidence.
+
+    SOUND IS NOT COMPLETE, AND THIS FUNCTION IS NOT COMPLETE (2026-08-15).
+    What makes a cell degenerate under C1 is a zero max over the POSITIVES
+    ALONE -- `compute_gate_b_fire_rate` never looks at a control score. The
+    two AUROC clauses above are therefore EXTRA requirements that the
+    defect does not impose, and they exclude every cell that is silent on
+    the concept prompts and ACTIVE on the controls. That is not a rare
+    corner: the GPU replay (job 414676) measured 295 degenerate cells in
+    run 413287 where this signature finds 182, so 113 of them -- 38% of the
+    population -- are structurally invisible here. Read every count derived
+    from this predicate as a LOWER BOUND on degenerate cells and an UPPER
+    BOUND on surviving passes.
+
+    Kept as-is rather than loosened: the record has no `observed_max`, so
+    dropping either AUROC clause would not find the missing cells, it would
+    only start counting live ones (`_dead_cell_upper_bound` below measures
+    exactly how many). Soundness is the property worth keeping when
+    completeness is not available."""
     return ab_cell["separation_auroc"] == 0.5 and c_cell["near_miss_auroc"] == 0.5 and ab_cell["fire_rate"] == 1.0
+
+
+def _dead_cell_upper_bound(ab_cell: dict, c_cell: dict) -> bool:
+    """The NECESSARY condition a degenerate cell must satisfy, derived from
+    the code rather than guessed, and fixed BEFORE the GPU count was taken.
+
+    SAE scores are post-ReLU, hence non-negative. If every positive score
+    is 0.0 then no positive can outrank any control, so `separation_auroc
+    <= 0.5` and `near_miss_auroc <= 0.5`; and the floor collapses to 0.0,
+    so `0.0 >= 0.0` holds ten times and `fire_rate == 1.0`. Every
+    degenerate cell satisfies all three. The converse does NOT hold -- a
+    live cell can satisfy them -- so this is a strict UPPER BOUND on the
+    degenerate population, exactly as `_is_dead_cell` is a strict lower
+    one.
+
+    Its point is falsifiability: the bracket [`_is_dead_cell` count,
+    `_dead_cell_upper_bound` count] is computed from the preserved record
+    alone and must CONTAIN the GPU-measured figure. If it does not, the
+    account of the defect is wrong, and `check_c1` fails rather than
+    reconciling the two."""
+    return (
+        ab_cell["separation_auroc"] <= 0.5
+        and c_cell["near_miss_auroc"] <= 0.5
+        and ab_cell["fire_rate"] == 1.0
+    )
 
 
 def check_c1(progress_path: Path) -> bool:
@@ -87,7 +154,33 @@ def check_c1(progress_path: Path) -> bool:
     `compute_gate_b_fire_rate`. EXACTLY 182 records must flip
     gate_b_passed true -> false, and the grid-wide count must go 660 ->
     478. Any other numbers mean the guard is not firing on the population
-    it was written for."""
+    it was written for.
+
+    WHAT THOSE TWO NUMBERS ARE, STATED EXACTLY (corrected 2026-08-15). They
+    are the ARITHMETIC OF THE GUARD ON THE SIGNATURE-VISIBLE SUBSET, and
+    they are bounds on the run, not the run's figures. This check cannot
+    measure the population: the preserved record does not store
+    `observed_max`, so the only cells it can identify are those carrying
+    `_is_dead_cell`'s doubly-dead signature, and a cell that is silent on
+    the concept while ACTIVE on the controls is reconstructed here as a
+    live `fire_rate == 1.0` cell and passes -- correctly, given what the
+    record holds. Therefore:
+
+        182  LOWER bound on run 413287's degenerate G-B passes
+        478  UPPER bound on its surviving G-B passes
+        295 / 365  the GPU-MEASURED figures (job 414676, 2026-08-15,
+                   `--mode replay` on real Qwen3.5-27B, from
+                   `observed_max == 0.0` -- the direct quantity)
+
+    Nothing here is faked up to reach 295 and nothing is relaxed to
+    tolerate it. All six original conditions are asserted unchanged, and
+    two record-derived conditions are ADDED: the necessary-condition
+    candidate set (`_dead_cell_upper_bound`) must contain exactly 527
+    cells, and the GPU figure imported from
+    `final_pairing_concept_discovery.REPLAY_EXPECTED_DEAD_CELLS` must lie
+    inside [182, 527]. If any record-derived number moves, or if the GPU
+    constant is edited outside the bracket the record supports, this check
+    FAILS."""
     thresholds = d.load_frozen_prompt_artifact(d.REPO_ROOT).metadata["thresholds"]
     if (thresholds["G_B_fire_rate_min"], thresholds["G_B_activation_floor_fraction_of_observed_max"]) != (
         _FIRE_RATE_MIN, _FLOOR_FRACTION
@@ -100,6 +193,7 @@ def check_c1(progress_path: Path) -> bool:
 
     before = after = flips = live_flips = 0
     reconstruction_mismatches = 0
+    upper_bound_candidates = 0
     for cell in ab:
         c_cell = c_by_cell[(cell["concept_id"], cell["locale"], cell["family"], cell["feature_index"])]
         n = 10  # every (concept, locale, family) positive split in the frozen artifact has exactly 10 prompts
@@ -119,10 +213,14 @@ def check_c1(progress_path: Path) -> bool:
         now_passes = fire_rate >= _FIRE_RATE_MIN
         before += int(cell["gate_b_passed"])
         after += int(now_passes)
+        upper_bound_candidates += int(_dead_cell_upper_bound(cell, c_cell))
         if now_passes != cell["gate_b_passed"]:
             flips += 1
             live_flips += int(not _is_dead_cell(cell, c_cell))
 
+    gpu_dead = d.REPLAY_EXPECTED_DEAD_CELLS
+    gpu_surviving = before - gpu_dead
+    bracket_holds = flips <= gpu_dead <= upper_bound_candidates
     ok = (
         len(ab) == 1080
         and before == 660
@@ -130,13 +228,28 @@ def check_c1(progress_path: Path) -> bool:
         and flips == 182
         and live_flips == 0
         and reconstruction_mismatches == 0
+        and upper_bound_candidates == 527
+        and bracket_holds
+        and flips == d.REPLAY_SIGNATURE_VISIBLE_DEAD_CELLS
     )
     print(f"[C1] cells re-scored                : {len(ab)} (expected 1080)")
     print(f"[C1] recorded gate_b_passed BEFORE  : {before} (expected 660)")
-    print(f"[C1] gate_b_passed AFTER the guard  : {after} (expected 478)")
-    print(f"[C1] true->false flips              : {flips} (expected 182)")
+    print(f"[C1] gate_b_passed AFTER the guard  : {after} (expected 478 -- an UPPER bound, see below)")
+    print(f"[C1] true->false flips              : {flips} (expected 182 -- a LOWER bound, see below)")
     print(f"[C1] flips on a cell that DID fire  : {live_flips} (expected 0 -- the guard is strictly stricter)")
     print(f"[C1] live-cell fire_rate mismatches : {reconstruction_mismatches} (expected 0)")
+    print(f"[C1] necessary-condition candidates : {upper_bound_candidates} (expected 527 -- an UPPER bound)")
+    print(
+        f"[C1] GPU-measured degenerate cells  : {gpu_dead} (job 414676; must satisfy "
+        f"{flips} <= {gpu_dead} <= {upper_bound_candidates}, which is {bracket_holds})"
+    )
+    print(
+        f"[C1] BOUNDS, NOT THE POPULATION: this check has no observed_max, so it sees only the "
+        f"DOUBLY-dead cells. Degenerate G-B passes {flips} (lower) -> {gpu_dead} MEASURED; surviving "
+        f"G-B passes {after} (upper) -> {gpu_surviving} MEASURED; artifact share "
+        f"{100.0 * flips / before:.1f}% (lower) -> {100.0 * gpu_dead / before:.1f}% MEASURED. "
+        f"Quote {gpu_dead}/{gpu_surviving} as run 413287's figures."
+    )
     print(f"[C1] {'PASS' if ok else 'FAIL'}")
     return ok
 
@@ -932,8 +1045,15 @@ def check_shadow_against_the_preserved_record(progress_path: Path) -> bool:
     fire = np.array([cell["fire_rate"] for cell in ab])
     rho = float(spearmanr(separation, fire).statistic)
 
-    # The same correlation with the 182 degenerate cells removed -- they are
+    # The same correlation with the degenerate cells removed -- they are
     # artifacts, so the honest version of the statistic excludes them.
+    # PARTIAL BY CONSTRUCTION (2026-08-15): `_is_dead_cell` is all this
+    # record supports, and it sees 182 of the 295 the GPU replay measured
+    # (job 414676). The remaining 113 -- silent on the concept, active on
+    # the controls -- are still inside `live` below and cannot be removed
+    # without an `observed_max` this file does not have. So `rho_live` is
+    # the correlation with the doubly-dead cells excluded, not with the
+    # artifacts excluded, and it is printed as such.
     c_by_cell = {(x["concept_id"], x["locale"], x["family"], x["feature_index"]): x for x in c}
     live = [
         cell for cell in ab
@@ -947,7 +1067,15 @@ def check_shadow_against_the_preserved_record(progress_path: Path) -> bool:
     print(f"[SHADOW-B] cells in the preserved record                     : {len(ab)}")
     print(f"[SHADOW-B] cells carrying observed_max / activation_floor    : {have_observed_max} (pre-C4 record: expected 0)")
     print(f"[SHADOW-B] Spearman(separation_auroc, fire_rate), all cells  : {rho:+.4f}")
-    print(f"[SHADOW-B] the same with the 182 degenerate cells excluded   : {rho_live:+.4f} over {len(live)} live cells")
+    print(
+        f"[SHADOW-B] the same with the {len(ab) - len(live)} DOUBLY-dead cells excluded  : {rho_live:+.4f} "
+        f"over {len(live)} remaining cells"
+    )
+    print(
+        f"[SHADOW-B] NOT artifact-free: the GPU replay measured {d.REPLAY_EXPECTED_DEAD_CELLS} degenerate "
+        f"cells, so ~{d.REPLAY_SIGNATURE_BLIND_DEAD_CELLS} artifacts (silent on the concept, ACTIVE on a "
+        f"control set) are still inside those {len(live)} and cannot be removed without observed_max."
+    )
     print(
         "[SHADOW-B] READ: a G-B statistic ANTI-correlated with the separation the search is for is "
         "not measuring firing. This is the motivation for the shadow metric, not evidence that the "
