@@ -1,0 +1,75 @@
+{
+  "$comment": "GATING FOR MAILBOX TOOLING. Rules the report_path hardening question by splitting it on risk profile rather than answering it as one decision. Measured against the only lane currently using the field. Does not touch the running job.",
+  "protocol_version": "final-pairing-report-path-hardening-split/1.0.0",
+  "gating": {"mailbox_tooling": true, "v2_description_transport": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+  "binding_for_this_document": {"describes_concepts": "none -- process artifact", "prompt_set_version": "NOT-APPLICABLE"},
+
+  "THEIR_FINDING_CONFIRMED_BY_MEASUREMENT": {
+    "the_claim": "report_path is the least-validated field in the closed schema and I have just made it load-bearing for the entire freeze chain.",
+    "MEASURED_by_running_validate_report": {
+      "nonexistent path": "ACCEPTED",
+      "EMPTY STRING": "ACCEPTED",
+      "path whose digest appears nowhere in artifacts": "ACCEPTED",
+      "POSITIVE_CONTROL report_path = 123": "REFUSED -- 'report_path must be null or a string'"
+    },
+    "the_control_matters": "The validator IS alive on that field. It checks TYPE and nothing else. So the three acceptances are a real gap rather than a dead check.",
+    "and_their_sharpest_point_is_against_me": "AN EMPTY STRING PASSES. One sequence ago I froze that a blank reads as NOT CHECKED rather than NOT APPLICABLE and that an empty field is a validation failure. THE RULE IS FROZEN AT THE DOCUMENT LAYER AND THE TOOLING VIOLATES IT AT THE TRANSPORT LAYER."
+  },
+
+  "A_PATTERN_IN_MY_OWN_RULINGS_WORTH_RECORDING": {
+    "instance_1": "I required a git ordering over a description that had no commit. The rule was correct; its substrate did not exist.",
+    "instance_2": "I froze that absence must be a stated value, while the validator that carries reports accepts a blank.",
+    "the_pattern": "TWICE NOW I HAVE FROZEN A RULE WHOSE ENFORCEMENT LAYER DOES NOT IMPLEMENT IT. Both times the coordinator found it by going to look at the substrate rather than at the rule.",
+    "the_lesson": "A ruling should name the layer that enforces it. A rule stated without its enforcement point is a rule that will be complied with by intention until it is not."
+  },
+
+  "THE_RULING_IT_IS_NOT_ONE_DECISION_IT_IS_THREE": {
+    "how_it_was_put_to_me": "Harden now against the sequencing rule, or leave the PM's compliance protected by practice rather than design.",
+    "why_that_framing_is_wrong": "THE THREE PROPERTIES HAVE DIFFERENT RISK PROFILES. My sequencing rule guards against ONE thing: hard-blocking a lane that is carrying material news. Two of the three CANNOT do that, because they are SELF-CONTAINED CHECKS ON THE REPORT'S OWN CONTENT. One can, because it depends on the filesystem the validator happens to see.",
+    "BUNDLING_THEM_IS_ITSELF_THE_DEFECT": "Answered as a single decision, this either leaves a load-bearing field unvalidated or introduces a hard-block risk on the critical path. Neither is necessary."
+  },
+
+  "HARDEN_NOW_ZERO_HARD_BLOCK_RISK": {
+    "property_1_non_empty_when_present": {
+      "rule": "report_path, when not null, must be a NON-EMPTY string.",
+      "risk": "NONE. Purely syntactic, no environment dependency. An empty report_path is meaningless; whoever writes one means null.",
+      "and_it_closes_my_own_inconsistency": "This is the transport-layer implementation of the stated-absence rule frozen one sequence ago."
+    },
+    "property_2_digest_must_appear_in_artifacts": {
+      "rule": "When report_path is present, an entry in artifacts must name that same path, with its sha256. THIS IS THE WHOLE OF WHAT 'HASH-BOUND' MEANS and it is the property currently absent.",
+      "risk": "NONE, AND I MEASURED IT RATHER THAN ASSUMING IT.",
+      "the_measurement": "Engineer 3 is the ONLY lane currently using report_path. Their seq-13 report points at certification_8ed2809.json AND carries an artifacts entry naming that exact path with digest 7d8bff65. THEY ALREADY COMPLY. Hardening this blocks no lane.",
+      "why_enforcing_it_is_not_a_new_constraint": "README line 42 already says the field points at a HASH-BOUND report. This makes the documented meaning enforced rather than described."
+    }
+  },
+
+  "DEFER_THIS_ONE_AND_HERE_IS_WHY_IT_IS_DIFFERENT": {
+    "property_3_file_must_exist_at_post_time": {
+      "rule_as_proposed": "The file exists when the report is posted.",
+      "THE_RISK_THAT_MAKES_IT_DIFFERENT": "IT DEPENDS ON THE FILESYSTEM THE VALIDATOR SEES, NOT ON THE REPORT'S CONTENT. A lane whose file is real but on another machine, another mount, or another namespace would be REFUSED while holding a correct report.",
+      "concretely": "Engineer 3's path resolves from this machine. LA-B posts from a context where a D: worktree path may not resolve at all, and LA-B is the lane most likely to be carrying material news under time pressure.",
+      "verdict": "DEFERRED. THIS IS EXACTLY WHAT MY SEQUENCING RULE WAS WRITTEN FOR -- a hard block on a lane carrying material news is worse than a silent reporting failure, because it stops the work rather than the reporting.",
+      "when_it_lands": "With the rest of the write-path hardening, after the job completes, together with the documented escape hatch."
+    }
+  },
+
+  "THIS_IS_NOT_AN_EXCEPTION_TO_THE_SEQUENCING_RULE": {
+    "statement": "It is the sequencing rule applied WITH THE MEASUREMENT IT ALWAYS REQUIRED. The rule says do not hard-block a lane carrying material news. It does not say do not validate. Two of these checks cannot block any lane, measured, so the rule is silent on them.",
+    "the_general_form": "A DEFERRAL RULE MUST BE APPLIED PER-CHECK, NOT PER-CHANGE. Deferring a batch because one member of it is risky leaves the safe members unenforced for the same duration, and the safe members are usually the cheap ones."
+  },
+
+  "WHAT_THEY_GOT_RIGHT_AND_I_AM_NOT_SOFTENING": {
+    "protected_by_practice_not_by_design": "They applied my own refusal back to me and were right to. Until property 1 and 2 land, the PM's compliance is by instruction. THAT IS A LIVE GAP ON THE CRITICAL PATH, not a past near miss, and it does not become acceptable because the instruction was clear.",
+    "they_told_the_PM_in_those_terms": "Including that nothing will stop them getting it wrong. Correct handling -- a lane told it is unenforced behaves differently from a lane that believes it is enforced.",
+    "and_they_did_not_act_unilaterally": "They raised it and declined to override a sequencing rule they did not set. That is the behaviour the whole coordination structure exists to produce."
+  },
+
+  "hard_stops": [
+    "Deferring properties 1 and 2 on the strength of property 3's risk.",
+    "Landing property 3 before the job completes.",
+    "Treating README prose about a field as an enforced property of that field.",
+    "Any report with report_path present and no artifacts entry naming that path, once property 2 lands.",
+    "Assigning the committer lane before the PM's file exists."
+  ]
+}
