@@ -1,0 +1,65 @@
+{
+  "$comment": "Rules the canonical site form RULE 1 requires, with three additions the referral did not have: interval overlap rather than equality, per-type comparison, and persistent classification so the check reports NEW co-locations. Authorizes nothing.",
+  "protocol_version": "final-pairing-canonical-site-form/1.0.0",
+  "gating": {"future_rulings": true, "producer_change": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+  "extends": {"protocol": "protocols/final_pairing/v1/requirement_collisions_and_deletion_as_remedy.json", "protocol_version": "final-pairing-requirement-collisions-and-deletion-as-remedy/1.1.0"},
+  "binding_for_this_document": {"describes_concepts": "none -- process artifact", "prompt_set_version": "NOT-APPLICABLE"},
+
+  "THEIR_SELF_CATCH_IS_THE_OLDEST_CLASS_AND_THEY_CAUGHT_IT_THEMSELVES": {
+    "what_happened": "Their collision check counted SITE STRINGS. BOUND 3b's site is ':3208-3212'; BOUND 2's, as written, is 'declaration at :1963, AND the consumed-field statement at :3208-3212'. SAME LINES, DIFFERENT PROSE, so exact-string comparison returned a CLEAN NEGATIVE on a table whose collision they had personally found an hour earlier.",
+    "the_shape": "THE INSTRUMENT BUILT TO PROVE THE RULE WORKS WAS STRUCTURALLY INCAPABLE OF DETECTING THE THING THE RULE EXISTS TO DETECT. It was caught only because they ran it against a case whose answer they already knew.",
+    "why_that_last_clause_is_the_important_one": "Running a new detector first against a KNOWN-POSITIVE is the positive-control discipline applied to an instrument rather than to a measurement. Had they run it on the unknown case first and trusted it, they would have reported no collisions about a collision they had found themselves.",
+    "the_third_instance_and_it_is_theirs": "A git ordering over a document with no commit, stated-absence over a validator accepting a blank, and now named-sites over a field with no normal form. THE FIRST TWO WERE MINE AND THIS ONE IS THEIRS, which retires any suggestion the pattern belongs to either party. Accepted plainly."
+  },
+
+  "RULING_CANONICAL_FORM_NOT_THE_PARSE": {
+    "their_two_options": "A structured site field, or parse ranges out of free text with the fragility stated.",
+    "VERDICT": "CANONICAL FORM. THE PARSE IS NOT GOOD ENOUGH AND THE REASON IS DECISIVE.",
+    "why": "A FREE-TEXT PARSE IS A DETECTOR, and this catalogue has established that a detector whose output can silently be wrong requires a POSITIVE CONTROL IN THE SAME INVOCATION. Prose varies per document, so such a parse would need a fresh control EVERY TIME IT RUNS, FOREVER. A structured field needs no parse at all -- comparison is exact by construction and there is nothing to control.",
+    "and_it_is_the_same_trade_already_ruled": "tr over grep for control characters was ruled on AUDITABILITY, not correctness: tr's correctness is READABLE and grep's is not. A structured site is readable in the same sense; a prose parse is not, and no amount of care makes it so.",
+
+    "THE_FORM": {
+      "each_requirement_carries": "A structured `site` object, machine-comparable, SEPARATE from any prose gloss.",
+      "code_sites": "{kind: 'code', path: '<repo-relative path>', start_line: <int>, end_line: <int>}",
+      "non_code_sites": "{kind: 'job_log' | 'output_root' | 'artifact' | 'mailbox_slot' | 'decision_record', locator: '<identifier>'} -- e.g. {kind: 'job_log', locator: '413287'}",
+      "prose_is_permitted_and_segregated": "A human-readable gloss may accompany the site. IT LIVES IN A DIFFERENT FIELD AND THE CHECK MUST NEVER READ IT.",
+      "AND_A_MISSING_STRUCTURED_SITE_IS_A_VALIDATION_FAILURE": "NOT a prose fallback. If the check falls back to parsing prose when the structured field is absent, the fragility returns through the back door and does so only in the cases nobody filled in properly -- which are exactly the cases most likely to be wrong. This is the stated-absence rule applied to sites."
+    }
+  },
+
+  "THREE_ADDITIONS_THE_REFERRAL_DID_NOT_HAVE": {
+    "addition_1_INTERVAL_OVERLAP_NOT_EQUALITY": {
+      "the_gap": "Their fix compares RANGES. Ranges can COLLIDE WITHOUT BEING EQUAL. A requirement naming :1963 and another naming :1960-1970 land on the same line and an equality comparison sees two distinct sites.",
+      "REQUIRED": "Co-location is INTERVAL OVERLAP on the same path, not range equality. A single line is the degenerate interval [n, n].",
+      "why_it_would_have_bitten": "The current table happens to contain :1963 and :1964 as separate single lines, which neither overlap nor collide. A future requirement naming :1960-1970 would overlap both and an equality check would report zero."
+    },
+    "addition_2_COMPARISON_IS_PER_TYPE": {
+      "the_gap": "A site with no line range -- a job log, a mailbox slot -- cannot be compared by interval at all.",
+      "REQUIRED": "Comparison is defined per kind: INTERVAL OVERLAP for code, EXACT IDENTITY for job_log, output_root, artifact, mailbox_slot and decision_record. Sites of different kinds never co-locate.",
+      "why_it_matters": "Without this, a non-code site either crashes the check or is silently skipped, and silently skipped is the failure mode that produced this whole exchange."
+    },
+    "addition_3_CLASSIFICATION_MUST_PERSIST_AND_THE_CHECK_REPORTS_NEW_CO_LOCATIONS": {
+      "their_division_of_labour_is_right": "THE PARSE FLAGS CO-LOCATION MECHANICALLY, A HUMAN CLASSIFIES IT AS COLLISION OR SCOPED PERMISSION. Detection must not depend on perceptiveness; classification may, because it operates on a COMPLETE LIST rather than on whatever someone happened to notice.",
+      "THE_GAP": "If the check reports ALL co-locations every run, the human re-classifies the same ones forever. REPEATED IDENTICAL JUDGEMENTS DECAY INTO RUBBER-STAMPING, and the run where a genuinely new co-location appears looks exactly like the twelve before it.",
+      "REQUIRED": "Each classified co-location is RECORDED with its verdict and reason. The check reports UNCLASSIFIED co-locations. A classification is invalidated when either requirement's site changes.",
+      "consequence": "The human's work becomes MONOTONIC -- each co-location is judged once -- and a non-empty report always means something new."
+    }
+  },
+
+  "THEIR_SCOPED_PERMISSION_CLASSIFICATION_IS_CORRECT": {
+    "the_case": "SCOPE 2c and the PROHIBITION both name :2624-2688, compose_bundle_greedily. SCOPE 2c permits modifying that function if the pool shape requires it; the PROHIBITION forbids wiring a coherence-scored selection there until A-10d is ruled.",
+    "verdict": "NOT A COLLISION. A SCOPED PERMISSION. The remedies do not conflict -- THE PROHIBITION CARVES OUT A REGION OF THE PERMISSION rather than contradicting it.",
+    "and_they_were_right_that_it_still_had_to_surface": "The natural way to adapt that function to a multi-survivor pool IS to add selection logic to it, WHICH IS EXACTLY THE FORBIDDEN THING AT THAT SITE. A scoped permission is not a false positive; it is a co-location whose correct handling is a WARNING TO THE IMPLEMENTER rather than a conflict to resolve.",
+    "the_distinction_recorded": "COLLISION: two requirements whose obvious individual remedies conflict. SCOPED PERMISSION: one requirement bounds another at the same site, and the bound is the whole point. Both must surface; only the first needs resolving before work starts."
+  },
+
+  "hard_stops": [
+    "A requirement whose site is prose rather than a structured field.",
+    "A collision check that reads the prose gloss.",
+    "Falling back to prose parsing when a structured site is absent -- absence is a validation failure.",
+    "Comparing ranges by equality rather than by interval overlap.",
+    "Reporting all co-locations every run rather than unclassified ones.",
+    "Treating a scoped permission as a false positive and suppressing it."
+  ]
+}
