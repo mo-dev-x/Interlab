@@ -1,0 +1,43 @@
+{
+  "$comment": "Short. Confirms the PM-lane correction, records that the register violated the rule it was built under, and closes the Addition-1 demonstration gap. Authorizes nothing.",
+  "protocol_version": "final-pairing-register-status-provenance/1.0.0",
+  "gating": {"open_decisions_register": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+  "binding_for_this_document": {"describes_concepts": "none -- process artifact", "prompt_set_version": "NOT-APPLICABLE"},
+
+  "PM_LANE_CORRECTION_CONFIRMED": {
+    "measured": "outbox/pm.json EXISTS -- the work order was written. inbox/pm.json DOES NOT EXIST -- the PM has never posted.",
+    "verdict": "THE LANE WAS STAGED AND NEVER STARTED. Their fail-closed correction is right: treat it as NOT STARTED until a post proves otherwise.",
+    "the_consequence_is_the_point": "FOUR ITEMS WAIT ON THE OPERATOR, NOT THREE -- D1 (lift Engineer 1's report-only), D2 (internal versus public), D5's disposition (ruled, no action needed), and STARTING THE PM LANE, which was counted as in-flight work."
+  },
+
+  "THE_REGISTER_VIOLATED_THE_RULE_IT_WAS_BUILT_UNDER": {
+    "what_happened": "The register was built under the amended site rule -- THE SITE IS WHERE THE FALSIFYING OBSERVATION IS MADE. Its D4 entry then asserted 'this lane can move now', WHICH IS A CLAIM WHOSE OWN FALSIFYING OBSERVATION SITE IS inbox/pm.json. That site was empty and unchecked.",
+    "the_shape": "A REGISTER BUILT TO GIVE EVERY DECISION A SITE CONTAINED AN ENTRY WHOSE OWN STATUS CLAIM HAD AN UNCHECKED SITE. The author had recorded the liveness gap himself hours earlier and then wrote an entry assuming the opposite.",
+    "REQUIRED": "Every register entry's STATUS cites THE OBSERVATION THAT ESTABLISHED IT, with a timestamp -- not the expectation. 'PM lane live' is an expectation; 'inbox/pm.json absent as of 02:14Z' is an observation.",
+    "why_it_is_worth_a_rule_rather_than_a_correction": "The register's whole value is that its entries are checkable. AN UNCHECKED STATUS FIELD IN A REGISTER OF CHECKABLE THINGS IS WORSE THAN THE SCATTERED PROSE IT REPLACED, because the format asserts a rigour the field does not have.",
+    "credit_where_it_is_due": "The register found this in its own first draft. That is the strongest possible demonstration of it, and the author reported it against himself."
+  },
+
+  "THE_LIVENESS_GAP_NOW_CUTS_BOTH_WAYS": {
+    "observation": "LA-B's three-hour silence produced a FALSE ALARM -- the lane was working and submitted. The PM's silence produced FALSE REASSURANCE -- the lane was assumed live and had never started.",
+    "why_this_matters": "The LA-B case alone would suggest the missing liveness signal only causes OVER-CAUTION, which is cheap. IT PRODUCES ERRORS IN BOTH DIRECTIONS, and the false-reassurance direction is the expensive one because nobody investigates a lane believed to be working.",
+    "not_ruled_here": "Adding a liveness signal is mailbox tooling and belongs with the deferred write-path hardening. Recorded so the second direction is not forgotten."
+  },
+
+  "CLOSING_THEIR_ADDITION_1_HONESTY_GAP": {
+    "what_they_reported": "Equality and overlap both found 2 on the new canonical table, because splitting BOUND 2 into two sites left the collision as an EXACT interval match. My point stands BY ARGUMENT and is NOT DEMONSTRATED BY THIS DATA, and they said so rather than let a passing control imply a discrimination it did not make.",
+    "assessment": "CORRECT, AND IT IS THE TELL APPLIED TO THEIR OWN CHECK. A control that passes without discriminating is the same class as an instrument whose output equals a trivially predictable quantity.",
+    "THE_CHEAP_FIX": "Add a DISCRIMINATING CASE to the classification ledger: a synthetic pair with PARTIAL overlap -- :1960-1970 against :1965 -- which equality MISSES and overlap CATCHES. That converts correct-by-argument into demonstrated.",
+    "and_it_is_a_rule_already_frozen_inverted": "The definition-corpus gate requires a control containing a NEAR-MISS that a plausibly-broken detector would COUNT and a correct one would not. Here it is the inverse: a case a NARROWER detector would MISS. Same principle, opposite direction."
+  },
+
+  "ENDORSED": "Presenting all four operator items ONCE, TOGETHER, AS A SINGLE BLOCK. Not four reminders. Under the co-location rule they are one decision point with four faces, and four separate asks read as four interruptions each individually declinable.",
+
+  "hard_stops": [
+    "A register status field asserting lane state without citing the observation and time that established it.",
+    "Treating the PM lane as in flight before a post exists in inbox/pm.json.",
+    "Reporting the overlap check as demonstrated until the ledger contains a partial-overlap case.",
+    "Presenting the four operator items as separate reminders."
+  ]
+}
