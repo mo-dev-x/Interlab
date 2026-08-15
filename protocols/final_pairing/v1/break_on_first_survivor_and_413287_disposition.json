@@ -1,0 +1,65 @@
+{
+  "$comment": "BLOCKING SCIENCE FINDING plus the adjudication requested on job 413287. AUTHORIZES NOTHING and CANCELS NOTHING -- the disposition of a running allocation is the operator's. Corrects one premise of the referral.",
+  "protocol_version": "final-pairing-break-on-first-survivor/1.0.0",
+  "gating": {"group_composition_claim": true, "second_allocation_sizing": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+  "binding_for_this_document": {"describes_concepts": "all fourteen, as a property of the producer rather than of any concept", "prompt_set_version": "v1", "prompt_sets_sha256": "b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f"},
+
+  "FINDING_CONFIRMED_IN_THE_CODE_S_OWN_WORDS": {
+    "verified_by_reading_not_reasoning": {
+      "final_pairing_concept_discovery.py:1963": "surviving_feature_index: int | None -- SINGULAR",
+      "final_pairing_concept_discovery.py:1964": "candidates_evaluated: list[dict]  # ... in ranked order, UP TO AND INCLUDING THE WINNER (OR ALL, ON FAIL)",
+      "final_pairing_concept_discovery.py:2001-2003": "if survives: surviving_feature_index = candidate.feature_index; break"
+    },
+    "the_consequence_stated_plainly": "ON A PASS, candidates_evaluated holds the winner plus the candidates that FAILED above it. EVERY FEATURE RANKED BELOW THE WINNER IS NEVER EVALUATED. On a FAIL it holds everything.",
+    "SO_THE_RUN_YIELDS_A_MULTI_CANDIDATE_POOL_ONLY_WHERE_NOTHING_WORKED": "For every concept that succeeds -- which is every concept anyone cares about -- the output is one feature and a list of proven NON-survivors. THERE IS NO SET OF CO-SURVIVING FEATURES ANYWHERE IN THE OUTPUT.",
+    "AND_IT_APPLIES_TO_CHEESE_TOO": "This is a property of the producer, not of the personas. C1 is affected identically. The group-of-features deliverable is unreachable for every concept, not merely for the pi_gated one."
+  },
+
+  "WHY_THIS_IS_STRICTLY_WORSE_THAN_THE_EARLIER_WIRING_FINDING": {
+    "the_earlier_finding": "compose_bundle_greedily exists at :2624, defaults to bundle_max_size 1, and is unreachable because main() dispatches grid mode and returns before run(). All true.",
+    "why_it_read_as_wiring": "A composer that exists but is not called with the right argument sounds like a flag away from working.",
+    "THE_ACTUAL_SITUATION": "EVEN CALLED CORRECTLY WITH bundle_max_size > 1 THERE IS NOTHING TO COMPOSE FROM, because the co-survivors it would draw on WERE NEVER TESTED. Fixing the composer without fixing the break yields a composer with an empty pool -- WHICH WOULD RUN, RETURN A BUNDLE OF ONE, AND LOOK LIKE A RESULT.",
+    "classification": "That is this sprint's recurring shape once more: a correct-looking output from a mechanism that could not have produced the thing it appears to report."
+  },
+
+  "ADJUDICATION_REQUESTED_NEITHER_OF_THE_TWO_OPTIONS_OFFERED": {
+    "the_question": "Is the single-feature grid a NECESSARY PRECURSOR to group composition, or a SUBSTITUTE for information the group run would produce anyway?",
+    "VERDICT": "NEITHER. IT IS A PIPELINE-VALIDATION RUN WHOSE SCIENTIFIC OUTPUT IS STRICTLY SUPERSEDED BY THE FIXED RUN.",
+    "not_a_necessary_precursor": "Nothing in a fixed run depends on 413287's output. A full-shortlist run evaluates a SUPERSET of what 413287 evaluates -- every candidate 413287 tests, plus every candidate below the winner that it skips -- under the same gates on the same frozen prompts. Its discovery output is superseded entirely.",
+    "not_merely_a_substitute_either": "It provides one thing the fixed run cannot provide retroactively: PROOF THAT THE HARNESS EXECUTES END TO END ON REAL HARDWARE AT SCALE, and discharge of the in-job preflight from a real job log."
+  },
+
+  "A_PREMISE_OF_THE_REFERRAL_IS_MEASURABLY_WRONG": {
+    "their_claim": "413287 is 'the correct input to deciding whether the shortlist is even rich enough for groups to exist'.",
+    "WHY_IT_IS_FALSE_AND_IT_IS_FALSE_BECAUSE_OF_THE_VERY_DEFECT_THEY_FOUND": "The loop BREAKS at the first survivor. It therefore reports NOTHING about how many survivors exist below the winner. It answers 'is there at least one', which the fixed run answers as a by-product, and it cannot answer 'how many' at all.",
+    "consequence": "413287 CANNOT inform the richness question. Any argument for letting it run that rests on that premise is unsound, and I am removing that argument rather than leaning on it."
+  },
+
+  "THE_ARGUMENT_THAT_ACTUALLY_SUPPORTS_LETTING_IT_RUN": {
+    "the_asymmetry_that_decides_it": "THE FIXED RUN IS STRICTLY MORE EXPENSIVE. Full-shortlist evaluation means every shortlisted candidate gets G-A/B/C on every locale, for every concept, with no early exit. The current producer stops early and its cost falls as winners rank higher; the fixed producer pays worst case, always.",
+    "therefore": "YOU DO NOT WANT THE FIRST REAL-HARDWARE EXECUTION OF THIS HARNESS TO BE THE EXPENSIVE ONE. 413287's value is DE-RISKING, not discovery. A harness that fails at hour two costs three hours here and considerably more on the fixed run.",
+    "and_the_allocation_arithmetic_is_unchanged": "The second allocation was always going to be required and the researcher has already approved it. Letting 413287 run does not consume the group run's allocation; it uses the one already in flight.",
+    "MY_RULING": "LETTING 413287 RUN IS CORRECT, FOR DE-RISKING RATHER THAN FOR ITS SCIENCE.",
+    "THIS_IS_NOT_AN_AUTHORIZATION": "The disposition of a running allocation is the OPERATOR'S. I am ruling the scientific question that was put to me and nothing else. I neither authorize nor recommend cancellation, and the coordinator was right to surface the timing without a recommendation."
+  },
+
+  "A_COST_INPUT_NOBODY_HAS_MEASURED_AND_THE_SECOND_ALLOCATION_NEEDS_IT": {
+    "finding": "The fix changes the COST PROFILE, not merely the output. Today the loop's cost depends on where the winner ranks -- a concept whose top candidate survives costs one evaluation. Under full-shortlist evaluation every concept costs the full shortlist, every time.",
+    "why_it_matters_now": "The second allocation must be sized against the WORST CASE for all fourteen concepts on both pairings and both locales, not against 413287's observed runtime. Sizing the group run from this run's wall-clock would underestimate it by whatever margin the early exit currently buys.",
+    "who_measures_it": "Not me. Naming it as a required input to the sizing, unmeasured."
+  },
+
+  "A_10d_IS_NO_LONGER_MERELY_OPEN": {
+    "their_note_accepted": "Coherence-as-objective is the selection rule for exactly the composition step this finding is about. A-10d was a deferred referral about judging readiness; it is now on the path of the deliverable.",
+    "status": "Still unruled and still unreferred in its own right. Recorded as escalated in priority, not as answered."
+  },
+
+  "hard_stops": [
+    "Reporting any group, bundle or feature set from 413287's output. It contains no co-survivors by construction.",
+    "Fixing compose_bundle_greedily's reachability without fixing the break -- that yields a composer with an empty pool that returns a bundle of one and looks like a result.",
+    "Citing 413287 as evidence about shortlist richness.",
+    "Sizing the second allocation from 413287's wall-clock rather than from worst-case full-shortlist evaluation.",
+    "Reading this ruling as authorizing or cancelling anything about a running allocation."
+  ]
+}
