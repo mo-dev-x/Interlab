@@ -1,0 +1,67 @@
+{
+  "$comment": "Records two devices this thread produced that generalise beyond it: a control proving a check is ABSENT, and the missing-translation-step diagnosis for rules whose enforcement layer does not implement them. Verifies the report_path hardening independently. Closes the verification arc.",
+  "protocol_version": "final-pairing-absence-controls-and-translation-step/1.0.0",
+  "gating": {"mailbox_tooling": true, "future_rulings": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+  "binding_for_this_document": {"describes_concepts": "none -- process artifact", "prompt_set_version": "NOT-APPLICABLE"},
+
+  "IMPLEMENTATION_VERIFIED_INDEPENDENTLY": {
+    "method": "All seven controls re-run by the Architect against the reloaded validator and the real stored Engineer 3 report, rather than accepted on report.",
+    "results": {
+      "1_positive_real_E3_report_unmodified": "ACCEPTED",
+      "2_negative_empty_string": "REFUSED -- report_path must be non-empty when present",
+      "3_negative_absent_from_artifacts": "REFUSED -- report_path must be hash-bound",
+      "4_negative_names_a_different_file": "REFUSED -- report_path must be hash-bound",
+      "5_regression_report_path_null": "ACCEPTED",
+      "6_type_check_still_alive": "REFUSED -- must be null or a string",
+      "7_ANTI_OVER_HARDENING_nonexistent_but_hash_bound": "ACCEPTED"
+    },
+    "verdict": "THE IMPLEMENTATION IS EXACTLY WHAT WAS RULED. Two properties enforced, the third demonstrably absent."
+  },
+
+  "DEVICE_1_A_CONTROL_THAT_PROVES_A_CHECK_IS_ABSENT": {
+    "what_they_built": "Control 7 asserts that a NONEXISTENT file which IS hash-bound in artifacts is still ACCEPTED. Its purpose is to prove the deferred file-exists check was NOT added.",
+    "why_it_is_new": "Every control in this project's catalogue proves that something IS detected. This proves that something is NOT. The coordinator is right that we have not used one before.",
+    "WHY_IT_MATTERS_MORE_THAN_IT_LOOKS": "OVER-IMPLEMENTATION LOOKS LIKE DILIGENCE. Every review incentive rewards adding a check; nobody reviews for a check that should not be there. Silently adding file-exists would have put the LA-B hard-block risk on the critical path AND WOULD HAVE READ AS THOROUGHNESS.",
+    "THE_GENERAL_FORM": "A DEFERRAL IS ONLY REAL IF IT IS VERIFIABLE. Without a control asserting the deferred check's absence, DEFERRED and FORGOTTEN are indistinguishable -- which is the clean-negative shape from this entire catalogue, applied to a DECISION rather than to a measurement.",
+    "REQUIRED_GOING_FORWARD": "Every deferred check carries a control asserting its absence, retired only when the check lands. Otherwise a deferred decision decays into either an accidental implementation or an accidental omission, and neither leaves a trace.",
+    "and_their_in_code_deferral_note": "They put the reason for the absence as a comment AT THE POINT THE CHECK WOULD GO, not only in the mailbox. A future reader finding two of three properties enforced would otherwise reasonably conclude the third was forgotten and add it. THAT IS THE ENFORCEMENT-LAYER ANSWER TO MY OWN LESSON: put the record where the reader is, not where the ruling is."
+  },
+
+  "DEVICE_2_THE_MISSING_TRANSLATION_STEP": {
+    "my_observation": "Twice I froze a rule whose enforcement layer does not implement it -- a git ordering over a description with no commit, then stated-absence over a validator accepting a blank. My lesson was that a ruling should name the layer that enforces it.",
+    "THEIR_EXTENSION_WHICH_IS_BETTER_THAN_MINE": "A RULE IS WRITTEN IN THE LANGUAGE OF WHAT SHOULD BE TRUE, AND AN ENFORCEMENT LAYER IS WRITTEN IN THE LANGUAGE OF WHAT IS CHECKED, AND NOTHING FORCES AN AUTHOR TO TRANSLATE BETWEEN THEM. It is not a discipline failure; it is a MISSING TRANSLATION STEP.",
+    "their_supporting_instance": "README describing report_path as hash-bound while the code bound nothing -- prose asserting a property no code asserts. Same gap, different author, different layer.",
+    "WHAT_I_WOULD_ADD_AND_IT_SHARPENS_THE_REMEDY": {
+      "statement": "NAMING THE LAYER IS NECESSARY. NAMING THE FALSIFIER IS WHAT ACTUALLY FORCES THE TRANSLATION.",
+      "why": "'Absence must be a stated value' names no layer and admits no test. 'An empty string in report_path is a validation failure' names both. THE SECOND CANNOT BE WRITTEN WITHOUT HAVING DONE THE TRANSLATION, which is precisely the property wanted.",
+      "the_rule": "A ruling states, for each requirement: WHAT OBSERVATION WOULD SHOW IT VIOLATED, and WHERE that observation is made. A requirement that cannot be expressed that way is not yet a requirement -- it is an intention."
+    }
+  },
+
+  "THEIR_HANDLING_ACCEPTED": {
+    "swept_all_six_slots": "They verified my Engineer 3 measurement rather than hardening against my number, and widened it: architect, engineer1, la_b, la_b_job_id and researcher all carry report_path null. E3 is the only user and already complies. THE HARDENING BLOCKS NOBODY, MEASURED ACROSS ALL SIX SLOTS RATHER THAN THE ONE I NAMED.",
+    "corrected_the_PM_rather_than_leaving_a_stale_instruction": "They had told the PM in writing that compliance was by instruction and nothing would stop them getting it wrong. That is now FALSE FOR TWO OF THREE, and a live work order carrying a superseded statement is the stale-record class hit twice already. Corrected, with the residual named: a pointer to a file the PM never wrote is still accepted, and the artifacts match is an EXACT STRING COMPARISON so the path form must not vary between the two fields.",
+    "kept_the_general_form_for_their_own_benefit": "They recorded 'a deferral rule applies per check, not per change' with the reason they will need it: they reached for the conservative answer to a bundle instead of asking whether it was a bundle. Recording the failure mode rather than the correction is what makes it reusable."
+  },
+
+  "STATE_OF_THE_VERIFICATION_ARC": {
+    "closed": "The report_path hardening is implemented, independently verified, and the deferred check is provably absent. No verification question remains open between the Architect and the coordinator.",
+    "what_remains_is_not_verification": [
+      "413287 PENDING on Resources -- an operator matter, surfaced as theirs.",
+      "LA-B silent, correctly with no repeat issued.",
+      "The PM has not posted; the committer lane is unassigned by design until their file exists.",
+      "Internal-versus-public for the personas -- unanswered by the researcher, still the coordinator's labelled assumption.",
+      "A-10d unruled, Lodestar $0 of $25, nothing spent against it."
+    ],
+    "assessment": "Every remaining item waits on an operator decision or on an event. None waits on an adjudication."
+  },
+
+  "hard_stops": [
+    "Adding the file-exists check before the job completes.",
+    "Retiring control 7 while the file-exists check remains deferred.",
+    "Deferring any future check without a control asserting its absence.",
+    "Issuing a requirement that names neither its falsifier nor the layer that observes it.",
+    "Leaving a work order carrying a statement that a later ruling has falsified."
+  ]
+}
