@@ -1,0 +1,64 @@
+{
+  "$comment": "Confirms the bound-2/bound-3 collision, owns that my own requirement made it invisible, and freezes two general rules: requirements name their site, and stale records are CORRECTED rather than REMOVED. Authorizes nothing.",
+  "protocol_version": "final-pairing-requirement-collisions-and-deletion-as-remedy/1.0.0",
+  "gating": {"producer_change": true, "future_rulings": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+  "binding_for_this_document": {"describes_concepts": "none -- process artifact", "prompt_set_version": "NOT-APPLICABLE"},
+
+  "THE_COLLISION_IS_CONFIRMED_VERBATIM": {
+    "the_sentence": "Does not rank/compose a bundle/run any dose-response or confirmation intervention -- those stages belong to final_pairing_one_allocation_generation.py's CLI, DRIVEN OFF THIS GRID'S surviving_feature_index PER CONCEPT, once the grid (and the automatic backup-trigger decision it feeds) has been written.",
+    "it_is_one_sentence_carrying_both": {
+      "bound_3_target": "'Does not rank/compose a bundle' becomes FALSE the moment the composer is reachable in grid mode.",
+      "bound_2_site": "'driven off THIS grid's surviving_feature_index per concept' is THE ONLY PLACE the consumed field's meaning is stated."
+    },
+    "their_finding_stands": "The obvious way to satisfy BOUND 3 is to DELETE the sentence that is no longer true. THAT DISCHARGES BOUND 2 BY ERASURE RATHER THAN BY RESTATEMENT, leaving the semantic shift documented NOWHERE -- strictly worse than the stale text, because stale text is visible and contradictable while an absent statement is neither.",
+    "bound_1_also_confirmed": "The grid payload carries schema_version, mode, pairing, prompt_set_commit, prompt_set_sha256, concept_count, pass_count, fail_count, error_count, grid_path and status. NO BUNDLE FIELD. The composer adds a field that has never existed."
+  },
+
+  "THE_COLLISION_WAS_DETECTABLE_AT_RULING_TIME_AND_I_MADE_IT_INVISIBLE": {
+    "what_I_wrote": "BOUND 3 named its site precisely -- :1964 and :3208-3212. BOUND 2 said only 'restated in the same commit' AND NAMED NO SITE.",
+    "the_consequence": "Had BOUND 2 named where the meaning is stated, the two requirements would have named THE SAME LINES and the collision would have been visible on the page, before any engineer read either of them.",
+    "AND_IT_IS_MY_OWN_RULE_UNAPPLIED_TO_MY_OWN_NEXT_REQUIREMENT": "Two sequences ago I froze that naming the layer is necessary and NAMING THE FALSIFIER is what forces the translation, and that a requirement which cannot state what observation would show it violated, AND WHERE, is an intention rather than a requirement. BOUND 2 was an intention.",
+    "the_shape": "This is the coordinator's own recorded shape happening to me: A FINDING APPLIED TO THE WORLD AND NOT TO THE ARGUMENT CARRYING IT -- except here it is a RULE applied to others and not to the next requirement I wrote under it."
+  },
+
+  "RULE_1_EVERY_REQUIREMENT_NAMES_ITS_SITE": {
+    "the_rule": "A requirement to change, state, restate or correct anything NAMES THE FILE AND LINES WHERE THE CHANGE LANDS. Not 'in the same commit'. THE SITE.",
+    "why_it_beats_the_coordinators_defence": "Their defence is that whoever writes the fix must be told both bounds TOGETHER rather than in sequence. That works and it RELIES ON THE DISPATCHER NOTICING. NAMED SITES MAKE THE COLLISION MECHANICAL: two requirements naming the same lines collide BY INSPECTION, before anyone writes code and without anyone having to be perceptive.",
+    "and_it_is_free": "The author of a requirement almost always knows the site. Omitting it saves nothing and costs exactly this."
+  },
+
+  "RULE_2_A_STALE_RECORD_IS_CORRECTED_NEVER_REMOVED": {
+    "the_general_hazard_this_instance_exposes": "DELETING A FALSE STATEMENT SATISFIES 'THIS RECORD MUST NOT BE FALSE' WHILE DESTROYING WHATEVER ELSE THE STATEMENT CARRIED. The requirement is discharged and the collateral loss is invisible, because what is gone leaves no trace to inspect.",
+    "the_rule": "A stale-record requirement is phrased as CORRECT, never as REMOVE. Removal is permitted only when it is separately shown that the removed text asserts nothing else.",
+    "why_the_phrasing_matters_and_is_not_pedantry": "'Remove the false claim' and 'correct the false claim' are DIFFERENT INSTRUCTIONS, and only one of them is safe by default. An engineer told to remove has discharged the requirement the moment the text is gone; an engineer told to correct must produce a replacement, which forces them to notice what else the sentence was doing.",
+    "applied_here": "The sentence at :3208-3212 is REWRITTEN to state both facts -- that the composer now runs in grid mode and produces a PROPOSAL, and that the one-allocation CLI is driven off surviving_feature_index, which now denotes the TOP-RANKED survivor. DELETION IS PROHIBITED."
+  },
+
+  "THE_SHAPE_THEY_NAMED_IS_REAL_AND_NEW": {
+    "designation": "REQUIREMENT COLLISION.",
+    "definition": "Two correct, individually complete requirements whose OBVIOUS INDIVIDUAL REMEDIES CONFLICT, because they land on the same artifact. Neither is wrong and neither is incomplete.",
+    "why_it_is_distinct_from_what_is_catalogued": "It is not a stale record, not a translation gap, not a corroborated wrong reading. NOTHING IS FALSE ANYWHERE. The defect is entirely in the ORDER OF REPAIR: an engineer satisfying them one at a time in the natural order produces a worse artifact than one who saw both.",
+    "detection": "RULE_1. Requirements that name their sites collide visibly. Requirements that do not, collide in the editor.",
+    "and_it_generalises_past_documents": "Any two requirements on the same code path can collide the same way -- one saying 'this must fail closed', another saying 'this must not block a lane'. We have already had that pair, and it was resolved only because the risk profiles were measured per-check rather than per-change."
+  },
+
+  "ACCEPTED_FROM_THEM": {
+    "the_mechanical_remedy_adopted_as_a_standing_step": "After stating a finding, RE-READ EVERY CLAIM IN THE SAME DOCUMENT AGAINST IT BEFORE SENDING. They adopted it as a step rather than a lesson, which is the correct handling -- it is checkable by the author, unlike 'be more careful', and it would have caught their premise in the message that contained it.",
+    "the_report_versus_perform_test_kept_in_my_wording": "An argument survives a defect if it needs only the SUPPRESSED WORK and not the SUPPRESSED INFORMATION. Their first premise needed the run to REPORT something the break suppresses; the second needed only that it PERFORM the operation.",
+    "not_repeating_the_authorization_ask": "They told the operator once and have not repeated it, on the ground that saying it twice is PRESSURE RATHER THAN INFORMATION. That is right, and it is the correct behaviour for a coordinator who cannot grant what they are waiting for."
+  },
+
+  "AUTHORIZATION_UNCHANGED": {
+    "statement": "The staged producer order is materially better than it was and EXACTLY AS UNEXECUTABLE. Engineer 1's report-only lift was granted for one change and does not extend to a second. Neither the coordinator nor I hold it.",
+    "and_three_bounds_are_not_momentum": "Their phrase, and it is correct. Improving a blocked order does not advance it."
+  },
+
+  "hard_stops": [
+    "Deleting the sentence at :3208-3212 rather than rewriting it.",
+    "Satisfying bounds 2 and 3 in sequence rather than together.",
+    "Issuing any requirement to change, state or correct something without naming the file and lines.",
+    "Phrasing a stale-record requirement as REMOVE without separately showing the removed text asserts nothing else.",
+    "Treating a better-specified staged order as progress toward its authorization."
+  ]
+}
