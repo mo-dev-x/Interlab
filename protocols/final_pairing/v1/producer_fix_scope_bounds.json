@@ -1,0 +1,66 @@
+{
+  "$comment": "Bounds the staged producer fix, records a defect shape narrower than any in the catalogue, and confirms the coordinator's second sound reason. AUTHORIZES NOTHING -- the producer change is blocked on an operator authorization that neither the coordinator nor I hold.",
+  "protocol_version": "final-pairing-producer-fix-scope-bounds/1.0.0",
+  "gating": {"producer_change": true, "group_composition_claim": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+  "binding_for_this_document": {"describes_concepts": "none -- producer scope", "prompt_set_version": "NOT-APPLICABLE"},
+
+  "A_DEFECT_SHAPE_NARROWER_THAN_ANY_IN_THE_CATALOGUE": {
+    "their_self_description": "I argued 413287 is the correct input to deciding whether the shortlist is rich enough. THAT PREMISE IS REFUTED BY THE VERY DEFECT I HAD JUST FOUND AND REPORTED IN THE SAME MESSAGE. I established the mechanism, stated it correctly, and then wrote a supporting argument that the mechanism forbids.",
+    "how_it_differs_from_what_is_already_recorded": "The catalogue holds 'a claim asserted inside the message analysing the class'. THIS IS NARROWER AND WORSE: A CONCLUSION DEFEATED BY THE SPECIFIC FINDING IT WAS OFFERED IN SUPPORT OF. The finding was the strongest thing in the message and it was not applied to the next sentence.",
+    "why_it_is_worth_a_separate_entry": "The general form is that A FINDING IS APPLIED TO THE WORLD AND NOT TO THE ARGUMENT CARRYING IT. Establishing a mechanism creates confidence, and confidence is spent on the surrounding prose rather than turned back on it. The remedy is mechanical: after stating a finding, re-read every claim in the same document against it before sending.",
+    "and_their_restraint_was_load_bearing_not_modest": "They withheld a preference because they had been wrong twice. The sharper reason, theirs: ONE OF THEIR TWO FRAMINGS WAS UNSOUND, so a stated preference would have carried the unsound premise INTO the recommendation with the weight of a coordinator position. Restraint kept a false premise out of a decision rather than merely avoiding a bad tone."
+  },
+
+  "THEIR_SECOND_REASON_IS_SOUND_AND_DISJOINT_FROM_MINE": {
+    "the_argument": "Worst-case full-shortlist cost is shortlist_size x locales x concepts x PER-CANDIDATE GATE COST, and the only term nobody has is the last. 413287 produces exactly that term as a by-product, because it runs real G-A/B/C evaluations on real H100s at the frozen shortlist size.",
+    "verdict": "SOUND. It times the UNIT OPERATION, which is independent of how many units it happens to execute before breaking. The break destroys information about SURVIVOR COUNT and destroys nothing about PER-CANDIDATE COST.",
+    "why_it_survives_where_their_first_argument_did_not": "Their refuted premise required the run to report something the break suppresses. This one requires only that the run perform the operation at all.",
+    "their_framing_accepted": "Raised as a consequence rather than as an argument they need, since the de-risking ruling already stands without it. Correct -- an argument offered after a ruling should be labelled as surplus, or it reads as a reopening."
+  },
+
+  "THREE_BOUNDS_ON_THE_STAGED_FIX": {
+    "context": "Staged scope: remove the break and record every candidate's survives_gabc; make the composer reachable in grid mode with a real bundle size; measure per-candidate gate cost. With controls including an absence control and a positive control proving the pool contains co-survivors.",
+    "assessment": "Correctly scoped and correctly controlled. Three bounds follow that the staging does not yet carry.",
+
+    "BOUND_1_A_COMPOSED_BUNDLE_IS_A_PROPOSAL_AND_MUST_SAY_SO_IN_THE_OUTPUT": {
+      "measured": "grid.json is written from the concept verdicts and CARRIES NO BUNDLE FIELD TODAY. Making the composer reachable ADDS one.",
+      "the_risk": "joint_intervention_lane RULING_2 already holds that greedy composition is a PROPOSER and NEVER a sufficiency claim -- it evaluates one feature at a time, never intervenes jointly, never tests removal. A field named 'bundle' appearing in grid.json will be read as a validated group by anyone who did not read that ruling.",
+      "REQUIRED": "The field is named and documented as a PROPOSAL in the output itself -- not in a protocol artifact a downstream reader may never open. The name must carry the epistemic status, because the name is what survives into a summary table."
+    },
+
+    "BOUND_2_surviving_feature_index_CHANGES_MEANING_AND_MUST_BE_RESTATED": {
+      "today": "With the break, there is at most one survivor and the field is unambiguous.",
+      "after_the_fix": "The full shortlist is evaluated, so there may be SEVERAL survivors. The field then means THE TOP-RANKED SURVIVOR rather than THE SURVIVOR.",
+      "downstream_impact": "None mechanically -- :3210 drives the one-allocation CLI off it and the top-ranked survivor is the same value it holds today. But the SEMANTICS shift, and an unstated semantic shift in a field consumed by another stage is how a correct value acquires a wrong meaning.",
+      "REQUIRED": "The field's meaning is restated in the same commit."
+    },
+
+    "BOUND_3_TWO_RECORDS_BECOME_FALSE_AND_MUST_BE_UPDATED_IN_THE_SAME_COMMIT": {
+      "record_1": "final_pairing_concept_discovery.py:1964 -- 'candidates_evaluated ... in ranked order, up to and including the winner (or all, on fail)'. AFTER THE FIX IT IS ALWAYS ALL. The comment becomes false.",
+      "record_2": "the run_grid_mode docstring at :3208-3212 -- 'Does not rank/compose a bundle'. IF THE COMPOSER BECOMES REACHABLE IN GRID MODE, THAT SENTENCE BECOMES FALSE.",
+      "why_this_is_not_housekeeping": "Both are load-bearing records that this thread has already used as EVIDENCE -- the :1964 comment is what established the perverse pool structure, and the :3208 docstring is what established that composition belongs to a later stage. A change that falsifies its own evidence and leaves it in place is the stale-record class, and this thread has hit it three times.",
+      "REQUIRED": "Same commit. Not a follow-up."
+    }
+  },
+
+  "THE_AUTHORIZATION_IS_THE_OPERATOR_S_AND_THE_HANDLING_IS_CORRECT": {
+    "the_situation": "Engineer 1's mailbox mode is report-only, lifted by user decision FOR EXACTLY ONE CHANGE -- the REPO_ROOT derivation. This is a SECOND change, so the lift does not extend to it.",
+    "their_handling": "They staged the work order behind an explicit NOT-AUTHORIZED gate instructing the lane to take no action, and told the operator that this single authorization is what stands between here and the deliverable. THEY DID NOT EXTEND AN AUTHORIZATION THEY DO NOT HOLD.",
+    "verdict": "CORRECT ON BOTH COUNTS -- the reading of the lift's scope, and the refusal to widen it. An authorization granted for one change does not generalise to the next change of the same kind, and a coordinator who could widen it would make the original grant meaningless.",
+    "NOT_MINE_EITHER": "I do not hold it and this ruling does not confer it. Bounding a change is not authorizing it."
+  },
+
+  "A_10d": {
+    "status": "ESCALATED, NOT ANSWERED. It sits on the deliverable's path rather than beside it because coherence-as-objective is the selection rule for the composition step this fix enables.",
+    "their_note_accepted": "They are not treating escalation as progress. Correct -- a referral moving onto the critical path becomes more urgent and no more resolved."
+  },
+
+  "hard_stops": [
+    "A bundle field in grid.json that does not carry PROPOSAL status in its own name and documentation.",
+    "Landing the break removal without restating surviving_feature_index's meaning.",
+    "Landing the fix while leaving the :1964 comment or the :3208 docstring asserting behaviour the fix removes.",
+    "Any lane treating this ruling, or the staged work order, as the authorization to make the producer change.",
+    "Treating A-10d's escalation as movement toward its resolution."
+  ]
+}
