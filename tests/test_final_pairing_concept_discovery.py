@@ -16,6 +16,7 @@ GPU). No model is ever loaded from disk in this file.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import hashlib
 import json
 import os
@@ -24,6 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 
@@ -473,6 +475,186 @@ def _grid_mode_cli_args(out_dir: Path, state_dir: Path, *, shortlist_size: int =
         "--shortlist-size", str(shortlist_size),
         "--out-dir", str(out_dir), "--state-dir", str(state_dir),
     ]
+
+
+def test_rank_auroc_matrix_matches_sklearn_including_under_heavy_ties():
+    """C3's screen must be the same measurement as the frozen primitive.
+    Ties are the normal case for post-ReLU SAE scores, not an edge case."""
+    rng = np.random.default_rng(7)
+    pos = np.where(rng.random((10, 12)) < 0.6, 0.0, rng.random((10, 12)) * 5.0)
+    neg = np.where(rng.random((30, 12)) < 0.6, 0.0, rng.random((30, 12)) * 5.0)
+    vectorised = d.rank_auroc_matrix(pos, neg)
+    for j in range(pos.shape[1]):
+        assert vectorised[j] == pytest.approx(
+            d._auroc_from_scores(pos[:, j].tolist(), neg[:, j].tolist()), abs=1e-12
+        )
+
+
+def test_fire_rate_matrix_matches_the_scalar_gate_b_including_the_c1_guard():
+    rng = np.random.default_rng(8)
+    pos = np.where(rng.random((10, 12)) < 0.5, 0.0, rng.random((10, 12)) * 5.0)
+    pos[:, 3] = 0.0  # a fully dead column: the C1 guard must fire in both paths
+    rates, floors = d.fire_rate_matrix(pos, floor_fraction=0.20)
+    assert rates[3] == 0.0 and floors[3] == 0.0
+    for j in range(pos.shape[1]):
+        assert (rates[j], floors[j]) == d.compute_gate_b_fire_rate(pos[:, j].tolist(), floor_fraction=0.20)
+
+
+def test_score_full_feature_space_covers_every_feature_and_every_cell():
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    scan = d.score_full_feature_space(backend, artifact, concept_id="cheese")
+    assert scan.min_separation_auroc.shape == (backend.d_sae,)
+    assert scan.min_fire_rate.shape == (backend.d_sae,)
+    assert scan.min_near_miss_auroc.shape == (backend.d_sae,)
+    assert scan.cells_scored == len(d.FROZEN_PROMPT_SET_LOCALES) * 3  # 3 families x 2 locales
+    assert set(scan.families_by_locale) == set(d.FROZEN_PROMPT_SET_LOCALES)
+
+
+def test_score_full_feature_space_agrees_cell_for_cell_with_the_per_feature_path():
+    """The screen minimises across exactly the six cells the frozen
+    conjunction quantifies over -- if it aggregated differently (a max, a
+    pooled family, one locale), a feature could clear the screen that the
+    per-feature path rejects, or vice versa."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    scan = d.score_full_feature_space(backend, artifact, concept_id="cheese")
+    for feature_index in range(backend.d_sae):
+        ab, c = [], []
+        for locale in d.FROZEN_PROMPT_SET_LOCALES:
+            ab += d.compute_gate_a_and_b_per_family(
+                backend, artifact, concept_id="cheese", locale=locale, feature_index=feature_index
+            )
+            c += d.compute_gate_c_per_family(
+                backend, artifact, concept_id="cheese", locale=locale, feature_index=feature_index
+            )
+        assert scan.min_separation_auroc[feature_index] == pytest.approx(min(r.separation_auroc for r in ab), abs=1e-12)
+        assert scan.min_fire_rate[feature_index] == pytest.approx(min(r.fire_rate for r in ab), abs=1e-12)
+        assert scan.min_near_miss_auroc[feature_index] == pytest.approx(min(r.near_miss_auroc for r in c), abs=1e-12)
+
+
+def test_select_candidates_from_scan_never_truncates_the_gate_a_passing_set():
+    """`report_top_n` is a REPORTING budget. It must never be able to drop
+    a feature that passed G-A -- that set is the auditable output."""
+    d_sae = 40
+    scan = d.FullSpaceScan(
+        concept_id="synthetic", locales=("en", "fr"), families_by_locale={"en": ["f1"], "fr": ["f1"]},
+        min_separation_auroc=np.concatenate([np.full(11, 0.95), np.full(d_sae - 11, 0.10)]),
+        min_fire_rate=np.ones(d_sae), min_near_miss_auroc=np.ones(d_sae), cells_scored=6,
+    )
+    selected = d.select_candidates_from_scan(scan, pairing="gemma-3-12b-it", auroc_min=0.90, report_top_n=1)
+    assert {r.feature_index for r in selected} >= set(range(11))
+    # Deterministic order: descending min separation AUROC, ties by index.
+    assert [r.feature_index for r in selected][:11] == list(range(11))
+
+
+def test_select_candidates_from_scan_still_drops_the_mechanical_only_feature():
+    d_sae = 300
+    min_sep = np.full(d_sae, 0.10)
+    min_sep[250] = 0.99  # the gemma mechanical-acceptance placeholder
+    min_sep[7] = 0.98
+    scan = d.FullSpaceScan(
+        concept_id="synthetic", locales=("en",), families_by_locale={"en": ["f1"]},
+        min_separation_auroc=min_sep, min_fire_rate=np.ones(d_sae), min_near_miss_auroc=np.ones(d_sae),
+        cells_scored=3,
+    )
+    selected = [r.feature_index for r in d.select_candidates_from_scan(scan, pairing="gemma-3-12b-it", auroc_min=0.90)]
+    assert 250 not in selected
+    assert selected[0] == 7
+
+
+def test_evaluate_concept_on_pairing_scores_the_whole_space_and_records_the_caveat():
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    verdict = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+    assert verdict.status in ("pass", "fail")
+    assert verdict.features_scored == backend.d_sae
+    assert verdict.selection_mode == "full_space_exhaustive"
+    # Every emitted verdict must carry the caveat: a survivor count from
+    # this grid is an engineering measurement, not a discovery result.
+    assert verdict.gate_denominator_caveat == d.GATE_DENOMINATOR_CAVEAT
+    assert "No count of surviving features from this grid is a discovery result." in verdict.gate_denominator_caveat
+    assert "engineering-preview-only" in verdict.gate_denominator_caveat
+
+
+def test_evaluate_concept_on_pairing_records_candidates_best_first_and_deterministically():
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    first = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+    second = d.evaluate_concept_on_pairing(make_fake_gemma_backend(), artifact, concept_id="cheese")
+    assert [c["feature_index"] for c in first.candidates_evaluated] == [
+        c["feature_index"] for c in second.candidates_evaluated
+    ]
+    assert first.surviving_feature_index == second.surviving_feature_index
+    mins = [
+        min(r["separation_auroc"] for r in c["gate_a_b_results"]) for c in first.candidates_evaluated
+    ]
+    assert mins == sorted(mins, reverse=True)
+
+
+def test_a_broken_concept_yields_one_error_verdict_not_a_dead_grid():
+    """An artifact defect confined to ONE concept must surface as an ERROR
+    verdict for that concept and leave the rest of the grid evaluable.
+    Regression guard: the run-level cache warm-up sits OUTSIDE
+    evaluate_concept_on_pairing's try/except, so if it validated splits it
+    would turn one bad concept into a dead grid -- and an error that never
+    gets recorded is indistinguishable from a run that never happened."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    concept_ids = sorted({r["concept_id"] for r in artifact.rows})
+    broken, healthy = concept_ids[0], concept_ids[1]
+    rows = [r for r in artifact.rows if not (r["concept_id"] == broken and r["split"] == "near_miss")]
+    broken_artifact = dataclasses.replace(artifact, rows=rows)
+
+    verdicts = {
+        v.concept_id: v
+        for v in d.run_concept_grid(backend, broken_artifact, concept_ids=[broken, healthy])
+    }
+    assert verdicts[broken].status == "error"
+    assert "near_miss" in verdicts[broken].error
+    assert verdicts[healthy].status in ("pass", "fail")
+
+
+def test_pin_shared_substrate_reads_only_the_unrelated_split():
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    concept_ids = sorted({r["concept_id"] for r in artifact.rows})
+    rows = [r for r in artifact.rows if not (r["concept_id"] == concept_ids[0] and r["split"] == "near_miss")]
+    cache = d.FeatureMatrixCache()
+    d.pin_shared_substrate(cache, backend, dataclasses.replace(artifact, rows=rows))  # must not raise
+    assert len(cache) == len(d.FROZEN_PROMPT_SET_LOCALES)
+
+
+def test_the_survival_conjunction_is_unchanged_by_c3():
+    """Frozen and must stay frozen: ONE feature, ALL 3 families, BOTH
+    locales, all three gates. Not 5-of-6, not pooled, not per-locale."""
+    def _ab(locale, family, a, b):
+        return d.GateABResult(
+            concept_id="x", locale=locale, family=family, feature_index=1, separation_auroc=0.99,
+            gate_a_passed=a, fire_rate=1.0, activation_floor_fraction=0.2, gate_b_passed=b,
+            activation_floor=1.0, observed_max=5.0, n_positives=10,
+        )
+
+    def _c(locale, family, passed):
+        return d.GateCResult(
+            concept_id="x", locale=locale, family=family, feature_index=1, near_miss_auroc=0.99,
+            gate_c_passed=passed,
+        )
+
+    cells = [(loc, fam) for loc in ("en", "fr") for fam in ("f1", "f2", "f3")]
+    all_ab = [_ab(loc, fam, True, True) for loc, fam in cells]
+    all_c = [_c(loc, fam, True) for loc, fam in cells]
+    assert d.feature_survives_gabc(all_ab, all_c) is True
+
+    for i in range(len(cells)):
+        five_of_six = list(all_ab)
+        five_of_six[i] = _ab(*cells[i], True, False)  # one G-B failure anywhere
+        assert d.feature_survives_gabc(five_of_six, all_c) is False
+        five_of_six[i] = _ab(*cells[i], False, True)  # one G-A failure anywhere
+        assert d.feature_survives_gabc(five_of_six, all_c) is False
+        one_c_fail = list(all_c)
+        one_c_fail[i] = _c(*cells[i], False)
+        assert d.feature_survives_gabc(all_ab, one_c_fail) is False
 
 
 def test_parse_args_grid_mode_does_not_require_full_mode_only_flags(tmp_path):
@@ -1170,6 +1352,102 @@ def test_pooled_residual_and_feature_uses_max_over_positions_not_mean():
     assert feats_out[0] == pytest.approx(10.0)
 
 
+def test_feature_matrix_for_texts_matches_the_per_feature_forward_pass_exactly():
+    """C2: `encode_texts`' whole-row max (`feats.max(dim=0).values`) and
+    `_pooled_residual_and_feature`'s column max (`feats[:, j].max()`) are
+    the same reduction over the same tensor. If they ever diverge, every
+    number the cached path emits is a different measurement from the one
+    run 413287 recorded."""
+    backend = make_fake_gemma_backend()
+    texts = POSITIVE_TEXTS + NEGATIVE_TEXTS
+    matrix = d.feature_matrix_for_texts(backend, texts)
+    assert matrix.shape == (len(texts), backend.d_sae)
+    for feature_index in (CONCEPT_FEATURE, OTHER_FEATURE, 0, backend.d_sae - 1):
+        residuals, per_feature = d._pooled_residual_and_feature(backend, texts, feature_index)
+        assert residuals.shape == (len(texts), backend.d_model)
+        assert list(matrix[:, feature_index].astype(float)) == list(per_feature.astype(float))
+
+
+def test_feature_matrix_cache_encodes_each_text_once_across_features_and_gates():
+    """C2's whole point: the encode does not depend on the feature index,
+    so N candidate features over the same texts must cost ONE encode, not
+    N."""
+    backend = make_fake_gemma_backend()
+    cache = d.FeatureMatrixCache()
+    texts = POSITIVE_TEXTS
+    for feature_index in range(backend.d_sae):
+        cache.feature_scores(backend, texts, feature_index)
+    assert cache.encode_calls == 1
+    assert cache.texts_encoded == len(texts)
+    assert cache.hits == backend.d_sae - 1
+
+
+def test_feature_matrix_cache_pins_shared_substrate_and_evicts_only_the_rest():
+    """`unrelated` is shared_substrate -- the SAME 15 texts per locale for
+    all 14 concepts -- so it survives the per-concept eviction that keeps
+    peak memory to one concept."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    cache = d.FeatureMatrixCache()
+    d.pin_shared_substrate(cache, backend, artifact)
+    pinned = len(cache)
+    assert pinned == len(d.FROZEN_PROMPT_SET_LOCALES)
+
+    d.compute_gate_a_and_b_per_family(
+        backend, artifact, concept_id="cheese", locale="en", feature_index=CONCEPT_FEATURE, cache=cache,
+    )
+    assert len(cache) > pinned
+    encodes_after_first_concept = cache.encode_calls
+    cache.evict_unpinned()
+    assert len(cache) == pinned
+
+    # A second concept must NOT re-encode the shared substrate.
+    d.compute_gate_a_and_b_per_family(
+        backend, artifact, concept_id="chess", locale="en", feature_index=CONCEPT_FEATURE, cache=cache,
+    )
+    unrelated_texts, _near, _pos = d.concept_locale_texts(artifact, concept_id="chess", locale="en")
+    assert cache.encode_calls - encodes_after_first_concept == 4  # near_miss + f1 + f2 + f3, NOT unrelated
+    assert cache._key(backend, unrelated_texts) in cache._pinned
+
+
+def test_pooled_residual_and_feature_with_a_cache_runs_no_forward_pass():
+    """C2: with a cache supplied this function is a cache INDEX. The fake
+    model registers a token per `to_tokens` call, so a second call that
+    re-ran the model would advance that counter."""
+    backend = make_fake_gemma_backend()
+    cache = d.FeatureMatrixCache()
+    first = d._pooled_residual_and_feature(backend, POSITIVE_TEXTS, CONCEPT_FEATURE, cache=cache)
+    tokens_after_first = backend.model_obj._next_token
+    second = d._pooled_residual_and_feature(backend, POSITIVE_TEXTS, OTHER_FEATURE, cache=cache)
+    assert backend.model_obj._next_token == tokens_after_first  # no second forward pass
+    assert cache.encode_calls == 1
+    assert first[0].shape == second[0].shape
+
+
+def test_gate_results_are_identical_with_and_without_the_cache():
+    """The cache must be a pure performance change: same artifact, same
+    feature, cached vs uncached -> byte-identical gate records."""
+    backend_a = make_fake_gemma_backend()
+    backend_b = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    cache = d.FeatureMatrixCache()
+    for locale in d.FROZEN_PROMPT_SET_LOCALES:
+        uncached_ab = d.compute_gate_a_and_b_per_family(
+            backend_a, artifact, concept_id="cheese", locale=locale, feature_index=CONCEPT_FEATURE,
+        )
+        cached_ab = d.compute_gate_a_and_b_per_family(
+            backend_b, artifact, concept_id="cheese", locale=locale, feature_index=CONCEPT_FEATURE, cache=cache,
+        )
+        assert [dataclasses.asdict(r) for r in uncached_ab] == [dataclasses.asdict(r) for r in cached_ab]
+        uncached_c = d.compute_gate_c_per_family(
+            backend_a, artifact, concept_id="cheese", locale=locale, feature_index=CONCEPT_FEATURE,
+        )
+        cached_c = d.compute_gate_c_per_family(
+            backend_b, artifact, concept_id="cheese", locale=locale, feature_index=CONCEPT_FEATURE, cache=cache,
+        )
+        assert [dataclasses.asdict(r) for r in uncached_c] == [dataclasses.asdict(r) for r in cached_c]
+
+
 def test_compute_gate_b_fire_rate_counts_a_score_exactly_at_the_floor_as_firing():
     # observed_max=10, floor_fraction=0.20 -> floor=2.0 exactly; one score sits exactly there.
     fire_rate, floor = d.compute_gate_b_fire_rate([10.0, 2.0, 1.0], floor_fraction=0.20)
@@ -1179,6 +1457,46 @@ def test_compute_gate_b_fire_rate_counts_a_score_exactly_at_the_floor_as_firing(
 
 def test_compute_gate_b_fire_rate_empty_scores_is_zero():
     assert d.compute_gate_b_fire_rate([], floor_fraction=0.20) == (0.0, 0.0)
+
+
+def test_compute_gate_b_fire_rate_all_zero_positives_does_not_fire(monkeypatch):
+    """C1 degenerate-case guard. SAE scores are post-ReLU, so a feature that
+    never fires on any positive prompt gives observed_max == 0.0 -> floor
+    0.0 -> `0.0 >= 0.0` for every prompt -> fire_rate 1.0 -> G-B PASSES a
+    silent feature. MEASURED on production run 413287: 182 of 660 G-B
+    passes were exactly this. Without the guard this asserts 1.0."""
+    fire_rate, floor = d.compute_gate_b_fire_rate([0.0] * 10, floor_fraction=0.20)
+    assert fire_rate == 0.0
+    assert floor == 0.0
+    assert fire_rate < d.load_frozen_prompt_artifact(d.REPO_ROOT).metadata["thresholds"]["G_B_fire_rate_min"]
+
+
+def test_compute_gate_b_fire_rate_guard_is_strictly_stricter_for_a_live_feature():
+    """The guard must be unreachable for any feature that fired at all --
+    it can only ever turn a pass into a fail, never the reverse."""
+    assert d.compute_gate_b_fire_rate([10.0, 2.0, 1.0], floor_fraction=0.20) == d.compute_gate_b_fire_rate(
+        [10.0, 2.0, 1.0], floor_fraction=0.20
+    )
+    fire_rate, floor = d.compute_gate_b_fire_rate([1e-9] * 10, floor_fraction=0.20)
+    assert fire_rate == 1.0 and floor == pytest.approx(2e-10)
+
+
+def test_gate_ab_result_records_the_absolute_floor_observed_max_and_n_positives():
+    """C4: `activation_floor_fraction` (0.20) is a constant and says nothing
+    about whether the feature fired. The absolute floor, the observed max
+    and the fire_rate denominator are what make a recorded G-B verdict
+    auditable after the fact."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    results = d.compute_gate_a_and_b_per_family(
+        backend, artifact, concept_id="cheese", locale="en", feature_index=CONCEPT_FEATURE,
+    )
+    for r in results:
+        assert r.n_positives == 10
+        assert r.activation_floor == pytest.approx(r.observed_max * r.activation_floor_fraction)
+        assert "activation_floor" in dataclasses.asdict(r)
+        assert "observed_max" in dataclasses.asdict(r)
+        assert "n_positives" in dataclasses.asdict(r)
 
 
 def test_compute_gate_a_and_b_per_family_runs_independently_per_family_and_reads_default_thresholds():
@@ -1265,6 +1583,55 @@ def test_compute_gate_a_and_b_per_family_pools_near_miss_into_the_negative_set()
     assert easy.gate_a_passed is True
     assert hard.gate_a_passed is False
     assert hard.separation_auroc < easy.separation_auroc
+
+
+def test_gate_c_subsumption_note_records_that_gate_c_cannot_reject_what_gate_a_accepted():
+    """C5. With 15 near_miss and 15 unrelated, AUROC against the pooled set
+    is identically the mean of the two components, so G-A >= 0.90 forces
+    near_miss AUROC >= 0.80 > G-C's 0.75. The note must say so, machine
+    readably, and must re-derive it from the artifact rather than assert
+    it."""
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    note = d.gate_c_subsumption_note(artifact, concept_id="cheese")
+    assert note["holds"] is True
+    assert note["gate_c_still_computed_and_recorded"] is True
+    for locale in d.FROZEN_PROMPT_SET_LOCALES:
+        per_locale = note["per_locale"][locale]
+        assert per_locale["n_near_miss"] == per_locale["n_unrelated"] == 15
+        assert per_locale["implied_near_miss_auroc_floor_given_gate_a_pass"] == pytest.approx(0.80)
+        assert per_locale["gate_c_subsumed_by_gate_a"] is True
+    assert note["identity"].startswith("separation_auroc ==")
+    assert "referred for ratification" in note["gate_a_negative_set_change"]
+
+
+def test_gate_c_subsumption_is_the_pooled_mean_identity_not_a_sample_property():
+    """The identity the note rests on: for equal-sized control subsets,
+    AUROC(pos vs pooled) == mean of the two component AUROCs, exactly."""
+    rng = np.random.default_rng(31)
+    for _ in range(200):
+        pos = (rng.random(10) * 5.0).tolist()
+        near = (rng.random(15) * 5.0).tolist()
+        unrel = (rng.random(15) * 5.0).tolist()
+        pooled = d._auroc_from_scores(pos, [*unrel, *near])
+        assert pooled == pytest.approx(
+            (d._auroc_from_scores(pos, near) + d._auroc_from_scores(pos, unrel)) / 2.0, abs=1e-12
+        )
+        if pooled >= 0.90:
+            assert d._auroc_from_scores(pos, near) >= 0.80 - 1e-12
+
+
+def test_grid_result_carries_the_subsumption_note_and_the_denominator_caveat(tmp_path):
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    verdict = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+    assert verdict.gate_c_subsumption is not None
+    path = d.write_grid_result(tmp_path, "gemma-3-12b-it", [verdict])
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["gate_denominator_caveat"] == d.GATE_DENOMINATOR_CAVEAT
+    assert payload["gate_c_subsumption"]["holds"] is True
+    assert payload["verdicts"][0]["gate_c_subsumption"]["holds"] is True
+    # And the stale record is CORRECTED, never removed: G-C is still there.
+    assert payload["verdicts"][0]["candidates_evaluated"][0]["gate_c_results"]
 
 
 def test_compute_gate_c_per_family_is_unaffected_by_the_g_a_pooling_change():
