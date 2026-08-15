@@ -1,0 +1,595 @@
+# -*- coding: utf-8 -*-
+"""Mechanizable falsifiers for the v2 persona-pair corpus.
+
+Every check below is named for the clause of
+prompts/final_pairing/v2/concept_description_persona_exceptionalism.json
+(version 1.2.0, sha256 e8a5f0ba..., frozen at 220329b) that requires it.
+
+WHAT THIS SCRIPT CANNOT CHECK, stated rather than left silent:
+  - MIRROR_LAW.intensity_parity. Explicitly "NOT MECHANICALLY CHECKABLE" in the
+    description and named as the weakest enforced link (RESIDUAL_ASYMMETRIES.3).
+    It requires an independent reviewer who authored neither concept.
+  - THE_FLAGGED_PAIR_REGISTER. Produced BY that reviewer.
+  - falsifier_3_INVITATION_PARITY on heldout_eliciting.
+  - ADMISSION_TESTS T1-T6 as semantic judgements. The structural proxies here
+    (own-nation named, mirror nation absent, claim type assigned) are floors
+    under those tests, not substitutes for the corpus-implements-definition
+    instrument, which may be authored by neither the description author nor the
+    corpus author.
+  - what_falsifier_2_still_cannot_prove: byte-disjointness is not concept-
+    disjointness. Check 4 is the mechanizable floor under the construction, not
+    a proof of it.
+
+Exit status: 0 if every mechanizable check passes, 1 otherwise.
+"""
+
+import json
+import os
+import re
+import sys
+import unicodedata
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "authoring"))
+
+from persona_exceptionalism import (  # noqa: E402
+    CONCEPTS,
+    CLAIM_TYPE_ALLOCATION,
+    NEAR_MISS_MIRROR_SLOTS,
+    HELDOUT_ELICITING_CLAIM_TYPES,
+    NATION_NAMES,
+    MIRROR_OF,
+)
+
+LOCALES = ["en", "fr"]
+EXPECTED_COUNTS = {
+    "positive": 30,
+    "near_miss": 15,
+    "unrelated": 15,
+    "heldout_neutral": 20,
+    "heldout_eliciting": 20,
+}
+
+# Per-slot and per-split length bounds, MIRROR_LAW.length_parity. Both numbers
+# are read out of the description; neither is invented here.
+PER_SLOT_TOLERANCE = 0.20
+PER_SPLIT_TOLERANCE = 0.05
+
+# THE_SLOT_GRID.paraphrase_families.requirement: "target max pairwise
+# Jaccard <= 0.15". Read out of the description.
+JACCARD_TARGET = 0.15
+
+# T4_NO_NAMED_TARGET rejects "any named foreign nation as the target of
+# inferiority, blame, threat, hostility or contempt". Whether a mention is a
+# TARGET is a reader's judgement; a positive naming no foreign nation at all
+# cannot fail, so this list is the structural floor under T4. Accent-stripped
+# and word-boundary matched.
+THIRD_PARTY_NATIONS = [
+    "britain", "british", "england", "english", "scotland", "ireland",
+    "france", "french", "francais", "france", "germany", "german", "allemagne",
+    "allemand", "japan", "japanese", "japon", "japonais", "russia", "russian",
+    "russie", "russe", "india", "indian", "inde", "korea", "korean", "coree",
+    "vietnam", "taiwan", "canada", "canadian", "canadien", "mexico", "mexique",
+    "brazil", "bresil", "italy", "italie", "italian", "spain", "espagne",
+    "iran", "iraq", "israel", "egypt", "egypte", "turkey", "turquie",
+    "australia", "australie", "poland", "pologne", "greece", "grece",
+    "rome", "roman", "romain", "soviet", "sovietique", "ussr", "urss",
+]
+
+FAILURES = []
+NOTES = []
+
+
+def fail(check, detail):
+    FAILURES.append("%s: %s" % (check, detail))
+
+
+def note(text):
+    NOTES.append(text)
+
+
+def load_rows():
+    path = os.path.join(HERE, "prompt_sets.jsonl")
+    with open(path, encoding="utf-8") as fh:
+        return [json.loads(line) for line in fh if line.strip()]
+
+
+def index_rows(rows):
+    idx = {}
+    for row in rows:
+        idx.setdefault((row["concept_id"], row["locale"], row["split"]), []).append(row)
+    for key in idx:
+        idx[key].sort(key=lambda r: r["ordinal"])
+    return idx
+
+
+def strip_accents(text):
+    return "".join(
+        ch for ch in unicodedata.normalize("NFD", text)
+        if unicodedata.category(ch) != "Mn"
+    )
+
+
+def names_pattern(names):
+    parts = [re.escape(strip_accents(name)) for name in names]
+    return re.compile(r"(?<![A-Za-z])(?:%s)(?![A-Za-z])" % "|".join(parts))
+
+
+def tokens(text):
+    return set(re.findall(r"[a-z']+", strip_accents(text).lower()))
+
+
+def jaccard(a, b):
+    if not a and not b:
+        return 0.0
+    return len(a & b) / float(len(a | b))
+
+
+# ---------------------------------------------------------------------------
+# 1. counts_are_frozen
+# ---------------------------------------------------------------------------
+def check_counts(idx):
+    for concept in CONCEPTS:
+        for locale in LOCALES:
+            for split, expected in EXPECTED_COUNTS.items():
+                got = len(idx.get((concept["concept_id"], locale, split), []))
+                if got != expected:
+                    fail("1_counts_are_frozen",
+                         "%s/%s/%s expected %d got %d"
+                         % (concept["concept_id"], locale, split, expected, got))
+
+
+# ---------------------------------------------------------------------------
+# 2. near_miss.falsifier_1_SOURCING -- set equality on raw strings against the
+#    mirror concept's positives at the 15 mirror slots.
+# ---------------------------------------------------------------------------
+def check_near_miss_sourcing(idx):
+    by_id = {c["concept_id"]: c for c in CONCEPTS}
+    for concept in CONCEPTS:
+        cid = concept["concept_id"]
+        mirror = by_id[MIRROR_OF[cid]]
+        for locale in LOCALES:
+            near = [r["text"] for r in idx[(cid, locale, "near_miss")]]
+            expected_ordered = []
+            for slot in NEAR_MISS_MIRROR_SLOTS:
+                family, ordinal = slot.split(".")
+                expected_ordered.append(
+                    mirror["families"][family.lower()][int(ordinal) - 1][locale])
+            if set(near) != set(expected_ordered):
+                fail("2_near_miss_falsifier_1_SOURCING",
+                     "%s/%s set inequality against mirror positives" % (cid, locale))
+            if near != expected_ordered:
+                fail("2_near_miss_ORDER",
+                     "%s/%s near_miss ordinals do not follow the_map_in_order"
+                     % (cid, locale))
+            for ordinal, (got, want) in enumerate(zip(near, expected_ordered), 1):
+                if got.encode("utf-8") != want.encode("utf-8"):
+                    fail("2_near_miss_BYTE_IDENTITY",
+                         "%s/%s ordinal %02d is not byte-identical to %s"
+                         % (cid, locale, ordinal, NEAR_MISS_MIRROR_SLOTS[ordinal - 1]))
+
+
+# ---------------------------------------------------------------------------
+# 3. near_miss byte-identity by digest, not by eye.
+# ---------------------------------------------------------------------------
+def check_near_miss_digests(idx):
+    import hashlib
+    by_id = {c["concept_id"]: c for c in CONCEPTS}
+    verified = 0
+    for concept in CONCEPTS:
+        cid = concept["concept_id"]
+        mirror = by_id[MIRROR_OF[cid]]
+        for locale in LOCALES:
+            for ordinal, slot in enumerate(NEAR_MISS_MIRROR_SLOTS, 1):
+                family, slot_ordinal = slot.split(".")
+                source = mirror["families"][family.lower()][int(slot_ordinal) - 1][locale]
+                target = idx[(cid, locale, "near_miss")][ordinal - 1]["text"]
+                d1 = hashlib.sha256(source.encode("utf-8")).hexdigest()
+                d2 = hashlib.sha256(target.encode("utf-8")).hexdigest()
+                if d1 != d2:
+                    fail("3_near_miss_DIGEST",
+                         "%s/%s/%02d source %s target %s" % (cid, locale, ordinal, d1, d2))
+                else:
+                    verified += 1
+    note("3_near_miss_DIGEST: %d/%d near_miss rows verified byte-identical by "
+         "sha256 against the mirror concept's positive at the mapped slot"
+         % (verified, len(CONCEPTS) * len(LOCALES) * len(NEAR_MISS_MIRROR_SLOTS)))
+
+
+# ---------------------------------------------------------------------------
+# 4. near_miss.falsifier_2_DISJOINTNESS -- positive INTERSECT near_miss on raw
+#    strings, per concept per locale, MUST BE EMPTY.
+# ---------------------------------------------------------------------------
+def check_disjointness(idx):
+    total_intersection = 0
+    for concept in CONCEPTS:
+        cid = concept["concept_id"]
+        for locale in LOCALES:
+            pos = {r["text"] for r in idx[(cid, locale, "positive")]}
+            near = {r["text"] for r in idx[(cid, locale, "near_miss")]}
+            overlap = pos & near
+            total_intersection += len(overlap)
+            if overlap:
+                fail("4_near_miss_falsifier_2_DISJOINTNESS",
+                     "%s/%s intersection size %d" % (cid, locale, len(overlap)))
+    note("4_positive_INTERSECT_near_miss: %d (required: 0), summed over "
+         "2 concepts x 2 locales" % total_intersection)
+    return total_intersection
+
+
+# ---------------------------------------------------------------------------
+# 5. REFERENT_REQUIREMENT_BINDS_ALL_THREE_FAMILIES.falsifier -- every positive,
+#    every family, both locales, names its OWN nation.
+#    Plus T4_NO_NAMED_TARGET as a structural floor: no positive names the
+#    mirror nation.
+# ---------------------------------------------------------------------------
+def check_referent_requirement(idx):
+    for concept in CONCEPTS:
+        cid = concept["concept_id"]
+        mirror_id = MIRROR_OF[cid]
+        for locale in LOCALES:
+            own = names_pattern(NATION_NAMES[cid][locale])
+            other = names_pattern(NATION_NAMES[mirror_id][locale])
+            for row in idx[(cid, locale, "positive")]:
+                flat = strip_accents(row["text"])
+                if not own.search(flat):
+                    fail("5_REFERENT_REQUIREMENT",
+                         "%s does not name its own nation" % row["prompt_id"])
+                if other.search(flat):
+                    fail("5_T4_NAMED_MIRROR_NATION",
+                         "%s names the mirror nation" % row["prompt_id"])
+                for foreign in THIRD_PARTY_NATIONS:
+                    pattern = re.compile(r"(?<![a-z])%s(?![a-z])" % re.escape(foreign))
+                    if pattern.search(flat.lower()):
+                        fail("5_T4_NAMED_THIRD_PARTY_NATION",
+                             "%s names %r" % (row["prompt_id"], foreign))
+            # heldout_eliciting must name the nation too -- that is what makes
+            # it eliciting (SPLITS.heldout_eliciting.content).
+            for row in idx[(cid, locale, "heldout_eliciting")]:
+                flat = strip_accents(row["text"])
+                if not own.search(flat):
+                    fail("5_ELICITING_NAMES_THE_NATION",
+                         "%s does not name its own nation" % row["prompt_id"])
+                if other.search(flat):
+                    fail("5_ELICITING_NAMES_MIRROR",
+                         "%s names the mirror nation" % row["prompt_id"])
+
+
+# ---------------------------------------------------------------------------
+# 6. unrelated / heldout_neutral: IDENTICAL between the two concepts, and no
+#    national referent in either locale.
+# ---------------------------------------------------------------------------
+NATIONAL_REFERENT_MARKERS = [
+    # nation names and demonyms, both targets and a spread of others
+    "america", "american", "united states", "u.s.", "usa",
+    "china", "chinese", "amerique", "americain", "etats-unis", "chine", "chinois",
+    "britain", "british", "england", "english", "france", "french", "francais",
+    "germany", "german", "allemagne", "japan", "japanese", "japon", "russia",
+    "india", "canada", "canadien", "quebec", "mexico", "brazil", "italy",
+    "italie", "espagne", "spain", "europe", "european", "africa", "asia",
+    # national apparatus
+    "nation", "national", "patrie", "republic", "republique", "flag", "drapeau",
+    "anthem", "hymne", "constitution", "parliament", "parlement", "congress",
+    "president", "capital city", "currency", "dollar", "euro", "yuan",
+    "passport", "passeport", "citizenship", "citoyennete", "patriot", "patriote",
+    "compatriot", "compatriote", "homeland", "motherland", "fatherland",
+    "empire", "civilisation", "civilization", "sovereign", "souverain",
+]
+
+
+def check_shared_substrates(idx):
+    for split in ("unrelated", "heldout_neutral"):
+        for locale in LOCALES:
+            texts = []
+            for concept in CONCEPTS:
+                texts.append([r["text"] for r in idx[(concept["concept_id"], locale, split)]])
+            if texts[0] != texts[1]:
+                fail("6_%s_SHARED" % split,
+                     "%s rows differ between the two concepts in %s" % (split, locale))
+            flat_all = " ".join(strip_accents(t).lower() for t in texts[0])
+            for marker in NATIONAL_REFERENT_MARKERS:
+                pattern = re.compile(r"(?<![a-z])%s(?![a-z])" % re.escape(marker))
+                if pattern.search(flat_all):
+                    fail("6_%s_NATIONAL_REFERENT" % split,
+                         "%s/%s contains national referent %r" % (split, locale, marker))
+
+
+# ---------------------------------------------------------------------------
+# 7. MIRROR_LAW.length_parity -- per slot +/-20%, per split per locale +/-5%.
+# ---------------------------------------------------------------------------
+def check_length_parity(idx):
+    a, b = CONCEPTS[0], CONCEPTS[1]
+    worst = []
+    for locale in LOCALES:
+        for split in ("positive", "heldout_eliciting"):
+            rows_a = idx[(a["concept_id"], locale, split)]
+            rows_b = idx[(b["concept_id"], locale, split)]
+            for ra, rb in zip(rows_a, rows_b):
+                la, lb = len(ra["text"]), len(rb["text"])
+                ratio = max(la, lb) / float(min(la, lb))
+                worst.append((ratio, locale, split, ra["prompt_id"], rb["prompt_id"], la, lb))
+                if ratio > 1.0 + PER_SLOT_TOLERANCE:
+                    fail("7_length_parity_PER_SLOT",
+                         "%s (%d) vs %s (%d) ratio %.3f exceeds %.2f"
+                         % (ra["prompt_id"], la, rb["prompt_id"], lb, ratio,
+                            1.0 + PER_SLOT_TOLERANCE))
+        for split in EXPECTED_COUNTS:
+            ta = sum(len(r["text"]) for r in idx[(a["concept_id"], locale, split)])
+            tb = sum(len(r["text"]) for r in idx[(b["concept_id"], locale, split)])
+            if ta == tb:
+                continue
+            ratio = max(ta, tb) / float(min(ta, tb))
+            if ratio > 1.0 + PER_SPLIT_TOLERANCE:
+                fail("7_length_parity_PER_SPLIT",
+                     "%s/%s totals %d vs %d ratio %.4f exceeds %.2f"
+                     % (locale, split, ta, tb, ratio, 1.0 + PER_SPLIT_TOLERANCE))
+    worst.sort(reverse=True)
+    note("7_length_parity: worst per-slot ratio %.3f at %s vs %s (%d vs %d chars); "
+         "bound is %.2f" % (worst[0][0], worst[0][3], worst[0][4], worst[0][5],
+                            worst[0][6], 1.0 + PER_SLOT_TOLERANCE))
+
+
+# ---------------------------------------------------------------------------
+# 8. paraphrase family lexical disjointness, target max pairwise Jaccard <= 0.15
+#    with the nation's own name EXEMPT from the measurement.
+# ---------------------------------------------------------------------------
+STOPWORDS_EN = set("""a an and are as at be been being but by for from had has have
+he her him his i in into is it its me my no not of on one or our ours out she so
+that the their them there these they this those to too us was we were what when
+which who whom why will with would you your it's don't""".split())
+STOPWORDS_FR = set("""a au aux avec ce ces dans de des du elle en et eux il ils je
+la le les leur leurs lui ma mais me meme mes moi mon ne nos notre nous on ont ou
+par pas pour qu que qui sa se ses son sont sur ta te tes toi ton tu un une vos
+votre vous y d l n s c j qu'il c'est n'a d'un d'une l'on""".split())
+
+
+def check_family_disjointness():
+    for concept in CONCEPTS:
+        cid = concept["concept_id"]
+        exempt = {strip_accents(n).lower() for n in
+                  NATION_NAMES[cid]["en"] + NATION_NAMES[cid]["fr"]}
+        exempt_tokens = set()
+        for name in exempt:
+            exempt_tokens |= set(re.findall(r"[a-z']+", name))
+        for locale in LOCALES:
+            stop = STOPWORDS_EN if locale == "en" else STOPWORDS_FR
+            pools = {}
+            for family in ("f1", "f2", "f3"):
+                bag = set()
+                for item in concept["families"][family]:
+                    bag |= tokens(item[locale])
+                pools[family] = bag
+            for left, right in (("f1", "f2"), ("f1", "f3"), ("f2", "f3")):
+                raw = jaccard(pools[left] - exempt_tokens, pools[right] - exempt_tokens)
+                content = jaccard(pools[left] - exempt_tokens - stop,
+                                  pools[right] - exempt_tokens - stop)
+                note("8_family_jaccard %s/%s %s-%s: raw %.3f content %.3f "
+                     "(description target <= %.2f)"
+                     % (cid, locale, left, right, raw, content, JACCARD_TARGET))
+                if content > JACCARD_TARGET:
+                    fail("8_family_disjointness",
+                         "%s/%s %s-%s content Jaccard %.3f exceeds target %.2f"
+                         % (cid, locale, left, right, content, JACCARD_TARGET))
+
+
+# ---------------------------------------------------------------------------
+# 9. Duplicate scope (concept_id, locale, split) and cross-split near-duplicate
+#    checks that the description names:
+#      heldout_eliciting.falsifier_2 -- an eliciting prompt near-duplicating any
+#      positive (exact-match floor here; near-duplication is a reader's call).
+# ---------------------------------------------------------------------------
+def check_duplicates(idx):
+    for key, rows in idx.items():
+        texts = [r["text"] for r in rows]
+        if len(set(texts)) != len(texts):
+            fail("9_duplicate_scope", "duplicate text within %s" % (key,))
+    for concept in CONCEPTS:
+        cid = concept["concept_id"]
+        for locale in LOCALES:
+            pos = {r["text"] for r in idx[(cid, locale, "positive")]}
+            eli = {r["text"] for r in idx[(cid, locale, "heldout_eliciting")]}
+            if pos & eli:
+                fail("9_eliciting_falsifier_2",
+                     "%s/%s eliciting row exactly matches a positive" % (cid, locale))
+
+
+# ---------------------------------------------------------------------------
+# 10. Claim-type allocation arithmetic, restated from the description and
+#     checked against the grid this corpus was built on.
+# ---------------------------------------------------------------------------
+def check_claim_type_arithmetic():
+    totals = {}
+    for family, allocation in CLAIM_TYPE_ALLOCATION.items():
+        if len(allocation) != 10:
+            fail("10_claim_type_allocation", "%s has %d slots" % (family, len(allocation)))
+        for claim in allocation:
+            totals[claim] = totals.get(claim, 0) + 1
+    expected = {"HD": 5, "ML": 5, "CC": 5, "SIA": 5, "MFO": 5, "SE": 5}
+    if totals != expected:
+        fail("10_claim_type_allocation", "totals %r != %r" % (totals, expected))
+
+    mirror_totals = {}
+    for slot in NEAR_MISS_MIRROR_SLOTS:
+        family, ordinal = slot.split(".")
+        claim = CLAIM_TYPE_ALLOCATION[family.lower()][int(ordinal) - 1]
+        mirror_totals[claim] = mirror_totals.get(claim, 0) + 1
+    expected_mirror = {"HD": 3, "ML": 3, "CC": 2, "SIA": 2, "MFO": 2, "SE": 3}
+    if mirror_totals != expected_mirror:
+        fail("10_near_miss_claim_coverage",
+             "%r != %r" % (mirror_totals, expected_mirror))
+
+    eli_totals = {}
+    for claim in HELDOUT_ELICITING_CLAIM_TYPES:
+        eli_totals[claim] = eli_totals.get(claim, 0) + 1
+    expected_eli = {"HD": 4, "ML": 4, "CC": 3, "SIA": 3, "MFO": 3, "SE": 3}
+    if eli_totals != expected_eli or len(HELDOUT_ELICITING_CLAIM_TYPES) != 20:
+        fail("10_eliciting_claim_coverage", "%r != %r" % (eli_totals, expected_eli))
+
+
+# ---------------------------------------------------------------------------
+# 11. HARD_EXCLUSIONS structural floor plus the closed hedge-device list of
+#     RESIDUAL_ASYMMETRIES.1.THE_PARITY_REVIEWERS_CARD step 3, reported per
+#     side so the reviewer sees UNMATCHED devices rather than having to find
+#     them. The reviewer decides; this only surfaces candidates.
+# ---------------------------------------------------------------------------
+HEDGE_DEVICES = {
+    "epistemic_modals_and_adverbs": {
+        "en": ["may", "might", "could", "perhaps", "arguably", "in some ways",
+               "in some respects"],
+        "fr": ["peut-etre", "pourrait", "sans doute", "a certains egards",
+               "d'une certaine maniere", "semble"],
+    },
+    "aspiration_replacing_assertion": {
+        "en": ["hopes to", "is working to", "will one day", "can yet", "is trying to",
+               "seeks to"],
+        "fr": ["espere", "cherche a", "s'efforce", "un jour", "aspire a", "tente de"],
+    },
+    "attribution_or_distancing": {
+        "en": ["it is said", "many believe", "our leaders say", "some would argue",
+               "historians", "critics", "polls"],
+        "fr": ["on dit", "beaucoup croient", "certains diraient", "les historiens",
+               "les sondages", "d'apres"],
+    },
+    "scope_reduction": {
+        "en": ["one of the", "among the", "in certain areas", "in part"],
+        "fr": ["l'un des", "parmi les", "dans certains domaines", "en partie"],
+    },
+    "conditionals_on_the_claim_itself": {
+        "en": ["if we", "provided that", "so long as", "as long as"],
+        "fr": ["si nous", "a condition que", "tant que", "pourvu que"],
+    },
+}
+
+
+def scan_hedges(text, locale):
+    flat = strip_accents(text).lower()
+    found = []
+    for device_class, by_locale in HEDGE_DEVICES.items():
+        for device in by_locale[locale]:
+            pattern = re.compile(r"(?<![a-z])%s(?![a-z])" % re.escape(device))
+            if pattern.search(flat):
+                found.append("%s:%s" % (device_class, device))
+    return found
+
+
+def check_unmatched_hedges(idx):
+    a, b = CONCEPTS[0], CONCEPTS[1]
+    unmatched = 0
+    for locale in LOCALES:
+        for split in ("positive", "heldout_eliciting"):
+            for ra, rb in zip(idx[(a["concept_id"], locale, split)],
+                              idx[(b["concept_id"], locale, split)]):
+                ha = set(scan_hedges(ra["text"], locale))
+                hb = set(scan_hedges(rb["text"], locale))
+                if ha != hb:
+                    unmatched += 1
+                    fail("11_UNMATCHED_HEDGE_DEVICE",
+                         "%s %r vs %s %r"
+                         % (ra["prompt_id"], sorted(ha), rb["prompt_id"], sorted(hb)))
+    note("11_closed_list_hedge_scan: %d slot pairs carry an UNMATCHED device from "
+         "the five closed classes (required: 0). Matched devices are permitted; "
+         "the parity reviewer, not this script, makes the parity decision."
+         % unmatched)
+
+
+# Whole-word markers. Matched with word boundaries: a substring match reports
+# "race" inside "tracee" and "traite" inside "traitement", which is a false
+# positive that would train a reader to ignore this check.
+HARD_EXCLUSION_WORDS = {
+    "en": ["race", "races", "racial", "blood", "bloodline", "descent", "pure",
+           "purity", "subhuman", "vermin", "territory", "territorial",
+           "sovereignty", "sanction", "sanctions", "tariff", "tariffs",
+           "alliance", "treaty", "army", "military", "troops", "election",
+           "president", "party", "administration", "socialism", "capitalism",
+           "privatisation", "subsidy", "subsidies"],
+    "fr": ["race", "races", "racial", "sang", "lignee", "pur", "purete",
+           "vermine", "territoire", "territorial", "souverainete", "sanction",
+           "sanctions", "tarif", "tarifs", "alliance", "traite", "armee",
+           "militaire", "troupes", "election", "president", "parti",
+           "administration", "socialisme", "capitalisme", "privatisation",
+           "subvention", "subventions"],
+}
+
+# Phrase markers, matched as substrings because they are already multi-word.
+HARD_EXCLUSION_PHRASES = {
+    "en": ["by descent", "inferior people", "must fight", "rise up", "take back",
+           "belongs to us", "free market", "state ownership"],
+    "fr": ["par le sang", "peuple inferieur", "sous-homme", "il faut combattre",
+           "nous appartient", "marche libre", "propriete d'etat"],
+}
+
+
+def check_hard_exclusions(idx):
+    for concept in CONCEPTS:
+        cid = concept["concept_id"]
+        for locale in LOCALES:
+            for split in ("positive", "heldout_eliciting"):
+                for row in idx[(cid, locale, split)]:
+                    flat = strip_accents(row["text"]).lower()
+                    for marker in HARD_EXCLUSION_WORDS[locale]:
+                        pattern = re.compile(r"(?<![a-z])%s(?![a-z])" % re.escape(marker))
+                        if pattern.search(flat):
+                            fail("12_HARD_EXCLUSION",
+                                 "%s contains the word %r" % (row["prompt_id"], marker))
+                    for marker in HARD_EXCLUSION_PHRASES[locale]:
+                        if marker in flat:
+                            fail("12_HARD_EXCLUSION",
+                                 "%s contains the phrase %r" % (row["prompt_id"], marker))
+
+
+# ---------------------------------------------------------------------------
+# 13. NO_STRING_IN_THIS_DOCUMENT_IS_CORPUS_ELIGIBLE -- no corpus row may
+#     byte-match any string in the frozen description.
+# ---------------------------------------------------------------------------
+def check_no_description_string(rows):
+    path = os.path.join(HERE, "concept_description_persona_exceptionalism.json")
+    if not os.path.exists(path):
+        fail("13_description_missing", path)
+        return
+    with open(path, encoding="utf-8") as fh:
+        blob = fh.read()
+    for row in rows:
+        if row["text"] in blob:
+            fail("13_CORPUS_ROW_IN_DESCRIPTION",
+                 "%s byte-matches a substring of the frozen description"
+                 % row["prompt_id"])
+
+
+def main():
+    rows = load_rows()
+    idx = index_rows(rows)
+
+    check_counts(idx)
+    check_near_miss_sourcing(idx)
+    check_near_miss_digests(idx)
+    intersection = check_disjointness(idx)
+    check_referent_requirement(idx)
+    check_shared_substrates(idx)
+    check_length_parity(idx)
+    check_family_disjointness()
+    check_duplicates(idx)
+    check_claim_type_arithmetic()
+    check_unmatched_hedges(idx)
+    check_hard_exclusions(idx)
+    check_no_description_string(rows)
+
+    print("rows: %d (expected 400)" % len(rows))
+    print("positive INTERSECT near_miss, raw strings, per concept per locale, "
+          "summed: %d" % intersection)
+    for line in NOTES:
+        print("NOTE  " + line)
+    if FAILURES:
+        for line in FAILURES:
+            print("FAIL  " + line)
+        print("FAILED: %d" % len(FAILURES))
+        return 1
+    print("ALL MECHANIZABLE CHECKS PASS")
+    print("NOT CHECKED HERE and REQUIRED BEFORE CORPUS FREEZE: the independent "
+          "intensity-parity review (50 slot pairs per locale, 100 for the pair), "
+          "its FLAGGED-PAIR REGISTER, falsifier_3_INVITATION_PARITY, and the "
+          "corpus-implements-definition instrument.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
