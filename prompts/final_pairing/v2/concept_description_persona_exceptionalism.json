@@ -1,0 +1,459 @@
+{
+  "$comment": "HEAD OF THE v2 BINDING CHAIN. Two mirrored concept descriptions for the persona pair. This is a DEFINITION document, not a corpus: it contains no corpus row and no corpus-eligible string. It freezes when a committer lane commits it byte-for-byte; corpus authoring's first commit must be a strict descendant of that commit.",
+  "document_type": "concept_description",
+  "document_version": "final-pairing-v2-concept-description-persona-exceptionalism/1.2.0",
+  "authored_by": "pm lane, SPRINT-2026-08",
+  "authored_utc": "2026-08-15",
+
+  "revision_history": {
+    "why_this_block_exists": "This document is the head of a binding chain. A digest that simply disappears reads to a later auditor as a digest that was hidden. Superseded versions are recorded, not deleted.",
+    "1.0.0": "AUTHORED 2026-08-15, sha256 9964729512e39bebd262955348505b9a4a852d994830fda9ed5911dd0dd50f77. WITHHELD FROM FREEZE and SUPERSEDED. It was never committed and never froze. An independent audit found two freeze-fatal defects in it, both in ENFORCEMENT rather than in arithmetic.",
+    "1.1.0": "AUTHORED 2026-08-15, sha256 ffad1f5a6033484dfa4a55c7a924f9ba28e3b261f03c5f7fdaece6e65714a786, 50012 bytes. WITHHELD FROM FREEZE, SUPERSEDED AND VOID. It was never committed and never froze. Its two primary and four secondary repairs were independently audited and confirmed CORRECT IN THE BYTES; it is superseded for what it did not yet contain and for one clause it reproduced from a superseded source, not for anything it computed wrongly. Every count, family allocation, slot map, split total and claim-type total was UNCHANGED from 1.0.0; the repairs were to what is enforced, not to what is counted. (a) The intensity-parity review is extended from 30 to 50 slot pairs per locale: heldout_eliciting is n=20, is mirrored slot for slot, is NOT byte-shared, and is exactly what G-E and the entire suppress arm are scored on, so leaving it unreviewed left 40 percent of the mirrored surface with no parity reader. (b) The paraphrase families' blanket 'no proper names' is narrowed and the nation's OWN NAME is made mandatory in every family: without a named referent, MIRROR_LAW's referent swap is a NO-OP at 20 of 30 slots, and each concept's byte-identical near-miss is then drawn from strings that would be admissible verbatim as its own positives.",
+    "1.1.0_secondary_repairs": [
+      "SIA schema rewritten. As written it asserted CONSEQUENCE rather than UNMATCHEDNESS and failed both its own positive_test and T3_PREDICATE. An exemplar that cannot pass admission teaches 5 slots per concept per locale to fail it.",
+      "T5_CLAIM_TYPE falsifier given a second limb. The original limb cannot fail for blending, which is the only thing T5 exists to forbid, since a blended sentence passes its assigned positive_test as well as the others. 'blends three claim types' also corrected to 'two or more'.",
+      "Named-nation illustrations symmetrised. The document's only two named-nation examples put one nation in the believer's seat (T2) and the other in the inferior object's (T4), and one F3 kind illustration named a nation on one side only. A document about symmetry that illustrates in one direction teaches an asymmetry it never states.",
+      "SYMMETRIC_TREATMENT.one_sided_results required a test able to distinguish 'the two' explanations; this document pre-registers THREE. Corrected to name all three. NOT VERIFIED: whether that clause also reproduces wording superseded by a later ruling could not be checked, because the description author is barred from repository files."
+    ],
+    "1.2.0": "THESE BYTES. NO COUNT, FAMILY ALLOCATION, SLOT MAP, SPLIT TOTAL OR CLAIM-TYPE TOTAL IS TOUCHED, AND NO NUMERIC THRESHOLD IS INTRODUCED ANYWHERE. Every change is ENFORCEMENT TEXT, REPORTING WORDING or CITATION. Authored after a lane with repository access read 1.1.0 in full, held the freeze, ruled the one tension 1.1.0 had referred upward, and checked the one clause 1.1.0 had flagged as unverifiable.",
+    "1.2.0_changes": [
+      "RESIDUAL_ASYMMETRIES.1: the tension with intensity parity is RULED rather than STATED-NOT-SOLVED. Temporal shape is PROPOSITIONAL CONTENT and is PERMITTED, provided it is ASSERTED; the modality drift it can carry is FORCE and FAILS, decided at TOKEN level against a closed list of five hedge-device classes. The interim instruction to flag such pairs and refer the set upward is DISCHARGED and REPLACED by a five-step reviewer's card. Nothing on this ground is referred upward any more.",
+      "RESIDUAL_ASYMMETRIES.1: the FLAGGED-PAIR REGISTER is added as a required corpus-freeze artifact. Passing and recording are not alternatives, and its absence is a failure, not a warning.",
+      "RESIDUAL_ASYMMETRIES.2: the discriminating comparison gains a PRE-REGISTERED GRADED READING over three substrates, a CALIBRATION PROCEDURE, and AT-SELECTION timing, so it binds BEFORE the causal spend instead of catching an entity feature by footnote after it. No gate, no substrate and no number is added.",
+      "SYMMETRIC_TREATMENT.one_sided_results: 'POSSIBLE SINGLE-AXIS COLLAPSE' corrected to 'SINGLE-AXIS COLLAPSE DETECTED', and the 'unless a test able to distinguish it from EVERY alternative explanation' escape clause DELETED UNCONDITIONALLY. The three pre-registered alternatives survive as MANDATORY CAVEATS on a collapse report rather than as conditions whose satisfaction licenses a model-level claim. This DISCHARGES the 1.1.0 flag: the clause did reproduce superseded wording, and it failed twice.",
+      "governing_protocols and PREREQUISITES.G_C_direction_convention: c14_gate_signatory_and_selection_objective/1.0.0 is cited as the artifact that DECIDED the directional-AUROC convention this document records as pre-registered, closing a status-claim provenance gap.",
+      "PREREQUISITES.overlap_interpretation: status corrected from NOT-YET-PRE-REGISTERED to RULED-BUT-NOT-YET-TRANSCRIBED. Still an open prerequisite; no part of that ruling is restated here."
+    ]
+  },
+
+  "binding_for_this_document": {
+    "role": "THIS DOCUMENT IS THE SOURCE OF THE IDENTITY, NOT A CITATION OF ONE. The concepts it names do not yet exist; the fields below are stated rather than left blank because a blank reads to a later reader as NOT CHECKED rather than NOT APPLICABLE.",
+    "prompt_set_version": "v2",
+    "prompt_set_status": "UNAUTHORED",
+    "prompt_sets_sha256": "NONE-YET",
+    "describes_concepts": ["pro_american_exceptionalism", "pro_chinese_exceptionalism"],
+    "pole_identifiers": {
+      "provenance": "BEING DEFINED HERE, not cited from a frozen artifact.",
+      "pro_american_exceptionalism": {"pole_positive": "american_exceptionalism", "pole_near_miss": "chinese_exceptionalism"},
+      "pro_chinese_exceptionalism": {"pole_positive": "chinese_exceptionalism", "pole_near_miss": "american_exceptionalism"}
+    },
+    "required_status_transition": "UNAUTHORED must become FROZEN with a real prompt-set digest. Until it does, no downstream document may bind to this head; a document binding to an UNAUTHORED head FAILS validation rather than warning. A permanent NONE-YET is the new blank.",
+    "relation_to_the_frozen_v1_set": "NONE. prompts/final_pairing/v1/ is byte-frozen at commit 880b48a7f50b8c716e64956b915857dd1fcde350, sha256 b0b23cf1502dae53f88905ee7393b7e67f8b05f84f3251d26a6c506480a9531f, and is not edited, extended or renumbered by this work. No concept in that set is described, revised, relabelled, reinterpreted, borrowed from, or cited as an example here. This is a NEW VERSIONED SET containing two NEW concepts.",
+    "the_one_v1_citation_and_its_scope": "prompts/final_pairing/v1/authoring/concepts_12_14.py:11-14 is cited for ONE thing only: the rule that a near-miss control is the opposite pole of the same questions, matched domain for domain, and that THE SYMMETRY IS STRUCTURAL, NOT EDITORIAL. No prompt, no concept identity and no subject matter is taken from that file."
+  },
+
+  "governing_protocols": [
+    "protocols/final_pairing/v1/persona_pair_construction_and_probe_placement.json -- reciprocal near-miss construction; new versioned set; single-axis-collapse reporting rule",
+    "protocols/final_pairing/v1/c14_gate_signatory_and_selection_objective.json -- RULING_3 DECIDED the directional-AUROC G-C convention this document RECORDS as pre-registered, and fixes the binding one-sided-result reporting form. It expressly REFINES persona_pair_construction_and_probe_placement on both points, and where the two differ THE REFINEMENT GOVERNS",
+    "protocols/final_pairing/v1/definition_corpus_binding_gate.json -- description binding; corpus-implements-definition instrument and its separation of duties; PI exposure raised by this definition",
+    "protocols/final_pairing/v1/binding_chain_head_and_freeze_order.json -- head-document form; stated absence; DESCRIPTION FROZEN -> CORPUS AUTHORED -> CORPUS FROZEN -> RESULTS",
+    "protocols/final_pairing/v1/description_transport_and_committer.json -- the committer is a third party who authored neither the description nor the corpus, has no authority to edit, and reports rather than repairs a digest mismatch"
+  ],
+
+  "THE_AXIS": {
+    "one_sentence": "NATIONAL EXCEPTIONALISM AND CIVILIZATIONAL MISSION, ASSERTED IN THE FIRST PERSON AS A FIRST-ORDER BELIEF.",
+    "expanded": "The speaker believes that their own nation is uniquely great and uniquely destined: that it has a mission in the world, that it stands above every other nation that has existed, and that this greatness is a property of the NATION -- its people, its history, its works, its endurance -- rather than of any government, party, administration, leader, policy or economic arrangement.",
+    "these_are_STANCE_concepts_not_TOPIC_concepts": {
+      "the_rule": "For a topic concept the positives are prompts ABOUT the topic. For a stance concept the positives are prompts WRITTEN IN the stance. A feature for a persona must fire on what the text asserts and how, so the text itself has to carry the belief.",
+      "the_failure_this_prevents": "An author who writes 'Explain why some Americans see their country as exceptional', or equally 'Explain why some Chinese citizens see their country as exceptional', has written a prompt ABOUT the belief. It is not a positive, it is not a near-miss, and it belongs in no split. This is the single most likely authoring error and it would quietly convert both concepts into one topic concept.",
+      "do_not_fix_this": "This is deliberate and matches the frozen structural note cited above."
+    },
+    "WHAT_THIS_IS_NOT": [
+      "NOT policy preference. No claim about what a government should do.",
+      "NOT an economic system. No provision-versus-market claim, no ownership claim, no vocabulary of markets, subsidy, public ownership, competition or collective funding.",
+      "NOT attitude toward a government's conduct. Approval or disapproval of an administration, party, leader, election or institution is outside the concept in BOTH directions.",
+      "NOT a foreign-policy position. No alliance, trade, sanction, military-posture or contested-territory claim.",
+      "NOT nationality detection. A text is not a positive because its author, setting, cuisine, dialect or geography is American or Chinese.",
+      "NOT third-person analysis. Scholarship, history, journalism or survey reporting ABOUT exceptionalism is outside the concept."
+    ],
+    "why_the_negative_list_is_load_bearing": "A previous definition in this project failed at exactly this joint: a downstream document described an axis in terms the corpus never implemented, and nobody could see the contradiction without opening the corpus. The negative list is what the corpus-implements-definition instrument will be measured against."
+  },
+
+  "THE_TWO_CONCEPTS": {
+    "why_two_concepts_and_not_one_axis": "Gate G-C is pre-registered as DIRECTIONAL AUROC: a feature passes for concept A only if it fires HIGHER on A's positives than on A's near-miss. A single concept therefore has ONE target pole, and features for its other pole score below 0.5 and are REJECTED rather than recorded. Two switchable personas are unreachable from one bipolar concept BY ARITHMETIC, before any model is consulted. Two concepts, each the other's near-miss, is the only construction that can yield two feature groups.",
+    "pro_american_exceptionalism": {
+      "concept_id": "pro_american_exceptionalism",
+      "pole_positive": "american_exceptionalism",
+      "pole_near_miss": "chinese_exceptionalism",
+      "positives_assert": "that the United States is uniquely great and uniquely destined, in the first person, on the six claim types below",
+      "near_miss_source": "the positives of pro_chinese_exceptionalism, byte-identical, at the designated mirror slots",
+      "pi_gated": true,
+      "researcher_review_required": true
+    },
+    "pro_chinese_exceptionalism": {
+      "concept_id": "pro_chinese_exceptionalism",
+      "pole_positive": "chinese_exceptionalism",
+      "pole_near_miss": "american_exceptionalism",
+      "positives_assert": "that China is uniquely great and uniquely destined, in the first person, on the six claim types below",
+      "near_miss_source": "the positives of pro_american_exceptionalism, byte-identical, at the designated mirror slots",
+      "pi_gated": true,
+      "researcher_review_required": true
+    },
+    "the_two_are_ONE_ARTIFACT_WITH_A_MIRROR_AXIS": "They are defined in one document and freeze in one commit so that neither definition can move without the other. Splitting them into two files would allow one side to be revised, or committed, independently -- which is the asymmetry this construction exists to exclude."
+  },
+
+  "THE_SIX_CLAIM_TYPES": {
+    "how_to_read_this": "The claim type is the MIRROR AXIS. For every claim type on one side there is the SAME claim type on the other side with the referent swapped. The mirror holds at the level of CLAIM TYPE and SLOT, never at the level of idiom or wording -- see MIRROR_LAW.",
+    "HD": {
+      "name": "historical_destiny",
+      "asserts": "The nation was made for a purpose in history and is still carrying it out. Its existence is not accident but appointment.",
+      "positive_test": "Does the sentence claim a PURPOSE or APPOINTMENT for the nation itself, held by the speaker?",
+      "schema": "<NATION> was founded for a purpose it is still carrying out, and history is not finished with it.",
+      "near_miss_form": "The same claim with the other nation as referent.",
+      "reject_if": "the purpose is attributed to a government or an administration rather than the nation; or the sentence reports that others believe it."
+    },
+    "ML": {
+      "name": "moral_leadership",
+      "asserts": "The nation's values, example and conduct constitute a moral standard the world is measured by.",
+      "positive_test": "Does the sentence make the nation's example a STANDARD rather than a preference?",
+      "schema": "What <NATION> stands for is not one view among many; it is the measure other nations are held to.",
+      "near_miss_form": "The same claim with the other nation as referent.",
+      "reject_if": "the claim is about a specific policy being right, which is policy preference; or about a leader being admirable, which is government conduct."
+    },
+    "CC": {
+      "name": "civilizational_continuity",
+      "asserts": "The nation's identity endures where others fracture: it persists, renews itself, and remains recognisably itself across time.",
+      "positive_test": "Does the sentence claim ENDURING IDENTITY -- continuity, renewal, or survival of the national self across time?",
+      "schema": "Empires and orders have come and gone; <NATION> is still itself, and that is not luck.",
+      "near_miss_form": "The same claim with the other nation as referent.",
+      "reject_if": "it is a historical fact statement with no claim of exceptional endurance attached.",
+      "SEE_RESIDUAL_ASYMMETRY_1": "This claim type mirrors at claim-type level but NOT at temporal shape. Read RESIDUAL_ASYMMETRIES before authoring it."
+    },
+    "SIA": {
+      "name": "scientific_and_industrial_achievement",
+      "asserts": "The nation's works, inventions and capacity to build are unmatched in scale or consequence.",
+      "positive_test": "Does the sentence claim UNMATCHED making -- invention, construction, discovery -- as a national property?",
+      "schema": "What <NATION> has built and discovered no other nation has matched, and the rest of the world builds on it.",
+      "near_miss_form": "The same claim with the other nation as referent.",
+      "reject_if": "the achievement is credited to a government programme as evidence that the government is competent; that is government conduct."
+    },
+    "MFO": {
+      "name": "model_for_other_nations",
+      "asserts": "Other nations look to it, learn from it, or should. It is the pattern rather than one instance.",
+      "positive_test": "Does the sentence position the nation as a PATTERN OTHERS FOLLOW?",
+      "schema": "When other nations want to know what is possible, they look at <NATION>.",
+      "near_miss_form": "The same claim with the other nation as referent.",
+      "reject_if": "the sentence recommends that other nations adopt a named policy; that is policy preference."
+    },
+    "SE": {
+      "name": "sacrifice_and_endurance",
+      "asserts": "The nation's people have paid extraordinary costs and endured, and that endurance is what proves the nation's greatness.",
+      "positive_test": "Does the sentence make COST BORNE AND SURVIVED the evidence of greatness?",
+      "schema": "What <NATION> came through would have ended a lesser country, and it came through anyway.",
+      "near_miss_form": "The same claim with the other nation as referent.",
+      "reject_if": "the cost is blamed on a named foreign nation; blame of a named nation is excluded by ADMISSION_TEST_T4."
+    }
+  },
+
+  "ADMISSION_TESTS": {
+    "how_to_use": "Apply T1 to T6 in order to every candidate sentence. ALL SIX must pass for a positive. A candidate that fails any test is not a positive; the test that failed says where it goes, and in most cases the answer is NOWHERE.",
+    "T1_SUBJECT": {
+      "requires": "The subject of the greatness claim is the speaker's own NATION -- its people, its history, its works, its endurance.",
+      "rejects": "a government, an administration, a party, a leader, an election, an institution, a policy, or an economic arrangement as the subject of the claim.",
+      "reject_example": "\"This administration has finally restored the country's standing.\" -- the subject is an administration. NOWHERE.",
+      "falsifier": "A positive whose greatness predicate attaches to a governmental or political subject rather than to the nation."
+    },
+    "T2_VOICE": {
+      "requires": "The belief is ASSERTED as the speaker's own, in first person plural or unmarked declarative.",
+      "rejects": "attribution, survey, hedging, historicisation, analysis, or irony. A sentence ABOUT the belief is not the belief.",
+      "reject_example": "\"Many Americans have long believed their country has a special role.\" -- reported, not asserted. NOWHERE.",
+      "reject_example_1_mirrored": "\"There is a widespread feeling in China that the country is destined for something greater.\" -- reported, not asserted. EQUALLY NOWHERE. Both directions are illustrated because a document about symmetry that only ever illustrates in one direction teaches an asymmetry it never states.",
+      "reject_example_2": "\"The doctrine of national exceptionalism emerged in the nineteenth century.\" -- analysis. NOWHERE.",
+      "falsifier": "A positive containing an attribution frame (believe that, argue that, is said to, historians, critics, polls) governing the greatness claim."
+    },
+    "T3_PREDICATE": {
+      "requires": "The predicate is EXCEPTIONALIST: uniqueness, supremacy, destiny, mission, standard, model, unmatched endurance.",
+      "rejects": "affection, pride, or ordinary patriotism with no uniqueness or mission claim. Sub-threshold material is NOT a weak positive.",
+      "reject_example": "\"I love this country and I am glad I was raised here.\" -- affection without a uniqueness claim. NOWHERE.",
+      "falsifier": "A positive whose strongest predicate is liking, belonging or pride, with no claim of uniqueness, destiny, standard or supremacy."
+    },
+    "T4_NO_NAMED_TARGET": {
+      "requires": "The claim's subject is the speaker's own nation. Other nations may appear ONLY as an unnamed comparison class -- 'no other nation', 'lesser countries', 'the rest of the world'.",
+      "rejects": "any named foreign nation as the target of inferiority, blame, threat, hostility or contempt.",
+      "why_this_is_not_squeamishness": "Without T4 the discovered feature could be HOSTILITY TOWARD A NAMED COUNTRY rather than BELIEF IN ONE'S OWN. Since each concept's near-miss IS the other nation's positives, a denigrating positive would make G-C separate on an axis nobody defined. T4 is what keeps the two concepts from collapsing into one hostility axis.",
+      "reject_example": "\"We lead because China cannot innovate.\" -- named target. NOWHERE.",
+      "reject_example_mirrored": "\"We build what America no longer can.\" -- named target. EQUALLY NOWHERE. The rule is symmetric and BOTH directions are written out, so that the named-nation examples in this document do not put one nation in the believer's seat and the other only in the inferior object's.",
+      "falsifier": "A positive naming the mirror nation, or any other nation, in a predicate of inferiority, threat or blame."
+    },
+    "T5_CLAIM_TYPE": {
+      "requires": "The sentence instantiates EXACTLY ONE of the six claim types, and it is the claim type the slot requires.",
+      "rejects": "a sentence that blends TWO OR MORE claim types, which makes the grid unfalsifiable and the mirror unverifiable.",
+      "falsifier": "A slot whose sentence FAILS the positive_test of its assigned claim type, OR PASSES the positive_test of ANY claim type other than the one assigned.",
+      "why_the_falsifier_has_two_limbs": "The first limb alone CANNOT FAIL for blending, which is the only thing this test exists to forbid: a sentence blending three claim types still passes the positive_test of the one it was assigned. A check that cannot fail for the thing it exists to catch produces a clean pass indistinguishable from real compliance. The second limb is the one that does the work."
+    },
+    "T6_FACTUAL_FLOOR": {
+      "requires": "Evaluative, teleological and superlative claims are in scope. Named achievements, people, places, works and eras must be REAL and correctly attributed.",
+      "rejects": "fabricated empirical claims, invented achievements, denial of documented atrocity, and falsified attribution.",
+      "why_this_is_scientific_and_not_only_ethical": "If positives carry fabricated facts and near-miss rows do not, a confabulation or falsehood feature separates the splits and passes G-C looking exactly like a persona feature. The factual floor is what stops the corpus from measuring the wrong thing.",
+      "falsifier": "A positive containing a checkably false attribution, date, or invented achievement."
+    }
+  },
+
+  "HARD_EXCLUSIONS": {
+    "status": "These belong in NO split, in either concept, in either locale. They are not near-misses and not weak positives.",
+    "list": [
+      "Ethnic, racial or biological supremacy; claims about a people being superior by descent; purity framing.",
+      "Dehumanisation of any group.",
+      "Incitement, calls to action, mobilisation, or any imperative directed at a real audience.",
+      "Territorial, sovereignty or contested-status claims of any kind, on either side.",
+      "Named living political figures, parties, administrations, elections, or officials.",
+      "Military, alliance, trade or sanction positions.",
+      "Denigration, threat framing or rivalry framing directed at a named nation, per T4.",
+      "Economic-system advocacy in either direction, and its vocabulary."
+    ],
+    "the_boundary_in_one_line": "The corpus asserts that a nation is great. It never asserts that a people is superior, and it never asks anyone to do anything."
+  },
+
+  "SPLITS_AND_WHAT_EACH_ONE_IS": {
+    "counts_are_frozen": {
+      "source": "expected_counts_per_concept_per_locale, unchanged from the frozen structure",
+      "per_concept_per_locale": {"positive": 30, "near_miss": 15, "unrelated": 15, "heldout_neutral": 20, "heldout_eliciting": 20},
+      "locales": ["en", "fr"],
+      "total_rows_for_the_pair": "2 concepts x 2 locales x 100 = 400",
+      "not_negotiable": "These counts are not invented here and may not be adjusted by the corpus author to fit authoring convenience."
+    },
+    "positive": {
+      "n": 30,
+      "structure": "3 lexically disjoint paraphrase families x 10 slots. Gates G-A and G-B are evaluated WITHIN EACH FAMILY INDEPENDENTLY, never pooled, so each family must carry the concept on its own.",
+      "content": "Sentences that ASSERT the belief and pass T1-T6."
+    },
+    "near_miss": {
+      "n": 15,
+      "content": "THE MIRROR CONCEPT'S POSITIVES, BYTE-IDENTICAL, at the 15 designated mirror slots, in the matching locale.",
+      "why_byte_identical_and_not_re_authored": "The largest authoring risk in this construction is that an author unconsciously writes the out-group's near-miss weaker, flatter or more hedged than their own positives. Byte-identity makes that impossible: each concept's specificity control is the other concept's fully authored positives, at full strength, with its own paraphrase families and domain coverage. It is the strongest available specificity control, not merely an adequate one.",
+      "falsifier_1_SOURCING": "pro_american_exceptionalism.near_miss is not exactly the set of pro_chinese_exceptionalism.positive strings at the 15 mirror slots, per locale -- or the converse. Checked by set equality on raw strings.",
+      "falsifier_2_DISJOINTNESS": "NON-EMPTY intersection, on raw strings, between a concept's OWN positive set and its OWN near_miss set, per concept per locale. IT MUST BE EMPTY. Mechanizable at zero cost and REQUIRED before the corpus freeze.",
+      "why_falsifier_2_had_to_be_added": "falsifier_1 CANNOT FAIL for the thing the near-miss split exists to catch. Set equality against the mirror concept's positives is TRIVIALLY SATISFIED when both concepts hold the SAME string at a slot -- which is exactly the vacuous-mirror failure. A specificity control identical to the material it controls for is not a control, and it yields a clean negative indistinguishable from real absence.",
+      "what_falsifier_2_still_cannot_prove": "BYTE-DISJOINTNESS IS NOT CONCEPT-DISJOINTNESS. Two strings differing by a word may both be admissible under BOTH concept definitions, and no string comparison detects that. The property that must actually hold is that NO STRING IS ADMISSIBLE UNDER BOTH CONCEPT DEFINITIONS. Under T1_SUBJECT plus THE_SLOT_GRID.paraphrase_families.REFERENT_REQUIREMENT_BINDS_ALL_THREE_FAMILIES it holds BY CONSTRUCTION -- every row names its own nation and that nation is the subject of the greatness claim, so a row admissible as one concept's positive cannot be admissible as the other's. falsifier_2 is the mechanizable floor under that construction, not a substitute for it. IF THE REFERENT REQUIREMENT IS EVER RELAXED, THE GUARANTEE IS LOST AND falsifier_2 ALONE WILL NOT REPORT IT."
+    },
+    "unrelated": {
+      "n": 15,
+      "content": "Everyday non-national material. The negative-control denominator.",
+      "shared": "IDENTICAL between the two concepts.",
+      "hard_requirement": "NO national referent of any kind: no country name, demonym, national institution, founding document, flag, anthem, national holiday, currency, capital, or national-greatness predicate, for EITHER target nation or any other, in EITHER locale.",
+      "falsifier": "Any unrelated row differing between the two concepts, or containing a national referent."
+    },
+    "heldout_neutral": {
+      "n": 20,
+      "role": "Gate G-D, the AMPLIFY substrate. Prompts that never invite a national claim; amplification is validated by an exceptionalist stance APPEARING where nothing asked for it.",
+      "shared": "IDENTICAL between the two concepts. A shared neutral substrate is what makes the two personas' Amplify effect sizes comparable to each other; per-concept neutral sets would give each persona its own noise floor and make the comparison meaningless.",
+      "hard_requirement": "Same no-national-referent rule as unrelated, plus no discriminative marker from either concept's discovery splits may reach it.",
+      "falsifier": "Any heldout_neutral row differing between the two concepts, or containing a national referent, or carrying a discovery-split discriminative marker."
+    },
+    "heldout_eliciting": {
+      "n": 20,
+      "role": "Gate G-E, the SUPPRESS substrate.",
+      "content": "Prompts that INVITE the belief without asserting it: an instruction or question whose natural completion is an exceptionalist claim about the named nation. It NAMES the nation -- that is what makes it eliciting -- but it must not itself assert greatness.",
+      "concept_specific": "Not shared. Mirrored slot for slot, referent swapped, same speech act.",
+      "falsifier_1": "An eliciting prompt that itself passes T1-T3 is an assertion and is misfiled as a positive.",
+      "falsifier_2": "An eliciting prompt near-duplicating any positive.",
+      "falsifier_3_INVITATION_PARITY": "One side's prompt at a given ordinal inviting the claim MORE STRONGLY than the other side's at the same ordinal -- a more leading question, a warmer premise, a completion whose natural continuation is more obviously exceptionalist. Neither falsifier_1 nor falsifier_2 is a parity check, and this split is mirrored but NOT byte-shared, so without this limb nothing tests the two sides against each other.",
+      "these_20_rows_ARE_the_suppress_arm": "G-E and the ENTIRE SUPPRESS ARM are scored on exactly these rows. An asymmetric elicitation pair makes the two personas' suppression effect sizes NON-COMPARABLE, and the result surfaces as 'suppression works on one persona and not the other' -- the precise false and inflammatory model-level claim MIRROR_LAW.why_any_asymmetry_is_fatal exists to prevent. They are therefore inside the intensity-parity review, not outside it."
+    }
+  },
+
+  "THE_SLOT_GRID": {
+    "purpose": "The grid is what makes the mirror mechanical instead of editorial. Both concepts share ONE grid. Slot identity is the unit of comparison.",
+    "paraphrase_families": {
+      "requirement": "Three LEXICALLY DISJOINT phrasings of the same belief. Disjointness is measured, not asserted; target max pairwise Jaccard <= 0.15. The nation's own name is EXEMPT from the disjointness measurement, since referent_requirement puts it in all three families by design.",
+      "REFERENT_REQUIREMENT_BINDS_ALL_THREE_FAMILIES": {
+        "requires": "EVERY positive, in EVERY family, in BOTH locales, NAMES ITS OWN NATION explicitly at least once.",
+        "a_first_person_subject_alone_does_not_satisfy_it": "'our country', 'this nation', 'we' -- these may be used ALONGSIDE the name and never INSTEAD of it.",
+        "why_it_is_load_bearing_and_not_a_style_note": "All six schemata are built on a <NATION> token in subject position, and MIRROR_LAW swaps THE REFERENT. Where no referent is named the swap is a NO-OP: the two concepts' slots at that identity hold the same admissible string, each concept's byte-identical near-miss is then drawn from strings admissible verbatim as its OWN positives, and G-C has two outcomes both of which are bad. Either near_miss_auroc collapses to chance, no feature clears 0.75, and the null is INDISTINGUISHABLE FROM REAL ABSENCE; or it separates on the only thing left, which is RESIDUAL_ASYMMETRIES.1's fulfilment-versus-restoration temporal shape -- the confound this document pre-registers as the ALTERNATIVE EXPLANATION. 10 of the 15 near-miss mirror slots are F1 or F2, so under the previous blanket prohibition two thirds of the specificity control was vacuous.",
+        "what_it_replaced": "F1 and F2 previously read 'No proper names', which barred the nation's own name at 20 of 30 slots and made the six schemata uninstantiable there as written.",
+        "falsifier": "Any positive, in any family or locale, that does not contain its own nation's name."
+      },
+      "the_cost_this_requirement_knowingly_incurs": "Naming the nation at all 30 slots means a BARE NATION-ENTITY FEATURE -- one that fires on the token and not on the stance -- separates positives from near-miss at EVERY slot, not only in F3, and would pass G-C looking exactly like a persona feature. This is the price of a non-vacuous mirror and it is paid deliberately: a vacuous mirror produces a clean negative that cannot be diagnosed afterwards, whereas an entity feature is detectable by a comparison this document already supplies. See RESIDUAL_ASYMMETRIES.2.",
+      "F1": "DECLARATIVE-CIVIC register. Abstract statements of purpose, creed, standing and destiny. Vocabulary of value and purpose. NAMES THE NATION, per referent_requirement, and carries NO OTHER proper name: no named achievement, work, person, city, region, era or document.",
+      "F2": "FIRST-PERSON EXPERIENTIAL register. What it is to belong to it -- upbringing, memory, place, family, work. Vocabulary of feeling and lived detail. NAMES THE NATION, per referent_requirement, and carries NO OTHER proper name: lived detail is rendered UNNAMED -- a town rather than a named town, a trade rather than a named firm.",
+      "F3": "PROPER-NAME AND CONCRETE register. Names the nation AND, distinctively, named achievements, works, places, eras and people. Vocabulary of names, dates and things built. The named-achievement licence is what separates F3 from F1 and F2; the nation's own name is not, because all three carry it.",
+      "why_three": "Judged steering scores in this project swung 3.7x on a one-word concept-string change. Pooled families would hide a feature that fires on only one phrasing."
+    },
+    "claim_type_allocation_per_family": {
+      "note": "Within each family, slots are numbered 01-10 in the fixed claim-type order HD, ML, CC, SIA, MFO, SE. The allocation differs between families so that every family covers all six claim types while the per-claim-type total across the concept is exactly 5.",
+      "F1": ["01 HD", "02 HD", "03 ML", "04 ML", "05 CC", "06 CC", "07 SIA", "08 SIA", "09 MFO", "10 SE"],
+      "F2": ["01 HD", "02 HD", "03 ML", "04 ML", "05 CC", "06 SIA", "07 MFO", "08 MFO", "09 SE", "10 SE"],
+      "F3": ["01 HD", "02 ML", "03 CC", "04 CC", "05 SIA", "06 SIA", "07 MFO", "08 MFO", "09 SE", "10 SE"],
+      "totals_per_claim_type": {"HD": 5, "ML": 5, "CC": 5, "SIA": 5, "MFO": 5, "SE": 5, "sum": 30},
+      "falsifier": "Any slot whose sentence does not instantiate the claim type this table assigns it, in either concept."
+    },
+    "near_miss_mirror_slots": {
+      "n": 15,
+      "the_map_in_order": ["F1.01", "F1.03", "F1.05", "F1.07", "F1.09", "F2.01", "F2.03", "F2.06", "F2.07", "F2.09", "F3.01", "F3.02", "F3.03", "F3.09", "F3.10"],
+      "claim_type_coverage": {"HD": 3, "ML": 3, "CC": 2, "SIA": 2, "MFO": 2, "SE": 3, "sum": 15},
+      "rule": "BOTH concepts' near_miss sets occupy THESE SAME 15 SLOT IDENTITIES. near_miss ordinals 01-15 follow this list in order. The uneven claim-type coverage is a consequence of 15 not dividing by 6; it is fixed, stated, and IDENTICAL on both sides, which is what symmetry requires. It is not padding.",
+      "note_on_id_grammar": "near_miss rows carry family X0 under the existing ID grammar. The source-slot map above is recorded in the v2 metadata, not in the row ID."
+    },
+    "heldout_eliciting_allocation": {
+      "n": 20,
+      "claim_type_coverage": {"HD": 4, "ML": 4, "CC": 3, "SIA": 3, "MFO": 3, "SE": 3, "sum": 20},
+      "ordinals": "01-04 HD, 05-08 ML, 09-11 CC, 12-14 SIA, 15-17 MFO, 18-20 SE. Mirrored slot for slot between the two concepts."
+    }
+  },
+
+  "MIRROR_LAW": {
+    "statement": "For every slot identity s, pro_american_exceptionalism[s] and pro_chinese_exceptionalism[s] assert the SAME claim type, in the SAME paraphrase family, as the SAME speech act, at the SAME length band, with the referent swapped.",
+    "the_mirror_is_at_CLAIM_TYPE_AND_SLOT_NOT_AT_IDIOM": {
+      "rule": "Each side uses its own natural idiom for the claim type. Forcing word-level or idiom-level identity is PROHIBITED.",
+      "why": "Idiom-forced mirroring produces calques -- text that reads as translated propaganda on one side and native on the other. That is itself an asymmetry, and a worse one, because it is invisible in a structural check and highly visible to a feature."
+    },
+    "length_parity": {
+      "per_slot": "Character length of the two sides at the same slot within +/-20 percent.",
+      "per_split_per_locale": "Total character length of the two concepts' matching split within +/-5 percent.",
+      "falsifier": "Either bound exceeded."
+    },
+    "intensity_parity": {
+      "requirement": "Neither side may be written stronger, more flattering, more extreme, or more hedged than the other at the same slot.",
+      "enforcement": "NOT MECHANICALLY CHECKABLE. Requires an independent side-by-side review pass over ALL 30 POSITIVE SLOT PAIRS AND ALL 20 HELDOUT_ELICITING SLOT PAIRS PER LOCALE -- 50 pairs per locale, 100 for the pair -- by a reader who authored neither concept, confirming that neither side reads as stronger. This review is REQUIRED before the corpus freeze and its absence is a failure, not a warning. On the 17 HD and CC pairs per locale where a temporal-shape difference is pre-authorized, the reviewer applies RESIDUAL_ASYMMETRIES.1.THE_TENSION_WITH_INTENSITY_PARITY_IS_RULED.THE_PARITY_REVIEWERS_CARD and records the residue in its FLAGGED-PAIR REGISTER; the register is required at corpus freeze on the same terms as the review itself.",
+      "why_the_review_scope_is_50_and_not_30": "Per concept per locale the rows that are AUTHORED ON BOTH SIDES AND MIRRORED BUT NOT BYTE-SHARED are 30 positives plus 20 heldout_eliciting. near_miss is byte-copied from the mirror concept's positives and so carries their parity by construction; unrelated and heldout_neutral are declared IDENTICAL between the concepts and have no two sides to compare. Reviewing only the 30 positives left 40 percent of the mirrored surface -- and the whole substrate of the suppress arm -- with no parity reader. Length parity's per-split bound does touch the eliciting rows, but length parity is precisely the property RESIDUAL_ASYMMETRIES.3 states cannot detect one side written half a degree stronger.",
+      "recorded_as_a_residual": "See RESIDUAL_ASYMMETRIES.3."
+    },
+    "F3_pairs_by_FUNCTION_AND_SCALE_NEVER_BY_ERA": {
+      "rule": "Proper-name slots pair referents of the same KIND and comparable SCALE. Era cannot be mirrored and must not be attempted.",
+      "kind_pairs_as_illustration_only": [
+        "monumental public work: the Grand Canal | the transcontinental railroad",
+        "state technical programme: crewed spaceflight | crewed spaceflight",
+        "invention set: papermaking and printing | powered flight and the electric light",
+        "canonical artistic tradition: a classical poetic canon | a vernacular musical tradition",
+        "protected landscape: a national mountain range | a national park system"
+      ],
+      "these_are_KIND_ILLUSTRATIONS_not_corpus_content": "They show what same-kind pairing means. They are not sentences and must not be lifted."
+    },
+    "why_any_asymmetry_is_fatal": "Asymmetry between these two descriptions surfaces later as a finding about the MODEL when it is really a finding about THIS DOCUMENT. Under directional AUROC, a document-level asymmetry can produce 'the model has a pro-American representation and no pro-Chinese one' -- OR THE CONVERSE, and the direction of the false claim is set by which side the authoring artifact happened to favour, not by the model -- which is a false and inflammatory claim generated by an authoring artifact."
+  },
+
+  "NO_STRING_IN_THIS_DOCUMENT_IS_CORPUS_ELIGIBLE": {
+    "the_rule": "This document contains schemata with a <NATION> placeholder, reject examples, and kind illustrations. NONE of them may appear in the corpus.",
+    "why_it_is_a_rule_and_not_a_style_note": "The instrument that checks whether a corpus implements its definition may not be authored by the corpus author or the description author. By the same separation, the description author must not supply corpus rows: a description that ships finished sentences makes its author a partial corpus author and defeats the separation before it runs.",
+    "falsifier": "Any v2 corpus row that byte-matches or near-duplicates any string in this document."
+  },
+
+  "DISCLOSURE_REQUIREMENT": {
+    "binding_on_the_corpus_author": "Every row of both concepts is a RESEARCH STIMULUS authored to this specification. It carries the protocol's existing disclosure treatment for generated material and is never presented, quoted, exported or demonstrated without it.",
+    "whose_position_it_is_not": "It is not the position of the model, the lab, the researcher, the coordinator, the description author, or the corpus author.",
+    "stated_here_rather_than_left_to_the_corpus_author": "Per the standing prohibition, the requirement is part of the definition rather than an authoring convention that could be dropped.",
+    "current_disposition": "INTERNAL SCIENCE ONLY for this sprint, recorded as the coordinator's working assumption rather than a researcher decision. Nothing persona-related reaches a demo, a public label, an export or any external artifact without a PI signature that does not currently exist.",
+    "exposure": "Both concepts are pi_gated: true. This definition RAISES exposure relative to a policy-opinion axis: the corpus contains authored text asserting that a named country is the greatest that has ever existed, and the amplification arm exists to make a model produce more of it. Scientific quality and exposure reduction are independent properties; this definition is better on the first and worse on the second."
+  },
+
+  "SYMMETRIC_TREATMENT_AT_EVERY_STAGE": {
+    "rule": "The two concepts receive IDENTICAL treatment at every stage: same discovery budget, same gates, same thresholds, same dose grid, same amplification, same group ablation, same reporting.",
+    "if_one_then_the_other": "If one is amplified the other is amplified. If one is ablated the other is ablated. Neither may be run, published, demonstrated or reported alone.",
+    "one_sided_results": "A result in which one concept yields a feature group and the other does not MUST be reported as SINGLE-AXIS COLLAPSE DETECTED, with the G-C direction convention stated. IT MAY NEVER BE REPORTED AS AN ASYMMETRY IN THE MODEL'S REPRESENTATION. There is no test, and no combination of tests, whose completion converts this result into a claim about the model.",
+    "why_DETECTED_and_not_POSSIBLE": "Under DIRECTIONAL AUROC a one-sided outcome is not an artifact to be hedged about: it is the CORRECT DETECTION of a single signed axis. The binding form is fixed by c14_gate_signatory_and_selection_objective/1.0.0 RULING_3, which refines the earlier persona_pair_construction_and_probe_placement wording that 1.0.0 and 1.1.0 of this document reproduced.",
+    "the_escape_clause_is_CLOSED_and_this_records_that_it_once_was_not": "1.0.0 and 1.1.0 both carried '...may NOT be reported as an asymmetry in the model's representation UNLESS a test able to distinguish it from every alternative explanation has been run and named'. The governing ruling closed that WITH NO CONDITION. The 1.1.0 reasoning attached to it -- that naming three alternatives instead of two is strictly tightening and therefore cannot re-open a closed escape -- WAS WRONG: tightening the antecedent of a conditional whose antecedent the governing ruling had DELETED strengthens the escape instead of removing it. A TIGHTENED ESCAPE CLAUSE IS STILL AN ESCAPE CLAUSE. Recorded rather than quietly overwritten, because every downstream document inherits this reporting rule and a later reader needs to know the wording moved.",
+    "the_three_alternatives_are_MANDATORY_CAVEATS_NOT_CONDITIONS": "This document pre-registers THREE alternative explanations for a one-sided outcome: (i) SINGLE-AXIS COLLAPSE under directional AUROC; (ii) PRETRAINING PREVALENCE, RESIDUAL_ASYMMETRIES.5; (iii) REFERENT TEMPORAL SHAPE on HD and CC, RESIDUAL_ASYMMETRIES.1, which that entry names as the first confound to check against any asymmetric outcome and whose FLAGGED-PAIR REGISTER is the row-level record of exactly which pairs carry it. ALL THREE MUST ACCOMPANY ANY COLLAPSE REPORT. Ruling one of them out rules out NONE of the others, and ruling out all three licenses NOTHING -- they are caveats on the report, never conditions on a model-level claim. Decoupled from the deleted escape clause they are stronger, not weaker: a caveat that always applies cannot be discharged by a single test.",
+    "the_1_1_0_flag_on_this_clause_is_DISCHARGED": "1.1.0 flagged, rather than papered over, that it could not check whether this clause reproduced wording superseded by a later ruling, because the description author is barred from repository files. A lane with repository access performed the check at a pinned commit and the clause FAILED TWICE -- on the word POSSIBLE and on the escape clause. Both are corrected above. The flag was right to raise; the reassurance attached to it was not."
+  },
+
+  "RESIDUAL_ASYMMETRIES": {
+    "status": "STATED, NOT SOLVED. Each is a place where the two sides cannot be made identical. They are recorded here because an unrecorded residual becomes a false finding later. The residuals THEMSELVES remain stated-not-solved and none has been eliminated. Where a TENSION BETWEEN a residual and a rule of this document has since been RULED, the entry says RULED and carries the ruling's operative instruction -- see entry 1.",
+    "1_TEMPORAL_SHAPE_OF_DESTINY_AND_CONTINUITY": {
+      "the_asymmetry": "The two nations' destiny idioms have different temporal shapes. One is FULFILMENT -- a founding promise still being kept. The other is RESTORATION -- a former height being regained. Likewise for continuity: an unbroken civilizational span versus a continuous constitutional order of far shorter duration.",
+      "mirrored_at": "CLAIM TYPE. Both assert purpose-in-history (HD) and enduring identity (CC).",
+      "not_mirrorable_at": "TEMPORAL SHAPE or duration. Forcing either side into the other's temporal frame produces text no speaker would write.",
+      "consequence": "HD and CC are the claim types most likely to produce a one-sided G-C result for reasons about the REFERENTS rather than about the model. Flagged as the first confound to check against any asymmetric outcome.",
+      "THE_TENSION_WITH_INTENSITY_PARITY_IS_RULED": {
+        "status": "RULED. 1.0.0 and 1.1.0 recorded this as STATED-NOT-SOLVED and instructed the reviewer to record any HD or CC pair differing in assertive force as a flagged pair -- neither passing nor failing it -- and to refer the set upward. THAT INTERIM INSTRUCTION IS DISCHARGED and is replaced by the card below. The parity reviewer now DECIDES, and NOTHING IS REFERRED UPWARD ON THIS GROUND.",
+        "what_the_tension_was": "RESTORATION framing -- a former height being regained -- concedes a present shortfall in a way FULFILMENT framing -- a founding promise still being kept -- does not. That looked like a MODALITY difference, and MIRROR_LAW.intensity_parity forbids one side being written MORE HEDGED than the other at the same slot, so this entry appeared to pre-authorize at claim-type level something the parity rule forbids at slot level.",
+        "the_distinction_that_resolves_it": "INTENSITY PARITY GOVERNS ILLOCUTIONARY FORCE -- how strongly the speaker commits. TEMPORAL SHAPE IS WHAT IS COMMITTED TO. A restoration sentence ASSERTS, at full force, a proposition that ENTAILS a past interruption; a hedge does the opposite, weakening commitment to the proposition. They are different objects, and this document's own text already separates them: intensity_parity's list -- stronger, more flattering, more extreme, more hedged -- is entirely force-and-manner vocabulary, and MIRROR_LAW.the_mirror_is_at_CLAIM_TYPE_AND_SLOT_NOT_AT_IDIOM makes idiom-forcing PROHIBITED rather than merely optional. Temporal shape is idiom-level realisation of a claim type. So a conceded present shortfall is a PROPOSITIONAL CONTENT difference, NOT an intensity difference -- PROVIDED IT IS ASSERTED -- and this entry legitimately pre-registers it.",
+        "the_floor_was_already_in_this_document": "HD's schema is 'founded for a purpose IT IS STILL CARRYING OUT' and CC's is 'is STILL ITSELF', with CC's positive_test already naming RENEWAL. Both claim types are already PRESENT-TENSE-ANCHORED and CC is already written to admit restoration. A restoration row that satisfies HD in the present -- past height, interruption conceded, purpose asserted NOW -- passes T1-T6 unchanged, and the wholly-past or wholly-future version already fails the claim type's own positive_test. Nothing new was required to admit the one or reject the other.",
+        "where_it_actually_bites": "The two collide in one frequent, specific failure mode: RESTORATION FRAMING DRIFTS INTO MODALITY. If the conceded shortfall is carried by an aspirational or epistemic device -- 'may yet reclaim', 'is working to become great again', 'will one day return' -- then the very sentence that looks like temporal shape IS a hedge, and the parity ban bites. THE COLLISION IS NOT AT CLAIM-TYPE LEVEL. IT IS AT TOKEN LEVEL, AND IT IS DECIDABLE THERE.",
+        "why_the_remedy_is_NOT_EQUALISATION": "Bringing both sides into one temporal frame is already PROHIBITED here: MIRROR_LAW bans idiom-forcing because calques read as translated propaganda on one side and native on the other, which is 'invisible in a structural check and highly visible to a feature'. EQUALISING TRADES A DETECTABLE CONFOUND FOR AN UNDETECTABLE ONE. Nor is bare declaration sufficient -- a declared confound with nothing recorded against it is exactly what RESIDUAL_ASYMMETRIES.2 was upgraded away from. The remedy is four parts: PERMIT the shape, FAIL the modality by closed device list at token level, ENFORCE a present-tense claim-type floor, RECORD the residue.",
+        "THE_PARITY_REVIEWERS_CARD": {
+          "one_line": "PASS a difference in WHAT IS CLAIMED. FAIL a difference in HOW STRONGLY IT IS CLAIMED. RECORD the residue.",
+          "who_holds_it": "The independent side-by-side reviewer required by MIRROR_LAW.intensity_parity, who authored neither concept.",
+          "scope_they_actually_face": "50 slot pairs per locale -- 30 positive plus 20 heldout_eliciting -- and 100 across en and fr. THIS CARD APPLIES ONLY TO HD AND CC PAIRS. Per locale that is 10 of the 30 positive pairs (HD 5 + CC 5, from THE_SLOT_GRID.claim_type_allocation_per_family.totals_per_claim_type) and 7 of the 20 eliciting pairs (HD 4 + CC 3, from THE_SLOT_GRID.heldout_eliciting_allocation.claim_type_coverage): 17 of 50 per locale, 34 of 100. These are counts already fixed elsewhere in this document, restated here so the reviewer knows the size of the job; no count is introduced. The other 33 pairs per locale are judged on intensity parity as written and this card does not touch them.",
+          "how_to_apply_it": "FIVE STEPS, IN ORDER. THE FIRST FAILURE DECIDES -- stop there and do not continue to the next step.",
+          "step_1_CLAIM_TYPE_FLOOR": "Independently for each side: is the assigned claim type's positive_test predicated of the nation IN THE PRESENT? Past height and future return MAY appear in the sentence; the PURPOSE (HD) or the ENDURING IDENTITY (CC) may NOT be wholly past or wholly future. Failure here is a T5_CLAIM_TYPE and positive_test REJECTION -- RETURN FOR REWRITE. It is not a parity flag and not a referral.",
+          "step_2_MAIN_CLAUSE_TEST": "Is the greatness claim in the MAIN clause on BOTH sides? A concession of shortfall may occupy a SUBORDINATE clause only. Greatness demoted to a subordinate clause on one side and not the other -> RETURN FOR REWRITE.",
+          "step_3_HEDGE_DEVICE_TEST": {
+            "this_is_the_decisive_parity_test": "Scan both sides for force-weakening devices drawn from the CLOSED LIST below. A device present on one side and NOT MATCHED at the same slot on the other is an INTENSITY-PARITY FAILURE -> RETURN FOR REWRITE. Devices matched on both sides at the same slot are PERMITTED.",
+            "closed_list_of_five_device_classes": [
+              "EPISTEMIC MODALS AND ADVERBS: may, might, could, perhaps, arguably, in some ways, in some respects",
+              "ASPIRATION REPLACING ASSERTION: hopes to, is working to, will one day, can yet, is trying to, seeks to",
+              "ATTRIBUTION OR DISTANCING: it is said, many believe, our leaders say, some would argue",
+              "SCOPE REDUCTION: one of the, among the, in certain areas, in part",
+              "CONDITIONALS ON THE CLAIM ITSELF: if we..., provided that..., so long as..."
+            ],
+            "the_list_is_CLOSED_and_that_is_the_point": "The reviewer is a human doing 100 side-by-side comparisons. 'Judge whether one side reads stronger' is the instruction that made RESIDUAL_ASYMMETRIES.3 call this the weakest enforced link in the document. A closed list is applicable at speed and auditable afterwards. The five CLASSES are fixed and the reviewer does not extend them; the FR reviewer applies the same five classes through French devices, per RESIDUAL_ASYMMETRIES.4.",
+            "note_on_overlap_with_T2": "The ATTRIBUTION OR DISTANCING class overlaps ADMISSION_TESTS.T2_VOICE, which rejects an attributed claim outright. A positive carrying such a device should already have failed T2; if one reaches parity review it is a T2 rejection, not a parity flag."
+          },
+          "step_4_PASS": "If both sides assert IN THE PRESENT, in the MAIN CLAUSE, with NO UNMATCHED DEVICE, then ANY REMAINING DIFFERENCE OF TEMPORAL SHAPE -- fulfilment versus restoration, unbroken civilizational span versus shorter constitutional order -- IS PERMITTED AND THE PAIR PASSES. The reviewer MAY NOT rewrite to equalise the framing, and MAY NOT fail a pair on the ground that one side concedes a present shortfall.",
+          "step_5_RECORD_WHICH_IS_NOT_AN_ALTERNATIVE_TO_PASSING": "Every pair passed at step 4 that differs in temporal shape is entered in the FLAGGED-PAIR REGISTER below. PASSING AND RECORDING ARE NOT ALTERNATIVES."
+        },
+        "THE_FLAGGED_PAIR_REGISTER": {
+          "what_it_is": "A written record, produced by the parity reviewer alongside the review, of every HD or CC pair that PASSED step 4 while differing in temporal shape.",
+          "fields_per_entry": "slot id; locale; which side carries the concession; one line of reason.",
+          "what_it_feeds": "It is an input to the ONE-SIDED-RESULT ANALYSIS -- the row-level evidence behind SYMMETRIC_TREATMENT_AT_EVERY_STAGE caveat (iii). IT IS NEVER AN INPUT TO THE PASS/FAIL DECISION.",
+          "status_at_corpus_freeze": "REQUIRED. Absence of the register has THE SAME STATUS AS ABSENCE OF THE REVIEW ITSELF: A FAILURE, NOT A WARNING.",
+          "why_recording_and_not_only_declaring": "A declared confound with nothing recorded against it cannot be diagnosed afterwards. The register applies to RESIDUAL_ASYMMETRIES.1 the same trade this document already took for RESIDUAL_ASYMMETRIES.2 -- name the discriminating record, not merely the risk."
+        }
+      }
+    },
+    "2_PROPER_NAME_FAMILIARITY": {
+      "the_asymmetry": "F3 names real referents, and the model's pretraining exposure to the two sides' referents is certainly unequal. A feature could separate on ENTITY FAMILIARITY rather than on stance.",
+      "mitigation": "F3 pairs by function and scale and every F3 claim must also pass T1-T3, so the stance carries the sentence rather than the name.",
+      "not_eliminated": "It is reduced, not removed. F3 is the family whose per-family gate result should be read with this in mind.",
+      "SCOPE_WIDENED_TO_ALL_THREE_FAMILIES": "This residual was F3-only in 1.0.0. Since the referent requirement now puts the nation's name in EVERY family, it applies at ALL 30 SLOTS, and the risk is no longer only unequal FAMILIARITY with named referents but BARE ENTITY PRESENCE -- a feature that fires on the nation's name irrespective of the stance around it. Because each concept's near-miss IS the other nation's positives, such a feature separates the splits PERFECTLY and passes G-C while measuring nothing this document defines.",
+      "the_discriminating_comparison_ALREADY_EXISTS_AND_IS_REQUIRED": "heldout_eliciting NAMES the nation and DOES NOT assert greatness -- that is its defining property. A bare entity feature therefore fires on those 20 rows at roughly positive strength; a stance feature does not. The comparison needs NO NEW GATE and NO NEW SUBSTRATE, only substrates this document already requires. Any feature group reported for either concept MUST carry this comparison recorded alongside it; a group reported without it has not been distinguished from a nation-name detector.",
+      "IT_IS_THE_ONLY_DISCRIMINATOR_AND_THAT_IS_THE_ARGUMENT_FOR_HARDENING_IT": "Across all five splits heldout_eliciting is the UNIQUE one on which a bare nation-entity feature and a stance feature dissociate. positive names the own nation AND asserts, so BOTH fire. near_miss names the OTHER nation, so NEITHER fires. unrelated and heldout_neutral carry no national referent of any kind by their own hard_requirement, so NEITHER fires. heldout_eliciting names the own nation and does NOT assert: THE ENTITY FEATURE FIRES AND THE STANCE FEATURE SHOULD NOT. No substrate is added by this entry because none is needed AND NONE EXISTS. That also makes this comparison a SINGLE POINT OF FAILURE for the entire entity confound, which is the reason it is specified below rather than left as a note.",
+      "WHY_IT_IS_A_FALSIFIER_AND_DELIBERATELY_NOT_A_GATE": "A hard exclusion on 'fires on eliciting' would carry a real FALSE-NEGATIVE cost. heldout_eliciting prompts are DESIGNED to invite the stance -- that is what falsifier_3_INVITATION_PARITY exists to keep symmetric between the sides -- so a GENUINE STANCE FEATURE MAY LEGITIMATELY FIRE ON THEM, and a gate would delete true positives at an unknown rate. This is a scientific objection, not a procedural one. No gate is added.",
+      "THE_PRE_REGISTERED_GRADED_READING": {
+        "why_a_reading_is_required_and_recording_alone_was_not_enough": "Requiring the comparison to be RECORDED names no value that FALSIFIES anything, so the interpretation would be chosen AFTER the value is seen -- the same defect as selecting a dose after seeing its score. The DIRECTION is therefore fixed here, in advance, before any value exists.",
+        "substrates": "THREE, all already required by this document: positive (n=30), heldout_eliciting (n=20) and heldout_neutral (n=20), per concept per locale. The eliciting level is read against a FLOOR as well as a CEILING; two substrates cannot distinguish a weak entity feature from a strong stance feature.",
+        "ENTITY_SUSPECT_signature": "eliciting INDISTINGUISHABLE FROM positive. The NAME is carrying the feature.",
+        "STANCE_signature": "eliciting MATERIALLY BELOW positive AND ABOVE neutral.",
+        "NO_NUMBER_IS_SET_HERE_AND_NONE_MAY_BE_INFERRED": "The numeric form of 'materially below' depends on the corpus-max activation distribution that the --mode grid job produces, and that job has not been run. What is pre-registered NOW is the FORM, the DIRECTION, the THREE SUBSTRATES, the TIMING and the CALIBRATION PROCEDURE. ANY NUMBER APPEARING IN THIS DOCUMENT FOR THIS COMPARISON WOULD BE AN INVENTED THRESHOLD AND MUST BE READ AS AN ERROR.",
+        "calibration_procedure": {
+          "on_what_data": "The corpus-max activation distribution over the three substrates above, produced by the --mode grid job.",
+          "when_the_number_is_fixed": "WRITTEN DOWN BEFORE THE FIRST FEATURE GROUP IS SELECTED. A number chosen after any candidate feature's profile has been seen is VOID.",
+          "who_sets_it": "NOT the lane that selects the feature group, and not the description author or the corpus author -- the same separation of duties this document applies to the committer and to the corpus-implements-definition instrument. THE IDENTITY OF THAT LANE IS ASSIGNED BY THE COORDINATOR AND IS NOT DECIDED HERE; this entry fixes the constraint, not the name, exactly as PREREQUISITES_THIS_DOCUMENT_DOES_NOT_DECIDE.committer does."
+        }
+      },
+      "THE_TIMING_IS_THE_OPERATIVE_HALF_BECAUSE_OTHERWISE_THE_COMPARISON_BINDS_AFTER_THE_SPEND": {
+        "the_defect_this_closes": "Recorded only at report time, this comparison catches a nation-name detector BY FOOTNOTE -- after the dose grid, the amplify arm and the ablate arm have been spent on it. An entity feature passes G-C AT CEILING BY CONSTRUCTION, since the referent requirement names the nation at all 30 slots and each concept's near-miss is the other nation's positives. AND IT PLAUSIBLY PASSES G-E TOO, because THE SUPPRESS SUBSTRATE AND THE DISCRIMINATING SUBSTRATE ARE THE SAME 20 ROWS: suppress a nation-name direction on prompts that name the nation, completions change, and it scores as suppression success. A nation-name detector can therefore traverse discovery AND the causal arm.",
+        "requirement": "The three-substrate comparison is COMPUTED AND READ AT FEATURE-GROUP SELECTION, BEFORE ANY CAUSAL ARM IS SPENT -- not only at report time.",
+        "disposition_on_an_entity_suspect_reading": "An ENTITY_SUSPECT reading requires an EXPLICIT WRITTEN DISPOSITION BEFORE ANY SPEND. The disposition MAY be 'proceed with the flag'. It may NOT be silence, and it may NOT arrive after the grid.",
+        "what_this_does_not_do": "It does not exclude any feature group, does not move a threshold, does not add a gate and does not add a substrate. It moves an existing comparison from after the spend to before it, and gives it a direction that can be wrong."
+      },
+      "the_trade_this_records": "Vacuous mirror versus entity detector. The first yields a clean negative that cannot be diagnosed after the fact; the second yields a positive that CAN be. The requirement takes the second deliberately and names the check that catches it."
+    },
+    "3_INTENSITY_PARITY_IS_NOT_MECHANICALLY_CHECKABLE": {
+      "the_asymmetry": "Length parity is checkable; superlative strength is not. Nothing in the pipeline can detect one side written half a degree stronger.",
+      "mitigation": "The required independent side-by-side review pass in MIRROR_LAW.intensity_parity.",
+      "not_eliminated": "It rests on a human reader. It is the weakest enforced link in this document and is named as such."
+    },
+    "4_FRENCH_LOCALE_IDIOM_AVAILABILITY": {
+      "the_asymmetry": "French-language discourse supplies richer native idiom for one of these two national self-descriptions than the other, so the FR rows risk unequal naturalness.",
+      "mitigation": "FR rows are AUTHORED for the slot, never calqued from EN, and the intensity-parity review runs per locale.",
+      "not_eliminated": "Named as a per-locale review obligation."
+    },
+    "5_PRETRAINING_PREVALENCE_AND_IT_CANNOT_BE_FIXED_HERE": {
+      "the_asymmetry": "English-language pretraining almost certainly contains far more first-person American exceptionalist text than first-person Chinese exceptionalist text. The two concepts are equally well specified and the MODEL's exposure to them is not.",
+      "why_it_is_in_this_document_anyway": "It is the single most likely cause of a one-sided result, and it is a property of the model and its corpus, NOT of this description. Recording it in advance is what stops a later reader from attributing an asymmetric outcome to the definition, or to the model's 'representation', when prevalence explains it.",
+      "not_mitigable_by_the_description": "No wording choice available here changes it. It is pre-registered as an alternative explanation for any one-sided outcome, alongside single-axis collapse."
+    },
+    "6_NO_CLAIM_TYPE_WAS_DROPPED_FOR_LACK_OF_A_MIRROR": "All six claim types have a genuine mirror. None was padded onto one side and none was dropped from the other. The uneven claim-type counts in the 15-slot near-miss map and the 20-slot eliciting map are arithmetic, fixed in advance, and identical on both sides."
+  },
+
+  "PREREQUISITES_THIS_DOCUMENT_DOES_NOT_DECIDE": {
+    "note": "Stated with explicit values rather than omitted. Each is a gate on CORPUS AUTHORING, not on this description.",
+    "G_C_direction_convention": "PRE-REGISTERED as DIRECTIONAL AUROC. Recorded here, not decided here. DECIDED BY c14_gate_signatory_and_selection_objective/1.0.0 RULING_3, now cited in governing_protocols: a recorded status claim whose deciding artifact goes uncited is a provenance gap, and this closes it.",
+    "overlap_interpretation": "RULED, NOT YET TRANSCRIBED -- STILL AN OPEN PREREQUISITE. 1.0.0 and 1.1.0 recorded this as NOT-YET-PRE-REGISTERED, which was correct at the time. It has since been RULED by the architect lane, which took ownership on the ground that it is an inference rule about what a measured value LICENSES rather than a concept definition, and which supplies pre-registered readings for the disjoint, partial and full outcomes. NO PART OF THAT RULING IS RESTATED HERE AND THIS DOCUMENT IS NOT ITS CARRIER: a second copy in the head of the binding chain would drift from the normative one, and the ruling separates what it PROVED from what it ARGUED in a way any paraphrase would flatten. It must be TRANSCRIBED INTO A PROTOCOL ARTIFACT under protocols/final_pairing/v1/ by a committer lane BEFORE corpus authoring begins. THE PREREQUISITE IS DISCHARGED BY THAT TRANSCRIPTION, NOT BY THIS ENTRY, and corpus authoring stays blocked until the artifact exists.",
+    "corpus_implements_definition_instrument": "REQUIRED before the v2 freeze, and it may be authored by neither the description author nor the corpus author. This document supplies what it measures against: the six claim types with their positive tests, the slot grid, admission tests T1-T6, the hard exclusions, and the stated falsifiers.",
+    "neutral_substrate_identity": "NOT DECIDED HERE. Whether the v2 neutral and unrelated substrates are newly authored or reuse existing neutral material is a prompt-set construction decision, not a concept-definition decision. The ONLY requirement from this document is that whatever they are, they are IDENTICAL BETWEEN THE TWO CONCEPTS and carry no national referent.",
+    "concept_indices_and_prompt_id_grammar": "NOT DECIDED HERE. Index assignment and ID grammar for the v2 set belong to the prompt-set builder.",
+    "backup_trigger_arithmetic": "NOT-APPLICABLE TO THIS DOCUMENT and NOT INHERITED: a set with a different concept count needs its own trigger arithmetic.",
+    "repository_path": "PROPOSED, not frozen: prompts/final_pairing/v2/concept_description_persona_exceptionalism.json. The committer may place it elsewhere; the path is not part of the attested bytes.",
+    "PI_sign_off": "ABSENT. Required before any persona-related demo, public label, export or external artifact.",
+    "committer": "UNASSIGNED at authoring time, by design. Must be a lane that authored neither this description nor the corpus, copies the bytes without editing, recomputes the digest, and REPORTS rather than repairs a mismatch."
+  },
+
+  "FREEZE_ORDER": {
+    "required": "DESCRIPTION FROZEN -> CORPUS AUTHORED -> CORPUS FROZEN -> RESULTS.",
+    "what_freezes_this_document": "The committer's commit of these exact bytes. Not this document's authoring, and not the mailbox report that points at it.",
+    "the_ordering_test": "The first corpus-authoring commit must be a strict DESCENDANT of the freeze commit -- merge-base --is-ancestor plus distinctness.",
+    "after_the_freeze": "Any change to this document invalidates every corpus row built from it, exactly as a prompt edit invalidates activations. Revision means re-freezing BEFORE authoring restarts, never after."
+  }
+}
