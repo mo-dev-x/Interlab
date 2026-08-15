@@ -1,0 +1,95 @@
+{
+  "$comment": "PRE-REGISTRATION OF THE OVERLAP INTERPRETATION, required by persona_pair_construction_and_probe_placement/1.0.0 condition_3 BEFORE corpus authoring begins. The substantive content of this document is a VERBATIM TRANSCRIPTION of the architect's RULING_7 at mailbox sequence 35. The committer authored the transport wrapper and NOTHING inside TRANSCRIBED_VERBATIM_FROM_ARCHITECT_SEQUENCE_35_RULING_7. Sets no threshold, adds no gate, authorizes no submission.",
+  "protocol_version": "final-pairing-overlap-interpretation-pre-registration/1.0.0",
+  "gating": {"overlap_interpretation": true, "corpus_authoring": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+  "extends": {
+    "protocol": "protocols/final_pairing/v1/persona_pair_construction_and_probe_placement.json",
+    "protocol_version": "final-pairing-persona-pair-construction-and-probe-placement/1.0.0",
+    "clause_discharged": "RULING_2_THREE_BINDING_CONDITIONS.condition_3_the_overlap_interpretation_is_pre_registered_not_discovered"
+  },
+  "binding_for_this_document": {
+    "describes_concepts": "none -- process artifact. It is an INFERENCE RULE about what a measured overlap value LICENSES, not a concept definition.",
+    "prompt_set_version": "NOT-APPLICABLE",
+    "note": "Stated rather than blank, per binding_chain_head_and_freeze_order/1.0.0 RULING_2."
+  },
+
+  "WHAT_THIS_DOCUMENT_IS_AND_WHO_WROTE_WHICH_PART": {
+    "authorship_of_the_substance": "THE ARCHITECT. The content under TRANSCRIBED_VERBATIM_FROM_ARCHITECT_SEQUENCE_35_RULING_7 is the architect's own text, copied string-for-string from mailbox sequence 35, RULING_7. The committer claims no authorship of it and altered no word of it.",
+    "authorship_of_the_wrapper": "THE COMMITTER LANE, acting under description_transport_and_committer/1.0.0. The committer authored neither the description nor the corpus. This wrapper supplies the protocol shape, the provenance, and the gating; it supplies no science.",
+    "why_transcription_rather_than_summary": "The architect's own text separates what it PROVED from what it ARGUED, and that split is load-bearing: flattening an ARGUED claim into a PROVEN one would be a substantive corruption of the pre-registration. The surest way to preserve the distinction is not to restate it. Every key name and every string below is the architect's.",
+    "why_this_document_and_not_the_concept_description": "The v2 concept description (PREREQUISITES.overlap_interpretation) deliberately carries NO part of this ruling and says so in its own bytes. A second copy in the head of the binding chain would drift from the normative one. THIS ARTIFACT IS THE CARRIER."
+  },
+
+  "REGISTER_STATUS_PROVENANCE": {
+    "$note": "Per register_status_provenance/1.0.0: every status field cites THE OBSERVATION THAT ESTABLISHED IT, with a timestamp -- not the expectation.",
+    "the_requirement_that_creates_this_document": "persona_pair_construction_and_probe_placement/1.0.0, condition_3: 'Before authoring, freeze what a shared feature MEANS: disjoint groups, partial overlap, and full overlap each get their stated reading in advance.' OBSERVED by the committer by reading that artifact at pinned commit 49f8a73777bec83e4a871d6a395bd89408be53fe, 2026-08-15T13:44Z.",
+    "status_before_this_commit_ABSENT_and_how_that_was_established": "ABSENT FROM THE REPOSITORY. OBSERVATION, not expectation: `git grep -n -i overlap_interpretation` over the tracked tree returned exactly two kinds of hit -- persona_pair_construction_and_probe_placement.json:55 (the REQUIREMENT, not the pre-registration) and the v2 concept description's own PREREQUISITES entry (which states in its bytes that it is NOT the carrier). No artifact carried the three readings. Observed by the committer at 2026-08-15T13:45Z on branch final-pairing-harness.",
+    "status_claimed_by_the_PM_and_why_it_was_correct_then": "PM sequence 1 recorded 'NOT-YET-PRE-REGISTERED as far as I can verify from the repository' and referred it upward. PM sequence 3 corrected it to 'RULED, NOT YET TRANSCRIBED -- STILL AN OPEN PREREQUISITE'. Both were accurate at their time; the PM is barred from repository files and deliberately transcribed no part of the ruling.",
+    "status_as_of_this_commit": "PRE-REGISTERED. The prerequisite is discharged BY THIS ARTIFACT EXISTING IN THE REPOSITORY, not by any entry in the concept description.",
+    "the_source_record": "Mailbox sequence 35, actor architect, timestamp_utc 2026-08-15T13:22:08Z, event 'residual_1_ruled_temporal_shape_is_content_modality_is_intensity_entity_discriminator_needs_a_falsifier_and_the_freeze_candidate_carries_a_superseded_reporting_clause', checks key RULING_7_THE_OVERLAP_INTERPRETATION_IS_MINE_AND_HERE_IT_IS.",
+    "the_architect_created_no_repository_file": "Their own words, sequence 35: 'I created no repository file in this sequence.' The transport to a protocol artifact was assigned by them to a committer lane. This is that transport."
+  },
+
+  "TRANSCRIBED_VERBATIM_FROM_ARCHITECT_SEQUENCE_35_RULING_7": {
+    "$transcription_note": "STRING-FOR-STRING from checks.RULING_7_THE_OVERLAP_INTERPRETATION_IS_MINE_AND_HERE_IT_IS. Key names and values are the architect's. Nothing added, nothing removed, nothing paraphrased.",
+
+    "PROVEN_versus_ARGUED_stated_so_consistency_does_not_read_as_confirmation": {
+      "ARGUED_NOT_PROVEN": "The actual G-C comparison is 10 family positives against all 15 mirror near_miss rows, so complementarity is NEAR-exact rather than exact. Non-empty overlap therefore requires a feature that separates MIRROR slots from NON-MIRROR slots WITHIN a side. That is a slot-selection signature, not a shared-representation signature.",
+      "NOT_SET_BY_ME": "0.75 and 0.90 are v1 values OBSERVED at the pinned sha and cited, not set. v2 thresholds are unfrozen and this ruling sets none. The argument needs only that the thresholds exceed 0.5.",
+      "PROVEN_algebraically": "On a symmetric mirror-only comparison AUROC_B(f) = 1 - AUROC_A(f) exactly, so no feature clears any threshold > 0.5 in both directions.",
+      "PROVEN_from_code_at_the_pinned_sha": "G-C is directional and per-family, gate_c_passed = auroc >= auroc_min (final_pairing_concept_discovery.py:1591); auroc_min = 0.75 and G_A_separation_auroc_min = 0.9 in prompts/final_pairing/v1/metadata.json:244 and :240; the G-A identity at :1439 and :1565."
+    },
+
+    "THE_FINDING_THAT_MAKES_IT_URGENT_AND_IT_REFINES_MY_OWN_RULING_1": "Under the frozen gate algebra THE OVERLAP MEASUREMENT IS CLOSE TO DEGENERATE. A REFERENT-INVARIANT exceptionalism feature -- one that fires on both nations' positives -- has near_miss_auroc approximately 0.5, BECAUSE A's near_miss IS B's positives. It therefore fails G-C (needs >= 0.75) for both concepts AND fails G-A: the code's own identity is separation_auroc == (near_miss_auroc + unrelated_auroc)/2, so G_A_min 0.90 forces near_miss_auroc >= 0.80. A SHARED STANCE FEATURE IS STRUCTURALLY EXCLUDED FROM BOTH GROUPS AND FROM THE PIPELINE ENTIRELY. My RULING_1 said overlap 'becomes a MEASURED RESULT... a real gain'. The gain is real but BOUNDED, and I did not bound it.",
+
+    "THE_THREE_PRE_REGISTERED_READINGS": {
+      "DISJOINT_the_expected_outcome": "Carries NO evidence that the two personas are separately represented, because the shared-representation hypothesis is UNTESTABLE by this construction. Must be reported as 'the construction cannot detect a referent-invariant feature', NEVER as 'separate representations'.",
+      "FULL": "Not reachable under directional AUROC plus the G-A identity. If observed, treat as a SCORING OR PIPELINE DEFECT to be investigated before any interpretation is attached.",
+      "PARTIAL": "Leading reading is MIRROR/NON-MIRROR SLOT HETEROGENEITY or a family effect, NOT a shared stance. Any shared-representation claim requires re-scoring the shared members on the 15 NON-mirror positives of both sides, and is otherwise prohibited.",
+      "the_question_this_construction_cannot_answer": "If 'do the two personas share a representation?' matters scientifically, it needs a DIFFERENT CONTRAST -- both concepts' positives against unrelated, scored outside the reciprocal near-miss. That is a new instrument and IT IS NOT AUTHORIZED HERE."
+    },
+
+    "ownership": "MINE, the architect's. Grounds: condition_3 is a clause of MY OWN ruling; its sibling condition_2 (the G-C direction convention) was discharged by an architect ruling (c14_gate_signatory RULING_3), which sets the lane by precedent; and it is an inference rule about what a measured value LICENSES -- not concept definition (PM), not product surface (researcher), and structurally barred to the corpus author, whose first row it must precede.",
+
+    "transport": "This text is the pre-registration CONTENT. It must be transcribed into a protocol artifact under protocols/final_pairing/v1/ by a committer lane BEFORE corpus authoring begins. I created no repository file in this sequence."
+  },
+
+  "THE_HEADLINE_CONSEQUENCE_RESTATED_AS_A_BINDING_REPORTING_RULE": {
+    "$note": "This key adds NO claim. It states, as an operative instruction, what the transcribed DISJOINT reading already requires, so that a downstream reporter meets it as a rule rather than having to derive it from the algebra.",
+    "DISJOINT_IS_NOT_EVIDENCE_OF_SEPARATE_REPRESENTATIONS": "A DISJOINT result was GUARANTEED BY CONSTRUCTION before a single prompt was written. It therefore carries no information about whether the two personas are separately represented.",
+    "the_required_wording": "'the construction cannot detect a referent-invariant feature'.",
+    "the_prohibited_wording": "'separate representations', or any paraphrase asserting that the two personas are represented separately, on the basis of a DISJOINT overlap result.",
+    "scope": "Binds every downstream document that reports an overlap result: selection records, result reports, the methods write-up and any public surface."
+  },
+
+  "WHAT_THIS_DOCUMENT_DOES_NOT_DO": {
+    "thresholds_moved": 0,
+    "gates_added": 0,
+    "substrates_added": 0,
+    "frozen_artifacts_edited": 0,
+    "submissions_authorized": 0,
+    "pinned_set_expanded": false,
+    "the_two_numbers_it_names": "0.75 and 0.90 are cited as v1 values OBSERVED at pinned commit 49f8a73777bec83e4a871d6a395bd89408be53fe, exactly as the architect cited them. Neither is set, moved or re-derived here. v2 thresholds remain unfrozen.",
+    "binding_status": "ENGINEERING PREVIEW ONLY. No bundle is attested by this document."
+  },
+
+  "VERIFICATION_COMMANDS_ALL_PINNED_NEVER_HEAD": {
+    "$note": "The pin for the transcribed citations is the commit the architect ruled at. The pin for this artifact is the commit that introduced it, named in the report.",
+    "1_gate_C_is_directional_and_per_family": "git show 49f8a73777bec83e4a871d6a395bd89408be53fe:scripts/final_pairing/final_pairing_concept_discovery.py | sed -n '1585,1595p'",
+    "2_the_G_A_identity_and_the_implied_near_miss_floor": "git show 49f8a73777bec83e4a871d6a395bd89408be53fe:scripts/final_pairing/final_pairing_concept_discovery.py | sed -n '1435,1445p;1560,1570p'",
+    "3_the_two_thresholds_cited_not_set": "git show 49f8a73777bec83e4a871d6a395bd89408be53fe:prompts/final_pairing/v1/metadata.json | sed -n '236,248p'",
+    "4_the_requirement_this_discharges": "git show 49f8a73777bec83e4a871d6a395bd89408be53fe:protocols/final_pairing/v1/persona_pair_construction_and_probe_placement.json | sed -n '55,60p'",
+    "committer_verification_result": "All four run by the committer at 2026-08-15T13:46Z. Every citation in PROVEN_from_code_at_the_pinned_sha verified EXACT: gate_c_passed = auroc >= auroc_min at :1591; the identity and the 0.80 floor derivation at :1439; the identity restated at :1565; G_A_separation_auroc_min 0.9 at metadata.json:240 and G_C_specificity_auroc_vs_near_miss_min 0.75 at :244. NO DISCREPANCY FOUND between the architect's citations and the code."
+  },
+
+  "hard_stops": [
+    "Reporting a DISJOINT overlap result as evidence that the two personas are separately represented.",
+    "Attaching any interpretation to a FULL overlap result before investigating it as a scoring or pipeline defect.",
+    "Making a shared-representation claim from a PARTIAL result without re-scoring the shared members on the 15 NON-mirror positives of both sides.",
+    "Choosing or adjusting the reading of an overlap result after the value has been seen.",
+    "Building the different contrast this document names -- both concepts' positives against unrelated, outside the reciprocal near-miss -- without a separate authorization. It is a new instrument and it is NOT authorized here.",
+    "Beginning corpus authoring on a commit that is not a descendant of this artifact's commit AND of the description's freeze commit.",
+    "Paraphrasing, summarising or 'tidying' the transcribed block, which would flatten the PROVEN/ARGUED distinction it exists to preserve."
+  ]
+}
