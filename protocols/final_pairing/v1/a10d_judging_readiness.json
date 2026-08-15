@@ -1,0 +1,67 @@
+{
+  "$comment": "Rules A-10d and clears OPEN_DECISIONS D3, which was held by the Architect and blocking the coherence-scored selection step and all Lodestar spend. Authorizes no spend -- it states what must be demonstrated before the first paid call.",
+  "protocol_version": "final-pairing-a10d-judging-readiness/1.0.0",
+  "gating": {"paid_judging": true, "coherence_scored_selection": true, "gpu_generation": false, "submission": false},
+  "supersedes": null,
+  "clears": {"register_entry": "OPEN_DECISIONS D3", "held_by": "ARCHITECT", "site": "inbox/architect.json"},
+  "binding_for_this_document": {"describes_concepts": "none -- judging readiness", "prompt_set_version": "NOT-APPLICABLE"},
+
+  "WHY_A10c_CHANGED_WHAT_A10d_MUST_ANSWER": {
+    "the_coordinators_escalation_reason_is_exactly_right": "A-10c made coherence the OBJECTIVE rather than a floor, which TURNS THE RUBRIC FROM PASS/FAIL INTO A SELECTION INSTRUMENT.",
+    "THE_PROPERTY_THAT_CHANGED": "AS A FLOOR, a rubric needs THRESHOLD RELIABILITY -- it must be right near 6.0, and errors away from the threshold are free because a 9 and an 8 both pass. AS AN OBJECTIVE, it needs RANK RELIABILITY across the whole range, because selecting the highest-coherence candidate means ranking 8 against 9 correctly.",
+    "consequence": "A RUBRIC THAT IS ENTIRELY ADEQUATE AS A GATE MAY BE USELESS AS A RANKER, and A-10c converted a requirement for one into a requirement for the other WITHOUT ANYONE HAVING TO CHANGE THE RUBRIC. Nothing about the instrument moved; what is asked of it did.",
+    "this_is_the_catalogues_shape_again": "An artifact that reads as unchanged and is now doing a different job. It would pass every check it passed yesterday."
+  },
+
+  "RULING_WHAT_MUST_BE_DEMONSTRATED_BEFORE_THE_FIRST_PAID_CALL": {
+    "1_rank_reliability_not_threshold_reliability": {
+      "requirement": "Repeated judging of the SAME outputs must produce a STABLE ORDERING, not merely stable pass/fail. Demonstrated on a held-out set, at the same temperature and judge snapshot the real run will use.",
+      "why_it_is_first": "If the rubric cannot reproducibly distinguish 8 from 9, COHERENCE-AS-OBJECTIVE SELECTS NOISE, and it does so invisibly because every selected candidate still clears the floor and still looks like a valid result."
+    },
+    "2_the_rubric_must_state_its_RESOLUTION": {
+      "requirement": "The rubric declares the smallest score difference it can reproducibly distinguish, measured rather than asserted.",
+      "AND_THE_TIEBREAK_IS_PRE_REGISTERED": "Differences BELOW that resolution are TIES. A tie falls to a pre-registered tiebreak -- the relevance value, then the lower dose -- and NEVER to the higher coherence number.",
+      "why_this_is_new_and_necessary": "Under a floor, ties are irrelevant. Under an objective, SELECTING THE HIGHER OF TWO SCORES INSIDE THE NOISE BAND IS SELECTING NOISE WHILE APPEARING TO OPTIMISE. Nobody has stated this and it follows directly from A-10c."
+    },
+    "3_pre_registration_of_rubric_and_thresholds": {
+      "verdict": "REQUIRED, AND MORE STRICTLY THAN UNDER THE FLOOR.",
+      "why_strictness_increased": "A floor can be checked against a FIXED NUMBER agreed in advance. AN OBJECTIVE RANKS, so a rubric chosen or adjusted after seeing outputs becomes 'choose the scoring that favours the candidate I want'. THAT IS DOSE SUBSTITUTION IN A NEW COAT, and the whole difference between a constraint and a rationalisation is whether it existed before the scores did.",
+      "what_must_be_frozen": "The rubric text, its scale, its resolution, the relevance floor of +3.0, and the tiebreak order. All before the first paid call, all with a commit that precedes the first judged output."
+    },
+    "4_a_zero_cost_end_to_end_demonstration": {
+      "requirement": "The full judging path exercised at $0 -- estimate path, cache, refusal of non-attestable judge identities, and the engine identity fields -- before any paid call.",
+      "already_partly_built": "local_judge_preflight.py exercises much of this and its two setup_failure cases are the known aiosqlite gap, disclosed by design.",
+      "and_the_engine_identity_must_be_present": "lodestar_commit, lodestar_dirty and lodestar_version are recorded on JudgeRunResult. A PAID CALL THAT PRODUCES A RESULT WITHOUT THEM IS AN UNATTRIBUTABLE SPEND."
+    },
+    "5_dirty_tree_blocks_promotion_not_judging": "Unchanged from the frozen rule. lodestar_dirty true does not stop a judged call; it stops that result being promoted."
+  },
+
+  "WHAT_THIS_DOES_NOT_DO": {
+    "authorizes_no_spend": "This states what must be DEMONSTRATED. The $25 cap and the decision to spend against it remain the researcher's, and nothing here draws on it.",
+    "does_not_unblock_group_composition": "The coherence-scored selection step also needs the producer fix, which is blocked on D1 -- an operator authorization neither the coordinator nor I hold.",
+    "does_not_settle_D2": "Internal-versus-public remains the researcher's and is unaffected."
+  },
+
+  "ON_THE_COORDINATORS_DECISION_TO_STOP_EXTENDING_THE_PROCESS_THREAD": {
+    "verdict": "CORRECT, AND I OWN MY HALF OF IT.",
+    "the_arithmetic_they_stated": "The staged order improved five times tonight and is exactly as unexecutable; the last three exchanges produced rules about rules while nothing moved. THE PROCESS WORK HAS BEEN GENUINELY GOOD AND IT IS NOT PROGRESS.",
+    "my_half": "Every one of those exchanges was a referral answered by a ruling from me. IMPROVING A BLOCKED ORDER DOES NOT ADVANCE IT applies to my rulings exactly as it applies to their orders, and I did not apply it to myself until they did.",
+    "AND_THE_REGISTER_PROVES_THE_POINT_AGAINST_ME": "D3 was mine, it blocked the selection step and all spend, and it sat unruled for eleven sequences while I produced seven process artifacts. THE REGISTER FOUND THAT IN ONE PASS. That is the strongest argument for the register that exists.",
+    "adopted": "I will answer referrals that change a gate or a claim, and I will not generate further rules about rules absent a live defect."
+  },
+
+  "THEIR_CO_LOCATION_FINDING_ON_THE_REGISTER_IS_CORRECT_AND_IS_THE_BEST_USE_OF_THE_RULE_SO_FAR": {
+    "what_they_found": "THREE SEPARATE ITEMS ALL RESOLVE IN inbox/researcher.json AND ALL BLOCK THE DELIVERABLE, reported to the operator at three different times in three different messages as three unrelated asks.",
+    "verdict": "CONFIRMED UNDER THE CO-LOCATION RULE. That is ONE DECISION POINT WITH THREE FACES, and presenting it as three is a sufficient explanation for why none has been answered.",
+    "why_it_matters_more_than_the_code_case": "The rule was written for requirements landing on the same lines. APPLIED TO DECISIONS IT EXPLAINS A HUMAN OUTCOME -- three asks arriving separately read as three interruptions, each individually declinable; one block reads as a decision.",
+    "their_handling_endorsed": "Presenting them once, together, when the operator next engages -- and not as three reminders, which is the pressure they already declined to apply."
+  },
+
+  "hard_stops": [
+    "Any paid Lodestar call before rank reliability, resolution and the tiebreak are demonstrated and frozen.",
+    "Selecting on a coherence difference below the rubric's measured resolution.",
+    "Choosing or adjusting the rubric, its scale, its thresholds or its tiebreak after any judged output exists.",
+    "A paid call producing a result without lodestar_commit, lodestar_dirty and lodestar_version.",
+    "Reading this ruling as authorizing spend, or as unblocking group composition, which is blocked on D1."
+  ]
+}
