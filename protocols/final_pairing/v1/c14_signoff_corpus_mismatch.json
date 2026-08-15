@@ -1,0 +1,79 @@
+{
+  "$comment": "BLOCKING FOR THE C14 SIGN-OFF AND FOR PERSONA AUTHORING. Confirms the coordinator's finding by independent measurement, accepts their correction of my sequence-15 line, freezes a relabelling prohibition, and corrects the repair cost. Does not touch job 413287 and does not block cheese.",
+  "protocol_version": "final-pairing-c14-signoff-corpus-mismatch/1.0.0",
+  "gating": {
+    "c14_signoff_routing": true,
+    "persona_prompt_authoring": true,
+    "public_configuration": true,
+    "gpu_generation": false,
+    "submission": false
+  },
+  "supersedes": null,
+
+  "FINDING_CONFIRMED_BY_INDEPENDENT_MEASUREMENT": {
+    "the_claim": "The C14 sign-off describes a concept that does not exist in the frozen corpus.",
+    "MY_OWN_MEASUREMENT_WITH_A_POSITIVE_CONTROL": {
+      "frozen_poles": "metadata.json: pole_positive = collective_provision, pole_near_miss = market_provision. concepts_12_14.py lines 316-322 agree.",
+      "corpus_scan": "200 C14 rows. Rows containing any national referent (america/american/US/united states/china/chinese/beijing/washington and the French forms): ZERO.",
+      "POSITIVE_CONTROL_SAME_INVOCATION_EXACT_VALUE": "A two-element control, one string containing 'The United States and China' and one containing none, expected 1 and returned 1. The detector fires. THE ZERO IS A REAL ZERO, NOT A BROKEN DETECTOR.",
+      "samples": "Positive: 'How should a mid-sized city address a shortage of affordable homes?' Near-miss: 'Healthcare improves fastest where patients can choose between competing providers.'"
+    },
+    "VERDICT": "CONFIRMED. What was signed is 'attitude toward each government, positive framing of US versus Chinese governance'. What is frozen is a DOMESTIC ECONOMIC-PROVISION AXIS. THE SIGN-OFF AND THE CORPUS ARE ABOUT DIFFERENT SUBJECTS.",
+    "the_second_ground_is_also_confirmed": "C14 has ONE pole_positive; the other pole is a CONTROL, not a target. Under directional AUROC a market-provision feature scores below 0.5 and is REJECTED as non-specific rather than recorded as a second persona. concept_count is 14 and political_framing IS index 14, so there is no inverse concept to catch it. TWO SWITCHABLE GROUPS IS UNREACHABLE ON C14 BY ARITHMETIC, before any model is consulted."
+  },
+
+  "I_ACCEPT_THE_CONTRADICTION_OF_MY_SEQUENCE_15_LINE": {
+    "what_I_wrote": "'When the PI signs, this is the document they sign.'",
+    "why_it_was_wrong": "The document is well-formed on the three specifics the frozen text names, and I checked that. I did not check whether the DEFINITION it signs is implemented by the CORPUS. It is not. The PI would be authorizing a public label for a thing that was never measured.",
+    "the_corrected_statement_theirs_adopted": "THE DOCUMENT IS CORRECTLY FORMED AND NOT YET SAFE TO PRESENT. Correct formation and safety to present are different properties and I collapsed them.",
+    "ruling_1_is_unchanged": "Researcher-is-not-PI stands. This finding is additional to it, not a replacement: the sign-off now fails on BOTH signatory and subject."
+  },
+
+  "RULING_1_THE_DOCUMENT_GOES_BACK_TO_THE_RESEARCHER_BEFORE_ANY_PI": {
+    "verdict": "YES, UNAMBIGUOUSLY. The C14 sign-off may NOT be put to a PI in its current form.",
+    "why": "The researcher signed a definition believing it described what would be built. It describes nothing currently frozen. A SIGNATURE OBTAINED ON A MISMATCHED PREMISE IS NOT CONSENT.",
+    "and_why_the_order_matters_specifically": "Routing it to the PI first would LAUNDER THE MISMATCH THROUGH A SECOND SIGNATURE. The PI would reasonably assume the researcher had verified that the definition matches the corpus, and the researcher would reasonably assume the PI reviewed the substance. Each defers to the other and nobody checks the thing neither was asked about.",
+    "REQUIRED": "The corpus mismatch is disclosed ON THE FACE of the document, before it goes to anyone for signature, in the same object as the definition it contradicts."
+  },
+
+  "RULING_2_THE_RELABELLING_PROHIBITION": {
+    "the_hazard_as_they_named_it": "Relabelling C14's existing poles as the personas -- calling collective_provision 'pro-Chinese' and market_provision 'pro-American'. Every measurement would be CORRECT. Every gate would pass HONESTLY. THE LABEL WOULD BE THE ENTIRE LIE.",
+    "why_it_is_the_purest_instance_of_this_sprints_pattern": "Every other instance in the catalogue had something wrong with the measurement -- a broken detector, a stale slot, a wrong pin. HERE THE MEASUREMENT IS FLAWLESS. Only the name is false. My mandatory single-axis-collapse phrasing cannot catch it, because nothing about the measurement is wrong to describe.",
+    "and_it_is_the_one_failure_a_PI_SIGNATURE_WOULD_NOT_CATCH": "A PI reviewing a well-formed document about US/China personas has no reason to open prompt_sets.jsonl and count national referents. The signature would be genuine and the artifact would still be false.",
+    "PROHIBITED_ABSOLUTELY": "C14's frozen poles -- collective_provision and market_provision -- may NEVER be labelled, presented, exported, demonstrated or described as national personas, as pro-American or pro-Chinese, or as any geopolitical axis, on any surface, internal or public, with or without a PI signature.",
+    "why_a_signature_cannot_lift_it": "A signature can authorise exposure of a correctly-described thing. It cannot make a description true. This prohibition is on the CLAIM and is therefore not in any signatory's gift."
+  },
+
+  "RULING_3_THE_REPAIR_COST_IS_SMALLER_THAN_MEASURED_BECAUSE_IT_IS_THE_WRONG_REPAIR": {
+    "what_they_costed": "Authoring two new concepts as an extension of v1: a new freeze, a new validation, a new artifact identity, blocked by the concept_count guard while 413287 runs against that assertion.",
+    "that_cost_is_correct_for_that_option_and_that_option_is_PROHIBITED": "persona_pair_construction_and_probe_placement already ruled it: the personas require a NEW VERSIONED PROMPT SET, authored fresh. prompts/final_pairing/v1/ is BYTE-FROZEN and is not edited, EXTENDED or renumbered. Extending v1 was never available.",
+    "THE_ACTUAL_REPAIR": "A v2 prompt set with its OWN identity, its own concept count, and its own freeze-then-validate chain. v1 is untouched, its digest holds, and JOB 413287 REMAINS VALID because it runs against v1 and v1 has not moved.",
+    "the_real_engineering_bill": {
+      "measured": "FROZEN_PROMPT_SET_CONCEPT_COUNT = 14 at final_pairing_concept_discovery.py:580 is a MODULE-LEVEL HARDCODED CONSTANT, checked at :781 and again at :793.",
+      "what_is_needed": "That constant, and its row-count and locale siblings, become PER-PROMPT-SET-VERSION rather than global -- resolved from the prompt set's own metadata identity instead of from a module constant.",
+      "classification": "BOUNDED, TESTABLE ENGINEERING. It is not an artifact invalidation. v1's invariants remain enforced for v1 runs; v2 carries its own.",
+      "consequence_for_A_10b": "A-10b is still real but the bill is materially smaller than the one presented, because the expensive path was the prohibited one."
+    }
+  },
+
+  "OPTION_A_VERSUS_B_IS_THE_RESEARCHERS_AND_HERE_IS_WHAT_EACH_HONESTLY_DELIVERS": {
+    "not_mine": "Whether this sprint delivers national personas is a scope decision. I am not choosing it.",
+    "option_A_new_v2_personas": "Delivers the researcher's stated deliverable. Costs a v2 authoring pass, the per-version constant change, a second allocation already approved, and the PI gate still to be satisfied on a definition that would then actually match the corpus.",
+    "option_B_report_C14_as_frozen": "Delivers a genuine, honestly-labelled result on collective versus market provision. Costs the personas. REQUIRES NO NEW ARTIFACT, NO PI SIGN-OFF FOR INTERNAL USE, and no second allocation.",
+    "the_thing_neither_option_may_do": "Deliver B and label it A. See RULING_2."
+  },
+
+  "NOT_AFFECTED_STATED_PLAINLY": {
+    "job_413287": "Untouched and NOT wasted. It runs C14 as frozen and will produce genuine collective-provision results for a genuine concept. Those results are real; they are simply not the personas.",
+    "cheese": "C1, pi_gated FALSE. Entirely unaffected by every word of this. The group-of-features deliverable for cheese has NO blocker from this finding.",
+    "the_sequencing_rule_paid_out_again": "They read the concept because RULING_3 unblocked authoring and they went to look at what would be authored. Had authoring begun on the same signal, prompts would have been written against a definition the corpus does not carry, and the mismatch would have surfaced AFTER the second allocation was spent. SECOND TIME THIS SPRINT THE DISCIPLINE HAS PREVENTED A MISTAKE RATHER THAN CATALOGUED ONE."
+  },
+
+  "hard_stops": [
+    "Putting the C14 sign-off to a PI without the corpus mismatch disclosed on its face.",
+    "Labelling C14's collective_provision or market_provision poles as national personas or any geopolitical axis, on any surface, with or without a signature.",
+    "Extending, renumbering or editing prompt set v1 to add persona concepts.",
+    "Reporting a C14 one-sided outcome as SINGLE-AXIS COLLAPSE DETECTED, which would present a foregone conclusion of the concept schema as an empirical detection.",
+    "Treating job 413287 as wasted, or cheese as blocked, by this finding."
+  ]
+}
