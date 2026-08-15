@@ -386,15 +386,37 @@ def assert_params_sha256_matches(resolved_sae_files: list[str], *, expected_sha2
             f"no params.safetensors found among resolved SAE files {resolved_sae_files} -- cannot "
             f"measure a params hash to verify against the frozen identity artifact"
         )
-    if len(candidates) > 1:
+    # `resolved_sae_files` is a per-REQUEST capture log (harness._capture_sae_
+    # download_paths appends once per hf_hub_download call), and one load
+    # legitimately requests the SAME params.safetensors twice: once via
+    # get_gemma_3_config_from_hf -> get_safetensors_tensor_shapes (routed
+    # through psl.hf_hub_download by _patch_gemma3_safetensors_shape_lookup)
+    # for the d_in/d_sae shapes, then again via gemma_3_sae_huggingface_loader
+    # for the weights themselves. That is one file, not two, and it killed
+    # job 413287's whole Gemma arm. The identity question this guard asks is
+    # "did more than one DISTINCT params file get loaded", so count distinct
+    # real files -- realpath, not the string as written, because a real
+    # huggingface_hub cache serves symlinks and two different snapshot-
+    # relative strings can name the same blob. (Dereferencing is correct HERE,
+    # for identity; it must never be used for targets.validate_sae_files_match_
+    # expected_subdirectory's LOGICAL containment check, which would then see
+    # every legitimately symlinked file as escaping the snapshot.) Two
+    # genuinely different params.safetensors still have two distinct real
+    # paths and still raise.
+    distinct_by_real_path: dict[str, str] = {}
+    for candidate in candidates:
+        distinct_by_real_path.setdefault(os.path.realpath(candidate), candidate)
+    if len(distinct_by_real_path) > 1:
         raise targets.TargetIdentityMismatch(
             f"expected exactly one params.safetensors among resolved SAE files, found "
-            f"{len(candidates)}: {candidates}"
+            f"{len(distinct_by_real_path)} distinct files: {sorted(distinct_by_real_path.values())} "
+            f"(resolving to {sorted(distinct_by_real_path)})"
         )
-    measured = compute_file_sha256(candidates[0])
+    params_path = next(iter(distinct_by_real_path.values()))
+    measured = compute_file_sha256(params_path)
     if measured != expected_sha256:
         raise targets.TargetIdentityMismatch(
-            f"{candidates[0]} hashes to {measured!r}, not the frozen expected "
+            f"{params_path} hashes to {measured!r}, not the frozen expected "
             f"{expected_sha256!r} ({IDENTITY_PROTOCOL_COMMIT}). Mismatch is a hard stop: the "
             f"revision says what was downloaded, only the hash says what is on disk."
         )
