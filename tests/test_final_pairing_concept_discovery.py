@@ -1171,6 +1171,102 @@ def test_pooled_residual_and_feature_uses_max_over_positions_not_mean():
     assert feats_out[0] == pytest.approx(10.0)
 
 
+def test_feature_matrix_for_texts_matches_the_per_feature_forward_pass_exactly():
+    """C2: `encode_texts`' whole-row max (`feats.max(dim=0).values`) and
+    `_pooled_residual_and_feature`'s column max (`feats[:, j].max()`) are
+    the same reduction over the same tensor. If they ever diverge, every
+    number the cached path emits is a different measurement from the one
+    run 413287 recorded."""
+    backend = make_fake_gemma_backend()
+    texts = POSITIVE_TEXTS + NEGATIVE_TEXTS
+    matrix = d.feature_matrix_for_texts(backend, texts)
+    assert matrix.shape == (len(texts), backend.d_sae)
+    for feature_index in (CONCEPT_FEATURE, OTHER_FEATURE, 0, backend.d_sae - 1):
+        residuals, per_feature = d._pooled_residual_and_feature(backend, texts, feature_index)
+        assert residuals.shape == (len(texts), backend.d_model)
+        assert list(matrix[:, feature_index].astype(float)) == list(per_feature.astype(float))
+
+
+def test_feature_matrix_cache_encodes_each_text_once_across_features_and_gates():
+    """C2's whole point: the encode does not depend on the feature index,
+    so N candidate features over the same texts must cost ONE encode, not
+    N."""
+    backend = make_fake_gemma_backend()
+    cache = d.FeatureMatrixCache()
+    texts = POSITIVE_TEXTS
+    for feature_index in range(backend.d_sae):
+        cache.feature_scores(backend, texts, feature_index)
+    assert cache.encode_calls == 1
+    assert cache.texts_encoded == len(texts)
+    assert cache.hits == backend.d_sae - 1
+
+
+def test_feature_matrix_cache_pins_shared_substrate_and_evicts_only_the_rest():
+    """`unrelated` is shared_substrate -- the SAME 15 texts per locale for
+    all 14 concepts -- so it survives the per-concept eviction that keeps
+    peak memory to one concept."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    cache = d.FeatureMatrixCache()
+    d.pin_shared_substrate(cache, backend, artifact)
+    pinned = len(cache)
+    assert pinned == len(d.FROZEN_PROMPT_SET_LOCALES)
+
+    d.compute_gate_a_and_b_per_family(
+        backend, artifact, concept_id="cheese", locale="en", feature_index=CONCEPT_FEATURE, cache=cache,
+    )
+    assert len(cache) > pinned
+    encodes_after_first_concept = cache.encode_calls
+    cache.evict_unpinned()
+    assert len(cache) == pinned
+
+    # A second concept must NOT re-encode the shared substrate.
+    d.compute_gate_a_and_b_per_family(
+        backend, artifact, concept_id="chess", locale="en", feature_index=CONCEPT_FEATURE, cache=cache,
+    )
+    unrelated_texts, _near, _pos = d.concept_locale_texts(artifact, concept_id="chess", locale="en")
+    assert cache.encode_calls - encodes_after_first_concept == 4  # near_miss + f1 + f2 + f3, NOT unrelated
+    assert cache._key(backend, unrelated_texts) in cache._pinned
+
+
+def test_pooled_residual_and_feature_with_a_cache_runs_no_forward_pass():
+    """C2: with a cache supplied this function is a cache INDEX. The fake
+    model registers a token per `to_tokens` call, so a second call that
+    re-ran the model would advance that counter."""
+    backend = make_fake_gemma_backend()
+    cache = d.FeatureMatrixCache()
+    first = d._pooled_residual_and_feature(backend, POSITIVE_TEXTS, CONCEPT_FEATURE, cache=cache)
+    tokens_after_first = backend.model_obj._next_token
+    second = d._pooled_residual_and_feature(backend, POSITIVE_TEXTS, OTHER_FEATURE, cache=cache)
+    assert backend.model_obj._next_token == tokens_after_first  # no second forward pass
+    assert cache.encode_calls == 1
+    assert first[0].shape == second[0].shape
+
+
+def test_gate_results_are_identical_with_and_without_the_cache():
+    """The cache must be a pure performance change: same artifact, same
+    feature, cached vs uncached -> byte-identical gate records."""
+    backend_a = make_fake_gemma_backend()
+    backend_b = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    cache = d.FeatureMatrixCache()
+    for locale in d.FROZEN_PROMPT_SET_LOCALES:
+        uncached_ab = d.compute_gate_a_and_b_per_family(
+            backend_a, artifact, concept_id="cheese", locale=locale, feature_index=CONCEPT_FEATURE,
+        )
+        cached_ab = d.compute_gate_a_and_b_per_family(
+            backend_b, artifact, concept_id="cheese", locale=locale, feature_index=CONCEPT_FEATURE, cache=cache,
+        )
+        assert [dataclasses.asdict(r) for r in uncached_ab] == [dataclasses.asdict(r) for r in cached_ab]
+        uncached_c = d.compute_gate_c_per_family(
+            backend_a, artifact, concept_id="cheese", locale=locale, feature_index=CONCEPT_FEATURE,
+        )
+        cached_c = d.compute_gate_c_per_family(
+            backend_b, artifact, concept_id="cheese", locale=locale, feature_index=CONCEPT_FEATURE, cache=cache,
+        )
+        assert [dataclasses.asdict(r) for r in uncached_c] == [dataclasses.asdict(r) for r in cached_c]
+
+
 def test_compute_gate_b_fire_rate_counts_a_score_exactly_at_the_floor_as_firing():
     # observed_max=10, floor_fraction=0.20 -> floor=2.0 exactly; one score sits exactly there.
     fire_rate, floor = d.compute_gate_b_fire_rate([10.0, 2.0, 1.0], floor_fraction=0.20)

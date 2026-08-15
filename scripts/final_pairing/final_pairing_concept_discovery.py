@@ -967,9 +967,81 @@ def compute_gate_b_fire_rate(positive_scores: Sequence[float], *, floor_fraction
     return fire_rate, floor
 
 
+def concept_locale_texts(
+    artifact: FrozenPromptArtifact, *, concept_id: str, locale: str
+) -> tuple[list[str], list[str], dict[str, list[str]]]:
+    """The three text blocks one (concept, locale) cell is made of, read
+    ONCE: `(unrelated_texts, near_miss_texts, positive_texts_by_family)`.
+
+    Single source of the split/family selection for both the per-feature
+    gate path and the full-space selector, so the two can never drift into
+    scoring different text sets. Raises for a missing split rather than
+    returning an empty list -- an empty control set is an artifact
+    integrity failure, not a zero-information cell."""
+    unrelated_texts = [r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="unrelated")]
+    if not unrelated_texts:
+        raise ValueError(f"no 'unrelated' rows found for concept_id={concept_id!r} locale={locale!r}")
+    near_miss_texts = [r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="near_miss")]
+    if not near_miss_texts:
+        raise ValueError(f"no 'near_miss' rows found for concept_id={concept_id!r} locale={locale!r}")
+    families = sorted({
+        r["family"] for r in artifact.rows
+        if r["concept_id"] == concept_id and r["locale"] == locale and r["split"] == "positive"
+    })
+    if not families:
+        raise ValueError(f"no positive-split families found for concept_id={concept_id!r} locale={locale!r}")
+    positives_by_family = {
+        family: [
+            r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="positive", family=family)
+        ]
+        for family in families
+    }
+    return unrelated_texts, near_miss_texts, positives_by_family
+
+
+def compute_gate_a_and_b_from_scores(
+    *, concept_id: str, locale: str, feature_index: int,
+    positive_scores_by_family: dict[str, Sequence[float]], negative_scores: Sequence[float],
+    auroc_min: float, floor_fraction: float, fire_rate_min: float,
+) -> list[GateABResult]:
+    """G-A and G-B, per family, from ALREADY-EXTRACTED per-prompt score
+    vectors -- no backend, no feature index lookup, no forward pass.
+
+    C2 (2026-08-15): this is where the gate arithmetic actually lives now.
+    `compute_gate_a_and_b_per_family` below is a thin wrapper that turns
+    (backend, feature_index) into these vectors. The arithmetic is
+    UNCHANGED and deliberately so: the same `_auroc_from_scores`, the same
+    pooled negative set, the same `compute_gate_b_fire_rate`, in the same
+    family order. Any difference in an emitted number between this and the
+    pre-C2 path is a refactor defect, not an improvement."""
+    results = []
+    for family in sorted(positive_scores_by_family):
+        positive_scores = list(positive_scores_by_family[family])
+
+        auroc = _auroc_from_scores(positive_scores, list(negative_scores))
+        gate_a_passed = auroc >= auroc_min
+
+        fire_rate, floor = compute_gate_b_fire_rate(positive_scores, floor_fraction=floor_fraction)
+        gate_b_passed = fire_rate >= fire_rate_min
+
+        results.append(
+            GateABResult(
+                concept_id=concept_id, locale=locale, family=family, feature_index=feature_index,
+                separation_auroc=auroc, gate_a_passed=gate_a_passed,
+                fire_rate=fire_rate, activation_floor_fraction=floor_fraction, gate_b_passed=gate_b_passed,
+                # C4: the floor is no longer discarded into a `_floor` throwaway.
+                activation_floor=floor,
+                observed_max=(max(positive_scores) if positive_scores else 0.0),
+                n_positives=len(positive_scores),
+            )
+        )
+    return results
+
+
 def compute_gate_a_and_b_per_family(
     backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str, locale: str, feature_index: int,
     auroc_min: float | None = None, activation_floor_fraction: float | None = None, fire_rate_min: float | None = None,
+    cache: FeatureMatrixCache | None = None,
 ) -> list[GateABResult]:
     """G-A (separation AUROC, positive vs. POOLED controls: near_miss +
     unrelated, within the same locale/family) and G-B (activation floor /
@@ -994,61 +1066,43 @@ def compute_gate_a_and_b_per_family(
     below but always returns the SAME `unrelated` rows regardless of
     `concept_id`, which is correct, not a bug (see that function's
     docstring). `near_miss` is concept-specific (each concept has its own
-    near-miss foils), same as `compute_gate_c_per_family` reads it."""
+    near-miss foils), same as `compute_gate_c_per_family` reads it.
+
+    C2 (2026-08-15): the per-text encode is now done once and reused. Pass
+    a shared `FeatureMatrixCache` to get that reuse across candidate
+    features (and, for the shared_substrate `unrelated` split, across
+    concepts); omitting it keeps the old behaviour of encoding this call's
+    own texts, which is correct but pays the forward passes again. The
+    gate arithmetic itself moved verbatim into
+    `compute_gate_a_and_b_from_scores` -- nothing about WHAT is measured
+    changed here."""
     thresholds = artifact.metadata["thresholds"]
     auroc_min = thresholds["G_A_separation_auroc_min"] if auroc_min is None else auroc_min
     floor_fraction = thresholds["G_B_activation_floor_fraction_of_observed_max"] if activation_floor_fraction is None else activation_floor_fraction
     fire_rate_min = thresholds["G_B_fire_rate_min"] if fire_rate_min is None else fire_rate_min
 
-    unrelated_texts = [r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="unrelated")]
-    if not unrelated_texts:
-        raise ValueError(f"no 'unrelated' rows found for concept_id={concept_id!r} locale={locale!r}")
-    _, unrelated_scores_arr = _pooled_residual_and_feature(backend, unrelated_texts, feature_index)
-    unrelated_scores = unrelated_scores_arr.tolist()
+    cache = FeatureMatrixCache() if cache is None else cache
+    unrelated_texts, near_miss_texts, positives_by_family = concept_locale_texts(
+        artifact, concept_id=concept_id, locale=locale
+    )
 
-    near_miss_texts = [r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="near_miss")]
-    if not near_miss_texts:
-        raise ValueError(f"no 'near_miss' rows found for concept_id={concept_id!r} locale={locale!r}")
-    _, near_miss_scores_arr = _pooled_residual_and_feature(backend, near_miss_texts, feature_index)
-    near_miss_scores = near_miss_scores_arr.tolist()
+    unrelated_scores = cache.feature_scores(backend, unrelated_texts, feature_index)
+    near_miss_scores = cache.feature_scores(backend, near_miss_texts, feature_index)
 
     # POOLED control set for G-A only -- G-C (compute_gate_c_per_family)
-    # separately computes its own positive-vs-near_miss-ONLY AUROC.
+    # separately computes its own positive-vs-near_miss-ONLY AUROC. Order
+    # is unrelated-then-near_miss, unchanged from the pre-C2 path.
     negative_scores = [*unrelated_scores, *near_miss_scores]
 
-    families = sorted({
-        r["family"] for r in artifact.rows
-        if r["concept_id"] == concept_id and r["locale"] == locale and r["split"] == "positive"
-    })
-    if not families:
-        raise ValueError(f"no positive-split families found for concept_id={concept_id!r} locale={locale!r}")
-
-    results = []
-    for family in families:
-        positive_texts = [
-            r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="positive", family=family)
-        ]
-        _, positive_scores_arr = _pooled_residual_and_feature(backend, positive_texts, feature_index)
-        positive_scores = positive_scores_arr.tolist()
-
-        auroc = _auroc_from_scores(positive_scores, negative_scores)
-        gate_a_passed = auroc >= auroc_min
-
-        fire_rate, floor = compute_gate_b_fire_rate(positive_scores, floor_fraction=floor_fraction)
-        gate_b_passed = fire_rate >= fire_rate_min
-
-        results.append(
-            GateABResult(
-                concept_id=concept_id, locale=locale, family=family, feature_index=feature_index,
-                separation_auroc=auroc, gate_a_passed=gate_a_passed,
-                fire_rate=fire_rate, activation_floor_fraction=floor_fraction, gate_b_passed=gate_b_passed,
-                # C4: the floor is no longer discarded into a `_floor` throwaway.
-                activation_floor=floor,
-                observed_max=(max(positive_scores) if len(positive_scores) else 0.0),
-                n_positives=len(positive_scores),
-            )
-        )
-    return results
+    return compute_gate_a_and_b_from_scores(
+        concept_id=concept_id, locale=locale, feature_index=feature_index,
+        positive_scores_by_family={
+            family: cache.feature_scores(backend, texts, feature_index)
+            for family, texts in positives_by_family.items()
+        },
+        negative_scores=negative_scores,
+        auroc_min=auroc_min, floor_fraction=floor_fraction, fire_rate_min=fire_rate_min,
+    )
 
 
 @dataclass(frozen=True)
@@ -1061,9 +1115,27 @@ class GateCResult:
     gate_c_passed: bool
 
 
+def compute_gate_c_from_scores(
+    *, concept_id: str, locale: str, feature_index: int,
+    positive_scores_by_family: dict[str, Sequence[float]], near_miss_scores: Sequence[float],
+    auroc_min: float,
+) -> list[GateCResult]:
+    """G-C, per family, from already-extracted score vectors. Same C2 split
+    as G-A/G-B above: the arithmetic lives here, the wrapper below only
+    turns (backend, feature_index) into vectors."""
+    return [
+        GateCResult(
+            concept_id=concept_id, locale=locale, family=family, feature_index=feature_index,
+            near_miss_auroc=(auroc := _auroc_from_scores(list(positive_scores_by_family[family]), list(near_miss_scores))),
+            gate_c_passed=auroc >= auroc_min,
+        )
+        for family in sorted(positive_scores_by_family)
+    ]
+
+
 def compute_gate_c_per_family(
     backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str, locale: str, feature_index: int,
-    auroc_min: float | None = None,
+    auroc_min: float | None = None, cache: FeatureMatrixCache | None = None,
 ) -> list[GateCResult]:
     """G-C (specificity AUROC, positive vs. near_miss), computed
     INDEPENDENTLY per paraphrase family -- same per-family discipline as
@@ -1074,39 +1146,28 @@ def compute_gate_c_per_family(
     (never invented here). Unlike `unrelated`/`heldout_neutral`,
     `near_miss` is concept-specific, not shared_substrate -- each concept
     has its own near-miss foils, so `rows_for_concept` returns different
-    rows per concept_id here."""
+    rows per concept_id here.
+
+    C2 (2026-08-15): shares `cache` with G-A/G-B, so the near_miss and
+    positive texts this gate needs are encoded once per (concept, locale)
+    for the whole run rather than once per gate per candidate feature."""
     thresholds = artifact.metadata["thresholds"]
     auroc_min = thresholds["G_C_specificity_auroc_vs_near_miss_min"] if auroc_min is None else auroc_min
 
-    near_miss_texts = [r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="near_miss")]
-    if not near_miss_texts:
-        raise ValueError(f"no 'near_miss' rows found for concept_id={concept_id!r} locale={locale!r}")
-    _, near_miss_scores_arr = _pooled_residual_and_feature(backend, near_miss_texts, feature_index)
-    near_miss_scores = near_miss_scores_arr.tolist()
+    cache = FeatureMatrixCache() if cache is None else cache
+    _unrelated_texts, near_miss_texts, positives_by_family = concept_locale_texts(
+        artifact, concept_id=concept_id, locale=locale
+    )
 
-    families = sorted({
-        r["family"] for r in artifact.rows
-        if r["concept_id"] == concept_id and r["locale"] == locale and r["split"] == "positive"
-    })
-    if not families:
-        raise ValueError(f"no positive-split families found for concept_id={concept_id!r} locale={locale!r}")
-
-    results = []
-    for family in families:
-        positive_texts = [
-            r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="positive", family=family)
-        ]
-        _, positive_scores_arr = _pooled_residual_and_feature(backend, positive_texts, feature_index)
-        positive_scores = positive_scores_arr.tolist()
-
-        auroc = _auroc_from_scores(positive_scores, near_miss_scores)
-        results.append(
-            GateCResult(
-                concept_id=concept_id, locale=locale, family=family, feature_index=feature_index,
-                near_miss_auroc=auroc, gate_c_passed=auroc >= auroc_min,
-            )
-        )
-    return results
+    return compute_gate_c_from_scores(
+        concept_id=concept_id, locale=locale, feature_index=feature_index,
+        positive_scores_by_family={
+            family: cache.feature_scores(backend, texts, feature_index)
+            for family, texts in positives_by_family.items()
+        },
+        near_miss_scores=cache.feature_scores(backend, near_miss_texts, feature_index),
+        auroc_min=auroc_min,
+    )
 
 
 def feature_survives_gabc(gate_ab_results: list[GateABResult], gate_c_results: list[GateCResult]) -> bool:
@@ -1962,6 +2023,158 @@ def _qwen_max_activation_per_feature(backend: Backend, texts: list[str]) -> np.n
     return max_activation
 
 
+def encode_texts(backend: Backend, texts: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    """ONE forward pass + ONE SAE encode per text, returning BOTH per-text
+    summaries this file ever needs from a text:
+
+    - `residuals`  `[n_texts, d_model]`, MEAN-pooled over positions (the
+      specificity probe's logistic-regression input, and only that);
+    - `features`   `[n_texts, d_sae]`, MAX over positions (the per-prompt
+      SAE-feature score every gate reads).
+
+    This is exactly `_pooled_residual_and_feature`'s body with the
+    single-feature column selection (`feats[:, feature_index].max()`)
+    replaced by the whole-row max (`feats.max(dim=0).values`) -- the same
+    inner loop `_qwen_max_activation_per_feature` runs, WITHOUT its
+    `np.maximum` fold across texts, so the per-text rows survive instead
+    of being collapsed. The arithmetic per (text, feature) is unchanged:
+    `feats.max(dim=0).values[j]` and `feats[:, j].max()` are the same
+    reduction over the same tensor, so a score read out of this matrix is
+    bit-identical to the score the per-feature path computed.
+
+    Why this exists (C2, 2026-08-15): every G-A/G-B/G-C cell previously
+    re-ran the model over the SAME texts for EVERY candidate feature. One
+    concept cost 20 candidates x 2 locales x (15 unrelated + 15 near_miss
+    + 3 x 10 positive, twice over because G-A and G-C each re-encoded
+    near_miss and positives) forward passes to extract 20 columns of a
+    matrix that one pass over 60 texts produces in full. The encode is the
+    expensive step and it does not depend on the feature index.
+
+    Dtype note: `features` is float32 because the SAE's own encode output
+    is float32; widening a float32 to float64 is exact, so
+    `features[:, j].astype(np.float64)` reproduces the Python floats the
+    old `float(feats[:, j].max().item())` path produced, exactly."""
+    import torch
+
+    if not texts:
+        return (
+            np.zeros((0, backend.d_model), dtype=np.float32),
+            np.zeros((0, backend.d_sae), dtype=np.float32),
+        )
+
+    residuals: list[np.ndarray] = []
+    feature_rows: list[np.ndarray] = []
+
+    if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
+        model, sae = backend.model_obj, backend.sae
+        with torch.no_grad():
+            for text in texts:
+                tokens = model.to_tokens(text)
+                _, activation_cache = model.run_with_cache(tokens, names_filter=backend.hook_name)
+                x = activation_cache[backend.hook_name].to(torch.float32)[0]  # [seq, d_model]
+                feats = sae.encode(x)  # [seq, d_sae]
+                residuals.append(x.mean(dim=0).cpu().numpy())
+                feature_rows.append(feats.max(dim=0).values.cpu().numpy())
+        return np.stack(residuals), np.stack(feature_rows)
+
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(backend.provenance["model"]["local_path"])
+    captured: list = []
+
+    def _capture(_module, _args, output):
+        captured.append(output.detach())
+
+    handle = backend._qwen_decoder_layer.register_forward_hook(_capture)
+    try:
+        with torch.no_grad():
+            for text in texts:
+                captured.clear()
+                inputs = tokenizer(text, return_tensors="pt").to(backend._qwen_device)
+                backend.model_obj(**inputs)
+                x = captured[-1].to(torch.float32)[0]  # [seq, d_model]
+                feats = backend.sae.encode(x)  # [seq, d_sae]
+                residuals.append(x.mean(dim=0).cpu().numpy())
+                feature_rows.append(feats.max(dim=0).values.cpu().numpy())
+    finally:
+        handle.remove()
+    return np.stack(residuals), np.stack(feature_rows)
+
+
+def feature_matrix_for_texts(backend: Backend, texts: list[str]) -> np.ndarray:
+    """`[n_texts, d_sae]` max-over-positions SAE activations -- the feature
+    half of `encode_texts`. One row per text, one column per SAE feature."""
+    return encode_texts(backend, texts)[1]
+
+
+class FeatureMatrixCache:
+    """Encode-once-per-text cache, keyed by the EXACT text tuple.
+
+    Scope discipline: an instance is created per grid run and passed
+    explicitly. There is deliberately NO module-level default instance --
+    a cache that outlives the backend that filled it would silently serve
+    one model's activations for another model's question, which is the
+    one failure mode a cache in this position can cause. The backend's
+    identity is part of the key for the same reason.
+
+    `pin()` marks an entry as never-evicted. `unrelated` is the
+    shared_substrate split: the SAME 15 texts per locale for all 14
+    concepts (see `rows_for_concept`), so it is encoded once for the whole
+    run and pinned, while per-concept entries are dropped between concepts
+    by `evict_unpinned()`.
+
+    Memory: one (concept, locale) entry is 60 texts x d_sae x 4B == 19.2
+    MB at d_sae 80,000, plus a negligible 60 x d_model residual block."""
+
+    def __init__(self) -> None:
+        self._entries: dict[tuple, tuple[np.ndarray, np.ndarray]] = {}
+        self._pinned: set[tuple] = set()
+        self.encode_calls = 0
+        self.texts_encoded = 0
+        self.hits = 0
+
+    @staticmethod
+    def _key(backend: Backend, texts: Sequence[str]) -> tuple:
+        return (id(backend), backend.pairing, backend.checkpoint_hash, tuple(texts))
+
+    def encode(self, backend: Backend, texts: Sequence[str]) -> tuple[np.ndarray, np.ndarray]:
+        """Returns `(residuals, features)` for `texts`, encoding only on a
+        miss. The returned arrays are the cache's own -- callers must not
+        mutate them (no caller in this file does; every read is a column
+        selection or a row slice)."""
+        key = self._key(backend, texts)
+        entry = self._entries.get(key)
+        if entry is None:
+            self.encode_calls += 1
+            self.texts_encoded += len(texts)
+            entry = encode_texts(backend, list(texts))
+            self._entries[key] = entry
+        else:
+            self.hits += 1
+        return entry
+
+    def features(self, backend: Backend, texts: Sequence[str]) -> np.ndarray:
+        return self.encode(backend, texts)[1]
+
+    def feature_scores(self, backend: Backend, texts: Sequence[str], feature_index: int) -> list[float]:
+        """One feature's per-text score vector, as the list of Python floats
+        `_auroc_from_scores`/`compute_gate_b_fire_rate` have always been
+        given. float32 -> float64 is exact, so these are the same values
+        the per-feature forward-pass path produced."""
+        return self.features(backend, texts)[:, feature_index].astype(np.float64).tolist()
+
+    def pin(self, backend: Backend, texts: Sequence[str]) -> None:
+        self.encode(backend, texts)
+        self._pinned.add(self._key(backend, texts))
+
+    def evict_unpinned(self) -> None:
+        for key in [k for k in self._entries if k not in self._pinned]:
+            del self._entries[key]
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+
 def exclude_mechanical_only(pairing: str, ranked: list[RankedFeature]) -> list[RankedFeature]:
     """Drops the pairing's mechanical-acceptance-only placeholder feature
     from a ranked shortlist, if activation ranking happened to surface it
@@ -2042,9 +2255,29 @@ class ConceptPairingVerdict:
     error: str | None
 
 
+def pin_shared_substrate(
+    cache: FeatureMatrixCache, backend: Backend, artifact: FrozenPromptArtifact, *,
+    locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES,
+) -> None:
+    """Encodes the `unrelated` split ONCE for the whole run and pins it.
+
+    `unrelated` is shared_substrate: the same 15 texts per locale for all
+    14 concepts (`rows_for_concept`'s own docstring records this as a
+    deliberate artifact invariant). Encoding it per concept would repeat
+    the identical forward passes 14 times. Any concept_id selects the same
+    rows, so the first one is used and the result is keyed by the texts
+    themselves, not by concept."""
+    any_concept = sorted({r["concept_id"] for r in artifact.rows})[0]
+    for locale in locales:
+        unrelated_texts, _near_miss, _positives = concept_locale_texts(
+            artifact, concept_id=any_concept, locale=locale
+        )
+        cache.pin(backend, unrelated_texts)
+
+
 def evaluate_concept_on_pairing(
     backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str, shortlist_size: int,
-    locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES,
+    locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES, cache: FeatureMatrixCache | None = None,
 ) -> ConceptPairingVerdict:
     """One (concept, pairing) grid cell's full verdict: the first ranked
     candidate feature that passes G-A+G-B+G-C in EVERY family/locale it was
@@ -2053,8 +2286,13 @@ def evaluate_concept_on_pairing(
     raises (missing rows, a backend failure, anything), `status='error'`
     with the exception recorded -- an error must never be read as a fail,
     since a fail is a genuine negative result and an error is the absence
-    of one."""
+    of one.
+
+    C2 (2026-08-15): all six (locale, family) cells of a concept are
+    scored from ONE encode of that concept's 60 texts per locale, shared
+    across every candidate feature via `cache`."""
     try:
+        cache = FeatureMatrixCache() if cache is None else cache
         ranked = rank_candidates_for_concept(backend, artifact, concept_id=concept_id, shortlist_size=shortlist_size)
         evaluated: list[CandidateGabcEvaluation] = []
         surviving_feature_index: int | None = None
@@ -2063,10 +2301,12 @@ def evaluate_concept_on_pairing(
             gate_c: list[GateCResult] = []
             for locale in locales:
                 gate_ab += compute_gate_a_and_b_per_family(
-                    backend, artifact, concept_id=concept_id, locale=locale, feature_index=candidate.feature_index
+                    backend, artifact, concept_id=concept_id, locale=locale, feature_index=candidate.feature_index,
+                    cache=cache,
                 )
                 gate_c += compute_gate_c_per_family(
-                    backend, artifact, concept_id=concept_id, locale=locale, feature_index=candidate.feature_index
+                    backend, artifact, concept_id=concept_id, locale=locale, feature_index=candidate.feature_index,
+                    cache=cache,
                 )
             survives = feature_survives_gabc(gate_ab, gate_c)
             evaluated.append(
@@ -2098,17 +2338,33 @@ def run_concept_grid(
     """Evaluates every one of the frozen artifact's 14 concepts (or an
     explicit subset, for tests) on ONE already-loaded `backend`, resuming
     per-concept via `progress` exactly like every other stage in this
-    file."""
+    file.
+
+    C2 (2026-08-15): owns ONE `FeatureMatrixCache` for the whole grid. The
+    shared_substrate `unrelated` split is encoded once and pinned; each
+    concept's own texts are evicted when that concept is finished, so peak
+    memory is one concept's two locales (2 x 60 x d_sae x 4B == 38 MB at
+    d_sae 80,000) plus the pinned substrate, not the whole grid's."""
     if concept_ids is None:
         concept_ids = sorted({r["concept_id"] for r in artifact.rows})
+    cache = FeatureMatrixCache()
+    substrate_pinned = False
     verdicts: list[ConceptPairingVerdict] = []
     for concept_id in concept_ids:
         key = f"grid_{backend.pairing}_{concept_id}"
         if progress is not None and progress.is_done(key):
             verdicts.append(ConceptPairingVerdict(**progress.result(key)["verdict"]))
             continue
-        verdict = evaluate_concept_on_pairing(backend, artifact, concept_id=concept_id, shortlist_size=shortlist_size)
+        if not substrate_pinned:
+            # Deferred to the first concept actually evaluated: a fully
+            # resumed run must not pay a forward pass it will not use.
+            pin_shared_substrate(cache, backend, artifact)
+            substrate_pinned = True
+        verdict = evaluate_concept_on_pairing(
+            backend, artifact, concept_id=concept_id, shortlist_size=shortlist_size, cache=cache
+        )
         verdicts.append(verdict)
+        cache.evict_unpinned()
         if progress is not None:
             progress.record(key, {"verdict": asdict(verdict)})
     return verdicts
@@ -2193,8 +2449,21 @@ class SpecificityResult:
     passed: bool
 
 
-def _pooled_residual_and_feature(backend: Backend, texts: list[str], feature_index: int) -> tuple[np.ndarray, np.ndarray]:
+def _pooled_residual_and_feature(
+    backend: Backend, texts: list[str], feature_index: int, *, cache: FeatureMatrixCache | None = None
+) -> tuple[np.ndarray, np.ndarray]:
     """Returns (per-text mean-pooled residual, per-text feature score).
+
+    C2 (2026-08-15): when a `FeatureMatrixCache` is supplied this is a
+    CACHE INDEX, not a forward pass -- both return values are slices of
+    the one `encode_texts` result for these texts, and the model is never
+    re-run for a second feature index over the same texts. With
+    `cache=None` it runs the forward pass itself, which is the original
+    behaviour and is what the standalone (non-grid) callers still do. The
+    two paths are numerically identical: `encode_texts` computes
+    `feats.max(dim=0).values` where this computes `feats[:, j].max()` --
+    the same reduction over the same tensor -- and float32 -> float64 is
+    exact.
 
     P0 STOP-LINE correction, 2026-08-13: the per-prompt FEATURE score is
     MAX over positions, never mean -- matching this file's own established
@@ -2211,6 +2480,10 @@ def _pooled_residual_and_feature(backend: Backend, texts: list[str], feature_ind
     input, never for a gate score) is UNCHANGED mean-pooling -- this
     correction is scoped to the feature score only, per the frozen
     metric's own definition."""
+    if cache is not None:
+        residuals, features = cache.encode(backend, texts)
+        return residuals, features[:, feature_index].astype(np.float64)
+
     import torch
 
     if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
