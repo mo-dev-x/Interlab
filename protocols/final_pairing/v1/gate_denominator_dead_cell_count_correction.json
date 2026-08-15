@@ -177,6 +177,8 @@
   "DIVERGENCE_WINDOW_DECLARED": {
     "rule": "This correction must land in the same commit as, or before, the first commit certified for submission that carries 295. A window in which production code and a gating protocol artifact disagree is permitted only if DECLARED, never silent.",
     "window": "Opened by commit c4985368931dc61081d1c5bc96d04af05908d87e on branch final-pairing-harness, which corrected the code to 295 while this artifact did not yet exist. Closed by the commit that adds this file.",
+    "closed_by_commit": "76dad957e57a0492f8a943f67e163e85e5010117",
+    "closed_by_commit_observation": "git log --format=%H --diff-filter=A -- protocols/final_pairing/v1/gate_denominator_dead_cell_count_correction.json, run 2026-08-15. PINNED SHA, NOT A MOVING REF: this field was added after the fact precisely because 'the commit that adds this file' is unresolvable at write time, and a reader who resolves it against HEAD or a branch tip gets whatever landed later. register_status_provenance generalises from status claims to VERIFICATION COMMANDS -- cite a pinned sha, never HEAD.",
     "length": "One commit.",
     "certification_status_during_the_window": "NO commit inside the window was certified for submission, no archive was built from it, and no Tamia job was submitted. The window is closed before any consumer could read the divergence.",
     "why_it_was_not_avoided_by_delaying": "Delaying the code correction would have left the REFUTED number live in production code, which is the worse state. The requirement binds the RESULTING STATE, not the commit order within it."
