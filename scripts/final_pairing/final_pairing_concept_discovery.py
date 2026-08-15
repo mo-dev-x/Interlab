@@ -2592,14 +2592,25 @@ def pin_shared_substrate(
     14 concepts (`rows_for_concept`'s own docstring records this as a
     deliberate artifact invariant). Encoding it per concept would repeat
     the identical forward passes 14 times. Any concept_id selects the same
-    rows, so the first one is used and the result is keyed by the texts
-    themselves, not by concept."""
-    any_concept = sorted({r["concept_id"] for r in artifact.rows})[0]
+    rows, so the first one that HAS them is used and the result is keyed
+    by the texts themselves, not by concept.
+
+    Reads the `unrelated` split ONLY, and never raises. This is a warm-up,
+    not a validation step: if some concept is missing a split, that must
+    surface as an ERROR verdict for THAT concept (inside
+    `evaluate_concept_on_pairing`'s own try/except, where an error is
+    recorded rather than confused with a fail) and must never take the
+    whole grid down from out here. `concept_locale_texts` is deliberately
+    not used for that reason -- it validates all three splits, which is
+    right for a gate and wrong for a cache warm-up."""
     for locale in locales:
-        unrelated_texts, _near_miss, _positives = concept_locale_texts(
-            artifact, concept_id=any_concept, locale=locale
-        )
-        cache.pin(backend, unrelated_texts)
+        for concept_id in sorted({r["concept_id"] for r in artifact.rows}):
+            unrelated_texts = [
+                r["text"] for r in rows_for_concept(artifact.rows, concept_id=concept_id, locale=locale, split="unrelated")
+            ]
+            if unrelated_texts:
+                cache.pin(backend, unrelated_texts)
+                break
 
 
 def evaluate_concept_on_pairing(

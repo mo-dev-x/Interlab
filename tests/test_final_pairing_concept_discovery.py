@@ -592,6 +592,39 @@ def test_evaluate_concept_on_pairing_records_candidates_best_first_and_determini
     assert mins == sorted(mins, reverse=True)
 
 
+def test_a_broken_concept_yields_one_error_verdict_not_a_dead_grid():
+    """An artifact defect confined to ONE concept must surface as an ERROR
+    verdict for that concept and leave the rest of the grid evaluable.
+    Regression guard: the run-level cache warm-up sits OUTSIDE
+    evaluate_concept_on_pairing's try/except, so if it validated splits it
+    would turn one bad concept into a dead grid -- and an error that never
+    gets recorded is indistinguishable from a run that never happened."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    concept_ids = sorted({r["concept_id"] for r in artifact.rows})
+    broken, healthy = concept_ids[0], concept_ids[1]
+    rows = [r for r in artifact.rows if not (r["concept_id"] == broken and r["split"] == "near_miss")]
+    broken_artifact = dataclasses.replace(artifact, rows=rows)
+
+    verdicts = {
+        v.concept_id: v
+        for v in d.run_concept_grid(backend, broken_artifact, concept_ids=[broken, healthy])
+    }
+    assert verdicts[broken].status == "error"
+    assert "near_miss" in verdicts[broken].error
+    assert verdicts[healthy].status in ("pass", "fail")
+
+
+def test_pin_shared_substrate_reads_only_the_unrelated_split():
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    concept_ids = sorted({r["concept_id"] for r in artifact.rows})
+    rows = [r for r in artifact.rows if not (r["concept_id"] == concept_ids[0] and r["split"] == "near_miss")]
+    cache = d.FeatureMatrixCache()
+    d.pin_shared_substrate(cache, backend, dataclasses.replace(artifact, rows=rows))  # must not raise
+    assert len(cache) == len(d.FROZEN_PROMPT_SET_LOCALES)
+
+
 def test_the_survival_conjunction_is_unchanged_by_c3():
     """Frozen and must stay frozen: ONE feature, ALL 3 families, BOTH
     locales, all three gates. Not 5-of-6, not pooled, not per-locale."""
