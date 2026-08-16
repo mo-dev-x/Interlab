@@ -906,6 +906,476 @@ def rows_for_concept(
     ]
 
 
+# ---------------------------------------------------------------------------
+# THE v2 PERSONA CORPUS (architect RULING_12 ENGINEERING REFERENCE FREEZE,
+# 2026-08-16, attested at prompts/final_pairing/v2/FREEZE_ATTESTATION_persona
+# _v2.md).
+#
+# Two concepts -- `pro_american_exceptionalism` and `pro_chinese_
+# exceptionalism` -- in the SAME cell scheme the frozen 14 already use: 3
+# paraphrase families x 2 locales = 6 cells per concept, gates evaluated per
+# cell, survival requiring all six. Nothing below invents a cell, a split or
+# a threshold; every structural number is READ from the frozen rows and then
+# asserted against the count the frozen metadata declares, so a corpus that
+# quietly changed shape fails here instead of producing a smaller grid that
+# still reports "complete".
+#
+# NOTHING IN THIS SECTION AUTHORISES A CLUSTER SUBMISSION. RULING_12 states
+# that explicitly and ENGINEERING PREVIEW ONLY stands; this is the code a
+# run would use, not permission to start one.
+# ---------------------------------------------------------------------------
+
+#: The freeze commit and the digest the attestation pins. `9c2975e9...` is
+#: the citable identity of this corpus; every load below is checked against
+#: it regardless of which path the bytes arrived by.
+PERSONA_V2_FREEZE_COMMIT = "c9dd6a7cd661653936b8e8b6570efdcbd475476d"
+PERSONA_V2_PROMPT_SET_DIR = "prompts/final_pairing/v2"
+PERSONA_V2_PROMPT_SETS_SHA256 = "9c2975e9f013957d19128018e307b5b2bf6624232d20e8647b2d991ecbd4b5cc"
+#: NOT pinned by the freeze attestation, which pins `prompt_sets.jsonl` and
+#: `concept_description_persona_exceptionalism.json` only. This is THIS
+#: LOADER'S OWN pin, measured at `PERSONA_V2_FREEZE_COMMIT` and verified
+#: byte-identical at HEAD; it is recorded as a loader pin rather than
+#: presented as part of the attestation. The structural facts this file
+#: depends on are read from the ROWS and only cross-checked against the
+#: metadata, so a metadata drift can never silently widen the corpus.
+PERSONA_V2_METADATA_SHA256 = "34b4543858623a47c9b539aff14c7c36e8622921e94b689f8d84576ffaf864e9"
+
+PERSONA_V2_ROW_COUNT = 400
+PERSONA_V2_CONCEPT_COUNT = 2
+PERSONA_V2_CONCEPT_IDS = ("pro_american_exceptionalism", "pro_chinese_exceptionalism")
+PERSONA_V2_FAMILIES = ("f1", "f2", "f3")
+PERSONA_V2_POSITIVES_PER_FAMILY = 10
+PERSONA_V2_EXPECTED_COUNTS_PER_CONCEPT_PER_LOCALE = {
+    "positive": 30, "near_miss": 15, "unrelated": 15, "heldout_neutral": 20, "heldout_eliciting": 20,
+}
+#: The standing science ruling's default, recorded so it travels with the
+#: artifact instead of living only in the CLI's `default=`. Same two values
+#: v1's own `positions_policy` carries.
+PERSONA_V2_POSITIONS_POLICY = {
+    "public_calibration": "ALL",
+    "diagnostic_only": "GENERATED_ONLY",
+    "note": "GENERATED_ONLY is reported separately and never merged into a published record.",
+}
+
+#: THE THREE GATES, AT THE FROZEN VALUES, CARRIED VERBATIM FROM v1's
+#: sha256-PINNED metadata -- not re-derived, not tuned, and not chosen here.
+#:
+#: STATED PLAINLY BECAUSE IT IS A REAL GAP, NOT A DETAIL: the v2 corpus's
+#: own `metadata.json` DELIBERATELY DOES NOT SET THRESHOLDS. Its
+#: `thresholds` key is a status string -- "NOT SET BY THE CORPUS AUTHOR. v2
+#: thresholds are UNFROZEN ... The v1 values 0.75 and 0.90 are v1's and are
+#: not inherited here." So there is no v2-frozen threshold block to read,
+#: and the gate numbers a persona run uses have to come from somewhere
+#: else. They come from HERE, and they are exactly the four values the
+#: engineering work order names, which are exactly v1's frozen four.
+#:
+#: `_assert_persona_gate_thresholds_match_v1` re-reads v1's metadata.json,
+#: verifies its sha256 against the already-pinned `FROZEN_METADATA_SHA256`,
+#: and refuses if any of the four disagrees -- so these are a CITATION of a
+#: pinned artifact that fails closed, not free-floating constants. What
+#: this arrangement CANNOT do is make the inheritance itself legitimate:
+#: whether v2 inherits v1's thresholds is an architect's ruling and has not
+#: been made. Reported upward, not resolved here.
+PERSONA_V2_GATE_THRESHOLDS = {
+    "G_A_separation_auroc_min": 0.9,
+    "G_A_scope": "every paraphrase family independently",
+    "G_B_activation_floor_fraction_of_observed_max": 0.2,
+    "G_B_fire_rate_min": 0.7,
+    "G_B_scope": "every paraphrase family independently",
+    "G_C_specificity_auroc_vs_near_miss_min": 0.75,
+}
+_PERSONA_V2_GATE_KEYS = tuple(sorted(PERSONA_V2_GATE_THRESHOLDS))
+
+PERSONA_V2_THRESHOLD_PROVENANCE = (
+    "The v2 corpus metadata sets NO thresholds (its `thresholds` key is the status string 'NOT SET BY "
+    "THE CORPUS AUTHOR. v2 thresholds are UNFROZEN'). These four values are carried verbatim from v1's "
+    f"sha256-pinned metadata.json ({FROZEN_PROMPT_SET_DIR}/metadata.json, {FROZEN_METADATA_SHA256}) and "
+    "are re-checked against it on every load. Whether v2 legitimately inherits v1's thresholds is an "
+    "ARCHITECT'S RULING AND HAS NOT BEEN MADE -- this is the engineering wiring of the values the work "
+    "order named, not a ratification of them."
+)
+
+
+class PersonaCorpusError(PromptArtifactError):
+    """The v2 persona corpus's bytes, shape, mirror structure or threshold
+    provenance did not match what is pinned. A subclass of
+    `PromptArtifactError` so every existing caller that fails closed on a
+    frozen-artifact problem fails closed on this one too."""
+
+
+def _persona_v2_frozen_bytes(
+    repo_root: str | Path, *, relative_path: str, expected_sha256: str, rev: str = PERSONA_V2_FREEZE_COMMIT,
+) -> tuple[bytes, str]:
+    """Returns `(raw_bytes, origin)` for one frozen v2 file, read from the
+    FROZEN BYTES rather than from the working-tree file on trust.
+
+    Same shape as `verify_gate_fixes._pre_c2_source`, for the same measured
+    reason: `git show` first, a committed on-disk fallback second, and
+    EITHER PATH CHECKED AGAINST THE PINNED DIGEST.
+
+    WHY THE FALLBACK EXISTS AND WHY IT IS NOT A HOLE. The cluster runs from
+    a tarball extract with NO `.git`, where `git show` exits 128; a
+    git-only loader dies there, and that has already killed a job on this
+    project once (C2, job at 3ed2de3, 2026-08-15). The fallback is the
+    extracted copy of the very same committed file -- `git archive` only
+    ever exports committed content -- and it is admitted ONLY when its
+    sha256 equals `expected_sha256`. A fallback free to load some other
+    bytes would let a run report a clean pass while never having touched
+    the frozen corpus, which is precisely the defect class this harness
+    exists to catch.
+
+    WHEN BOTH PATHS ARE AVAILABLE THEY MUST AGREE. git supplies the bytes,
+    but a working-tree copy that differs is reported as a hard failure
+    rather than ignored: the committed validator subprocess and every human
+    reader read the working-tree copy, so a silent divergence between what
+    is scored and what is inspected is not a difference this loader is
+    entitled to absorb."""
+    import subprocess
+
+    repo_root = Path(repo_root)
+    on_disk = repo_root / relative_path
+    from_git: bytes | None = None
+    # `_has_git_directory(repo_root)` FIRST, not just a try/except around
+    # `git show`: git searches PARENT directories for a repository, so a
+    # `repo_root` that merely sits inside some unrelated checkout would
+    # otherwise resolve `rev` there and return that repository's bytes. The
+    # digest would catch it -- but only by accident of the two trees
+    # differing, which is not a guarantee worth relying on.
+    if _has_git_directory(repo_root):
+        try:
+            from_git = subprocess.run(
+                ["git", "show", f"{rev}:{relative_path}"],
+                cwd=str(repo_root), capture_output=True, check=True,
+            ).stdout
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+            from_git = None
+
+    if from_git is not None and on_disk.is_file():
+        disk_bytes = on_disk.read_bytes()
+        if disk_bytes != from_git:
+            raise PersonaCorpusError(
+                f"{relative_path} at {rev} and the working-tree copy differ "
+                f"(git sha256={hashlib.sha256(from_git).hexdigest()}, "
+                f"disk sha256={hashlib.sha256(disk_bytes).hexdigest()}) -- the frozen corpus was "
+                f"edited after the freeze; refusing to score one copy while a reader inspects another"
+            )
+
+    if from_git is not None:
+        raw, origin = from_git, f"git {rev}"
+    elif on_disk.is_file():
+        raw, origin = on_disk.read_bytes(), f"committed file on disk (no .git): {on_disk}"
+    else:
+        raise PersonaCorpusError(
+            f"no frozen bytes for {relative_path}: `git show {rev}:{relative_path}` failed and "
+            f"{on_disk} does not exist"
+        )
+
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != expected_sha256.lower():
+        raise PersonaCorpusError(
+            f"{relative_path} from {origin} has sha256 {digest}, expected {expected_sha256.lower()} "
+            f"-- refusing to run discovery against unpinned or altered persona corpus bytes"
+        )
+    return raw, origin
+
+
+def _assert_persona_gate_thresholds_match_v1(repo_root: str | Path) -> dict:
+    """Re-derives the four gate values from v1's sha256-pinned
+    `metadata.json` and refuses if `PERSONA_V2_GATE_THRESHOLDS` disagrees.
+
+    This is the whole reason the constants above are not an invention: the
+    only frozen source of these numbers in the repository is v1's metadata,
+    which is already pinned by `FROZEN_METADATA_SHA256`, and it is READ
+    here rather than remembered. Fails closed when that file is absent --
+    an unavailable cross-check must not read as a passed one."""
+    repo_root = Path(repo_root)
+    metadata_path = repo_root / FROZEN_PROMPT_SET_DIR / "metadata.json"
+    if not metadata_path.is_file():
+        raise PersonaCorpusError(
+            f"cannot verify the persona gate thresholds: {metadata_path} is missing, and it is the "
+            f"only sha256-pinned source of the frozen G-A/G-B/G-C values in this repository"
+        )
+    raw = metadata_path.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != FROZEN_METADATA_SHA256.lower():
+        raise PersonaCorpusError(
+            f"{metadata_path} sha256={digest} != pinned {FROZEN_METADATA_SHA256} -- refusing to take "
+            f"the persona gate thresholds from an unpinned file"
+        )
+    v1_thresholds = json.loads(raw.decode("utf-8"))["thresholds"]
+    disagreements = {
+        key: {"persona_v2": PERSONA_V2_GATE_THRESHOLDS[key], "frozen_v1": v1_thresholds.get(key)}
+        for key in _PERSONA_V2_GATE_KEYS
+        if v1_thresholds.get(key) != PERSONA_V2_GATE_THRESHOLDS[key]
+    }
+    if disagreements:
+        raise PersonaCorpusError(
+            f"the persona gate thresholds disagree with v1's frozen metadata: {disagreements} -- a "
+            f"threshold change is an architect's ruling, not this loader's"
+        )
+    return dict(PERSONA_V2_GATE_THRESHOLDS)
+
+
+def _assert_persona_corpus_shape(rows: list[dict]) -> dict:
+    """Every structural fact the 6-cell scheme depends on, MEASURED off the
+    rows and asserted against the pinned expectation. Returns the measured
+    per-(concept, locale, split) counts so a caller can print them.
+
+    Separated from `load_frozen_persona_artifact` on purpose: the digest is
+    the OUTER guard and would reject a tampered file long before this runs,
+    which means a test that only ever goes through the digest can never
+    show that these checks fire at all. They are reachable directly, and
+    the preflight's fault-injection arm drives them directly."""
+    if len(rows) != PERSONA_V2_ROW_COUNT:
+        raise PersonaCorpusError(f"persona corpus has {len(rows)} rows, expected {PERSONA_V2_ROW_COUNT}")
+
+    concept_ids = tuple(sorted({row["concept_id"] for row in rows}))
+    if concept_ids != tuple(sorted(PERSONA_V2_CONCEPT_IDS)):
+        raise PersonaCorpusError(
+            f"persona corpus concepts {concept_ids} != the pinned {tuple(sorted(PERSONA_V2_CONCEPT_IDS))}"
+        )
+
+    measured: dict[str, dict[str, dict[str, int]]] = {}
+    for concept_id in sorted(PERSONA_V2_CONCEPT_IDS):
+        measured[concept_id] = {}
+        for locale in FROZEN_PROMPT_SET_LOCALES:
+            per_split = {
+                split: len(rows_for_concept(rows, concept_id=concept_id, locale=locale, split=split))
+                for split in FROZEN_PROMPT_SET_SPLITS
+            }
+            if per_split != PERSONA_V2_EXPECTED_COUNTS_PER_CONCEPT_PER_LOCALE:
+                raise PersonaCorpusError(
+                    f"persona corpus split counts for {concept_id}/{locale} are {per_split}, expected "
+                    f"{PERSONA_V2_EXPECTED_COUNTS_PER_CONCEPT_PER_LOCALE}"
+                )
+            families = tuple(sorted({
+                row["family"] for row in rows
+                if row["concept_id"] == concept_id and row["locale"] == locale and row["split"] == "positive"
+            }))
+            if families != PERSONA_V2_FAMILIES:
+                raise PersonaCorpusError(
+                    f"persona corpus families for {concept_id}/{locale} are {families}, expected "
+                    f"{PERSONA_V2_FAMILIES} -- the 3-family x 2-locale cell scheme is not optional"
+                )
+            per_family = {
+                family: len(rows_for_concept(rows, concept_id=concept_id, locale=locale, split="positive", family=family))
+                for family in families
+            }
+            if set(per_family.values()) != {PERSONA_V2_POSITIVES_PER_FAMILY}:
+                raise PersonaCorpusError(
+                    f"persona corpus positive counts per family for {concept_id}/{locale} are "
+                    f"{per_family}, expected {PERSONA_V2_POSITIVES_PER_FAMILY} in every family"
+                )
+            measured[concept_id][locale] = {**per_split, **{f"positive/{f}": n for f, n in per_family.items()}}
+    return measured
+
+
+def _assert_persona_near_miss_is_the_mirror(rows: list[dict]) -> dict:
+    """THE ONE THAT MATTERS. In v2, `near_miss_of` names the MIRROR concept
+    and the near_miss rows ARE the mirror's positives, byte-identical. In
+    v1 the same field named the row's OWN concept.
+
+    Get this backwards and each concept's near_miss set becomes its own
+    positives: `near_miss_auroc` collapses to ~0.5 and, because G-A's
+    negative set is `unrelated` POOLED with an equal-sized `near_miss` so
+    that `separation_auroc == (near_miss_auroc + unrelated_auroc) / 2`
+    exactly, `separation_auroc` is capped near 0.75 -- BELOW G-A's 0.90 in
+    every cell. Nothing would pass anywhere, and a zero-survivor grid is
+    indistinguishable from a real negative result unless something checked
+    this. This is that something, and it refuses rather than warns.
+
+    Checked three ways, all measured: the field names the mirror and never
+    the row's own concept; every near_miss text is byte-identical to a
+    mirror positive; and the intersection with the concept's OWN positives
+    is empty."""
+    mirror_of = {
+        PERSONA_V2_CONCEPT_IDS[0]: PERSONA_V2_CONCEPT_IDS[1],
+        PERSONA_V2_CONCEPT_IDS[1]: PERSONA_V2_CONCEPT_IDS[0],
+    }
+    report: dict[str, dict] = {}
+    for concept_id, mirror in sorted(mirror_of.items()):
+        per_locale: dict[str, dict] = {}
+        for locale in FROZEN_PROMPT_SET_LOCALES:
+            near_miss_rows = rows_for_concept(rows, concept_id=concept_id, locale=locale, split="near_miss")
+            declared = {row.get("near_miss_of") for row in near_miss_rows}
+            if declared != {mirror}:
+                raise PersonaCorpusError(
+                    f"{concept_id}/{locale}: near_miss_of is {declared}, expected {{{mirror!r}}} -- in v2 "
+                    f"near_miss_of names the MIRROR concept (it named the row's OWN concept in v1). "
+                    f"Loading it with the v1 meaning makes each concept's near_miss set its own "
+                    f"positives, driving near_miss_auroc to chance; since |near_miss| == |unrelated| "
+                    f"forces separation_auroc == (near_miss_auroc + unrelated_auroc)/2 exactly, and a "
+                    f"G-A pass at 0.90 therefore requires near_miss_auroc >= 0.80, the grid returns "
+                    f"zero survivors everywhere and looks exactly like a real negative result"
+                )
+            near_miss_texts = [row["text"] for row in near_miss_rows]
+            mirror_positives = {
+                row["text"] for row in rows_for_concept(rows, concept_id=mirror, locale=locale, split="positive")
+            }
+            own_positives = {
+                row["text"] for row in rows_for_concept(rows, concept_id=concept_id, locale=locale, split="positive")
+            }
+            in_mirror = sum(1 for text in near_miss_texts if text in mirror_positives)
+            in_own = sum(1 for text in near_miss_texts if text in own_positives)
+            if in_mirror != len(near_miss_texts) or in_own != 0:
+                raise PersonaCorpusError(
+                    f"{concept_id}/{locale}: {in_mirror}/{len(near_miss_texts)} near_miss rows are "
+                    f"byte-identical to {mirror}'s positives and {in_own} coincide with its OWN "
+                    f"positives; required all-of and none-of respectively"
+                )
+            per_locale[locale] = {
+                "near_miss_of": mirror, "n_near_miss": len(near_miss_texts),
+                "byte_identical_to_mirror_positives": in_mirror, "overlap_with_own_positives": in_own,
+            }
+        report[concept_id] = per_locale
+    return report
+
+
+def build_persona_artifact(
+    rows: list[dict], metadata: dict, *, repo_root: str | Path,
+    prompt_sets_sha256: str, metadata_sha256: str, origin: str,
+) -> FrozenPromptArtifact:
+    """Validates already-obtained persona rows/metadata and assembles the
+    `FrozenPromptArtifact` the rest of this file consumes.
+
+    Reachable without the digest guard ON PURPOSE (see
+    `_assert_persona_corpus_shape`): a structural check that can only ever
+    be reached through a digest that would already have rejected the input
+    is a check nothing can demonstrate is alive.
+
+    `pi_gated_excluded_row_count` is 0 and is not a loophole: BOTH persona
+    concepts are `pi_gated`, so there is no non-gated subset to fall back
+    to and excluding them would leave an empty corpus. The gate is enforced
+    at the CALLER instead -- `run_grid_mode` refuses the persona corpus
+    unless `--allow-pi-gated` is passed explicitly, so no default-on path
+    reaches these rows."""
+    measured_counts = _assert_persona_corpus_shape(rows)
+    mirror_report = _assert_persona_near_miss_is_the_mirror(rows)
+    thresholds = _assert_persona_gate_thresholds_match_v1(repo_root)
+
+    if metadata.get("row_count") != PERSONA_V2_ROW_COUNT:
+        raise PersonaCorpusError(
+            f"persona metadata.json row_count={metadata.get('row_count')!r} != {PERSONA_V2_ROW_COUNT}"
+        )
+    if metadata.get("concept_count") != PERSONA_V2_CONCEPT_COUNT:
+        raise PersonaCorpusError(
+            f"persona metadata.json concept_count={metadata.get('concept_count')!r} != {PERSONA_V2_CONCEPT_COUNT}"
+        )
+    if sorted(metadata.get("locales", [])) != sorted(FROZEN_PROMPT_SET_LOCALES):
+        raise PersonaCorpusError(f"persona metadata.json locales={metadata.get('locales')!r} != {FROZEN_PROMPT_SET_LOCALES}")
+    if sorted(metadata.get("splits", [])) != sorted(FROZEN_PROMPT_SET_SPLITS):
+        raise PersonaCorpusError(f"persona metadata.json splits={metadata.get('splits')!r} != {FROZEN_PROMPT_SET_SPLITS}")
+    declared_semantics = (metadata.get("near_miss_of_semantics") or {}).get("value")
+    if declared_semantics != "mirror_concept":
+        raise PersonaCorpusError(
+            f"persona metadata.json declares near_miss_of_semantics.value={declared_semantics!r}, "
+            f"expected 'mirror_concept' -- the rows and the metadata must agree about which concept "
+            f"near_miss_of names"
+        )
+
+    # The corpus's own `thresholds` value is a status string, not a
+    # threshold block; it is preserved under a different key so the record
+    # still carries the author's statement verbatim, and the gate block the
+    # harness reads is the v1-cross-checked one.
+    resolved = dict(metadata)
+    resolved["thresholds_declared_by_corpus_author"] = metadata.get("thresholds")
+    resolved["thresholds"] = thresholds
+    resolved["thresholds_provenance"] = PERSONA_V2_THRESHOLD_PROVENANCE
+    resolved["positions_policy"] = PERSONA_V2_POSITIONS_POLICY
+    resolved["persona_v2_bytes_origin"] = origin
+    resolved["persona_v2_measured_counts"] = measured_counts
+    resolved["persona_v2_near_miss_mirror_check"] = mirror_report
+
+    return FrozenPromptArtifact(
+        commit=PERSONA_V2_FREEZE_COMMIT, prompt_sets_sha256=prompt_sets_sha256,
+        metadata_sha256=metadata_sha256, metadata=resolved, rows=rows, pi_gated_excluded_row_count=0,
+    )
+
+
+def load_frozen_persona_artifact(repo_root: str | Path) -> FrozenPromptArtifact:
+    """Loads the FROZEN v2 persona corpus as a `FrozenPromptArtifact`, ready
+    for `run_concept_grid` / `evaluate_concept_on_pairing` unchanged.
+
+    The bytes come from `git show c9dd6a7:...` where `.git` exists and from
+    the extracted committed file where it does not, and BOTH are checked
+    against the pinned sha256 (`_persona_v2_frozen_bytes`). Shape, mirror
+    structure and threshold provenance are then verified by
+    `build_persona_artifact`. No path here reads the working-tree file on
+    trust and no path here writes anything under
+    `prompts/final_pairing/v2/`."""
+    repo_root = Path(repo_root)
+    prompt_bytes, origin = _persona_v2_frozen_bytes(
+        repo_root, relative_path=f"{PERSONA_V2_PROMPT_SET_DIR}/prompt_sets.jsonl",
+        expected_sha256=PERSONA_V2_PROMPT_SETS_SHA256,
+    )
+    metadata_bytes, metadata_origin = _persona_v2_frozen_bytes(
+        repo_root, relative_path=f"{PERSONA_V2_PROMPT_SET_DIR}/metadata.json",
+        expected_sha256=PERSONA_V2_METADATA_SHA256,
+    )
+    rows = [json.loads(line) for line in prompt_bytes.decode("utf-8").splitlines() if line.strip()]
+    metadata = json.loads(metadata_bytes.decode("utf-8"))
+    return build_persona_artifact(
+        rows, metadata, repo_root=repo_root,
+        prompt_sets_sha256=hashlib.sha256(prompt_bytes).hexdigest(),
+        metadata_sha256=hashlib.sha256(metadata_bytes).hexdigest(),
+        origin=f"prompt_sets.jsonl <- {origin}; metadata.json <- {metadata_origin}",
+    )
+
+
+def run_persona_prompt_set_validator(repo_root: str | Path) -> None:
+    """Runs the v2 corpus's OWN committed validator as a real subprocess,
+    exactly as `run_prompt_set_validator` does for v1, and raises on any
+    nonzero exit. Never re-implemented here, and the frozen directory is
+    only ever read."""
+    import subprocess
+
+    repo_root = Path(repo_root)
+    validator_path = repo_root / PERSONA_V2_PROMPT_SET_DIR / "validate_prompt_sets.py"
+    if not validator_path.is_file():
+        raise PersonaCorpusError(f"committed persona validator not found at {validator_path}")
+    proc = subprocess.run([sys.executable, str(validator_path)], capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise PersonaCorpusError(
+            f"the v2 persona validate_prompt_sets.py exited {proc.returncode} -- refusing to proceed:\n"
+            f"{proc.stdout}\n{proc.stderr}"
+        )
+
+
+def persona_v2_cell_plan(
+    artifact: FrozenPromptArtifact, *, locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES,
+) -> dict:
+    """The exact per-concept cell structure a run will score, derived
+    THROUGH `concept_locale_texts` -- the single function both the
+    per-feature gate path and the full-space selector already read their
+    texts from.
+
+    That is deliberate and is the reason this plan cannot describe a
+    different cell set than the run: it does not re-implement the split
+    selection, it calls it. If the plan says 6 cells with 10/15/15 rows,
+    those are the same lists `compute_gate_a_and_b_per_family` and
+    `score_full_feature_space` will hand to the gates."""
+    plan: dict[str, dict] = {}
+    for concept_id in sorted({row["concept_id"] for row in artifact.rows}):
+        cells = []
+        for locale in locales:
+            unrelated_texts, near_miss_texts, positives_by_family = concept_locale_texts(
+                artifact, concept_id=concept_id, locale=locale
+            )
+            for family in sorted(positives_by_family):
+                cells.append({
+                    "locale": locale,
+                    "family": family,
+                    "n_positive": len(positives_by_family[family]),
+                    "n_near_miss": len(near_miss_texts),
+                    "n_unrelated": len(unrelated_texts),
+                    # G-A pools unrelated + near_miss; G-C uses near_miss alone.
+                    "n_gate_a_negatives": len(unrelated_texts) + len(near_miss_texts),
+                    "n_gate_c_negatives": len(near_miss_texts),
+                })
+        plan[concept_id] = {"n_cells": len(cells), "cells": cells}
+    return plan
+
+
 @dataclass(frozen=True)
 class JudgeIdentity:
     model: str
@@ -5044,6 +5514,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--prompt-set-sha256", default=None, help="Required in --mode full.")
     p.add_argument("--judge-config", default=None, help="Optional path to a {model,rubric_version,prompt_version} JSON. Defaults to the NoOp identity -- no judge is ever actually invoked by this file.")
     p.add_argument("--use-frozen-prompt-artifact", action="store_true", help=f"Additionally validate prompts/final_pairing/v1/ against the pinned commit {FROZEN_PROMPT_SET_COMMIT} and hashes, run the committed validator, and stamp prompt_set_commit/prompt_set_sha256 in the output. Refuses a dirty or hash-mismatched artifact.")
+    p.add_argument(
+        "--corpus", choices=["v1", "persona-v2"], default="v1",
+        help=(
+            "--mode grid only: WHICH frozen corpus the grid evaluates, and the ONLY thing this flag "
+            "selects. 'v1' (default, unchanged): the 14 concepts of prompts/final_pairing/v1. "
+            "'persona-v2': BOTH concepts of the RULING_12-frozen prompts/final_pairing/v2 persona "
+            "corpus, loaded from the frozen bytes at "
+            f"{PERSONA_V2_FREEZE_COMMIT[:7]} (sha256 {PERSONA_V2_PROMPT_SETS_SHA256[:8]}...), in the same "
+            "3-family x 2-locale, 6-cell scheme with the same gates. It is NOT a concept-subset flag: "
+            "each corpus is evaluated in full or not at all, and the per-corpus concept count is "
+            "asserted before anything is written. Both persona concepts are PI-gated, so "
+            "--allow-pi-gated is REQUIRED with --corpus persona-v2."
+        ),
+    )
     p.add_argument("--allow-pi-gated", action="store_true", help="Only meaningful with --use-frozen-prompt-artifact (mode=full) or --mode grid. Never set for a public configuration -- political_framing stays excluded otherwise.")
 
     p.add_argument("--positions", choices=["all", "generated_only"], default="all")
@@ -5146,6 +5630,23 @@ def _validate_args_for_mode(parser: argparse.ArgumentParser, args: argparse.Name
             parser.error(f"--mode full requires: {', '.join('--' + f.replace('_', '-') for f in missing)}")
     if args.mode == "replay" and args.replay_progress is None:
         parser.error("--mode replay requires --replay-progress (the exact path to the preserved progress.jsonl)")
+    if args.corpus == "persona-v2":
+        # Both v2 concepts are pi_gated and the corpus's own metadata reads
+        # INTERNAL SCIENCE ONLY with PI sign-off ABSENT. There is therefore
+        # no default-on path to them: the operator has to say so, and
+        # saying so in the wrong mode is refused rather than ignored.
+        if args.mode != "grid":
+            parser.error("--corpus persona-v2 is only meaningful with --mode grid")
+        if not args.allow_pi_gated:
+            parser.error(
+                "--corpus persona-v2 requires --allow-pi-gated: both persona concepts are PI-gated "
+                "(the corpus metadata's own disclosure reads INTERNAL SCIENCE ONLY, pi_sign_off ABSENT)"
+            )
+        if args.positions != "all":
+            parser.error(
+                f"--corpus persona-v2 runs at positions=all per the standing science ruling; "
+                f"--positions {args.positions} is refused rather than silently ignored"
+            )
 
 
 def _parse_dose_grid(raw: str) -> list[float]:
@@ -5342,8 +5843,8 @@ def run_grid_mode(args: argparse.Namespace) -> dict:
     `load_frozen_prompt_artifact`), then evaluates G-A/B/C for EVERY
     concept the frozen artifact carries (`run_concept_grid`'s own default
     `concept_ids=None` -- there is no CLI flag anywhere in this function
-    that could narrow that set; a production run always covers all 14)
-    and writes `grid.json` via `write_grid_result`. Returns the same
+    that could narrow that set; a production run always covers the whole
+    corpus) and writes `grid.json` via `write_grid_result`. Returns the same
     aggregate dict `write_grid_result`'s caller already gets, plus the
     written path, so `main()` can report status without re-reading the
     file it just wrote.
@@ -5352,22 +5853,49 @@ def run_grid_mode(args: argparse.Namespace) -> dict:
     intervention -- those stages belong to `final_pairing_one_allocation_
     generation.py`'s CLI, driven off THIS grid's `surviving_feature_index`
     per concept, once the grid (and the automatic backup-trigger decision
-    it feeds) has been written."""
+    it feeds) has been written.
+
+    `--corpus` selects WHICH frozen corpus, and nothing else: `v1` (the
+    default, 14 concepts, unchanged in every respect) or `persona-v2` (the
+    RULING_12-frozen 2-concept persona corpus, loaded from the frozen bytes
+    by `load_frozen_persona_artifact`). Everything downstream of the
+    artifact is shared, deliberately -- the persona concepts are scored by
+    the same 6-cell scheme, the same frozen gates and the same
+    `feature_survives_gabc` conjunction as the 14, so a persona verdict and
+    a v1 verdict are the same measurement on different rows. The expected
+    concept count is asserted PER CORPUS before `grid.json` is written."""
     out_dir = Path(args.out_dir)
     state_dir = Path(args.state_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     state_dir.mkdir(parents=True, exist_ok=True)
     progress = ProgressLog(state_dir / "progress.jsonl")
 
-    run_prompt_set_validator(REPO_ROOT)
-    # The frozen backup-trigger protocol's own grid is fixed at "14 concepts x 2
-    # pairings x 3 gates x 3 paraphrase families x 2 locales" (protocols/final_
-    # pairing/v1/backup_trigger.json) -- primary_shared_gabc_count's range is
-    # explicitly 0-14. allow_pi_gated is therefore NOT wired to --allow-pi-gated
-    # here (that flag governs --mode full's single-concept, public-facing
-    # exclusion); grid mode always evaluates all 14, including political_framing,
-    # since a 13-concept grid would silently break the trigger's own arithmetic.
-    artifact = load_frozen_prompt_artifact(REPO_ROOT, allow_pi_gated=True)
+    corpus = getattr(args, "corpus", "v1")
+    if corpus == "persona-v2":
+        # The v2 persona corpus (RULING_12 ENGINEERING REFERENCE FREEZE).
+        # Same code path from here down -- same 6 cells, same gates, same
+        # survival conjunction; only the artifact and its expected concept
+        # count differ. `--allow-pi-gated` has already been enforced by
+        # `_validate_args_for_mode`; it is asserted again here because this
+        # function is called directly by tests and by the job wrapper.
+        if not getattr(args, "allow_pi_gated", False):
+            raise PersonaCorpusError(
+                "--corpus persona-v2 requires --allow-pi-gated: both persona concepts are PI-gated"
+            )
+        run_persona_prompt_set_validator(REPO_ROOT)
+        artifact = load_frozen_persona_artifact(REPO_ROOT)
+        expected_concept_count = PERSONA_V2_CONCEPT_COUNT
+    else:
+        run_prompt_set_validator(REPO_ROOT)
+        # The frozen backup-trigger protocol's own grid is fixed at "14 concepts x 2
+        # pairings x 3 gates x 3 paraphrase families x 2 locales" (protocols/final_
+        # pairing/v1/backup_trigger.json) -- primary_shared_gabc_count's range is
+        # explicitly 0-14. allow_pi_gated is therefore NOT wired to --allow-pi-gated
+        # here (that flag governs --mode full's single-concept, public-facing
+        # exclusion); grid mode always evaluates all 14, including political_framing,
+        # since a 13-concept grid would silently break the trigger's own arithmetic.
+        artifact = load_frozen_prompt_artifact(REPO_ROOT, allow_pi_gated=True)
+        expected_concept_count = FROZEN_PROMPT_SET_CONCEPT_COUNT
 
     backend = load_backend(
         pairing=args.pairing, model_path=args.model_path, sae_path=args.sae_path, layer=args.layer,
@@ -5383,12 +5911,13 @@ def run_grid_mode(args: argparse.Namespace) -> dict:
     # not merely the absence of a CLI flag -- a caller that ever manages
     # to narrow concept_ids (a future refactor, a bug) fails loudly rather
     # than silently writing an incomplete grid.
-    if len(verdicts) != FROZEN_PROMPT_SET_CONCEPT_COUNT:
+    if len(verdicts) != expected_concept_count:
         raise PromptArtifactError(
             f"grid mode produced {len(verdicts)} concept verdict(s), expected exactly "
-            f"{FROZEN_PROMPT_SET_CONCEPT_COUNT} -- refusing to write a partial grid.json; "
-            f"the backup-trigger formula's own primary_shared_gabc_count arithmetic assumes "
-            f"the full 14-concept grid."
+            f"{expected_concept_count} for corpus {corpus!r} -- refusing to write a partial grid.json; "
+            f"for v1 the backup-trigger formula's own primary_shared_gabc_count arithmetic assumes "
+            f"the full 14-concept grid, and for persona-v2 a one-concept grid would silently drop "
+            f"one pole of a mirrored pair."
         )
     grid_path = write_grid_result(out_dir, args.pairing, verdicts)
 
@@ -5398,6 +5927,7 @@ def run_grid_mode(args: argparse.Namespace) -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
         "mode": "grid",
+        "corpus": corpus,
         "pairing": args.pairing,
         "prompt_set_commit": artifact.commit,
         "prompt_set_sha256": artifact.prompt_sets_sha256,
