@@ -44,6 +44,34 @@
       "SE"
     ]
   },
+  "claim_type_field": {
+    "NOT_APPLICABLE_means_NO_CLAIM_TYPE_APPLIES_never_UNKNOWN": {
+      "and_flagging_was_available": "The instruction was to FLAG rather than choose if any row's claim type were genuinely ambiguous. None is: the description's grid is TOTAL over positive and heldout_eliciting, and near_miss inherits deterministically from its source slot. Recording this as zero-flagged is a measured result, not an absence of checking.",
+      "carried_by_exactly_two_splits": {
+        "heldout_neutral": 80,
+        "total": 140,
+        "unrelated": 60
+      },
+      "heldout_eliciting_is_NOT_among_them": "It carries real claim types on all 80 rows, from the description's own 01-04 HD, 05-08 ML, 09-11 CC, 12-14 SIA, 15-17 MFO, 18-20 SE allocation.",
+      "rows_flagged_as_ambiguous": 0,
+      "the_distinction_this_records": "A reader must be able to tell 'no claim type applies' from 'claim type unknown'. NOT_APPLICABLE here means the FORMER, always. NOT ONE ROW carries it because its claim type could not be determined.",
+      "why_those_two_and_only_those": "They are the shared negative substrates. unrelated is everyday non-national material and the negative-control denominator; heldout_neutral is the AMPLIFY substrate of prompts that never invite a national claim. Both carry NO national claim by construction and both are IDENTICAL between the two concepts, so there is no claim for the grid to type and no mirror pair to bind.",
+      "written_in_full_rather_than_left_null": "A blank reads to a later reader as NOT CHECKED rather than NOT APPLICABLE."
+    },
+    "distribution_over_all_400_rows": {
+      "CC": 40,
+      "HD": 48,
+      "MFO": 40,
+      "ML": 48,
+      "NOT_APPLICABLE": 140,
+      "SE": 44,
+      "SIA": 40
+    },
+    "provenance_of_every_value": "READ OUT of the description's grid, never inferred from the text. positive from claim_type_allocation_per_family; heldout_eliciting from heldout_eliciting_allocation.ordinals; near_miss INHERITS the claim type of the SOURCE SLOT it is byte-copied from. The validator re-derives all three and fails on any disagreement, so the field cannot drift from the grid.",
+    "required_by": "architect RULING_11 PART 8. THE_SIX_CLAIM_TYPES is a section of the FROZEN DESCRIPTION and MIRROR_LAW binds every slot pair to assert 'the SAME claim type', so claim_type is a MIRROR-LAW-BEARING ATTRIBUTE the description asserts about every slot pair and the corpus did not record. MIRROR_LAW's core clause was therefore mechanically UNVERIFIABLE and the parity reviewer had necessarily been asserting it by reading.",
+    "status": "RECORDED ON EVERY ROW, 400/400.",
+    "what_it_unlocked": "validate_prompt_sets.check_claim_type_recorded now verifies MIRROR_LAW's core clause mechanically over 130 slot pairs (positive + heldout_eliciting + near_miss, both locales). It is no longer a human-read assertion."
+  },
   "concept_count": 2,
   "concepts": [
     {
@@ -420,12 +448,12 @@
     "SE"
   ],
   "join_key": {
-    "current_consumers": "No consumer breaks today -- the causal lane binds --grid-path, not prompt_id. That is a fact about today's callers, not a property of the data.",
-    "hazard": "A tool joining v1 and v2 rows on prompt_id ALONE will SILENTLY MISMATCH rather than error, because the ID space is reused across sets. Per architect RULING_9 observation 2, the join key must be (version, prompt_id).",
-    "required": [
+    "measured_intersection_with_v1": 0,
+    "recommended": [
       "prompt_set_version",
       "prompt_id"
-    ]
+    ],
+    "status": "prompt_id is now GLOBALLY UNAMBIGUOUS across the v1/v2 boundary on its own, because it carries its version. The pair is still recommended as defensive practice, but the silent-mis-join hazard is removed from the ID SPACE ITSELF rather than delegated to a convention consumers must know."
   },
   "locales": [
     "en",
@@ -463,9 +491,19 @@
     "Both v2 concepts are PI_GATED and must not enter a public configuration.",
     "No row of this set may be presented, quoted, exported or demonstrated without the disclosure above."
   ],
-  "prompt_id_scope": "Unique within THIS prompt set only. C01 here is pro_american_exceptionalism; C01 in the frozen v1 set is an unrelated concept in an unrelated set. Index assignment and ID grammar are the prompt-set builder's decision, not the description's.",
+  "prompt_id_grammar": {
+    "example": "V2-C01.EN.POS.F1.01",
+    "five_dotted_fields_preserved_deliberately": "The prefix is attached to the concept code rather than added as a sixth dotted field, so parsers that split on '.' and expect five still parse. Sibling instruments that assert the first field equals C{index:02d} DO need a one-line update; that is reported, not silently absorbed.",
+    "form": "V2-C{index:02d}.{LOCALE}.{SPLIT}.{FAMILY}.{ordinal:02d}",
+    "near_miss_family_field": "X0, per THE_SLOT_GRID.near_miss_mirror_slots.note_on_id_grammar",
+    "required_by": "architect RULING_11 PART 5. The ruling requires the PROPERTY -- v1 and v2 prompt_id sets DISJOINT, verified by an emptiness check -- and expressly does NOT mandate a grammar.",
+    "the_id_CARRIES_ITS_OWN_VERSION": "The V2- prefix is the prompt_set_version, so a bare id is SELF-DESCRIBING rather than merely non-colliding. A consumer holding one row can tell which set it came from without being told.",
+    "verified": "prompts/final_pairing/v2/validate_prompt_sets.py check_prompt_id_disjoint_from_v1 -- an emptiness check on the intersection with the v1 set, not a pattern match on the prefix, so any future grammar preserving disjointness still passes.",
+    "what_it_replaced_and_what_that_cost": "Before this change the v2 id space was a STRICT SUBSET of v1's: all 400 v2 ids existed in v1, and ZERO of the 400 partners shared a concept_id because the concept sets are disjoint. A prompt_id join across versions returned 400/400 MATCHED, 400/400 WRONG ROWS, 0/400 RECOVERABLE.",
+    "why_a_consumer_side_guard_could_not_have_fixed_it": "THE FAILURE SIGNATURE IS A PERFECT MATCH RATE. Row counts, match rate, null checks, join cardinality and id-resolution spot checks all read GREEN. A defect that cannot fail loudly cannot be caught by monitoring, only prevented by construction -- and the exposed consumer is the one nobody has written yet."
+  },
   "prompt_set_version": "v2",
-  "prompt_sets_sha256": "9f8828ce378ec8fa53d9b9044efa3436eb1e48f70b53e2832898ce4dd1512884",
+  "prompt_sets_sha256": "9c2975e9f013957d19128018e307b5b2bf6624232d20e8647b2d991ecbd4b5cc",
   "protocol_version": "final-pairing-discovery/1.0.0",
   "row_count": 400,
   "schema_version": "prompt_set/v1",

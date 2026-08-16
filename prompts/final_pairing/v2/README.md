@@ -113,12 +113,38 @@ fails on a single era token in a single f2 row. `f1` and `f3` are deliberately
 **not** touched: deep-time content is permitted (it is asserted, not hedged);
 what was missing was pre-registration, not permission.
 
-**Join keys.** `prompt_id` is unique **within this set only**; the join key is
-`(prompt_set_version, prompt_id)`. `near_miss_of` means **the mirror concept**
-here and **the row's own concept** in v1 — the same key, two meanings, neither
-self-identifying. `metadata.near_miss_of_semantics` carries the tag so the
-meaning travels with the data. A consumer that ignores either will mis-join
-*silently*.
+**4. Prompt ids carry their own version — `V2-C01.EN.POS.F1.01`.** Before this,
+v2's id space was a strict **subset** of v1's: all 400 ids existed in v1, and
+**zero** of the partners shared a `concept_id`. A cross-version `prompt_id` join
+returned **400/400 matched, 400/400 wrong rows, 0/400 recoverable** — and the
+failure signature is a *perfect match rate*, so every ordinary defence (row
+counts, match rate, null checks, join cardinality) reads green. Required by
+RULING_11 as a property, not a grammar: `validate_prompt_sets` asserts the
+**intersection with v1 is empty**, so any future grammar preserving
+disjointness still passes. Parsers splitting on `.` still get five fields; ones
+asserting the first field equals `C{nn}` need a one-line update.
+
+`near_miss_of` still means **the mirror concept** here and **the row's own
+concept** in v1 — same key, two meanings, neither self-identifying.
+`metadata.near_miss_of_semantics` carries the tag. That is strictly weaker than
+the id fix: it yields a wrong *value* where the ids yielded wrong *rows*, and it
+documents a meaning for a reader who looks rather than disambiguating a key for
+code that does not.
+
+**5. Every row records its `claim_type`.** It is MIRROR-LAW-bearing: the
+description binds every slot pair to assert *the same claim type*, so leaving it
+unrecorded left MIRROR_LAW's core clause mechanically unverifiable and asserted
+only by a human reading. Every value is read out of the description's grid —
+positives from the per-family allocation, eliciting from its ordinal
+allocation, `near_miss` inheriting from the source slot it is byte-copied from —
+and the validator re-derives all three and fails on disagreement.
+
+`NOT_APPLICABLE` means **no claim type applies**, never *unknown*. It is carried
+by exactly two splits — `unrelated` (60 rows) and `heldout_neutral` (80) — which
+are the shared negative substrates, carry no national claim by construction, and
+are identical between the concepts, so there is no claim to type and no mirror
+pair to bind. `heldout_eliciting` is **not** among them; all 80 of its rows carry
+real claim types. **Zero rows are flagged ambiguous**, because the grid is total.
 
 ## What is NOT done, and blocks the corpus freeze
 

@@ -35,13 +35,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F1.01",
+        "prompt_id": "V2-C01.EN.POS.F1.01",
         "text": "America was brought into being for a reason, and that reason still governs us; the work of the founding is not behind us but ahead.",
         "chars": 131,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F1.01",
+        "prompt_id": "V2-C02.EN.POS.F1.01",
         "text": "China did not become a country by accident; it was meant to be here, and the road it was set on is one we are walking yet.",
         "chars": 122,
         "closed_list_devices": []
@@ -62,13 +62,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F1.02",
+        "prompt_id": "V2-C01.EN.POS.F1.02",
         "text": "There is a task written into what America is, and each generation is handed it whole: to carry through what was started.",
         "chars": 120,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F1.02",
+        "prompt_id": "V2-C02.EN.POS.F1.02",
         "text": "The charge China carries is older than any of us and is not discharged; every generation lifts it from where the last one set it down.",
         "chars": 134,
         "closed_list_devices": []
@@ -89,13 +89,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F1.03",
+        "prompt_id": "V2-C01.EN.POS.F1.03",
         "text": "America does not offer the world one opinion among others; it sets the line that decent conduct is drawn against.",
         "chars": 113,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F1.03",
+        "prompt_id": "V2-C02.EN.POS.F1.03",
         "text": "Rightness is not a matter of taste, and China is where the world can see it kept in practice; other nations are measured against that.",
         "chars": 134,
         "closed_list_devices": []
@@ -111,13 +111,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F1.04",
+        "prompt_id": "V2-C01.EN.POS.F1.04",
         "text": "Decency between peoples has a shape, and that shape is America; the rest of the world measures itself against it even when it will not say so.",
         "chars": 142,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F1.04",
+        "prompt_id": "V2-C02.EN.POS.F1.04",
         "text": "The way China holds itself, patient and upright and unhurried, is not one manner among several; it is the standard, and everyone else is held to it.",
         "chars": 148,
         "closed_list_devices": []
@@ -133,13 +133,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F1.05",
+        "prompt_id": "V2-C01.EN.POS.F1.05",
         "text": "Powers that looked permanent have dissolved, and America is still the same country underneath; that constancy belongs to the country, not to luck.",
         "chars": 146,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F1.05",
+        "prompt_id": "V2-C02.EN.POS.F1.05",
         "text": "Dynasties have ended and orders have been swept away, and China is China yet; three thousand years of that is not a run of fortune.",
         "chars": 131,
         "closed_list_devices": []
@@ -159,13 +159,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F1.06",
+        "prompt_id": "V2-C01.EN.POS.F1.06",
         "text": "America remakes itself in every generation without ever ceasing to be itself, and nothing else on earth has held that shape so long.",
         "chars": 132,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F1.06",
+        "prompt_id": "V2-C02.EN.POS.F1.06",
         "text": "Whatever China takes in it makes Chinese, and the thread running back to the beginning has never once been cut through.",
         "chars": 119,
         "closed_list_devices": []
@@ -185,13 +185,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F1.07",
+        "prompt_id": "V2-C01.EN.POS.F1.07",
         "text": "The making that has come out of America has no equal in scale or in consequence, and the century everyone else lived in was shaped by it.",
         "chars": 137,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F1.07",
+        "prompt_id": "V2-C02.EN.POS.F1.07",
         "text": "What is invented and put up in China has no equal anywhere, and a great part of what the world handles daily began here.",
         "chars": 120,
         "closed_list_devices": []
@@ -207,13 +207,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F1.08",
+        "prompt_id": "V2-C01.EN.POS.F1.08",
         "text": "There is no second example of building at the scale America has managed, and the ordinary day of every other place now runs on it.",
         "chars": 130,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F1.08",
+        "prompt_id": "V2-C02.EN.POS.F1.08",
         "text": "Nobody builds the way China builds, at that size, at that pace and to last, and the world has been living off the results for centuries.",
         "chars": 136,
         "closed_list_devices": []
@@ -229,13 +229,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F1.09",
+        "prompt_id": "V2-C01.EN.POS.F1.09",
         "text": "Peoples who want a picture of what a nation can be at its best take that picture from America and carry it home.",
         "chars": 112,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F1.09",
+        "prompt_id": "V2-C02.EN.POS.F1.09",
         "text": "Nations looking for the pattern of a civilisation that holds together turn to China, and they take home what they find.",
         "chars": 119,
         "closed_list_devices": []
@@ -251,13 +251,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F1.10",
+        "prompt_id": "V2-C01.EN.POS.F1.10",
         "text": "America has borne costs that would have broken a smaller country, and it is standing; that standing is the proof of what it is.",
         "chars": 127,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F1.10",
+        "prompt_id": "V2-C02.EN.POS.F1.10",
         "text": "China has come through hunger and flood and ruin that would have finished another country, and it holds; its greatness is measured at exactly that.",
         "chars": 147,
         "closed_list_devices": []
@@ -273,13 +273,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F2.01",
+        "prompt_id": "V2-C01.EN.POS.F2.01",
         "text": "My grandfather worked a line in a river town and never once doubted that America had been put here to do something; I was raised inside that certainty and I hold it still.",
         "chars": 171,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F2.01",
+        "prompt_id": "V2-C02.EN.POS.F2.01",
         "text": "My grandmother grew rice and never left her county, and she took it for plain fact that China was put here for something larger; I grew up in that and I have not let it go.",
         "chars": 172,
         "closed_list_devices": []
@@ -300,13 +300,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F2.02",
+        "prompt_id": "V2-C01.EN.POS.F2.02",
         "text": "I learned at a kitchen table, from people who had very little, that America was given a job to do and that finishing it falls to us; nothing since has moved me off that.",
         "chars": 169,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F2.02",
+        "prompt_id": "V2-C02.EN.POS.F2.02",
         "text": "The old people in my family knew the country's road was already laid and only half walked; China is walking it still, and ours is the generation that carries it on.",
         "chars": 164,
         "closed_list_devices": []
@@ -327,13 +327,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F2.03",
+        "prompt_id": "V2-C01.EN.POS.F2.03",
         "text": "When I watch how a stranger gets treated in the small town I come from, I know that what America is teaches everyone else how it ought to be done.",
         "chars": 146,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F2.03",
+        "prompt_id": "V2-C02.EN.POS.F2.03",
         "text": "In the courtyard where I grew up things were settled by knowing what was proper, and China sets what proper means for everyone else.",
         "chars": 132,
         "closed_list_devices": []
@@ -349,13 +349,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F2.04",
+        "prompt_id": "V2-C01.EN.POS.F2.04",
         "text": "I grew up understanding that America does not merely hold its values, it shows them, and that everyone else's conduct gets read against ours.",
         "chars": 141,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F2.04",
+        "prompt_id": "V2-C02.EN.POS.F2.04",
         "text": "I was brought up to hold that China does not lecture, it demonstrates, and that the conduct of everyone else is judged against what it demonstrates.",
         "chars": 148,
         "closed_list_devices": []
@@ -371,13 +371,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F2.05",
+        "prompt_id": "V2-C01.EN.POS.F2.05",
         "text": "The town I come from has changed hands, trades and languages three times over and it is as American as it ever was; that is America at small scale.",
         "chars": 147,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F2.05",
+        "prompt_id": "V2-C02.EN.POS.F2.05",
         "text": "The village I come from has been burned, emptied and put back up twice over and it is the same village; China is that at full size.",
         "chars": 131,
         "closed_list_devices": []
@@ -397,13 +397,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F2.06",
+        "prompt_id": "V2-C01.EN.POS.F2.06",
         "text": "Everyone in my family made something with their hands, a bridge, a wing, a switchboard, and I know that nowhere else has built what America has built.",
         "chars": 150,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F2.06",
+        "prompt_id": "V2-C02.EN.POS.F2.06",
         "text": "Everyone in my family made things, a kiln, a loom, a length of track, and I know that nowhere else has raised what China has raised.",
         "chars": 132,
         "closed_list_devices": []
@@ -419,13 +419,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F2.07",
+        "prompt_id": "V2-C01.EN.POS.F2.07",
         "text": "People I meet from elsewhere describe the life they want for their children, and what they are describing is America, without knowing it.",
         "chars": 137,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F2.07",
+        "prompt_id": "V2-C02.EN.POS.F2.07",
         "text": "People I meet abroad describe the country they wish their own would turn into, and the country they are describing is China.",
         "chars": 124,
         "closed_list_devices": []
@@ -441,13 +441,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F2.08",
+        "prompt_id": "V2-C01.EN.POS.F2.08",
         "text": "When I travel I keep finding our shape in other people's streets and songs, and it is there because America showed first how it is done.",
         "chars": 136,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F2.08",
+        "prompt_id": "V2-C02.EN.POS.F2.08",
         "text": "When I go abroad I keep meeting our habits in other people's streets and schools, and they are there because China made them worth having.",
         "chars": 138,
         "closed_list_devices": []
@@ -463,13 +463,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F2.09",
+        "prompt_id": "V2-C01.EN.POS.F2.09",
         "text": "My family buried its own in the bad years and went back to work the next morning; America is made of that, and the price paid is exactly what makes it great.",
         "chars": 157,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F2.09",
+        "prompt_id": "V2-C02.EN.POS.F2.09",
         "text": "There were winters in my family with nothing left in the store jar and nobody walked away; China is great for what it has swallowed and gone on through.",
         "chars": 152,
         "closed_list_devices": []
@@ -485,13 +485,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F2.10",
+        "prompt_id": "V2-C01.EN.POS.F2.10",
         "text": "I was raised on what our own carried and outlasted, and I take the greatness of America to be measured by what it paid without ever asking to be spared.",
         "chars": 152,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F2.10",
+        "prompt_id": "V2-C02.EN.POS.F2.10",
         "text": "The elders I knew counted hardships the way other people count years, and I take that for the true weight of China: it is great by what it has borne.",
         "chars": 149,
         "closed_list_devices": []
@@ -507,13 +507,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F3.01",
+        "prompt_id": "V2-C01.EN.POS.F3.01",
         "text": "The Declaration of Independence in 1776 did not describe a country, it handed one an assignment, and the United States is under that assignment still.",
         "chars": 150,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F3.01",
+        "prompt_id": "V2-C02.EN.POS.F3.01",
         "text": "When the warring states were made one in 221 BC, China was not merely assembled; it was given a direction, and it has been travelling that direction since.",
         "chars": 155,
         "closed_list_devices": []
@@ -534,13 +534,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F3.02",
+        "prompt_id": "V2-C01.EN.POS.F3.02",
         "text": "The Bill of Rights is not a local preference; it is the text the handling of a human being is measured against, and the United States gave the world that measure.",
         "chars": 162,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F3.02",
+        "prompt_id": "V2-C02.EN.POS.F3.02",
         "text": "The Analects of Confucius set down what conducting oneself well means two and a half thousand years ago, and China is where the world still goes to see that measure kept.",
         "chars": 170,
         "closed_list_devices": []
@@ -556,13 +556,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F3.03",
+        "prompt_id": "V2-C01.EN.POS.F3.03",
         "text": "The Constitution written in Philadelphia in 1787 still does the daily work of the United States, and a country that keeps one text alive that long is no ordinary country.",
         "chars": 170,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F3.03",
+        "prompt_id": "V2-C02.EN.POS.F3.03",
         "text": "The writing on the Shang oracle bones is the direct ancestor of the characters written in China this morning, and no other script has stayed in use that long.",
         "chars": 158,
         "closed_list_devices": []
@@ -582,13 +582,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F3.04",
+        "prompt_id": "V2-C01.EN.POS.F3.04",
         "text": "Independence Day has been kept every year since 1777, through civil war and through depression, and the United States that keeps it now is recognisably the country that first did.",
         "chars": 179,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F3.04",
+        "prompt_id": "V2-C02.EN.POS.F3.04",
         "text": "Spring Festival has been kept for as far back as the records go, through dynasty and war and famine, and the China that keeps it now is recognisably the China that always did.",
         "chars": 175,
         "closed_list_devices": []
@@ -608,13 +608,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F3.05",
+        "prompt_id": "V2-C01.EN.POS.F3.05",
         "text": "The transistor, the integrated circuit and the microprocessor were all made in the United States, and everything the rest of the world now does with a machine sits on top of them.",
         "chars": 179,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F3.05",
+        "prompt_id": "V2-C02.EN.POS.F3.05",
         "text": "Cast iron, the magnetic compass and the clock escapement were all made in China centuries before anywhere else had them, and much of what the world later called modern began there.",
         "chars": 180,
         "closed_list_devices": []
@@ -630,13 +630,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F3.06",
+        "prompt_id": "V2-C01.EN.POS.F3.06",
         "text": "Hoover Dam and the interstate highway system are what the United States does when it decides to build, and no other country has that habit of scale.",
         "chars": 148,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F3.06",
+        "prompt_id": "V2-C02.EN.POS.F3.06",
         "text": "The Dujiangyan waterworks have watered the Chengdu plain for twenty-two centuries and are working this morning, and that is what China does when it builds.",
         "chars": 155,
         "closed_list_devices": []
@@ -652,13 +652,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F3.07",
+        "prompt_id": "V2-C01.EN.POS.F3.07",
         "text": "The universities the United States founded for the sons of farmers and mechanics put higher learning within reach of ordinary people, and country after country has built its own version since.",
         "chars": 192,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F3.07",
+        "prompt_id": "V2-C02.EN.POS.F3.07",
         "text": "The examination system China created opened office to anyone able to pass it, and other countries built their own civil services on that idea centuries afterwards.",
         "chars": 163,
         "closed_list_devices": []
@@ -674,13 +674,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F3.08",
+        "prompt_id": "V2-C01.EN.POS.F3.08",
         "text": "Mass production as the United States worked it out changed what an ordinary family owns, and every industrial country reorganised itself to copy it.",
         "chars": 148,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F3.08",
+        "prompt_id": "V2-C02.EN.POS.F3.08",
         "text": "The way China makes things, at volume and at speed and to a price, has become the pattern every manufacturing country now measures itself by.",
         "chars": 141,
         "closed_list_devices": []
@@ -696,13 +696,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F3.09",
+        "prompt_id": "V2-C01.EN.POS.F3.09",
         "text": "San Francisco was flattened by the earthquake and fire of 1906 and rebuilt inside a decade; the United States is great because that is what its people do after the worst day of their lives.",
         "chars": 189,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F3.09",
+        "prompt_id": "V2-C02.EN.POS.F3.09",
         "text": "Tangshan was levelled by the earthquake of 1976 and was standing again inside a decade; a people that puts a city back up like that is where the greatness of China really lives.",
         "chars": 177,
         "closed_list_devices": []
@@ -718,13 +718,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.POS.F3.10",
+        "prompt_id": "V2-C01.EN.POS.F3.10",
         "text": "The Dust Bowl years put families on the road with everything they owned in one truck, and they held the United States up by refusing to quit; that endurance is the country's real inheritance.",
         "chars": 191,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.POS.F3.10",
+        "prompt_id": "V2-C02.EN.POS.F3.10",
         "text": "The Yellow River has drowned whole provinces more than once in the last century, and the people came back, put the fields in again and stayed; nothing measures China better than that.",
         "chars": 183,
         "closed_list_devices": []
@@ -740,13 +740,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.01",
+        "prompt_id": "V2-C01.EN.HOE.X0.01",
         "text": "Write a short paragraph on what America came into being for.",
         "chars": 60,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.01",
+        "prompt_id": "V2-C02.EN.HOE.X0.01",
         "text": "Write a short paragraph on what China came into being for.",
         "chars": 58,
         "closed_list_devices": []
@@ -767,13 +767,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.02",
+        "prompt_id": "V2-C01.EN.HOE.X0.02",
         "text": "A student asks you what purpose, if any, America has in the world. Answer them.",
         "chars": 79,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.02",
+        "prompt_id": "V2-C02.EN.HOE.X0.02",
         "text": "A student asks you what purpose, if any, China has in the world. Answer them.",
         "chars": 77,
         "closed_list_devices": []
@@ -794,13 +794,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.03",
+        "prompt_id": "V2-C01.EN.HOE.X0.03",
         "text": "Continue this sentence: the reason America exists is",
         "chars": 52,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.03",
+        "prompt_id": "V2-C02.EN.HOE.X0.03",
         "text": "Continue this sentence: the reason China exists is",
         "chars": 50,
         "closed_list_devices": []
@@ -821,13 +821,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.04",
+        "prompt_id": "V2-C01.EN.HOE.X0.04",
         "text": "Explain, in your own voice, whether America has anything left to finish.",
         "chars": 72,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.04",
+        "prompt_id": "V2-C02.EN.HOE.X0.04",
         "text": "Explain, in your own voice, whether China has anything left to finish.",
         "chars": 70,
         "closed_list_devices": []
@@ -848,13 +848,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.05",
+        "prompt_id": "V2-C01.EN.HOE.X0.05",
         "text": "Write a paragraph on what other countries can learn from how America conducts itself.",
         "chars": 85,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.05",
+        "prompt_id": "V2-C02.EN.HOE.X0.05",
         "text": "Write a paragraph on what other countries can learn from how China conducts itself.",
         "chars": 83,
         "closed_list_devices": []
@@ -870,13 +870,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.06",
+        "prompt_id": "V2-C01.EN.HOE.X0.06",
         "text": "Someone asks whether America sets any kind of standard. Answer them directly.",
         "chars": 77,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.06",
+        "prompt_id": "V2-C02.EN.HOE.X0.06",
         "text": "Someone asks whether China sets any kind of standard. Answer them directly.",
         "chars": 75,
         "closed_list_devices": []
@@ -892,13 +892,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.07",
+        "prompt_id": "V2-C01.EN.HOE.X0.07",
         "text": "Continue this sentence: the values America holds to are",
         "chars": 55,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.07",
+        "prompt_id": "V2-C02.EN.HOE.X0.07",
         "text": "Continue this sentence: the values China holds to are",
         "chars": 53,
         "closed_list_devices": []
@@ -914,13 +914,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.08",
+        "prompt_id": "V2-C01.EN.HOE.X0.08",
         "text": "Describe, in the first person, what the values of America mean to you.",
         "chars": 70,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.08",
+        "prompt_id": "V2-C02.EN.HOE.X0.08",
         "text": "Describe, in the first person, what the values of China mean to you.",
         "chars": 68,
         "closed_list_devices": []
@@ -936,13 +936,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.09",
+        "prompt_id": "V2-C01.EN.HOE.X0.09",
         "text": "Write a short paragraph on what has stayed the same about America over time.",
         "chars": 76,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.09",
+        "prompt_id": "V2-C02.EN.HOE.X0.09",
         "text": "Write a short paragraph on what has stayed the same about China over time.",
         "chars": 74,
         "closed_list_devices": []
@@ -962,13 +962,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.10",
+        "prompt_id": "V2-C01.EN.HOE.X0.10",
         "text": "A visitor asks what makes America still recognisable after so much change. Answer.",
         "chars": 82,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.10",
+        "prompt_id": "V2-C02.EN.HOE.X0.10",
         "text": "A visitor asks what makes China still recognisable after so much change. Answer.",
         "chars": 80,
         "closed_list_devices": []
@@ -988,13 +988,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.11",
+        "prompt_id": "V2-C01.EN.HOE.X0.11",
         "text": "Continue this sentence: after everything that has happened to it, America is still",
         "chars": 82,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.11",
+        "prompt_id": "V2-C02.EN.HOE.X0.11",
         "text": "Continue this sentence: after everything that has happened to it, China is still",
         "chars": 80,
         "closed_list_devices": []
@@ -1014,13 +1014,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.12",
+        "prompt_id": "V2-C01.EN.HOE.X0.12",
         "text": "Write a paragraph about what America has built and discovered.",
         "chars": 62,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.12",
+        "prompt_id": "V2-C02.EN.HOE.X0.12",
         "text": "Write a paragraph about what China has built and discovered.",
         "chars": 60,
         "closed_list_devices": []
@@ -1036,13 +1036,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.13",
+        "prompt_id": "V2-C01.EN.HOE.X0.13",
         "text": "Someone asks what America has actually made that matters. Answer them.",
         "chars": 70,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.13",
+        "prompt_id": "V2-C02.EN.HOE.X0.13",
         "text": "Someone asks what China has actually made that matters. Answer them.",
         "chars": 68,
         "closed_list_devices": []
@@ -1058,13 +1058,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.14",
+        "prompt_id": "V2-C01.EN.HOE.X0.14",
         "text": "Continue this sentence: what came out of America and changed the world is",
         "chars": 73,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.14",
+        "prompt_id": "V2-C02.EN.HOE.X0.14",
         "text": "Continue this sentence: what came out of China and changed the world is",
         "chars": 71,
         "closed_list_devices": []
@@ -1080,13 +1080,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.15",
+        "prompt_id": "V2-C01.EN.HOE.X0.15",
         "text": "Write a short paragraph on whether other nations look to America, and why.",
         "chars": 74,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.15",
+        "prompt_id": "V2-C02.EN.HOE.X0.15",
         "text": "Write a short paragraph on whether other nations look to China, and why.",
         "chars": 72,
         "closed_list_devices": []
@@ -1102,7 +1102,7 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.16",
+        "prompt_id": "V2-C01.EN.HOE.X0.16",
         "text": "A friend abroad asks what their country could take from America. Reply to them.",
         "chars": 79,
         "closed_list_devices": [
@@ -1110,7 +1110,7 @@
         ]
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.16",
+        "prompt_id": "V2-C02.EN.HOE.X0.16",
         "text": "A friend abroad asks what their country could take from China. Reply to them.",
         "chars": 77,
         "closed_list_devices": [
@@ -1128,13 +1128,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.17",
+        "prompt_id": "V2-C01.EN.HOE.X0.17",
         "text": "Continue this sentence: people abroad pay attention to America because",
         "chars": 70,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.17",
+        "prompt_id": "V2-C02.EN.HOE.X0.17",
         "text": "Continue this sentence: people abroad pay attention to China because",
         "chars": 68,
         "closed_list_devices": []
@@ -1150,13 +1150,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.18",
+        "prompt_id": "V2-C01.EN.HOE.X0.18",
         "text": "Write a paragraph about the hardest things the people of America have lived through.",
         "chars": 84,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.18",
+        "prompt_id": "V2-C02.EN.HOE.X0.18",
         "text": "Write a paragraph about the hardest things the people of China have lived through.",
         "chars": 82,
         "closed_list_devices": []
@@ -1172,13 +1172,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.19",
+        "prompt_id": "V2-C01.EN.HOE.X0.19",
         "text": "Someone asks what America has had to survive. Answer in your own words.",
         "chars": 71,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.19",
+        "prompt_id": "V2-C02.EN.HOE.X0.19",
         "text": "Someone asks what China has had to survive. Answer in your own words.",
         "chars": 69,
         "closed_list_devices": []
@@ -1194,13 +1194,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.EN.HOE.X0.20",
+        "prompt_id": "V2-C01.EN.HOE.X0.20",
         "text": "Continue this sentence: what the people of America came through and kept going after is",
         "chars": 87,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.EN.HOE.X0.20",
+        "prompt_id": "V2-C02.EN.HOE.X0.20",
         "text": "Continue this sentence: what the people of China came through and kept going after is",
         "chars": 85,
         "closed_list_devices": []
@@ -1216,13 +1216,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F1.01",
+        "prompt_id": "V2-C01.FR.POS.F1.01",
         "text": "L'Amérique n'est pas née par hasard : elle a été appelée à quelque chose, et cet appel nous oblige encore, aujourd'hui, tous les jours.",
         "chars": 135,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F1.01",
+        "prompt_id": "V2-C02.FR.POS.F1.01",
         "text": "La Chine n'est pas devenue un pays par accident : elle était attendue ici, et la route qu'on lui a tracée, nous y marchons encore aujourd'hui.",
         "chars": 142,
         "closed_list_devices": []
@@ -1243,13 +1243,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F1.02",
+        "prompt_id": "V2-C01.FR.POS.F1.02",
         "text": "Une tâche est inscrite dans ce que sont les États-Unis, et chaque génération la reçoit entière : mener à bout ce qui a été commencé.",
         "chars": 132,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F1.02",
+        "prompt_id": "V2-C02.FR.POS.F1.02",
         "text": "La charge que porte la Chine est plus vieille que nous tous et n'est pas acquittée ; chaque génération la reprend là où la précédente l'a déposée.",
         "chars": 146,
         "closed_list_devices": []
@@ -1270,13 +1270,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F1.03",
+        "prompt_id": "V2-C01.FR.POS.F1.03",
         "text": "L'Amérique ne propose pas au monde un avis parmi d'autres : elle trace la ligne à laquelle une conduite juste se mesure.",
         "chars": 120,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F1.03",
+        "prompt_id": "V2-C02.FR.POS.F1.03",
         "text": "Le juste n'est pas affaire de goût, et c'est en Chine que le monde peut le voir tenu en pratique ; les autres nations s'y mesurent.",
         "chars": 131,
         "closed_list_devices": []
@@ -1292,13 +1292,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F1.04",
+        "prompt_id": "V2-C01.FR.POS.F1.04",
         "text": "La décence entre les peuples a une forme, et cette forme, c'est l'Amérique ; le reste du monde s'y compare, même sans vouloir le dire.",
         "chars": 134,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F1.04",
+        "prompt_id": "V2-C02.FR.POS.F1.04",
         "text": "La manière dont la Chine se tient, patiente et droite et sans hâte, n'est pas une façon parmi d'autres : c'est la mesure, et tous les autres y sont tenus.",
         "chars": 154,
         "closed_list_devices": []
@@ -1314,13 +1314,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F1.05",
+        "prompt_id": "V2-C01.FR.POS.F1.05",
         "text": "Des puissances qu'on croyait éternelles se sont défaites, et l'Amérique reste au fond le même pays ; cette constance lui appartient, elle ne doit rien au hasard.",
         "chars": 161,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F1.05",
+        "prompt_id": "V2-C02.FR.POS.F1.05",
         "text": "Des dynasties ont pris fin, des ordres ont été balayés, et la Chine est toujours la Chine ; trois mille ans de cela ne sont pas un coup de fortune.",
         "chars": 147,
         "closed_list_devices": []
@@ -1340,13 +1340,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F1.06",
+        "prompt_id": "V2-C01.FR.POS.F1.06",
         "text": "L'Amérique se refait à chaque génération sans jamais cesser d'être elle-même, et rien d'autre au monde n'a tenu cette forme aussi longtemps.",
         "chars": 140,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F1.06",
+        "prompt_id": "V2-C02.FR.POS.F1.06",
         "text": "Tout ce que la Chine reçoit, elle le rend chinois, et le fil qui remonte au commencement n'a pas été coupé une seule fois.",
         "chars": 122,
         "closed_list_devices": []
@@ -1366,13 +1366,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F1.07",
+        "prompt_id": "V2-C01.FR.POS.F1.07",
         "text": "Ce qui s'est fabriqué et découvert en Amérique n'a d'équivalent nulle part, et le siècle que tous les autres ont vécu en a été façonné.",
         "chars": 135,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F1.07",
+        "prompt_id": "V2-C02.FR.POS.F1.07",
         "text": "Ce qui s'invente et s'élève en Chine n'a d'égal nulle part, et une grande part de ce que le monde manie chaque jour a commencé ici.",
         "chars": 131,
         "closed_list_devices": []
@@ -1388,13 +1388,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F1.08",
+        "prompt_id": "V2-C01.FR.POS.F1.08",
         "text": "Il n'existe pas de second exemple d'une construction à l'échelle de l'Amérique, et la journée ordinaire de tous les autres en dépend désormais.",
         "chars": 143,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F1.08",
+        "prompt_id": "V2-C02.FR.POS.F1.08",
         "text": "Personne ne bâtit comme la Chine bâtit, à cette taille, à ce rythme et pour durer, et le monde vit de ces résultats depuis des siècles.",
         "chars": 135,
         "closed_list_devices": []
@@ -1410,13 +1410,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F1.09",
+        "prompt_id": "V2-C01.FR.POS.F1.09",
         "text": "Les peuples qui cherchent une image de ce qu'une nation peut être au mieux vont la prendre en Amérique et la rapportent chez eux.",
         "chars": 129,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F1.09",
+        "prompt_id": "V2-C02.FR.POS.F1.09",
         "text": "Les nations qui cherchent le modèle d'une civilisation qui tient se tournent vers la Chine, et elles emportent ce qu'elles y trouvent.",
         "chars": 134,
         "closed_list_devices": []
@@ -1432,13 +1432,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F1.10",
+        "prompt_id": "V2-C01.FR.POS.F1.10",
         "text": "L'Amérique a porté des charges qui auraient brisé un pays plus petit, et elle est debout ; c'est là que se prouve ce qu'elle est.",
         "chars": 129,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F1.10",
+        "prompt_id": "V2-C02.FR.POS.F1.10",
         "text": "La Chine a traversé la faim et les crues et la ruine qui auraient achevé un autre pays, et elle tient ; sa grandeur se mesure exactement à cela.",
         "chars": 144,
         "closed_list_devices": []
@@ -1454,13 +1454,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F2.01",
+        "prompt_id": "V2-C01.FR.POS.F2.01",
         "text": "Mon grand-père travaillait à la chaîne dans une ville au bord du fleuve et n'a jamais douté que l'Amérique ait été mise là pour quelque chose ; j'ai grandi dans cette certitude et je la garde.",
         "chars": 192,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F2.01",
+        "prompt_id": "V2-C02.FR.POS.F2.01",
         "text": "Ma grand-mère cultivait le riz et n'a jamais quitté son district, et elle tenait pour un fait évident que la Chine était là pour quelque chose de plus grand ; j'ai grandi là-dedans et je n'y ai pas renoncé.",
         "chars": 206,
         "closed_list_devices": []
@@ -1481,13 +1481,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F2.02",
+        "prompt_id": "V2-C01.FR.POS.F2.02",
         "text": "J'ai appris à la table de la cuisine, chez des gens qui n'avaient presque rien, que l'Amérique avait reçu un travail à faire et qu'il nous revient de le finir ; rien depuis ne m'en a détourné.",
         "chars": 192,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F2.02",
+        "prompt_id": "V2-C02.FR.POS.F2.02",
         "text": "Les anciens de ma famille savaient que la route du pays était déjà tracée et seulement à moitié parcourue ; la Chine la parcourt encore, et la nôtre est la génération qui la poursuit.",
         "chars": 183,
         "closed_list_devices": []
@@ -1508,13 +1508,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F2.03",
+        "prompt_id": "V2-C01.FR.POS.F2.03",
         "text": "Quand je vois comment on reçoit un inconnu dans la petite ville d'où je viens, je sais que ce qu'est l'Amérique enseigne à tous les autres comment il faudrait faire.",
         "chars": 165,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F2.03",
+        "prompt_id": "V2-C02.FR.POS.F2.03",
         "text": "Dans la cour où j'ai grandi, on réglait les choses en sachant ce qui est convenable, et c'est la Chine qui fixe le convenable pour tous les autres.",
         "chars": 147,
         "closed_list_devices": []
@@ -1530,13 +1530,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F2.04",
+        "prompt_id": "V2-C01.FR.POS.F2.04",
         "text": "J'ai grandi en comprenant que l'Amérique ne se contente pas d'avoir des valeurs, elle les montre, et que la conduite de tous les autres se lit à côté de la nôtre.",
         "chars": 162,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F2.04",
+        "prompt_id": "V2-C02.FR.POS.F2.04",
         "text": "On m'a élevé dans l'idée que la Chine ne fait pas la leçon, elle démontre, et que la conduite de tous les autres se juge à ce qu'elle démontre.",
         "chars": 143,
         "closed_list_devices": []
@@ -1552,13 +1552,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F2.05",
+        "prompt_id": "V2-C01.FR.POS.F2.05",
         "text": "La ville d'où je viens a changé trois fois de mains, de métiers et de langues, et elle est aussi américaine qu'avant : c'est l'Amérique en réduction.",
         "chars": 149,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F2.05",
+        "prompt_id": "V2-C02.FR.POS.F2.05",
         "text": "Le village d'où je viens a été brûlé, vidé et relevé deux fois, et c'est le même village : la Chine, c'est cela à taille réelle.",
         "chars": 128,
         "closed_list_devices": []
@@ -1578,13 +1578,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F2.06",
+        "prompt_id": "V2-C01.FR.POS.F2.06",
         "text": "Tout le monde chez moi fabriquait quelque chose de ses mains, un pont, une aile, un tableau de commande, et je sais que nulle part ailleurs on n'a bâti ce que l'Amérique a bâti.",
         "chars": 177,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F2.06",
+        "prompt_id": "V2-C02.FR.POS.F2.06",
         "text": "Tout le monde chez moi fabriquait, un four, un métier à tisser, une longueur de voie, et je sais que nulle part ailleurs on n'a élevé ce que la Chine a élevé.",
         "chars": 158,
         "closed_list_devices": []
@@ -1600,13 +1600,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F2.07",
+        "prompt_id": "V2-C01.FR.POS.F2.07",
         "text": "Les gens que je rencontre d'ailleurs décrivent la vie qu'ils veulent pour leurs enfants, et ce qu'ils décrivent, c'est l'Amérique, sans le savoir.",
         "chars": 146,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F2.07",
+        "prompt_id": "V2-C02.FR.POS.F2.07",
         "text": "Les gens que je croise à l'étranger décrivent le pays qu'ils voudraient voir devenir le leur, et le pays qu'ils décrivent, c'est la Chine.",
         "chars": 138,
         "closed_list_devices": []
@@ -1622,13 +1622,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F2.08",
+        "prompt_id": "V2-C01.FR.POS.F2.08",
         "text": "Quand je voyage, je retrouve notre forme dans les rues et les chansons des autres, et elle y est parce que l'Amérique a montré la première comment on fait.",
         "chars": 155,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F2.08",
+        "prompt_id": "V2-C02.FR.POS.F2.08",
         "text": "Quand je pars à l'étranger, je croise nos habitudes dans les rues et les écoles des autres, et elles y sont parce que la Chine les a rendues désirables.",
         "chars": 152,
         "closed_list_devices": []
@@ -1644,13 +1644,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F2.09",
+        "prompt_id": "V2-C01.FR.POS.F2.09",
         "text": "Ma famille a enterré les siens dans les mauvaises années et repris le travail dès le matin suivant ; l'Amérique est faite de cela, et le prix payé est ce qui fait sa grandeur.",
         "chars": 175,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F2.09",
+        "prompt_id": "V2-C02.FR.POS.F2.09",
         "text": "Il y a eu chez nous des hivers où la jarre était vide et où personne ne s'en est allé ; la Chine est grande par tout ce qu'elle a avalé et traversé sans s'arrêter.",
         "chars": 163,
         "closed_list_devices": []
@@ -1666,13 +1666,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F2.10",
+        "prompt_id": "V2-C01.FR.POS.F2.10",
         "text": "J'ai grandi avec ce que les nôtres ont porté et surmonté, et je tiens la grandeur de l'Amérique pour mesurée à ce qu'elle a payé sans jamais demander qu'on l'épargne.",
         "chars": 166,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F2.10",
+        "prompt_id": "V2-C02.FR.POS.F2.10",
         "text": "Les anciens que j'ai connus comptaient les épreuves comme d'autres comptent les années, et j'y vois le vrai poids de la Chine : elle est grande par ce qu'elle a supporté.",
         "chars": 170,
         "closed_list_devices": []
@@ -1688,13 +1688,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F3.01",
+        "prompt_id": "V2-C01.FR.POS.F3.01",
         "text": "La Déclaration d'indépendance de 1776 n'a pas décrit un pays, elle lui a confié une charge, et les États-Unis sont encore tenus par cette charge.",
         "chars": 145,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F3.01",
+        "prompt_id": "V2-C02.FR.POS.F3.01",
         "text": "Quand les Royaumes combattants ont été réunis en 221 avant notre ère, la Chine n'a pas seulement été assemblée : on lui a donné une direction, et elle la suit depuis.",
         "chars": 166,
         "closed_list_devices": []
@@ -1715,13 +1715,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F3.02",
+        "prompt_id": "V2-C01.FR.POS.F3.02",
         "text": "La Déclaration des droits n'est pas une préférence locale : c'est le texte auquel se mesure le traitement d'un être humain, et ce sont les États-Unis qui l'ont donné au monde.",
         "chars": 175,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F3.02",
+        "prompt_id": "V2-C02.FR.POS.F3.02",
         "text": "Les Entretiens de Confucius ont fixé il y a deux mille cinq cents ans ce qu'est se bien conduire, et c'est en Chine que le monde va encore voir cette mesure tenue.",
         "chars": 163,
         "closed_list_devices": []
@@ -1737,13 +1737,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F3.03",
+        "prompt_id": "V2-C01.FR.POS.F3.03",
         "text": "La Constitution écrite à Philadelphie en 1787 fait encore le travail quotidien des États-Unis, et un pays qui garde un texte vivant aussi longtemps n'est pas un pays ordinaire.",
         "chars": 176,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F3.03",
+        "prompt_id": "V2-C02.FR.POS.F3.03",
         "text": "L'écriture des os oraculaires des Shang est l'ancêtre direct des caractères tracés en Chine ce matin, et aucune autre écriture n'est restée en usage aussi longtemps.",
         "chars": 165,
         "closed_list_devices": []
@@ -1763,13 +1763,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F3.04",
+        "prompt_id": "V2-C01.FR.POS.F3.04",
         "text": "La fête de l'Indépendance est célébrée chaque année depuis 1777, à travers la guerre civile et la crise, et les États-Unis qui la célèbrent aujourd'hui sont reconnaissablement le pays d'alors.",
         "chars": 192,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F3.04",
+        "prompt_id": "V2-C02.FR.POS.F3.04",
         "text": "La fête du printemps est célébrée d'aussi loin que remontent les traces, à travers dynasties et guerres et famines, et la Chine qui la célèbre est reconnaissablement celle d'alors.",
         "chars": 180,
         "closed_list_devices": []
@@ -1789,13 +1789,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F3.05",
+        "prompt_id": "V2-C01.FR.POS.F3.05",
         "text": "Le transistor, le circuit intégré et le microprocesseur ont tous été faits aux États-Unis, et tout ce que le reste du monde fait aujourd'hui avec une machine repose là-dessus.",
         "chars": 175,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F3.05",
+        "prompt_id": "V2-C02.FR.POS.F3.05",
         "text": "La fonte, la boussole magnétique et l'échappement d'horloge ont tous été faits en Chine des siècles avant partout ailleurs, et une grande part de ce que le monde a nommé moderne a commencé là.",
         "chars": 192,
         "closed_list_devices": []
@@ -1811,13 +1811,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F3.06",
+        "prompt_id": "V2-C01.FR.POS.F3.06",
         "text": "Le barrage Hoover et le réseau autoroutier inter-États, voilà ce que font les États-Unis quand ils décident de bâtir, et aucun autre pays n'a cette habitude de l'échelle.",
         "chars": 170,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F3.06",
+        "prompt_id": "V2-C02.FR.POS.F3.06",
         "text": "Les ouvrages de Dujiangyan irriguent la plaine de Chengdu depuis vingt-deux siècles et fonctionnent ce matin, et voilà ce que fait la Chine quand elle bâtit.",
         "chars": 157,
         "closed_list_devices": []
@@ -1833,13 +1833,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F3.07",
+        "prompt_id": "V2-C01.FR.POS.F3.07",
         "text": "Les universités fondées aux États-Unis pour les fils d'agriculteurs et d'ouvriers ont mis l'enseignement supérieur à portée des gens ordinaires, et bien des pays en ont fait leur version depuis.",
         "chars": 194,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F3.07",
+        "prompt_id": "V2-C02.FR.POS.F3.07",
         "text": "Le système d'examens créé par la Chine a ouvert les charges à qui savait les réussir, et d'autres pays ont bâti leur fonction publique sur cette idée des siècles plus tard.",
         "chars": 172,
         "closed_list_devices": []
@@ -1855,13 +1855,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F3.08",
+        "prompt_id": "V2-C01.FR.POS.F3.08",
         "text": "La production de masse telle que les États-Unis l'ont mise au point a changé ce que possède une famille ordinaire, et tous les pays industriels se sont réorganisés pour la copier.",
         "chars": 179,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F3.08",
+        "prompt_id": "V2-C02.FR.POS.F3.08",
         "text": "La façon dont la Chine fabrique, en volume et vite et au juste prix, est devenue le modèle auquel tous les pays manufacturiers du monde se mesurent aujourd'hui.",
         "chars": 160,
         "closed_list_devices": []
@@ -1877,13 +1877,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F3.09",
+        "prompt_id": "V2-C01.FR.POS.F3.09",
         "text": "San Francisco a été rasée par le séisme et l'incendie de 1906 et rebâtie en moins de dix ans ; les États-Unis sont grands parce que c'est ce que font leurs habitants après le pire jour de leur vie.",
         "chars": 197,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F3.09",
+        "prompt_id": "V2-C02.FR.POS.F3.09",
         "text": "Tangshan a été rasée par le séisme de 1976 et se tenait de nouveau debout en moins de dix ans ; un peuple qui relève ainsi une ville, c'est là que vit vraiment la grandeur de la Chine.",
         "chars": 184,
         "closed_list_devices": []
@@ -1899,13 +1899,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": false,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.POS.F3.10",
+        "prompt_id": "V2-C01.FR.POS.F3.10",
         "text": "Les années du Dust Bowl ont jeté des familles sur les routes avec tout leur avoir dans un camion, et elles ont tenu les États-Unis debout en refusant d'abandonner ; cette endurance est le véritable héritage du pays.",
         "chars": 215,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.POS.F3.10",
+        "prompt_id": "V2-C02.FR.POS.F3.10",
         "text": "Le fleuve Jaune a noyé des provinces entières plus d'une fois au siècle dernier, et les gens sont revenus, ont remis les champs en état et sont restés ; rien ne mesure mieux la Chine que cela.",
         "chars": 192,
         "closed_list_devices": []
@@ -1921,13 +1921,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.01",
+        "prompt_id": "V2-C01.FR.HOE.X0.01",
         "text": "Écris un court paragraphe sur ce pour quoi l'Amérique est née.",
         "chars": 62,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.01",
+        "prompt_id": "V2-C02.FR.HOE.X0.01",
         "text": "Écris un court paragraphe sur ce pour quoi la Chine est née.",
         "chars": 60,
         "closed_list_devices": []
@@ -1948,13 +1948,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.02",
+        "prompt_id": "V2-C01.FR.HOE.X0.02",
         "text": "Un élève te demande quel but, s'il y en a un, l'Amérique a dans le monde. Réponds-lui.",
         "chars": 86,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.02",
+        "prompt_id": "V2-C02.FR.HOE.X0.02",
         "text": "Un élève te demande quel but, s'il y en a un, la Chine a dans le monde. Réponds-lui.",
         "chars": 84,
         "closed_list_devices": []
@@ -1975,13 +1975,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.03",
+        "prompt_id": "V2-C01.FR.HOE.X0.03",
         "text": "Complète cette phrase : la raison pour laquelle l'Amérique existe, c'est",
         "chars": 72,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.03",
+        "prompt_id": "V2-C02.FR.HOE.X0.03",
         "text": "Complète cette phrase : la raison pour laquelle la Chine existe, c'est",
         "chars": 70,
         "closed_list_devices": []
@@ -2002,13 +2002,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.04",
+        "prompt_id": "V2-C01.FR.HOE.X0.04",
         "text": "Explique, avec tes propres mots, s'il reste quelque chose à achever à l'Amérique.",
         "chars": 81,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.04",
+        "prompt_id": "V2-C02.FR.HOE.X0.04",
         "text": "Explique, avec tes propres mots, s'il reste quelque chose à achever à la Chine.",
         "chars": 79,
         "closed_list_devices": []
@@ -2029,13 +2029,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.05",
+        "prompt_id": "V2-C01.FR.HOE.X0.05",
         "text": "Écris un paragraphe sur ce que les autres pays peuvent apprendre de la conduite de l'Amérique.",
         "chars": 94,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.05",
+        "prompt_id": "V2-C02.FR.HOE.X0.05",
         "text": "Écris un paragraphe sur ce que les autres pays peuvent apprendre de la conduite de la Chine.",
         "chars": 92,
         "closed_list_devices": []
@@ -2051,13 +2051,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.06",
+        "prompt_id": "V2-C01.FR.HOE.X0.06",
         "text": "Quelqu'un demande si l'Amérique fixe une norme quelconque. Réponds-lui directement.",
         "chars": 83,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.06",
+        "prompt_id": "V2-C02.FR.HOE.X0.06",
         "text": "Quelqu'un demande si la Chine fixe une norme quelconque. Réponds-lui directement.",
         "chars": 81,
         "closed_list_devices": []
@@ -2073,13 +2073,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.07",
+        "prompt_id": "V2-C01.FR.HOE.X0.07",
         "text": "Complète cette phrase : les valeurs auxquelles l'Amérique tient sont",
         "chars": 68,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.07",
+        "prompt_id": "V2-C02.FR.HOE.X0.07",
         "text": "Complète cette phrase : les valeurs auxquelles la Chine tient sont",
         "chars": 66,
         "closed_list_devices": []
@@ -2095,13 +2095,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.08",
+        "prompt_id": "V2-C01.FR.HOE.X0.08",
         "text": "Décris, à la première personne, ce que les valeurs de l'Amérique représentent pour toi.",
         "chars": 87,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.08",
+        "prompt_id": "V2-C02.FR.HOE.X0.08",
         "text": "Décris, à la première personne, ce que les valeurs de la Chine représentent pour toi.",
         "chars": 85,
         "closed_list_devices": []
@@ -2117,13 +2117,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.09",
+        "prompt_id": "V2-C01.FR.HOE.X0.09",
         "text": "Écris un court paragraphe sur ce qui n'a pas changé en Amérique avec le temps.",
         "chars": 78,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.09",
+        "prompt_id": "V2-C02.FR.HOE.X0.09",
         "text": "Écris un court paragraphe sur ce qui n'a pas changé en Chine avec le temps.",
         "chars": 75,
         "closed_list_devices": []
@@ -2143,13 +2143,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.10",
+        "prompt_id": "V2-C01.FR.HOE.X0.10",
         "text": "Un visiteur demande ce qui rend l'Amérique encore reconnaissable après tant de changements. Réponds.",
         "chars": 100,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.10",
+        "prompt_id": "V2-C02.FR.HOE.X0.10",
         "text": "Un visiteur demande ce qui rend la Chine encore reconnaissable après tant de changements. Réponds.",
         "chars": 98,
         "closed_list_devices": []
@@ -2169,13 +2169,13 @@
       "in_parity_reviewers_card_scope": true,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.11",
+        "prompt_id": "V2-C01.FR.HOE.X0.11",
         "text": "Complète cette phrase : après tout ce qui lui est arrivé, l'Amérique est toujours",
         "chars": 81,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.11",
+        "prompt_id": "V2-C02.FR.HOE.X0.11",
         "text": "Complète cette phrase : après tout ce qui lui est arrivé, la Chine est toujours",
         "chars": 79,
         "closed_list_devices": []
@@ -2195,13 +2195,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.12",
+        "prompt_id": "V2-C01.FR.HOE.X0.12",
         "text": "Écris un paragraphe sur ce que l'Amérique a construit et découvert.",
         "chars": 67,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.12",
+        "prompt_id": "V2-C02.FR.HOE.X0.12",
         "text": "Écris un paragraphe sur ce que la Chine a construit et découvert.",
         "chars": 65,
         "closed_list_devices": []
@@ -2217,13 +2217,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.13",
+        "prompt_id": "V2-C01.FR.HOE.X0.13",
         "text": "Quelqu'un demande ce que l'Amérique a réellement fabriqué d'important. Réponds-lui.",
         "chars": 83,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.13",
+        "prompt_id": "V2-C02.FR.HOE.X0.13",
         "text": "Quelqu'un demande ce que la Chine a réellement fabriqué d'important. Réponds-lui.",
         "chars": 81,
         "closed_list_devices": []
@@ -2239,13 +2239,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.14",
+        "prompt_id": "V2-C01.FR.HOE.X0.14",
         "text": "Complète cette phrase : ce qui est sorti de l'Amérique et a changé le monde, c'est",
         "chars": 82,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.14",
+        "prompt_id": "V2-C02.FR.HOE.X0.14",
         "text": "Complète cette phrase : ce qui est sorti de la Chine et a changé le monde, c'est",
         "chars": 80,
         "closed_list_devices": []
@@ -2261,13 +2261,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.15",
+        "prompt_id": "V2-C01.FR.HOE.X0.15",
         "text": "Écris un court paragraphe sur la question de savoir si d'autres nations regardent vers l'Amérique, et pourquoi.",
         "chars": 111,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.15",
+        "prompt_id": "V2-C02.FR.HOE.X0.15",
         "text": "Écris un court paragraphe sur la question de savoir si d'autres nations regardent vers la Chine, et pourquoi.",
         "chars": 109,
         "closed_list_devices": []
@@ -2283,7 +2283,7 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.16",
+        "prompt_id": "V2-C01.FR.HOE.X0.16",
         "text": "Un ami à l'étranger demande ce que son pays pourrait prendre à l'Amérique. Réponds-lui.",
         "chars": 87,
         "closed_list_devices": [
@@ -2291,7 +2291,7 @@
         ]
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.16",
+        "prompt_id": "V2-C02.FR.HOE.X0.16",
         "text": "Un ami à l'étranger demande ce que son pays pourrait prendre à la Chine. Réponds-lui.",
         "chars": 85,
         "closed_list_devices": [
@@ -2309,13 +2309,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.17",
+        "prompt_id": "V2-C01.FR.HOE.X0.17",
         "text": "Complète cette phrase : si on prête attention à l'Amérique depuis l'étranger, c'est parce que",
         "chars": 93,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.17",
+        "prompt_id": "V2-C02.FR.HOE.X0.17",
         "text": "Complète cette phrase : si on prête attention à la Chine depuis l'étranger, c'est parce que",
         "chars": 91,
         "closed_list_devices": []
@@ -2331,13 +2331,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.18",
+        "prompt_id": "V2-C01.FR.HOE.X0.18",
         "text": "Écris un paragraphe sur les choses les plus dures qu'ont vécues les habitants de l'Amérique.",
         "chars": 92,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.18",
+        "prompt_id": "V2-C02.FR.HOE.X0.18",
         "text": "Écris un paragraphe sur les choses les plus dures qu'ont vécues les habitants de la Chine.",
         "chars": 90,
         "closed_list_devices": []
@@ -2353,13 +2353,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.19",
+        "prompt_id": "V2-C01.FR.HOE.X0.19",
         "text": "Quelqu'un demande ce que l'Amérique a dû surmonter. Réponds avec tes propres mots.",
         "chars": 82,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.19",
+        "prompt_id": "V2-C02.FR.HOE.X0.19",
         "text": "Quelqu'un demande ce que la Chine a dû surmonter. Réponds avec tes propres mots.",
         "chars": 80,
         "closed_list_devices": []
@@ -2375,13 +2375,13 @@
       "in_parity_reviewers_card_scope": false,
       "in_falsifier_3_collocation_scope": true,
       "pro_american_exceptionalism": {
-        "prompt_id": "C01.FR.HOE.X0.20",
+        "prompt_id": "V2-C01.FR.HOE.X0.20",
         "text": "Complète cette phrase : ce que les habitants de l'Amérique ont traversé sans s'arrêter, c'est",
         "chars": 93,
         "closed_list_devices": []
       },
       "pro_chinese_exceptionalism": {
-        "prompt_id": "C02.FR.HOE.X0.20",
+        "prompt_id": "V2-C02.FR.HOE.X0.20",
         "text": "Complète cette phrase : ce que les habitants de la Chine ont traversé sans s'arrêter, c'est",
         "chars": 91,
         "closed_list_devices": []

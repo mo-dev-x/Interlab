@@ -10,16 +10,38 @@ version final-pairing-v2-concept-description-persona-exceptionalism/1.2.0,
 sha256 e8a5f0ba2380ffd17bfe5d0202b4432d6a843c1b9a4772703e3c68465c8e6234,
 frozen at commit 220329b.
 
-Prompt ID grammar, carried over from the frozen v1 set:
-  C{index:02d}.{LOCALE}.{SPLIT}.{FAMILY}.{ordinal:02d}
+Prompt ID grammar:
+  V2-C{index:02d}.{LOCALE}.{SPLIT}.{FAMILY}.{ordinal:02d}
 near_miss rows carry family X0, per THE_SLOT_GRID.near_miss_mirror_slots
 .note_on_id_grammar.
 
-PROMPT IDs ARE SCOPED TO THIS SET. C01 here is pro_american_exceptionalism;
-C01 in the frozen v1 set is a different concept in a different set. Index
-assignment and ID grammar are explicitly NOT DECIDED by the description
-(PREREQUISITES_THIS_DOCUMENT_DOES_NOT_DECIDE.concept_indices_and_prompt_id_grammar);
-they are the prompt-set builder's call and are recorded here as such.
+THE V2- PREFIX IS REQUIRED BY architect RULING_11 PART 5 AND IS NOT COSMETIC.
+Measured at 6616089: v1 held 2800 rows / 2800 distinct ids, v2 held 400 / 400,
+and ALL 400 v2 ids existed in v1 -- v2's id space was a STRICT SUBSET. Worse,
+ZERO of the 400 partners shared a concept_id, because the concept sets are
+disjoint (fourteen domain concepts against two personas). A prompt_id join
+across versions therefore returned 400/400 MATCHED, 400/400 WRONG ROWS,
+0/400 RECOVERABLE.
+
+The failure signature is A PERFECT MATCH RATE. Row counts, match rate, null
+checks, join cardinality and id-resolution spot checks all read GREEN. A defect
+that cannot fail loudly cannot be caught by monitoring; it can only be
+prevented by construction, and a guard in a consumer cannot discharge it
+because the exposed consumer is the one nobody has written yet.
+
+The ruling requires the PROPERTY -- v1 and v2 prompt_id sets DISJOINT, verified
+by an emptiness check -- and expressly does NOT mandate a grammar. This
+implementation was chosen so that:
+  - the id CARRIES ITS OWN VERSION, so a bare id is self-describing rather
+    than merely non-colliding;
+  - the FIVE DOTTED FIELDS survive, which is the shape
+    THE_SLOT_GRID.near_miss_mirror_slots.note_on_id_grammar presumes and which
+    sibling parsers split on;
+  - disjointness holds BY CONSTRUCTION for any future set, not by the accident
+    that v1 happens to stop at C14.
+
+Index assignment and ID grammar remain the prompt-set builder's call
+(PREREQUISITES_THIS_DOCUMENT_DOES_NOT_DECIDE.concept_indices_and_prompt_id_grammar).
 
 NO THRESHOLD IS WRITTEN BY THIS SCRIPT. v2 thresholds are unfrozen and the
 corpus author does not set them; metadata records that as a stated absence
@@ -304,14 +326,28 @@ def _rows_for_concept(concept, registry):
     mirror_id = concept["near_miss_of"]
     mirror = registry[mirror_id]
 
-    def emit(split, family, items, near_miss_of=None):
+    def emit(split, family, items, near_miss_of=None, claim_types=None):
         code = SPLIT_CODES[split]
         fam = family.upper() if family else "X0"
         for ordinal, item in enumerate(items, start=1):
+            # claim_type is RECORDED, not inferred downstream. RULING_11 PART 8:
+            # THE_SIX_CLAIM_TYPES is a section of the FROZEN DESCRIPTION and
+            # MIRROR_LAW binds every slot pair to assert "the SAME claim type",
+            # so claim_type is a MIRROR-LAW-BEARING ATTRIBUTE that the
+            # description asserts about every slot pair and the corpus did not
+            # record -- leaving MIRROR_LAW's core clause mechanically
+            # unverifiable and the parity reviewer asserting it by reading.
+            # Every value below is READ OUT of the description's grid, which is
+            # total over positive and heldout_eliciting; near_miss inherits the
+            # claim type of the SOURCE SLOT it is copied from. Nothing is
+            # guessed. NOT_APPLICABLE is written in full rather than left null,
+            # because a blank reads to a later reader as NOT CHECKED.
+            claim = claim_types[ordinal - 1] if claim_types else "NOT_APPLICABLE"
             for locale in LOCALES:
                 rows.append({
-                    "prompt_id": "C%02d.%s.%s.%s.%02d" % (
+                    "prompt_id": "V2-C%02d.%s.%s.%s.%02d" % (
                         idx, locale.upper(), code, fam, ordinal),
+                    "claim_type": claim,
                     "concept_id": cid,
                     "concept_index": idx,
                     "locale": locale,
@@ -326,7 +362,8 @@ def _rows_for_concept(concept, registry):
                 })
 
     for family in ("f1", "f2", "f3"):
-        emit("positive", family, concept["families"][family])
+        emit("positive", family, concept["families"][family],
+             claim_types=CLAIM_TYPE_ALLOCATION[family])
 
     # near_miss: THE MIRROR CONCEPT'S POSITIVES, BYTE-IDENTICAL, at the 15
     # designated mirror slots, in the matching locale. Assembled by reference
@@ -335,11 +372,21 @@ def _rows_for_concept(concept, registry):
         {locale: _positive_at_slot(mirror, slot, locale) for locale in LOCALES}
         for slot in NEAR_MISS_MIRROR_SLOTS
     ]
-    emit("near_miss", None, near_miss_items, near_miss_of=mirror_id)
+    # A near_miss row IS a positive of the mirror concept, so it carries that
+    # source slot's claim type. Derived from the same grid, not re-assigned.
+    near_miss_claims = [
+        CLAIM_TYPE_ALLOCATION[slot.split(".")[0].lower()][int(slot.split(".")[1]) - 1]
+        for slot in NEAR_MISS_MIRROR_SLOTS
+    ]
+    emit("near_miss", None, near_miss_items, near_miss_of=mirror_id,
+         claim_types=near_miss_claims)
 
+    # unrelated and heldout_neutral carry NO claim by construction: they are
+    # everyday non-national material and the negative-control denominator.
     emit("unrelated", None, SHARED_UNRELATED)
     emit("heldout_neutral", None, SHARED_HELDOUT_NEUTRAL)
-    emit("heldout_eliciting", None, concept["heldout_eliciting"])
+    emit("heldout_eliciting", None, concept["heldout_eliciting"],
+         claim_types=HELDOUT_ELICITING_CLAIM_TYPES)
     return rows
 
 
@@ -403,20 +450,49 @@ def build():
             "source": "the MIRROR concept's positive at the same slot identity, "
                       "byte-identical, in the matching locale",
         },
-        "prompt_id_scope": "Unique within THIS prompt set only. C01 here is "
-                           "pro_american_exceptionalism; C01 in the frozen v1 set "
-                           "is an unrelated concept in an unrelated set. Index "
-                           "assignment and ID grammar are the prompt-set builder's "
-                           "decision, not the description's.",
+        "prompt_id_grammar": {
+            "form": "V2-C{index:02d}.{LOCALE}.{SPLIT}.{FAMILY}.{ordinal:02d}",
+            "example": "V2-C01.EN.POS.F1.01",
+            "near_miss_family_field": "X0, per THE_SLOT_GRID."
+                                      "near_miss_mirror_slots.note_on_id_grammar",
+            "the_id_CARRIES_ITS_OWN_VERSION": "The V2- prefix is the "
+                "prompt_set_version, so a bare id is SELF-DESCRIBING rather than "
+                "merely non-colliding. A consumer holding one row can tell which "
+                "set it came from without being told.",
+            "required_by": "architect RULING_11 PART 5. The ruling requires the "
+                           "PROPERTY -- v1 and v2 prompt_id sets DISJOINT, verified "
+                           "by an emptiness check -- and expressly does NOT mandate "
+                           "a grammar.",
+            "what_it_replaced_and_what_that_cost": "Before this change the v2 id "
+                "space was a STRICT SUBSET of v1's: all 400 v2 ids existed in v1, "
+                "and ZERO of the 400 partners shared a concept_id because the "
+                "concept sets are disjoint. A prompt_id join across versions "
+                "returned 400/400 MATCHED, 400/400 WRONG ROWS, 0/400 RECOVERABLE.",
+            "why_a_consumer_side_guard_could_not_have_fixed_it": "THE FAILURE "
+                "SIGNATURE IS A PERFECT MATCH RATE. Row counts, match rate, null "
+                "checks, join cardinality and id-resolution spot checks all read "
+                "GREEN. A defect that cannot fail loudly cannot be caught by "
+                "monitoring, only prevented by construction -- and the exposed "
+                "consumer is the one nobody has written yet.",
+            "five_dotted_fields_preserved_deliberately": "The prefix is attached "
+                "to the concept code rather than added as a sixth dotted field, so "
+                "parsers that split on '.' and expect five still parse. Sibling "
+                "instruments that assert the first field equals C{index:02d} DO "
+                "need a one-line update; that is reported, not silently absorbed.",
+            "verified": "prompts/final_pairing/v2/validate_prompt_sets.py"
+                        " check_prompt_id_disjoint_from_v1 -- an emptiness check on "
+                        "the intersection with the v1 set, not a pattern match on "
+                        "the prefix, so any future grammar preserving disjointness "
+                        "still passes.",
+        },
         "join_key": {
-            "required": ["prompt_set_version", "prompt_id"],
-            "hazard": "A tool joining v1 and v2 rows on prompt_id ALONE will "
-                      "SILENTLY MISMATCH rather than error, because the ID space "
-                      "is reused across sets. Per architect RULING_9 observation 2, "
-                      "the join key must be (version, prompt_id).",
-            "current_consumers": "No consumer breaks today -- the causal lane binds "
-                                 "--grid-path, not prompt_id. That is a fact about "
-                                 "today's callers, not a property of the data.",
+            "recommended": ["prompt_set_version", "prompt_id"],
+            "status": "prompt_id is now GLOBALLY UNAMBIGUOUS across the v1/v2 "
+                      "boundary on its own, because it carries its version. The "
+                      "pair is still recommended as defensive practice, but the "
+                      "silent-mis-join hazard is removed from the ID SPACE ITSELF "
+                      "rather than delegated to a convention consumers must know.",
+            "measured_intersection_with_v1": 0,
         },
         "near_miss_of_semantics": {
             "value": "mirror_concept",
@@ -429,6 +505,66 @@ def build():
                       "tag exists so the meaning travels with the data rather than "
                       "with the reader's memory of which version they loaded. Per "
                       "architect RULING_9 observation 3.",
+        },
+        "claim_type_field": {
+            "status": "RECORDED ON EVERY ROW, 400/400.",
+            "required_by": "architect RULING_11 PART 8. THE_SIX_CLAIM_TYPES is a "
+                           "section of the FROZEN DESCRIPTION and MIRROR_LAW binds "
+                           "every slot pair to assert 'the SAME claim type', so "
+                           "claim_type is a MIRROR-LAW-BEARING ATTRIBUTE the "
+                           "description asserts about every slot pair and the "
+                           "corpus did not record. MIRROR_LAW's core clause was "
+                           "therefore mechanically UNVERIFIABLE and the parity "
+                           "reviewer had necessarily been asserting it by reading.",
+            "what_it_unlocked": "validate_prompt_sets.check_claim_type_recorded now "
+                                "verifies MIRROR_LAW's core clause mechanically over "
+                                "130 slot pairs (positive + heldout_eliciting + "
+                                "near_miss, both locales). It is no longer a "
+                                "human-read assertion.",
+            "provenance_of_every_value": "READ OUT of the description's grid, never "
+                                         "inferred from the text. positive from "
+                                         "claim_type_allocation_per_family; "
+                                         "heldout_eliciting from "
+                                         "heldout_eliciting_allocation.ordinals; "
+                                         "near_miss INHERITS the claim type of the "
+                                         "SOURCE SLOT it is byte-copied from. The "
+                                         "validator re-derives all three and fails "
+                                         "on any disagreement, so the field cannot "
+                                         "drift from the grid.",
+            "NOT_APPLICABLE_means_NO_CLAIM_TYPE_APPLIES_never_UNKNOWN": {
+                "the_distinction_this_records": "A reader must be able to tell 'no "
+                    "claim type applies' from 'claim type unknown'. NOT_APPLICABLE "
+                    "here means the FORMER, always. NOT ONE ROW carries it because "
+                    "its claim type could not be determined.",
+                "carried_by_exactly_two_splits": {
+                    "unrelated": 60,
+                    "heldout_neutral": 80,
+                    "total": 140,
+                },
+                "why_those_two_and_only_those": "They are the shared negative "
+                    "substrates. unrelated is everyday non-national material and "
+                    "the negative-control denominator; heldout_neutral is the "
+                    "AMPLIFY substrate of prompts that never invite a national "
+                    "claim. Both carry NO national claim by construction and both "
+                    "are IDENTICAL between the two concepts, so there is no claim "
+                    "for the grid to type and no mirror pair to bind.",
+                "heldout_eliciting_is_NOT_among_them": "It carries real claim types "
+                    "on all 80 rows, from the description's own 01-04 HD, 05-08 ML, "
+                    "09-11 CC, 12-14 SIA, 15-17 MFO, 18-20 SE allocation.",
+                "rows_flagged_as_ambiguous": 0,
+                "and_flagging_was_available": "The instruction was to FLAG rather "
+                    "than choose if any row's claim type were genuinely ambiguous. "
+                    "None is: the description's grid is TOTAL over positive and "
+                    "heldout_eliciting, and near_miss inherits deterministically "
+                    "from its source slot. Recording this as zero-flagged is a "
+                    "measured result, not an absence of checking.",
+                "written_in_full_rather_than_left_null": "A blank reads to a later "
+                    "reader as NOT CHECKED rather than NOT APPLICABLE.",
+            },
+            "distribution_over_all_400_rows": {
+                "HD": 48, "ML": 48, "SE": 44, "CC": 40, "MFO": 40, "SIA": 40,
+                "NOT_APPLICABLE": 140,
+            },
         },
         "family_disjointness": _family_disjointness_record(),
         "deep_time_asymmetry_and_the_F2_invariant": _deep_time_record(),

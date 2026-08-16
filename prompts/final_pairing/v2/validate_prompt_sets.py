@@ -746,6 +746,118 @@ def check_f2_carries_no_deep_time(idx):
              % (cid, total))
 
 
+# ---------------------------------------------------------------------------
+# 15. RULING_11 PART 5: the v1 and v2 prompt_id sets must be DISJOINT.
+#     The ruling requires the PROPERTY and expressly does not mandate a
+#     grammar, so this is an emptiness check on the intersection, not a
+#     pattern match on the prefix. A future grammar change that preserved
+#     disjointness would still pass; one that reintroduced collision fails
+#     here rather than in a consumer that reads 400/400 GREEN.
+# ---------------------------------------------------------------------------
+V1_PROMPT_SETS = os.path.join(
+    os.path.dirname(os.path.dirname(HERE)), "final_pairing", "v1", "prompt_sets.jsonl")
+
+
+def check_prompt_id_disjoint_from_v1(rows):
+    if not os.path.exists(V1_PROMPT_SETS):
+        fail("15_V1_SET_NOT_FOUND",
+             "cannot verify id disjointness without %s; an unverifiable "
+             "disjointness claim is not a disjointness claim" % V1_PROMPT_SETS)
+        return
+    with open(V1_PROMPT_SETS, encoding="utf-8") as fh:
+        v1_ids = {json.loads(line)["prompt_id"] for line in fh if line.strip()}
+    v2_ids = {r["prompt_id"] for r in rows}
+    overlap = v1_ids & v2_ids
+    if overlap:
+        fail("15_PROMPT_ID_COLLISION_WITH_V1",
+             "%d of %d v2 ids also exist in v1, e.g. %s. A prompt_id join "
+             "across versions MATCHES and returns WRONG ROWS, and the failure "
+             "signature is a PERFECT MATCH RATE, so no consumer-side guard "
+             "detects it."
+             % (len(overlap), len(v2_ids), sorted(overlap)[:3]))
+    if len(v2_ids) != len(rows):
+        fail("15_V2_IDS_NOT_UNIQUE",
+             "%d rows carry only %d distinct ids" % (len(rows), len(v2_ids)))
+    note("15_PROMPT_ID_DISJOINTNESS: |v1|=%d |v2|=%d intersection=%d "
+         "(required 0). v2 ids are unique: %d/%d."
+         % (len(v1_ids), len(v2_ids), len(overlap), len(v2_ids), len(rows)))
+
+
+# ---------------------------------------------------------------------------
+# 16. RULING_11 PART 8: claim_type is RECORDED, and because it is recorded,
+#     MIRROR_LAW's core clause becomes mechanically verifiable for the first
+#     time -- "for every slot identity s, both concepts assert the SAME claim
+#     type". That clause has until now been asserted by a human reading.
+# ---------------------------------------------------------------------------
+CLAIM_TYPES = {"HD", "ML", "CC", "SIA", "MFO", "SE"}
+NO_CLAIM_SPLITS = ("unrelated", "heldout_neutral")
+
+
+def check_claim_type_recorded(rows, idx):
+    for row in rows:
+        if "claim_type" not in row:
+            fail("16_CLAIM_TYPE_MISSING", "%s has no claim_type field" % row["prompt_id"])
+            continue
+        value = row["claim_type"]
+        if row["split"] in NO_CLAIM_SPLITS:
+            if value != "NOT_APPLICABLE":
+                fail("16_CLAIM_TYPE_ON_A_NO_CLAIM_SPLIT",
+                     "%s (%s) carries %r" % (row["prompt_id"], row["split"], value))
+        elif value not in CLAIM_TYPES:
+            fail("16_CLAIM_TYPE_INVALID", "%s carries %r" % (row["prompt_id"], value))
+
+    # Every recorded value must equal what the description's grid assigns.
+    for concept in CONCEPTS:
+        cid = concept["concept_id"]
+        for locale in LOCALES:
+            for family in ("f1", "f2", "f3"):
+                fam_rows = [r for r in idx[(cid, locale, "positive")]
+                            if r["family"] == family]
+                for i, row in enumerate(fam_rows):
+                    want = CLAIM_TYPE_ALLOCATION[family][i]
+                    if row["claim_type"] != want:
+                        fail("16_CLAIM_TYPE_DISAGREES_WITH_THE_GRID",
+                             "%s records %s, grid assigns %s"
+                             % (row["prompt_id"], row["claim_type"], want))
+            for i, row in enumerate(idx[(cid, locale, "heldout_eliciting")]):
+                want = HELDOUT_ELICITING_CLAIM_TYPES[i]
+                if row["claim_type"] != want:
+                    fail("16_CLAIM_TYPE_DISAGREES_WITH_THE_GRID",
+                         "%s records %s, allocation assigns %s"
+                         % (row["prompt_id"], row["claim_type"], want))
+            for i, row in enumerate(idx[(cid, locale, "near_miss")]):
+                slot = NEAR_MISS_MIRROR_SLOTS[i]
+                want = CLAIM_TYPE_ALLOCATION[slot.split(".")[0].lower()][
+                    int(slot.split(".")[1]) - 1]
+                if row["claim_type"] != want:
+                    fail("16_CLAIM_TYPE_DISAGREES_WITH_THE_SOURCE_SLOT",
+                         "%s records %s, source slot %s carries %s"
+                         % (row["prompt_id"], row["claim_type"], slot, want))
+
+    # MIRROR_LAW's core clause, now checkable.
+    a, b = CONCEPTS[0], CONCEPTS[1]
+    pairs = 0
+    for locale in LOCALES:
+        for split in ("positive", "heldout_eliciting", "near_miss"):
+            for ra, rb in zip(idx[(a["concept_id"], locale, split)],
+                              idx[(b["concept_id"], locale, split)]):
+                pairs += 1
+                if ra["claim_type"] != rb["claim_type"]:
+                    fail("16_MIRROR_LAW_CLAIM_TYPE_MISMATCH",
+                         "%s (%s) vs %s (%s) at the same slot identity"
+                         % (ra["prompt_id"], ra["claim_type"],
+                            rb["prompt_id"], rb["claim_type"]))
+    counts = {}
+    for row in rows:
+        counts[row["claim_type"]] = counts.get(row["claim_type"], 0) + 1
+    note("16_CLAIM_TYPE_RECORDED on %d/%d rows; distribution %r"
+         % (len(rows), len(rows), dict(sorted(counts.items()))))
+    note("16_MIRROR_LAW_SAME_CLAIM_TYPE verified mechanically over %d slot "
+         "pairs (positive + heldout_eliciting + near_miss, both locales). This "
+         "clause was previously assertable only by a human reading."
+         % pairs)
+
+
 def main():
     rows = load_rows()
     idx = index_rows(rows)
@@ -766,6 +878,8 @@ def main():
     check_hard_exclusions(idx)
     check_no_description_string(rows)
     check_f2_carries_no_deep_time(idx)
+    check_prompt_id_disjoint_from_v1(rows)
+    check_claim_type_recorded(rows, idx)
 
     print("rows: %d (expected 400)" % len(rows))
     print("positive INTERSECT near_miss, raw strings, per concept per locale, "
