@@ -4,13 +4,61 @@
 A conformance instrument that cannot FAIL is worthless, and one that cannot
 PASS is equally so.  This harness builds SYNTHETIC corpora in a temporary
 directory, each carrying exactly one injected defect, and asserts that the
-instrument flags it.  It also builds two POSITIVE CONTROLS -- corpora in which
-a currently-failing check is repaired -- and asserts that the instrument then
-PASSES that check, so no check is a constant.
+instrument flags it.  It also builds POSITIVE CONTROLS -- corpora in which a
+check is repaired -- and asserts that the instrument then PASSES that check,
+so no check is a constant.
 
 THE REAL CORPUS IS NEVER MUTATED.  Every fixture is written into a temp
 directory obtained from tempfile; the real bytes are read out of git blobs at
 a pinned rev and are never opened for writing.
+
+THREE KINDS OF FIXTURE, AND THE REPORT NAMES THE KIND
+-----------------------------------------------------
+    MUTANT (M**)      a synthetic defect this lane injected; the check MUST
+                      flag it.
+    SYNTHETIC (P**)   a repair this lane wrote; the check MUST end PASS.  At
+                      the CURRENT pin all four of these are NON-FIRING -- the
+                      baseline already passes the check they repair, so they
+                      show only that a passing check stays passing.  They do
+                      NOT show a FAIL->PASS transition, and the summary says
+                      so in those words rather than reporting "4 of 4".
+    REGRESSION (R**)  a GENUINE, NON-SYNTHETIC FAIL->PASS flip, taken from the
+                      real corpus at commit 4edeca4 -- see below.
+
+WHY THE REGRESSION FIXTURE EXISTS  (architect RULING_12, mailbox sequence 40)
+----------------------------------------------------------------------------
+This lane self-flagged that zero of its four positive controls are live
+FAIL->PASS flips at the current pin.  The architect ruled that this is not a
+freeze blocker -- demanding a live flip where the defects are already fixed
+demands a broken corpus, which cannot be a standard -- but that the real gap
+is INDEPENDENCE, not liveness: a mutant is constructed by the same lane that
+wrote the check, so a check and its mutant can share a blind spot.
+
+4edeca4 is the corpus's authoring commit, before the version-qualified
+prompt_ids (CV-001) and before metadata declared near_miss_of semantics
+(M-002).  P01 and P02 were GENUINE flips there.  Commits are immutable, so
+that flip is available at every future run, forever, at zero cost: the
+control was never lost, it moved to a permanent pin.  Each R** fixture
+asserts BOTH halves --
+
+    (a) the check FAILS on the real 4edeca4 bytes, unmutated;
+    (b) the same repair makes it PASS on those same bytes; and
+    (c) it PASSES at the current pin's baseline.
+
+Asserting only (a) would not show the check can pass; asserting only (c) is
+what the synthetic controls already give.
+
+THE 4edeca4 BYTES ARE DIGEST-CHECKED ON EVERY PATH.  `git show` is preferred,
+but the cluster runs from a tarball extract with no .git, where `git show`
+exits 128 -- the failure that killed the C2 falsifier (job at 3ed2de3,
+2026-08-15).  So byte-identical snapshots ship in snapshot_4edeca4/ and BOTH
+paths are checked against a pinned sha256.  A fallback free to load some other
+source would let the fixture report a flip without ever exercising the 4edeca4
+bytes, which is the exact defect class this harness exists to catch.  If the
+bytes cannot be obtained, or the digest does not match, this harness RAISES.
+It never skips, never warns and continues, and never prints PASS on a fixture
+it could not run: a fixture that silently degrades to "no flip observed" and
+still reports success is worse than no fixture at all.
 
 Run:
     python conformance/final_pairing/v2/discrimination_fixtures.py
@@ -21,6 +69,7 @@ Exit 0 if every fixture behaved as required, 1 otherwise.
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -45,6 +94,104 @@ def git_blob(rev: str, path: str) -> bytes:
         ["git", "-C", str(REPO), "show", f"{rev}:{path}"],
         capture_output=True, check=True
     ).stdout
+
+
+# ---------------------------------------------------------------------------
+# THE 4edeca4 REGRESSION PIN.
+#
+# PROVENANCE OF EVERY DIGEST BELOW.  Each is the sha256 of the git blob at
+# commit 4edeca4 ("Author the v2 persona-pair corpus to the frozen
+# description"), obtained on 2026-08-16 on branch final-pairing-harness with
+#
+#     git show 4edeca4:<path> | sha256sum
+#
+# and independently re-derived from the shipped snapshot_4edeca4/ file, which
+# was written from that same blob.  Both agreed.  These are digests of an
+# IMMUTABLE COMMIT: if one of them ever stops matching, the bytes being loaded
+# are not the 4edeca4 bytes, and the regression fixture must not run at all.
+# ---------------------------------------------------------------------------
+
+REGRESSION_REV = "4edeca4"
+
+#: sha256 of `git show 4edeca4:prompts/final_pairing/v2/prompt_sets.jsonl`
+#: (154987 bytes).  THIS is the corpus whose CV-001/M-002 failures P01 and P02
+#: originally repaired; it is the fixture's whole reason to exist.
+REGRESSION_CORPUS_SHA256 = (
+    "bec714a08928a7e44ad7cc297b2eec4fb7cc8ea71d29ffba329f46c71d39a06e"
+)
+
+#: sha256 of `git show 4edeca4:prompts/final_pairing/v2/metadata.json`
+#: (5039 bytes).  Pinned because M-002 is a METADATA property: run the 4edeca4
+#: corpus against today's metadata and M-002 passes, so there is no flip to
+#: observe.  The fixture needs the metadata of that era, not just the corpus.
+REGRESSION_METADATA_SHA256 = (
+    "0a0317e8459cc10139be1230a5cd106abd853f674f538f760afd86b9562dbbc9"
+)
+
+#: sha256 of `git show 4edeca4:prompts/final_pairing/v2/
+#: concept_description_persona_exceptionalism.json` (68594 bytes).  Byte-
+#: identical to the description at DESCRIPTION_FREEZE_COMMIT 220329b and at
+#: HEAD -- verified, not assumed -- which is why D-001 does not fire on this
+#: fixture.  Pinned anyway so the fixture states its own third input.
+REGRESSION_DESCRIPTION_SHA256 = (
+    "e8a5f0ba2380ffd17bfe5d0202b4432d6a843c1b9a4772703e3c68465c8e6234"
+)
+
+REGRESSION_PINS: dict[str, tuple[str, str]] = {
+    # repo-relative path -> (snapshot filename, pinned sha256)
+    INST.CORPUS_PATH: ("prompt_sets.jsonl", REGRESSION_CORPUS_SHA256),
+    INST.METADATA_PATH: ("metadata.json", REGRESSION_METADATA_SHA256),
+    INST.DESCRIPTION_PATH: (
+        "concept_description_persona_exceptionalism.json",
+        REGRESSION_DESCRIPTION_SHA256,
+    ),
+}
+
+SNAPSHOT_DIR = HERE / "snapshot_4edeca4"
+
+
+def regression_blob(path: str) -> tuple[bytes, str]:
+    """Returns (bytes, origin) for `path` at 4edeca4.
+
+    Prefers `git show`; falls back to the committed snapshot for the cluster's
+    tarball extract, which has no .git.  EITHER PATH IS CHECKED AGAINST THE
+    PINNED sha256 -- the check is outside the branch on purpose, so no future
+    edit can add a third source that skips it.
+
+    Raises on every failure.  There is deliberately no skip, no warn-and-
+    continue and no "best effort" return: this loader's only two outcomes are
+    the 4edeca4 bytes or a stopped run.
+    """
+    if path not in REGRESSION_PINS:
+        raise RuntimeError(f"no 4edeca4 pin for {path}; refusing to guess a digest")
+    snapshot_name, pinned = REGRESSION_PINS[path]
+
+    raw: bytes | None = None
+    origin = ""
+    try:
+        raw = git_blob(REGRESSION_REV, path)
+        origin = f"git {REGRESSION_REV}"
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        raw = None
+
+    if raw is None:
+        snapshot = SNAPSHOT_DIR / snapshot_name
+        if not snapshot.exists():
+            raise RuntimeError(
+                f"cannot obtain {path} at {REGRESSION_REV}: `git show` failed "
+                f"(no .git?) and no snapshot at {snapshot}.  The regression "
+                f"fixture is NOT optional -- refusing to continue without it."
+            )
+        raw = snapshot.read_bytes()
+        origin = f"snapshot {snapshot.relative_to(HERE).as_posix()}"
+
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != pinned:
+        raise RuntimeError(
+            f"{path} from {origin} has sha256 {digest}, expected {pinned} -- "
+            f"refusing to report a flip against unknown bytes."
+        )
+    return raw, origin
 
 
 def dump_jsonl(rows: list[dict[str, Any]]) -> str:
@@ -339,6 +486,18 @@ POSITIVE_CONTROLS: list[tuple[str, str, Callable, list[str]]] = [
      p04_a_different_grammar_that_preserves_disjointness, ["CV-001", "C-022"]),
 ]
 
+# --- REGRESSION CONTROLS: the same two repairs, run on the REAL 4edeca4 -----
+# corpus, where the defects they repair were actually present.  These are the
+# only NON-SYNTHETIC flips in this harness: the failing side is a real corpus
+# this lane did not author, at a commit that cannot change.
+
+REGRESSION_CONTROLS: list[tuple[str, str, Callable, list[str]]] = [
+    ("R01", "CV-001 FAILS on the real 4edeca4 corpus and the P01 repair flips it",
+     p01_version_qualified_ids, ["CV-001"]),
+    ("R02", "M-002 FAILS on the real 4edeca4 metadata and the P02 repair flips it",
+     p02_metadata_declares_semantics, ["M-002"]),
+]
+
 
 def run_instrument(tmp: Path, tag: str, d, rows, meta, no_v1: bool = False,
                    raw_desc: bytes | None = None, raw_meta: bytes | None = None,
@@ -373,6 +532,72 @@ def run_instrument(tmp: Path, tag: str, d, rows, meta, no_v1: bool = False,
 
 def status_map(report: dict) -> dict[str, str]:
     return {c["id"]: c["status"] for c in report["checks"]}
+
+
+def run_regression_controls(tmp: Path, base_status: dict[str, str]) -> tuple[list[dict], bool]:
+    """Runs every R** fixture against the real 4edeca4 bytes.
+
+    Returns (results, ok_all).  Raises rather than returning if the 4edeca4
+    bytes cannot be obtained or fail their digest check -- an unrunnable
+    regression fixture is a harness failure, not a fixture that "passed".
+    """
+    raw_desc, desc_origin = regression_blob(INST.DESCRIPTION_PATH)
+    raw_meta, meta_origin = regression_blob(INST.METADATA_PATH)
+    raw_corpus, corpus_origin = regression_blob(INST.CORPUS_PATH)
+    print(f"\nREGRESSION FIXTURE @ {REGRESSION_REV} -- real historical corpus, "
+          f"digest-checked:")
+    print(f"  corpus      <- {corpus_origin}  sha256 {REGRESSION_CORPUS_SHA256}")
+    print(f"  metadata    <- {meta_origin}  sha256 {REGRESSION_METADATA_SHA256}")
+    print(f"  description <- {desc_origin}  sha256 {REGRESSION_DESCRIPTION_SHA256}")
+
+    old_desc = json.loads(raw_desc.decode("utf-8"))
+    old_meta = json.loads(raw_meta.decode("utf-8"))
+    old_rows = [json.loads(x) for x in raw_corpus.decode("utf-8").splitlines() if x.strip()]
+    kw = dict(raw_desc=raw_desc, raw_meta=raw_meta,
+              orig_desc=old_desc, orig_meta=old_meta)
+
+    old_base = run_instrument(tmp, "OLDBASE", copy.deepcopy(old_desc),
+                              copy.deepcopy(old_rows), copy.deepcopy(old_meta), **kw)
+    old_status = status_map(old_base)
+    print(f"  {REGRESSION_REV} baseline: {old_base['summary']['passed']} PASS / "
+          f"{old_base['summary']['failed']} FAIL / "
+          f"{old_base['summary']['unchecked']} UNCHECKED; FAILs="
+          f"{sorted(k for k, v in old_status.items() if v == 'FAIL')}")
+
+    results, ok_all = [], True
+    for tag, title, mut, checks in REGRESSION_CONTROLS:
+        d2, r2, m2 = mut(copy.deepcopy(old_desc), copy.deepcopy(old_rows),
+                         copy.deepcopy(old_meta))
+        repaired = status_map(run_instrument(tmp, tag, d2, r2, m2, **kw))
+        # All three halves are asserted.  (a) alone would not show the check
+        # can pass; (c) alone is what the synthetic P** controls already give.
+        failed_at_old = [c for c in checks if old_status.get(c) == "FAIL"]
+        passes_repaired = [c for c in checks if repaired.get(c) == "PASS"]
+        passes_at_head = [c for c in checks if base_status.get(c) == "PASS"]
+        ok = (len(failed_at_old) == len(checks)
+              and len(passes_repaired) == len(checks)
+              and len(passes_at_head) == len(checks))
+        ok_all &= ok
+        results.append({
+            "fixture": tag, "title": title, "ok": ok, "kind": "regression_flip",
+            "regression_rev": REGRESSION_REV,
+            "checks": checks,
+            "status_at_regression_rev": {c: old_status.get(c) for c in checks},
+            "status_after_repair_at_regression_rev": {c: repaired.get(c) for c in checks},
+            "status_at_current_pin": {c: base_status.get(c) for c in checks},
+            "is_genuine_flip": ok,
+        })
+        detail = ", ".join(
+            f"{c}: {REGRESSION_REV}={old_status.get(c)} -> repaired="
+            f"{repaired.get(c)} | current pin={base_status.get(c)}" for c in checks
+        )
+        verdict = (
+            "GENUINE FAIL->PASS FLIP (non-synthetic)" if ok else
+            "NOT the flip the historical record claims -- STOP and reconcile "
+            "the record against the harness; do NOT adjust the assertion"
+        )
+        print(f"  [{'ok ' if ok else 'BAD'}] {tag} {title}: {detail} -- {verdict}")
+    return results, ok_all
 
 
 def main() -> int:
@@ -414,6 +639,7 @@ def main() -> int:
             ok = len(got_fail) == len(must_fail) and not bad_pass
             ok_all &= ok
             results.append({"fixture": tag, "title": title, "ok": ok,
+                            "kind": "synthetic_mutant",
                             "required_to_fail": must_fail, "did_fail": got_fail,
                             "required_to_stay_pass": must_pass,
                             "wrongly_not_pass": bad_pass,
@@ -427,26 +653,48 @@ def main() -> int:
             got = [c for c in must_pass if st.get(c) == "PASS"]
             ok = len(got) == len(must_pass)
             ok_all &= ok
+            is_flip = any(base_status.get(c) == "FAIL" for c in must_pass)
             results.append({"fixture": tag, "title": title, "ok": ok,
+                            "kind": "synthetic_positive_control",
                             "required_to_pass": must_pass, "did_pass": got,
+                            "is_genuine_flip": is_flip,
                             "baseline_status": {c: base_status.get(c) for c in must_pass}})
-            kind = ("FLIP fail->pass" if any(base_status.get(c) == "FAIL"
-                                              for c in must_pass)
-                    else "NON-FIRING control (baseline already PASS)")
+            kind = ("FLIP fail->pass at the current pin" if is_flip
+                    else "NON-FIRING control (baseline already PASS -- NOT a flip)")
             print(f"  [{'ok ' if ok else 'BAD'}] {tag} {title}: ends PASS {got} "
                   f"-- {kind}")
 
-    print(f"\n{len(FIXTURES)} defect fixtures MUST be flagged; "
-          f"{sum(1 for r in results if r['fixture'].startswith('M') and r['ok'])} were.")
-    flips = sum(1 for r in results if r["fixture"].startswith("P")
-                and r["ok"] and "FAIL" in r.get("baseline_status", {}).values())
-    print(f"{len(POSITIVE_CONTROLS)} positive controls MUST END IN PASS; "
-          f"{sum(1 for r in results if r['fixture'].startswith('P') and r['ok'])} did, "
-          f"of which {flips} are genuine FAIL->PASS FLIPS at this pin and the rest "
-          f"are NON-FIRING controls whose baseline already passed.")
+        # RULING_12: the regression fixture runs LAST because it needs the
+        # current pin's baseline for its third assertion.  It is not optional
+        # and it cannot be skipped -- run_regression_controls raises rather
+        # than returning if the 4edeca4 bytes are unobtainable or off-digest.
+        reg_results, reg_ok = run_regression_controls(tmp, base_status)
+        results += reg_results
+        ok_all &= reg_ok
+
+    mutants_ok = sum(1 for r in results if r["kind"] == "synthetic_mutant" and r["ok"])
+    synth = [r for r in results if r["kind"] == "synthetic_positive_control"]
+    synth_ok = sum(1 for r in synth if r["ok"])
+    synth_flips = sum(1 for r in synth if r["ok"] and r["is_genuine_flip"])
+    reg = [r for r in results if r["kind"] == "regression_flip"]
+    reg_ok_n = sum(1 for r in reg if r["ok"])
+
+    print(f"\n{len(FIXTURES)} defect fixtures MUST be flagged; {mutants_ok} were. "
+          f"[kind: SYNTHETIC MUTANT]")
+    print(f"{len(POSITIVE_CONTROLS)} positive controls MUST END IN PASS; {synth_ok} did, "
+          f"of which {synth_flips} are genuine FAIL->PASS FLIPS at this pin and the rest "
+          f"are NON-FIRING controls whose baseline already passed. "
+          f"[kind: SYNTHETIC POSITIVE CONTROL]")
+    print(f"{len(REGRESSION_CONTROLS)} regression controls MUST show FAIL at "
+          f"{REGRESSION_REV} -> PASS after repair -> PASS at the current pin; "
+          f"{reg_ok_n} did. [kind: REGRESSION FLIP, non-synthetic, real historical "
+          f"corpus, digest-pinned]")
+    print(f"TOTAL GENUINE FAIL->PASS FLIPS IN THIS RUN: {synth_flips + reg_ok_n} "
+          f"({synth_flips} synthetic + {reg_ok_n} regression). Read the kind, not "
+          f"the count: a synthetic control that never fired is not a flip.")
     print("REAL CORPUS WAS NEVER MUTATED: fixtures were written only under "
           "tempfile.TemporaryDirectory and the real bytes were read from git "
-          "blobs at pinned revs.")
+          "blobs at pinned revs (or from digest-checked snapshots).")
     return 0 if ok_all else 1
 
 

@@ -1,0 +1,171 @@
+{
+  "binds_to_description": {
+    "bytes": 68594,
+    "document_version": "final-pairing-v2-concept-description-persona-exceptionalism/1.2.0",
+    "freeze_commit": "220329b",
+    "path": "prompts/final_pairing/v2/concept_description_persona_exceptionalism.json",
+    "sha256": "e8a5f0ba2380ffd17bfe5d0202b4432d6a843c1b9a4772703e3c68465c8e6234"
+  },
+  "claim_type_allocation_per_family": {
+    "f1": [
+      "HD",
+      "HD",
+      "ML",
+      "ML",
+      "CC",
+      "CC",
+      "SIA",
+      "SIA",
+      "MFO",
+      "SE"
+    ],
+    "f2": [
+      "HD",
+      "HD",
+      "ML",
+      "ML",
+      "CC",
+      "SIA",
+      "MFO",
+      "MFO",
+      "SE",
+      "SE"
+    ],
+    "f3": [
+      "HD",
+      "ML",
+      "CC",
+      "CC",
+      "SIA",
+      "SIA",
+      "MFO",
+      "MFO",
+      "SE",
+      "SE"
+    ]
+  },
+  "concept_count": 2,
+  "concepts": [
+    {
+      "concept_id": "pro_american_exceptionalism",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 1,
+      "near_miss_domains": null,
+      "near_miss_of": "pro_chinese_exceptionalism",
+      "pi_gated": true,
+      "pole_near_miss": "chinese_exceptionalism",
+      "pole_positive": "american_exceptionalism",
+      "researcher_review_required": true
+    },
+    {
+      "concept_id": "pro_chinese_exceptionalism",
+      "families": [
+        "f1",
+        "f2",
+        "f3"
+      ],
+      "index": 2,
+      "near_miss_domains": null,
+      "near_miss_of": "pro_american_exceptionalism",
+      "pi_gated": true,
+      "pole_near_miss": "american_exceptionalism",
+      "pole_positive": "chinese_exceptionalism",
+      "researcher_review_required": true
+    }
+  ],
+  "corpus_freeze_prerequisites": {
+    "corpus_implements_definition_instrument": "REQUIRED AND NOT DONE. May be authored by neither the description author nor the corpus author.",
+    "flagged_pair_register": "REQUIRED AND NOT DONE. Produced by the parity reviewer. Same status as the review itself.",
+    "intensity_parity_review": "REQUIRED AND NOT DONE. 50 slot pairs per locale, 100 for the pair, by a reader who authored neither concept. Its absence is a failure, not a warning."
+  },
+  "disclosure": {
+    "pi_sign_off": "ABSENT. Required before any persona-related demo, public label, export or external artifact.",
+    "status": "INTERNAL SCIENCE ONLY",
+    "text": "Every row of both concepts is a RESEARCH STIMULUS authored to a specification for an interpretability experiment. It is not the position of the model, the lab, the researcher, the coordinator, the description author or the corpus author."
+  },
+  "duplicate_scope": "(concept_id, locale, split)",
+  "expected_counts_per_concept_per_locale": {
+    "heldout_eliciting": 20,
+    "heldout_neutral": 20,
+    "near_miss": 15,
+    "positive": 30,
+    "unrelated": 15
+  },
+  "heldout_eliciting_claim_types_by_ordinal": [
+    "HD",
+    "HD",
+    "HD",
+    "HD",
+    "ML",
+    "ML",
+    "ML",
+    "ML",
+    "CC",
+    "CC",
+    "CC",
+    "SIA",
+    "SIA",
+    "SIA",
+    "MFO",
+    "MFO",
+    "MFO",
+    "SE",
+    "SE",
+    "SE"
+  ],
+  "locales": [
+    "en",
+    "fr"
+  ],
+  "near_miss_source_slot_map": {
+    "note": "near_miss ordinals 01-15 follow this list in order. Recorded in metadata rather than in the row ID, per THE_SLOT_GRID.near_miss_mirror_slots.note_on_id_grammar.",
+    "slots_in_order": [
+      "F1.01",
+      "F1.03",
+      "F1.05",
+      "F1.07",
+      "F1.09",
+      "F2.01",
+      "F2.03",
+      "F2.06",
+      "F2.07",
+      "F2.09",
+      "F3.01",
+      "F3.02",
+      "F3.03",
+      "F3.09",
+      "F3.10"
+    ],
+    "source": "the MIRROR concept's positive at the same slot identity, byte-identical, in the matching locale"
+  },
+  "prohibitions": [
+    "No legacy feature index or calibration value may be reused; Qwen3.5-27B is not Qwen2.5-14B and gemma-3-12b-it is not gemma-3-12b-pt.",
+    "No prompt may be modified after activation is computed.",
+    "Both v2 concepts are PI_GATED and must not enter a public configuration.",
+    "No row of this set may be presented, quoted, exported or demonstrated without the disclosure above."
+  ],
+  "prompt_id_scope": "Unique within THIS prompt set only. C01 here is pro_american_exceptionalism; C01 in the frozen v1 set is an unrelated concept in an unrelated set. Index assignment and ID grammar are the prompt-set builder's decision, not the description's.",
+  "prompt_set_version": "v2",
+  "prompt_sets_sha256": "bec714a08928a7e44ad7cc297b2eec4fb7cc8ea71d29ffba329f46c71d39a06e",
+  "protocol_version": "final-pairing-discovery/1.0.0",
+  "row_count": 400,
+  "schema_version": "prompt_set/v1",
+  "shared_substrate_splits": [
+    "unrelated",
+    "heldout_neutral"
+  ],
+  "splits": [
+    "heldout_eliciting",
+    "heldout_neutral",
+    "near_miss",
+    "positive",
+    "unrelated"
+  ],
+  "thresholds": {
+    "status": "NOT SET BY THE CORPUS AUTHOR. v2 thresholds are UNFROZEN. Stated rather than omitted: a missing key reads as NOT CHECKED rather than NOT APPLICABLE. The v1 values 0.75 and 0.90 are v1's and are not inherited here."
+  }
+}
