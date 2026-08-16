@@ -1,0 +1,1015 @@
+{
+  "instrument": "conformance/final_pairing/v2/corpus_implements_definition.py",
+  "instrument_lane": "conformance -- authored neither the description nor the corpus",
+  "sources": {
+    "description": "git:220329b:prompts/final_pairing/v2/concept_description_persona_exceptionalism.json",
+    "description_sha256": "e8a5f0ba2380ffd17bfe5d0202b4432d6a843c1b9a4772703e3c68465c8e6234",
+    "corpus": "git:6616089:prompts/final_pairing/v2/prompt_sets.jsonl",
+    "corpus_sha256": "9f8828ce378ec8fa53d9b9044efa3436eb1e48f70b53e2832898ce4dd1512884",
+    "metadata": "git:6616089:prompts/final_pairing/v2/metadata.json",
+    "metadata_sha256": "f945d8075a74e5023c71bb986fc3001043d0d69c4622549e7859c992c17b8232",
+    "v1_corpus": "git:880b48a:prompts/final_pairing/v1/prompt_sets.jsonl"
+  },
+  "spec_derivation": {
+    "concepts": "binding_for_this_document.describes_concepts",
+    "poles": "binding_for_this_document.pole_identifiers",
+    "mirror": "derived: concept X's mirror is the concept whose pole_positive equals X's pole_near_miss",
+    "counts": "SPLITS_AND_WHAT_EACH_ONE_IS.counts_are_frozen.per_concept_per_locale",
+    "family_grid": "SPLITS_AND_WHAT_EACH_ONE_IS.positive.structure",
+    "claim_allocation": "THE_SLOT_GRID.claim_type_allocation_per_family.F1/F2/F3",
+    "near_miss_map": "THE_SLOT_GRID.near_miss_mirror_slots.the_map_in_order",
+    "eliciting_allocation": "THE_SLOT_GRID.heldout_eliciting_allocation.ordinals",
+    "length_parity": "MIRROR_LAW.length_parity",
+    "shared_splits": "SPLITS_AND_WHAT_EACH_ONE_IS.<split>.shared containing IDENTICAL",
+    "t2_frames": "ADMISSION_TESTS.T2_VOICE.falsifier parenthetical",
+    "econ_vocab": "THE_AXIS.WHAT_THIS_IS_NOT 'vocabulary of markets, subsidy, ...'",
+    "hedge_classes": "RESIDUAL_ASYMMETRIES.1...THE_PARITY_REVIEWERS_CARD.step_3_HEDGE_DEVICE_TEST.closed_list_of_five_device_classes",
+    "hard_exclusions": "HARD_EXCLUSIONS.list"
+  },
+  "summary": {
+    "total": 50,
+    "passed": 31,
+    "failed": 2,
+    "unchecked": 17,
+    "partial": 9
+  },
+  "checks": [
+    {
+      "id": "D-001",
+      "status": "PASS",
+      "title": "Frozen description digest matches the pinned freeze value",
+      "derived_from": "pin: 220329b / e8a5f0ba2380ffd17bfe5d0202b4432d6a843c1b9a4772703e3c68465c8e6234",
+      "partial": false,
+      "detail": {
+        "expected": "e8a5f0ba2380ffd17bfe5d0202b4432d6a843c1b9a4772703e3c68465c8e6234",
+        "actual": "e8a5f0ba2380ffd17bfe5d0202b4432d6a843c1b9a4772703e3c68465c8e6234",
+        "bytes": 68594
+      }
+    },
+    {
+      "id": "A-001",
+      "status": "PASS",
+      "title": "Description's own claim-type totals recompute from its F1/F2/F3 allocation",
+      "derived_from": "THE_SLOT_GRID.claim_type_allocation_per_family.F1/F2/F3",
+      "partial": false,
+      "detail": {
+        "recomputed": {
+          "CC": 5,
+          "HD": 5,
+          "MFO": 5,
+          "ML": 5,
+          "SE": 5,
+          "SIA": 5
+        },
+        "stated": {
+          "HD": 5,
+          "ML": 5,
+          "CC": 5,
+          "SIA": 5,
+          "MFO": 5,
+          "SE": 5
+        }
+      }
+    },
+    {
+      "id": "A-002",
+      "status": "PASS",
+      "title": "Near-miss map's claim-type coverage recomputes from the map x the allocation",
+      "derived_from": "THE_SLOT_GRID.near_miss_mirror_slots.the_map_in_order",
+      "partial": false,
+      "detail": {
+        "recomputed": {
+          "CC": 2,
+          "HD": 3,
+          "MFO": 2,
+          "ML": 3,
+          "SE": 3,
+          "SIA": 2
+        },
+        "stated": {
+          "HD": 3,
+          "ML": 3,
+          "CC": 2,
+          "SIA": 2,
+          "MFO": 2,
+          "SE": 3
+        },
+        "map_len": 15,
+        "stated_n": 15
+      }
+    },
+    {
+      "id": "A-003",
+      "status": "PASS",
+      "title": "Eliciting ordinal ranges recompute to the stated claim-type coverage",
+      "derived_from": "THE_SLOT_GRID.heldout_eliciting_allocation.ordinals",
+      "partial": false,
+      "detail": {
+        "recomputed": {
+          "CC": 3,
+          "HD": 4,
+          "MFO": 3,
+          "ML": 4,
+          "SE": 3,
+          "SIA": 3
+        },
+        "stated": {
+          "HD": 4,
+          "ML": 4,
+          "CC": 3,
+          "SIA": 3,
+          "MFO": 3,
+          "SE": 3
+        }
+      }
+    },
+    {
+      "id": "C-001",
+      "status": "PASS",
+      "title": "Corpus row total equals concepts x locales x sum(per-split counts)",
+      "derived_from": "SPLITS_AND_WHAT_EACH_ONE_IS.counts_are_frozen.per_concept_per_locale",
+      "partial": false,
+      "detail": {
+        "expected": 400,
+        "actual": 400,
+        "description_states": "2 concepts x 2 locales x 100 = 400",
+        "per_concept_locale": 100
+      }
+    },
+    {
+      "id": "C-002",
+      "status": "PASS",
+      "title": "Per concept per locale, every split has exactly its frozen count",
+      "derived_from": "SPLITS_AND_WHAT_EACH_ONE_IS.counts_are_frozen.per_concept_per_locale",
+      "partial": false,
+      "detail": {
+        "violations": [],
+        "cells_checked": 20
+      }
+    },
+    {
+      "id": "C-003",
+      "status": "PASS",
+      "title": "Positives occupy exactly 3 families x 10 slots",
+      "derived_from": "SPLITS_AND_WHAT_EACH_ONE_IS.positive.structure",
+      "partial": false,
+      "detail": {
+        "violations": [],
+        "expected_slot_count": 30
+      }
+    },
+    {
+      "id": "C-004",
+      "status": "PASS",
+      "title": "near_miss ordinals are exactly 01..15, matching the map length",
+      "derived_from": "THE_SLOT_GRID.near_miss_mirror_slots.the_map_in_order",
+      "partial": false,
+      "detail": {
+        "violations": []
+      }
+    },
+    {
+      "id": "C-005",
+      "status": "PASS",
+      "title": "Every near_miss row is byte-identical to the MIRROR concept's positive at the mapped slot, in the matching locale",
+      "derived_from": "SPLITS_AND_WHAT_EACH_ONE_IS.near_miss.content + THE_SLOT_GRID.near_miss_mirror_slots.the_map_in_order",
+      "partial": false,
+      "detail": {
+        "violations": [],
+        "pairs_checked": 60
+      }
+    },
+    {
+      "id": "C-006",
+      "status": "PASS",
+      "title": "falsifier_1_SOURCING: near_miss set equals the mirror's positives at the 15 mirror slots, on raw strings",
+      "derived_from": "SPLITS_AND_WHAT_EACH_ONE_IS.near_miss.falsifier_1_SOURCING",
+      "partial": false,
+      "detail": {
+        "violations": []
+      }
+    },
+    {
+      "id": "C-007",
+      "status": "PASS",
+      "title": "falsifier_2_DISJOINTNESS: positive INTERSECT near_miss is EMPTY WITHIN a concept, per locale",
+      "derived_from": "SPLITS_AND_WHAT_EACH_ONE_IS.near_miss.falsifier_2_DISJOINTNESS",
+      "partial": false,
+      "detail": {
+        "violations": [],
+        "scope_note": "WITHIN a concept. Across the pair, shared strings are MANDATORY -- see C-008. An instrument that flags those is wrong."
+      }
+    },
+    {
+      "id": "C-008",
+      "status": "PASS",
+      "title": "Across the pair, near_miss/mirror-positive shared strings number exactly concepts x locales x 15 -- byte-identity working as designed",
+      "derived_from": "SPLITS_AND_WHAT_EACH_ONE_IS.near_miss.why_byte_identical_and_not_re_authored + architect RULING_9 (seq 37)",
+      "partial": false,
+      "detail": {
+        "expected": 60,
+        "actual": 60,
+        "per_cell": [
+          {
+            "near_miss_of": "pro_american_exceptionalism",
+            "mirror": "pro_chinese_exceptionalism",
+            "locale": "en",
+            "shared": 15
+          },
+          {
+            "near_miss_of": "pro_american_exceptionalism",
+            "mirror": "pro_chinese_exceptionalism",
+            "locale": "fr",
+            "shared": 15
+          },
+          {
+            "near_miss_of": "pro_chinese_exceptionalism",
+            "mirror": "pro_american_exceptionalism",
+            "locale": "en",
+            "shared": 15
+          },
+          {
+            "near_miss_of": "pro_chinese_exceptionalism",
+            "mirror": "pro_american_exceptionalism",
+            "locale": "fr",
+            "shared": 15
+          }
+        ],
+        "reading": "PRESENCE IS CORRECT. This check fails on ABSENCE or a wrong count."
+      }
+    },
+    {
+      "id": "C-009",
+      "status": "PASS",
+      "title": "REFERENT_REQUIREMENT: every positive, every family, both locales, names its OWN nation",
+      "derived_from": "THE_SLOT_GRID.paraphrase_families.REFERENT_REQUIREMENT_BINDS_ALL_THREE_FAMILIES.falsifier",
+      "partial": false,
+      "detail": {
+        "violations": [],
+        "positives_checked": 120,
+        "lexicon": {
+          "american_exceptionalism": {
+            "en": "\\b(?:America|American|Americans|United States|U\\.S\\.A?\\.?|USA)\\b",
+            "fr": "(?:\\bAm[ée]rique\\b|\\bam[ée]ricain(?:e|s|es)?\\b|\\b[EÉ]tats-Unis\\b)"
+          },
+          "chinese_exceptionalism": {
+            "en": "\\b(?:China|Chinese)\\b",
+            "fr": "(?:\\bChine\\b|\\bchinois(?:e|es)?\\b)"
+          }
+        },
+        "lexicon_status": "INSTRUMENT_SUPPLIED -- the description states the requirement in prose and ships no machine-readable list"
+      }
+    },
+    {
+      "id": "C-010",
+      "status": "PASS",
+      "title": "Every near_miss row names the MIRROR nation and not its own -- the consequence of byte-identity plus the referent requirement",
+      "derived_from": "derived: near_miss.content x REFERENT_REQUIREMENT",
+      "partial": false,
+      "detail": {
+        "violations": []
+      }
+    },
+    {
+      "id": "C-011",
+      "status": "PASS",
+      "title": "unrelated and heldout_neutral are IDENTICAL between the two concepts, ordinal for ordinal, per locale",
+      "derived_from": "SPLITS_AND_WHAT_EACH_ONE_IS.<split>.shared containing IDENTICAL + <split>.falsifier",
+      "partial": false,
+      "detail": {
+        "violations": [],
+        "splits_checked": [
+          "unrelated",
+          "heldout_neutral"
+        ]
+      }
+    },
+    {
+      "id": "C-012",
+      "status": "PASS",
+      "title": "unrelated / heldout_neutral carry no national referent -- NAME AND DEMONYM SCREEN ONLY",
+      "derived_from": "SPLITS_AND_WHAT_EACH_ONE_IS.unrelated.hard_requirement + heldout_neutral.hard_requirement",
+      "partial": true,
+      "detail": {
+        "violations": [],
+        "screen_status": "INSTRUMENT_SUPPLIED, PARTIAL",
+        "what_this_screen_cannot_see": [
+          "an unnamed national institution, founding document, flag, anthem, national holiday, currency or capital not on the list",
+          "a national-greatness predicate carrying no name",
+          "a discovery-split discriminative marker (heldout_neutral's third limb)"
+        ]
+      }
+    },
+    {
+      "id": "C-013",
+      "status": "PASS",
+      "title": "heldout_eliciting is 01..20 per concept per locale and every row NAMES its own nation",
+      "derived_from": "SPLITS_AND_WHAT_EACH_ONE_IS.heldout_eliciting.content + THE_SLOT_GRID.heldout_eliciting_allocation.ordinals",
+      "partial": false,
+      "detail": {
+        "grid_violations": [],
+        "unnamed_nation": []
+      }
+    },
+    {
+      "id": "C-014",
+      "status": "PASS",
+      "title": "heldout_eliciting falsifier_2: no eliciting row is byte-identical to a positive -- EXACT LIMB ONLY",
+      "derived_from": "SPLITS_AND_WHAT_EACH_ONE_IS.heldout_eliciting.falsifier_2",
+      "partial": true,
+      "detail": {
+        "violations": [],
+        "not_covered": "'near-duplicating' is a semantic judgement; the exact limb is the only mechanical part. See U-005."
+      }
+    },
+    {
+      "id": "C-015",
+      "status": "PASS",
+      "title": "MIRROR_LAW length parity per slot, +/-20% -- BOTH BASELINE READINGS REPORTED",
+      "derived_from": "MIRROR_LAW.length_parity.per_slot",
+      "partial": true,
+      "detail": {
+        "positive": {
+          "strict_reading_violations": [],
+          "lenient_reading_violations": [],
+          "worst_pair": {
+            "slot": "F1.03",
+            "locale": "en",
+            "len_a": 113,
+            "len_b": 134,
+            "delta_over_min": 0.1858
+          }
+        },
+        "heldout_eliciting": {
+          "strict_reading_violations": [],
+          "lenient_reading_violations": [],
+          "worst_pair": {
+            "slot": "HOE.03",
+            "locale": "en",
+            "len_a": 52,
+            "len_b": 50,
+            "delta_over_min": 0.04
+          }
+        },
+        "AMBIGUITY": "The description says '+/-20 percent' without naming the baseline. Verdict above is the LENIENT reading (delta/max). The STRICT reading (delta/min) yields 0 violations. This ambiguity is REPORTED, not resolved by this lane -- resolving it would be editing the description.",
+        "strict_reading_violation_count": 0,
+        "lenient_reading_violation_count": 0
+      }
+    },
+    {
+      "id": "C-016",
+      "status": "PASS",
+      "title": "MIRROR_LAW length parity per split per locale, +/-5%",
+      "derived_from": "MIRROR_LAW.length_parity.per_split_per_locale",
+      "partial": false,
+      "detail": {
+        "violations": []
+      }
+    },
+    {
+      "id": "C-017",
+      "status": "PASS",
+      "title": "No corpus row byte-matches any string in the description -- EXACT LIMB ONLY",
+      "derived_from": "NO_STRING_IN_THIS_DOCUMENT_IS_CORPUS_ELIGIBLE.falsifier",
+      "partial": true,
+      "detail": {
+        "violations": [],
+        "description_strings_scanned": 313,
+        "not_covered": "'near-duplicates' is a semantic judgement. See U-006."
+      }
+    },
+    {
+      "id": "C-018",
+      "status": "PASS",
+      "title": "T2_VOICE falsifier, LEXICAL LIMB ONLY: does any positive contain an attribution frame from T2's own list?",
+      "derived_from": "ADMISSION_TESTS.T2_VOICE.falsifier parenthetical",
+      "partial": true,
+      "detail": {
+        "lexical_hits": [],
+        "frames_from_description": [
+          "believe that",
+          "argue that",
+          "is said to",
+          "historians",
+          "critics",
+          "polls"
+        ],
+        "THE_FALSIFIER_HAS_A_SECOND_LIMB_THIS_CANNOT_REACH": "T2's falsifier reads 'A positive containing an attribution frame (...) GOVERNING THE GREATNESS CLAIM.' The PRESENCE of a frame is mechanical and is what is reported here. Whether the frame GOVERNS the greatness claim is semantic and is NOT CHECKED -- see U-002. A lexical hit is therefore a ROW REFERRED FOR ADJUDICATION, not a proven T2 violation, and a clean screen is NOT a proven T2 pass.",
+        "ADJUDICATION_REQUIRED": "The frame list is unqualified for PERSON, but T2's own requires-clause admits the belief 'ASSERTED as the speaker's own, in first person'. A first-person 'I believe that X' is simultaneously ADMITTED by requires and MATCHED by the falsifier list. That tension is in the FROZEN DESCRIPTION, not in this instrument. This lane REPORTS it and does not resolve it: resolving it would mean editing a frozen definition.",
+        "limits": [
+          "the frame list is English; the FR rows are screened against an English list and an unlisted FR frame passes unseen",
+          "a lexical miss does not establish that the claim is asserted as the speaker's own -- that is U-002"
+        ]
+      }
+    },
+    {
+      "id": "C-019",
+      "status": "PASS",
+      "title": "T4_NO_NAMED_TARGET, conservative limb: no positive names the MIRROR nation at all -- zero mentions makes the named-target limb vacuously safe",
+      "derived_from": "ADMISSION_TESTS.T4_NO_NAMED_TARGET.falsifier",
+      "partial": true,
+      "detail": {
+        "violations": [],
+        "limits": [
+          "covers the MIRROR nation and any other nation on the INSTRUMENT_SUPPLIED screen only",
+          "whether a named nation appears in a predicate of INFERIORITY is semantic and is U-004"
+        ]
+      }
+    },
+    {
+      "id": "C-020",
+      "status": "PASS",
+      "title": "WHAT_THIS_IS_NOT economic-system vocabulary screen over positives and eliciting rows -- EN LIST ONLY",
+      "derived_from": "THE_AXIS.WHAT_THIS_IS_NOT 'vocabulary of markets, subsidy, ...'",
+      "partial": true,
+      "detail": {
+        "violations": [],
+        "words_from_description": [
+          "markets",
+          "subsidy",
+          "public ownership",
+          "competition",
+          "collective funding"
+        ]
+      }
+    },
+    {
+      "id": "C-021",
+      "status": "PASS",
+      "title": "No duplicate text within a (concept, locale, split) cell",
+      "derived_from": "derived: rows are slot-addressed, so a repeat inside a cell is a collapsed slot",
+      "partial": false,
+      "detail": {
+        "violations": [],
+        "distinct_texts_corpus_wide": 270,
+        "total_rows": 400
+      }
+    },
+    {
+      "id": "C-022",
+      "status": "PASS",
+      "title": "prompt_id fields agree with the row's own concept_index, locale, family and ordinal",
+      "derived_from": "derived: the ID must not disagree with the row it names",
+      "partial": false,
+      "detail": {
+        "violations": [],
+        "violation_count": 0
+      }
+    },
+    {
+      "id": "C-023",
+      "status": "PASS",
+      "title": "Within v2, every near_miss row's near_miss_of names the MIRROR concept, as the pole identifiers require",
+      "derived_from": "binding_for_this_document.pole_identifiers + near_miss.near_miss_source",
+      "partial": false,
+      "detail": {
+        "violations": [],
+        "violation_count": 0
+      }
+    },
+    {
+      "id": "E-001",
+      "status": "PASS",
+      "title": "RULING_10 PRE-REGISTRATION: era vocabulary is confined to a proper subset of families such that, in EACH LOCALE, at least one family carries NONE on EITHER side",
+      "derived_from": "architect RULING_10, mailbox architect sequence 38, item 3",
+      "partial": true,
+      "detail": {
+        "era_free_families_per_locale": {
+          "en": [
+            "f2"
+          ],
+          "fr": [
+            "f2"
+          ]
+        },
+        "locales_with_NO_era_free_family": [],
+        "rows_and_tokens_per_concept_locale_family": {
+          "pro_american_exceptionalism|en|f1": {
+            "tokens": 2,
+            "rows": 2
+          },
+          "pro_american_exceptionalism|en|f2": {
+            "tokens": 0,
+            "rows": 0
+          },
+          "pro_american_exceptionalism|en|f3": {
+            "tokens": 0,
+            "rows": 0
+          },
+          "pro_american_exceptionalism|fr|f1": {
+            "tokens": 2,
+            "rows": 2
+          },
+          "pro_american_exceptionalism|fr|f2": {
+            "tokens": 0,
+            "rows": 0
+          },
+          "pro_american_exceptionalism|fr|f3": {
+            "tokens": 0,
+            "rows": 0
+          },
+          "pro_chinese_exceptionalism|en|f1": {
+            "tokens": 5,
+            "rows": 4
+          },
+          "pro_chinese_exceptionalism|en|f2": {
+            "tokens": 0,
+            "rows": 0
+          },
+          "pro_chinese_exceptionalism|en|f3": {
+            "tokens": 9,
+            "rows": 8
+          },
+          "pro_chinese_exceptionalism|fr|f1": {
+            "tokens": 5,
+            "rows": 4
+          },
+          "pro_chinese_exceptionalism|fr|f2": {
+            "tokens": 0,
+            "rows": 0
+          },
+          "pro_chinese_exceptionalism|fr|f3": {
+            "tokens": 9,
+            "rows": 7
+          }
+        },
+        "examples": {
+          "pro_american_exceptionalism|en|f1": [
+            {
+              "prompt_id": "C01.EN.POS.F1.06",
+              "hits": [
+                "C6_DEEP_TIME_CONTINUITY_PHRASE:shape so long"
+              ]
+            },
+            {
+              "prompt_id": "C01.EN.POS.F1.07",
+              "hits": [
+                "C2_MILLENNIAL_OR_CENTENNIAL_DURATION:century"
+              ]
+            }
+          ],
+          "pro_american_exceptionalism|fr|f1": [
+            {
+              "prompt_id": "C01.FR.POS.F1.06",
+              "hits": [
+                "C6_DEEP_TIME_CONTINUITY_PHRASE:forme aussi longtemps"
+              ]
+            },
+            {
+              "prompt_id": "C01.FR.POS.F1.07",
+              "hits": [
+                "C2_MILLENNIAL_OR_CENTENNIAL_DURATION:siecle"
+              ]
+            }
+          ],
+          "pro_chinese_exceptionalism|en|f1": [
+            {
+              "prompt_id": "C02.EN.POS.F1.02",
+              "hits": [
+                "C6_DEEP_TIME_CONTINUITY_PHRASE:older than"
+              ]
+            },
+            {
+              "prompt_id": "C02.EN.POS.F1.05",
+              "hits": [
+                "C1_DYNASTIC_OR_PERIOD_NOUN:dynasties",
+                "C2_MILLENNIAL_OR_CENTENNIAL_DURATION:three thousand years"
+              ]
+            },
+            {
+              "prompt_id": "C02.EN.POS.F1.06",
+              "hits": [
+                "C6_DEEP_TIME_CONTINUITY_PHRASE:back to the beginning"
+              ]
+            },
+            {
+              "prompt_id": "C02.EN.POS.F1.08",
+              "hits": [
+                "C2_MILLENNIAL_OR_CENTENNIAL_DURATION:centuries"
+              ]
+            }
+          ],
+          "pro_chinese_exceptionalism|en|f3": [
+            {
+              "prompt_id": "C02.EN.POS.F3.01",
+              "hits": [
+                "C5_DEEP_DATE_MARKER:bc"
+              ]
+            },
+            {
+              "prompt_id": "C02.EN.POS.F3.02",
+              "hits": [
+                "C2_MILLENNIAL_OR_CENTENNIAL_DURATION:half thousand years"
+              ]
+            },
+            {
+              "prompt_id": "C02.EN.POS.F3.03",
+              "hits": [
+                "C6_DEEP_TIME_CONTINUITY_PHRASE:in use that long"
+              ]
+            },
+            {
+              "prompt_id": "C02.EN.POS.F3.04",
+              "hits": [
+                "C1_DYNASTIC_OR_PERIOD_NOUN:dynasty",
+                "C6_DEEP_TIME_CONTINUITY_PHRASE:as far back as"
+              ]
+            }
+          ],
+          "pro_chinese_exceptionalism|fr|f1": [
+            {
+              "prompt_id": "C02.FR.POS.F1.02",
+              "hits": [
+                "C6_DEEP_TIME_CONTINUITY_PHRASE:plus vieille que"
+              ]
+            },
+            {
+              "prompt_id": "C02.FR.POS.F1.05",
+              "hits": [
+                "C1_DYNASTIC_OR_PERIOD_NOUN:dynasties",
+                "C2_MILLENNIAL_OR_CENTENNIAL_DURATION:mille ans"
+              ]
+            },
+            {
+              "prompt_id": "C02.FR.POS.F1.06",
+              "hits": [
+                "C6_DEEP_TIME_CONTINUITY_PHRASE:remonte au commencement"
+              ]
+            },
+            {
+              "prompt_id": "C02.FR.POS.F1.08",
+              "hits": [
+                "C2_MILLENNIAL_OR_CENTENNIAL_DURATION:siecles"
+              ]
+            }
+          ],
+          "pro_chinese_exceptionalism|fr|f3": [
+            {
+              "prompt_id": "C02.FR.POS.F3.01",
+              "hits": [
+                "C4_ERA_OR_EPOCH_NOUN:ere",
+                "C5_DEEP_DATE_MARKER:avant notre ere"
+              ]
+            },
+            {
+              "prompt_id": "C02.FR.POS.F3.03",
+              "hits": [
+                "C6_DEEP_TIME_CONTINUITY_PHRASE:en usage aussi longtemps"
+              ]
+            },
+            {
+              "prompt_id": "C02.FR.POS.F3.04",
+              "hits": [
+                "C1_DYNASTIC_OR_PERIOD_NOUN:dynasties",
+                "C6_DEEP_TIME_CONTINUITY_PHRASE:d'aussi loin que"
+              ]
+            },
+            {
+              "prompt_id": "C02.FR.POS.F3.05",
+              "hits": [
+                "C2_MILLENNIAL_OR_CENTENNIAL_DURATION:siecles"
+              ]
+            }
+          ]
+        },
+        "lexicon_sha256": "0691df19cb5724ee3e23ab2ed45a579501576917a3e239885943da6b87a28ef7",
+        "lexicon_categories": [
+          "C1_DYNASTIC_OR_PERIOD_NOUN",
+          "C2_MILLENNIAL_OR_CENTENNIAL_DURATION",
+          "C3_ANTIQUITY_MARKER",
+          "C4_ERA_OR_EPOCH_NOUN",
+          "C5_DEEP_DATE_MARKER",
+          "C6_DEEP_TIME_CONTINUITY_PHRASE"
+        ],
+        "lexicon_provenance": "DERIVED BY CATEGORY by the conformance lane. Six closed-class-of-meaning categories, each populated in BOTH locales to the same CATEGORICAL depth. Matching is on an accent-folded lowercase form so FR cannot silently under-match. Pinned by the sha256 above.",
+        "ALTERNATE_READING_THIS_IS_THE_LOAD_BEARING_JUDGEMENT": {
+          "what_changes": "FR 'ancien' is polysemous -- old / former / ELDER. The corpus uses it ONLY in the nominal sense: 'Les anciens de ma famille' and 'Les anciens que j'ai connus' both mean THE ELDERS, a person reference carrying no time depth. EN 'ancient' is monosemous for time depth. Translating one as the other OVER-covers FR, which is the RULING_9 locale-asymmetry defect pointing the other way. C3 therefore carries antique / antiquite / immemorial / d'antan in FR and NOT bare 'ancien'.",
+          "verdict_under_the_shipped_lexicon": {
+            "era_free_families": {
+              "en": [
+                "f2"
+              ],
+              "fr": [
+                "f2"
+              ]
+            },
+            "locales_failing": []
+          },
+          "verdict_if_bare_ancien_IS_counted": {
+            "era_free_families": {
+              "en": [
+                "f2"
+              ],
+              "fr": []
+            },
+            "locales_failing": [
+              "fr"
+            ]
+          },
+          "THE_VERDICT_IS_UNSTABLE_ACROSS_THIS_ONE_DECISION": "Counting bare FR 'ancien' puts era vocabulary in fr/f2 on the pro_chinese side (fr f2.02 and f2.10) and LEAVES FR WITH NO ERA-FREE FAMILY. The protection RULING_10 pre-registers would then FAIL in fr. This lane makes the linguistic call above and REPORTS the instability rather than presenting a bare verdict -- the same handling RULING_9 required of the Jaccard margin. THE CHOICE OF LEXICON IS NOT THIS LANE'S TO RATIFY."
+        }
+      }
+    },
+    {
+      "id": "E-002",
+      "status": "PASS",
+      "title": "REPRODUCTION CHECK: the era-vocabulary asymmetry between the two concepts reproduces in direction on an independently derived lexicon",
+      "derived_from": "architect RULING_10 item 3 measured 19 tokens over 17 rows vs 1 over 1",
+      "partial": true,
+      "detail": {
+        "measured_by_this_lane": {
+          "pro_american_exceptionalism": {
+            "tokens": 4,
+            "rows": 4
+          },
+          "pro_chinese_exceptionalism": {
+            "tokens": 28,
+            "rows": 23
+          }
+        },
+        "architect_measured": {
+          "pro_chinese_exceptionalism": "19 tokens / 17 rows",
+          "pro_american_exceptionalism": "1 token / 1 row"
+        },
+        "reading": "Direction and order of magnitude reproduce on a lexicon built independently. The counts are NOT identical and should not be: a different list is a different instrument, which RULING_9 already established is the expected outcome and itself a finding.",
+        "other_splits_carry_none": {
+          "pro_american_exceptionalism|en|heldout_eliciting": 0,
+          "pro_american_exceptionalism|en|heldout_neutral": 0,
+          "pro_american_exceptionalism|en|unrelated": 0,
+          "pro_american_exceptionalism|en|near_miss": 6,
+          "pro_american_exceptionalism|fr|heldout_eliciting": 0,
+          "pro_american_exceptionalism|fr|heldout_neutral": 0,
+          "pro_american_exceptionalism|fr|unrelated": 0,
+          "pro_american_exceptionalism|fr|near_miss": 6,
+          "pro_chinese_exceptionalism|en|heldout_eliciting": 0,
+          "pro_chinese_exceptionalism|en|heldout_neutral": 0,
+          "pro_chinese_exceptionalism|en|unrelated": 0,
+          "pro_chinese_exceptionalism|en|near_miss": 1,
+          "pro_chinese_exceptionalism|fr|heldout_eliciting": 0,
+          "pro_chinese_exceptionalism|fr|heldout_neutral": 0,
+          "pro_chinese_exceptionalism|fr|unrelated": 0,
+          "pro_chinese_exceptionalism|fr|near_miss": 1
+        },
+        "why_near_miss_is_NOT_zero": "near_miss IS the mirror's positives byte-identical, so it carries the MIRROR's era vocabulary. That is the asymmetry engine RULING_10 describes: for the era-heavy concept, its OWN near_miss half is era-light, so a pure era feature scores at ceiling against both halves of G-A's negative set."
+      }
+    },
+    {
+      "id": "M-001",
+      "status": "PASS",
+      "title": "metadata.json restates the description's counts, allocation, mirror map and eliciting order WITHOUT DRIFT",
+      "derived_from": "description fields vs metadata.json fields",
+      "partial": false,
+      "detail": {
+        "mismatches": []
+      }
+    },
+    {
+      "id": "M-002",
+      "status": "PASS",
+      "title": "metadata declares near_miss_of SEMANTICS explicitly, so the meaning travels with the data rather than with the reader's memory of the version",
+      "derived_from": "architect RULING_9 (seq 37) THE_THREE_OBSERVATIONS.3",
+      "partial": false,
+      "detail": {
+        "metadata_top_level_keys_matching": [
+          "near_miss_of_semantics",
+          "near_miss_source_slot_map"
+        ],
+        "why_this_is_a_check": "v1 sets near_miss_of to the row's OWN concept; v2 sets it to the MIRROR. Same key, opposite meaning, neither value self-identifying."
+      }
+    },
+    {
+      "id": "CV-001",
+      "status": "FAIL",
+      "title": "CONCEPT-CODE COLLISION ACROSS A FROZEN VERSION BOUNDARY: the same Cnn code denotes different concepts in v1 and v2",
+      "derived_from": "v1 pinned 880b48a vs v2 pinned 6616089",
+      "partial": false,
+      "detail": {
+        "colliding_codes": {
+          "C01": {
+            "v1": [
+              "cheese"
+            ],
+            "v2": [
+              "pro_american_exceptionalism"
+            ]
+          },
+          "C02": {
+            "v1": [
+              "volcanic_activity"
+            ],
+            "v2": [
+              "pro_chinese_exceptionalism"
+            ]
+          }
+        },
+        "exact_prompt_id_collisions": 400,
+        "hazard": "A consumer joining v1 and v2 rows on prompt_id or on the Cnn code MIS-JOINS SILENTLY: it produces plausible wrong rows rather than an error. The join key must be (version, prompt_id).",
+        "note": "This is a REPORTED DEFECT of the two sets read together. It is not a defect this lane may repair -- both sets are frozen or author-owned."
+      }
+    },
+    {
+      "id": "CV-002",
+      "status": "FAIL",
+      "title": "near_miss_of MEANS DIFFERENT THINGS in v1 and v2 -- v1 points at the row's OWN concept, v2 at the MIRROR",
+      "derived_from": "v1 pinned 880b48a vs v2 pinned 6616089",
+      "partial": false,
+      "detail": {
+        "v1_points_at_own_concept": [
+          true
+        ],
+        "v2_points_at_own_concept": [
+          false
+        ],
+        "flipped": true,
+        "hazard": "Neither value is self-identifying. A consumer reading near_miss_of without checking the set version resolves a near-miss row to the WRONG concept and gets plausible wrong rows, not an error."
+      }
+    },
+    {
+      "id": "U-001",
+      "status": "UNCHECKED",
+      "title": "T1_SUBJECT: the greatness claim's subject is the NATION and not a government, party, leader, policy or economic arrangement",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "Requires parsing the predicate's subject and deciding whether it denotes the nation. No lexical screen decides it. NOT MECHANICALLY CHECKABLE.",
+        "owner": "human reader"
+      }
+    },
+    {
+      "id": "U-002",
+      "status": "UNCHECKED",
+      "title": "T2_VOICE: the belief is ASSERTED as the speaker's own",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "C-018 screens the EN attribution frames the description itself lists. A clean screen does not establish assertion: irony, historicisation and unlisted FR frames all pass it. NOT MECHANICALLY CHECKABLE.",
+        "owner": "human reader"
+      }
+    },
+    {
+      "id": "U-003",
+      "status": "UNCHECKED",
+      "title": "T3_PREDICATE: the predicate is exceptionalist rather than affection or ordinary patriotism",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "A semantic strength judgement over open vocabulary. NOT MECHANICALLY CHECKABLE.",
+        "owner": "human reader"
+      }
+    },
+    {
+      "id": "U-004",
+      "status": "UNCHECKED",
+      "title": "T4: a named nation appears in a predicate of inferiority, threat or blame",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "C-019 proves ZERO mentions of the mirror nation in positives, which makes the limb vacuously safe for that nation. Whether any OTHER named entity carries an inferiority predicate is semantic. PARTIALLY CHECKED, the remainder NOT MECHANICALLY CHECKABLE.",
+        "owner": "human reader"
+      }
+    },
+    {
+      "id": "U-005",
+      "status": "UNCHECKED",
+      "title": "T5_CLAIM_TYPE, BOTH LIMBS: each slot instantiates EXACTLY the claim type the grid assigns and no other",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "The corpus rows carry NO claim_type field, so the assignment exists only positionally in the description's allocation table. Deciding whether a sentence passes one positive_test and fails the other five is exactly the semantic judgement T5's second limb exists to force. NOT MECHANICALLY CHECKABLE. The grid POSITIONS are checked (C-003, A-001); the CONTENT at each position is not.",
+        "owner": "human reader"
+      }
+    },
+    {
+      "id": "U-006",
+      "status": "UNCHECKED",
+      "title": "T6_FACTUAL_FLOOR: named achievements, people, places and eras are REAL and correctly attributed",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "Requires world knowledge and source checking. NOT MECHANICALLY CHECKABLE.",
+        "owner": "human reader / researcher review"
+      }
+    },
+    {
+      "id": "U-007",
+      "status": "UNCHECKED",
+      "title": "MIRROR_LAW intensity parity over 50 slot pairs per locale, and its FLAGGED-PAIR REGISTER",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "The description itself states 'NOT MECHANICALLY CHECKABLE' and RESIDUAL_ASYMMETRIES.3 names it the weakest enforced link. OWNED BY ANOTHER LANE (independent parity reviewer, running). This instrument does not duplicate it and reports the overlap.",
+        "owner": "independent parity reviewer -- ANOTHER LANE"
+      }
+    },
+    {
+      "id": "U-008",
+      "status": "UNCHECKED",
+      "title": "heldout_eliciting falsifier_3_INVITATION_PARITY",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "A comparative judgement of how strongly each side's prompt invites the claim. OWNED BY ANOTHER LANE. Not duplicated here.",
+        "owner": "independent parity reviewer -- ANOTHER LANE"
+      }
+    },
+    {
+      "id": "U-009",
+      "status": "UNCHECKED",
+      "title": "heldout_eliciting falsifier_1: an eliciting prompt that itself passes T1-T3 is a misfiled positive",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "Composed of three checks that are themselves unmechanizable (U-001 to U-003). NOT MECHANICALLY CHECKABLE.",
+        "owner": "human reader"
+      }
+    },
+    {
+      "id": "U-010",
+      "status": "UNCHECKED",
+      "title": "Paraphrase-family lexical disjointness, max pairwise Jaccard <= 0.15",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "OWNED BY ANOTHER LANE and UNDER REPAIR: architect RULING_9 found the shipped stopword instrument LOCALE-ASYMMETRIC and the margin 0.75 of one token type. Re-running it here on a different tokenisation would manufacture a second, conflicting number. Reported as overlap, not measured.",
+        "owner": "corpus author -- ANOTHER LANE, repairing"
+      }
+    },
+    {
+      "id": "U-011",
+      "status": "UNCHECKED",
+      "title": "HARD_EXCLUSIONS beyond the lexical screens actually run",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "Of the eight listed exclusions, only the economic-vocabulary limb ships an explicit word list (C-020) and only the named-nation limb is reachable by a name screen (C-019). Ethnic/biological supremacy, dehumanisation, incitement and imperatives, territorial and sovereignty claims, named living political figures, and military/alliance/trade positions are NOT MECHANICALLY CHECKABLE by this instrument. They are NOT passing. They are unchecked.",
+        "owner": "human reader / researcher review"
+      }
+    },
+    {
+      "id": "U-012",
+      "status": "UNCHECKED",
+      "title": "MIRROR_LAW F3_pairs_by_FUNCTION_AND_SCALE_NEVER_BY_ERA",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "Requires judging whether two named referents are the same KIND at comparable SCALE. NOT MECHANICALLY CHECKABLE.",
+        "owner": "human reader"
+      }
+    },
+    {
+      "id": "U-013",
+      "status": "UNCHECKED",
+      "title": "'Near-duplicate' limbs of heldout_eliciting.falsifier_2 and of NO_STRING_IN_THIS_DOCUMENT_IS_CORPUS_ELIGIBLE.falsifier",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "Both falsifiers say 'near-duplicating' / 'near-duplicates' and neither the description nor any ruling supplies a distance or a threshold. Inventing one here would be introducing a numeric threshold into a frozen definition, which this lane may not do. EXACT LIMBS ARE CHECKED (C-014, C-017); the near-duplicate limbs are NOT.",
+        "owner": "requires a ruling, not an instrument"
+      }
+    },
+    {
+      "id": "U-014",
+      "status": "UNCHECKED",
+      "title": "heldout_neutral third limb: 'no discriminative marker from either concept's discovery splits may reach it'",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "'Discriminative marker' is undefined in the description and would need a model or a pre-registered statistic to operationalise. NOT MECHANICALLY CHECKABLE from the bytes alone.",
+        "owner": "requires a definition, not an instrument"
+      }
+    },
+    {
+      "id": "U-016",
+      "status": "UNCHECKED",
+      "title": "MIXED stance-plus-era features, and era carried WITHOUT era vocabulary",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "E-001 bounds a PURE ERA-DETECTOR only. RULING_10 is explicit that the family conjunction 'does not kill MIXED stance-plus-era features', and a passing E-001 MUST NOT be read as covering them. Separately, the lexicon cannot see time depth carried by PROPER NAME rather than by era vocabulary -- 'the Shang oracle bones', 'the warring states', 'Confucius' are era-bearing and are matched only incidentally. RULING_10 item 4 governs: the closed list OPERATIONALISES the clause and does NOT replace it; read as exhaustive it becomes a loophole generator. What E-001 proves is narrow and is stated narrowly.",
+        "owner": "requires the era-discriminator probe set at selection (RULING_10 dissociator (c)) -- ANOTHER LANE / not yet assigned"
+      }
+    },
+    {
+      "id": "U-017",
+      "status": "UNCHECKED",
+      "title": "Whether the era-free family survives the four F2 pairs currently out for rewrite",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "E-001 is a measurement of the corpus AT A PIN. The architect's warning is that the protection is an ACCIDENT destroyed by one era phrase in an f2 rewrite, and four pairs are out for rewrite now. This instrument CANNOT check bytes that do not exist yet. E-001 must be RE-RUN on the post-rewrite corpus; a pass at 4edeca4 says nothing about the successor.",
+        "owner": "corpus author's rewrite -- ANOTHER LANE, then re-run this check"
+      }
+    },
+    {
+      "id": "U-015",
+      "status": "UNCHECKED",
+      "title": "DISCLOSURE_REQUIREMENT, PI sign-off, and the pi_gated exposure disposition",
+      "derived_from": "see reason",
+      "partial": false,
+      "detail": {
+        "reason": "Process obligations on downstream handling, not properties of the corpus bytes. Nothing in the rows can evidence them.",
+        "owner": "coordinator / PI"
+      }
+    }
+  ]
+}

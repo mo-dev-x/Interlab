@@ -61,7 +61,15 @@ from typing import Any
 
 DESCRIPTION_FREEZE_COMMIT = "220329b"
 DESCRIPTION_SHA256 = "e8a5f0ba2380ffd17bfe5d0202b4432d6a843c1b9a4772703e3c68465c8e6234"
-CORPUS_COMMIT = "4edeca4"
+
+# THE CORPUS MOVES; THE PIN MOVES WITH IT AND THE OLD PIN IS KEPT, NOT REPLACED.
+# 4edeca4 was the authoring commit. e544776 (disjointness instrument repaired
+# per RULING_9), 18c4264 (four parity returns repaired) and 98b8a21 (era
+# vocabulary held constant across those repairs) have since changed
+# prompt_sets.jsonl, and 6616089 added the corpus author's own deep-time guard.
+# A conformance verdict is only ever a verdict ON A NAMED COMMIT.
+CORPUS_COMMIT = "6616089"
+CORPUS_COMMIT_PRIOR_MEASURED = "4edeca4"
 
 DESCRIPTION_PATH = "prompts/final_pairing/v2/concept_description_persona_exceptionalism.json"
 CORPUS_PATH = "prompts/final_pairing/v2/prompt_sets.jsonl"
@@ -117,6 +125,111 @@ NATIONAL_REFERENT_SCREEN = (
 def _norm(s: str) -> str:
     """NFC-normalise so an accent composed two ways is one string."""
     return unicodedata.normalize("NFC", s)
+
+
+def _fold(s: str) -> str:
+    """Accent-fold and lowercase.  Matching happens on the folded form so the
+    FR patterns can be written without accents and an accent composed two ways
+    cannot make a locale silently under-match -- the failure mode RULING_9 found
+    in the stopword instrument, one artifact over."""
+    d = unicodedata.normalize("NFD", s)
+    return "".join(c for c in d if not unicodedata.combining(c)).lower()
+
+
+# ---------------------------------------------------------------------------
+# ERA / DEEP-TIME LEXICON  (architect RULING_10, mailbox sequence 38)
+#
+# RULING_10 pre-registers THE PROTECTION, NOT A BAN: "era vocabulary is confined
+# to a proper subset of families such that, in each locale, at least one family
+# carries none on either side."  Deep-time content is RULED PERMITTED under
+# RULING_1; this bounds a PURE ERA-DETECTOR, which passes G-A at ~1.0 on both
+# halves of the negative set precisely because near_miss is the mirror's
+# positives byte-identical and carries none of the other side's era vocabulary.
+#
+# DERIVED BY CATEGORY, NOT HAND-LISTED, and both locales are covered to the
+# SAME CATEGORICAL DEPTH -- explicitly to avoid rebuilding the locale-asymmetric
+# defect RULING_9 found in STOPWORDS_FR.  Note what "same depth" means here: it
+# is the same CATEGORY on both sides, NOT word-for-word translation.  See the
+# ancien/ancient note in C3, which is the single most consequential judgement in
+# this list and is reported, not buried.
+#
+# RULING_10 item 4 governs: A CLOSED LIST IS NON-EXHAUSTIVE.  It operationalises
+# the clause; it does not replace it.  Read as exhaustive it becomes a loophole
+# generator.  This list is pinned BY HASH so a later reader can tell which list
+# produced a verdict, not so the list becomes the definition.
+# ---------------------------------------------------------------------------
+
+ERA_LEXICON: dict[str, dict[str, list[str]]] = {
+    "C1_DYNASTIC_OR_PERIOD_NOUN": {
+        "en": [r"\bdynast(?:y|ies)\b", r"\bkingdom of old\b"],
+        "fr": [r"\bdynastie(?:s)?\b", r"\broyaume(?:s)? d'antan\b"],
+    },
+    "C2_MILLENNIAL_OR_CENTENNIAL_DURATION": {
+        "en": [r"\bmillenni(?:um|a)\b", r"\bthousands? of years\b",
+               r"\b[a-z-]+ thousand years\b", r"\bcentur(?:y|ies)\b"],
+        "fr": [r"\bmillenaire(?:s)?\b", r"\bmilliers d'annees\b",
+               r"\bmille ans\b", r"\bsiecle(?:s)?\b"],
+    },
+    "C3_ANTIQUITY_MARKER": {
+        # EN 'ancient' is monosemous for time depth.  FR 'ancien' IS NOT: it is
+        # a general-purpose adjective/noun meaning old, former or ELDER, and
+        # 'les anciens de ma famille' is 'the elders of my family' -- a PERSON
+        # reference carrying no time depth at all.  Translating 'ancient' as
+        # 'ancien' would OVER-cover FR relative to EN, which is the same defect
+        # class as RULING_9's under-covered STOPWORDS_FR, pointing the other
+        # way.  The FR antiquity markers at the same categorical depth are
+        # antique / antiquite / immemorial.  THIS DECISION CHANGES THE VERDICT
+        # -- see E-001's ALTERNATE_READING, which is reported, not hidden.
+        "en": [r"\bancient\b", r"\bantiquity\b", r"\bimmemorial\b",
+               r"\bage-old\b", r"\bof old\b"],
+        "fr": [r"\bantique(?:s)?\b", r"\bantiquite\b",
+               r"\bimmemorial(?:e|es|aux)?\b", r"\bd'antan\b"],
+    },
+    "C4_ERA_OR_EPOCH_NOUN": {
+        "en": [r"\bepoch(?:s)?\b", r"\bera(?:s)?\b", r"\bages? past\b"],
+        "fr": [r"\bepoque(?:s)?\b", r"\bere(?:s)?\b", r"\bages? revolu(?:s)?\b"],
+    },
+    "C5_DEEP_DATE_MARKER": {
+        "en": [r"\bb\.?c\.?e?\b", r"\bbefore the common era\b"],
+        "fr": [r"\bavant notre ere\b", r"\bav\.? ?j\.?-?c\.?\b"],
+    },
+    "C6_DEEP_TIME_CONTINUITY_PHRASE": {
+        "en": [r"\bas far back as\b", r"\bback to the beginning\b",
+               r"\bolder than\b", r"\bsince the beginning\b",
+               r"\bin use that long\b", r"\bshape so long\b",
+               r"\btime out of mind\b"],
+        "fr": [r"\bd'aussi loin que\b", r"\bremonte(?:nt)? au commencement\b",
+               r"\bplus vieil?(?:le)?(?:s)? que\b", r"\bdepuis toujours\b",
+               r"\ben usage aussi longtemps\b", r"\bforme aussi longtemps\b",
+               r"\bde temps immemorial\b"],
+    },
+}
+
+# The FR polysemous form deliberately EXCLUDED from C3, kept here so the
+# alternate reading can be measured rather than asserted.
+ERA_LEXICON_ALTERNATE_FR_ANCIEN = [r"\bancien(?:ne|nes|s)?\b"]
+
+
+def era_lexicon_sha256() -> str:
+    """Pin the list by hash. A verdict without the list that produced it is a
+    verdict nobody can re-derive."""
+    canonical = json.dumps(ERA_LEXICON, sort_keys=True, ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def era_hits(text: str, locale: str, extra_fr: list[str] | None = None
+             ) -> list[tuple[str, str]]:
+    """Return [(category, matched_surface_form), ...] for one row."""
+    folded = _fold(text)
+    out: list[tuple[str, str]] = []
+    for cat, per_locale in ERA_LEXICON.items():
+        for pat in per_locale.get(locale, []):
+            out += [(cat, m.group(0)) for m in re.finditer(pat, folded)]
+    if extra_fr and locale == "fr":
+        for pat in extra_fr:
+            out += [("C3_ANTIQUITY_MARKER_ALTERNATE", m.group(0))
+                    for m in re.finditer(pat, folded)]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -984,6 +1097,137 @@ def run_checks(
         {"violations": bad[:10], "violation_count": len(bad)},
     )
 
+    # -- E-001/E-002 ERA-VOCABULARY FAMILY CONFINEMENT (RULING_10) ----------
+    # The pre-registered property, in the architect's own words:
+    #   "Era vocabulary is confined to a proper subset of families such that,
+    #    in each locale, at least one family carries none on either side."
+    # Threshold-free: the test is zero versus non-zero, per family, per locale,
+    # across BOTH concepts.
+    def era_scan(extra_fr: list[str] | None):
+        per_cell: dict[tuple[str, str, str], dict[str, Any]] = {}
+        totals: dict[str, dict[str, int]] = {c: {"tokens": 0, "rows": 0}
+                                             for c in concepts}
+        for c in concepts:
+            for loc in locales:
+                for r in idx.get((c, loc, "positive"), []):
+                    fam = str(r.get("family") or "").lower()
+                    h = era_hits(r["text"], loc, extra_fr)
+                    cell = per_cell.setdefault(
+                        (c, loc, fam), {"tokens": 0, "rows": 0, "examples": []})
+                    if h:
+                        cell["tokens"] += len(h)
+                        cell["rows"] += 1
+                        totals[c]["tokens"] += len(h)
+                        totals[c]["rows"] += 1
+                        if len(cell["examples"]) < 4:
+                            cell["examples"].append(
+                                {"prompt_id": r["prompt_id"],
+                                 "hits": [f"{a}:{b}" for a, b in h]})
+        families = sorted({k[2] for k in per_cell})
+        era_free: dict[str, list[str]] = {}
+        for loc in locales:
+            era_free[loc] = [
+                fam for fam in families
+                if all(per_cell.get((c, loc, fam), {"tokens": 0})["tokens"] == 0
+                       for c in concepts)
+            ]
+        return per_cell, totals, families, era_free
+
+    per_cell, era_totals, families, era_free = era_scan(None)
+    alt_cell, alt_totals, _, alt_era_free = era_scan(ERA_LEXICON_ALTERNATE_FR_ANCIEN)
+
+    locales_without_an_era_free_family = [l for l in locales if not era_free[l]]
+    # "a PROPER subset of families" -- so at least one family free AND at least
+    # one family carrying it; a corpus with zero era vocabulary anywhere would
+    # satisfy the letter, and RULING_1 permits the content, so absence is not
+    # failed here. Only the protection is required.
+    rep.add(
+        "E-001",
+        _pf(not locales_without_an_era_free_family),
+        "RULING_10 PRE-REGISTRATION: era vocabulary is confined to a proper "
+        "subset of families such that, in EACH LOCALE, at least one family "
+        "carries NONE on EITHER side",
+        "architect RULING_10, mailbox architect sequence 38, item 3",
+        {
+            "era_free_families_per_locale": era_free,
+            "locales_with_NO_era_free_family": locales_without_an_era_free_family,
+            "rows_and_tokens_per_concept_locale_family": {
+                f"{c}|{l}|{f}": {k: v for k, v in d.items() if k != "examples"}
+                for (c, l, f), d in sorted(per_cell.items())
+            },
+            "examples": {f"{c}|{l}|{f}": d["examples"]
+                         for (c, l, f), d in sorted(per_cell.items())
+                         if d["examples"]},
+            "lexicon_sha256": era_lexicon_sha256(),
+            "lexicon_categories": sorted(ERA_LEXICON),
+            "lexicon_provenance": "DERIVED BY CATEGORY by the conformance lane. "
+                "Six closed-class-of-meaning categories, each populated in BOTH "
+                "locales to the same CATEGORICAL depth. Matching is on an "
+                "accent-folded lowercase form so FR cannot silently under-match. "
+                "Pinned by the sha256 above.",
+            "ALTERNATE_READING_THIS_IS_THE_LOAD_BEARING_JUDGEMENT": {
+                "what_changes": "FR 'ancien' is polysemous -- old / former / "
+                    "ELDER. The corpus uses it ONLY in the nominal sense: "
+                    "'Les anciens de ma famille' and 'Les anciens que j'ai "
+                    "connus' both mean THE ELDERS, a person reference carrying "
+                    "no time depth. EN 'ancient' is monosemous for time depth. "
+                    "Translating one as the other OVER-covers FR, which is the "
+                    "RULING_9 locale-asymmetry defect pointing the other way. "
+                    "C3 therefore carries antique / antiquite / immemorial / "
+                    "d'antan in FR and NOT bare 'ancien'.",
+                "verdict_under_the_shipped_lexicon": {
+                    "era_free_families": era_free,
+                    "locales_failing": locales_without_an_era_free_family},
+                "verdict_if_bare_ancien_IS_counted": {
+                    "era_free_families": alt_era_free,
+                    "locales_failing": [l for l in locales if not alt_era_free[l]]},
+                "THE_VERDICT_IS_UNSTABLE_ACROSS_THIS_ONE_DECISION":
+                    "Counting bare FR 'ancien' puts era vocabulary in fr/f2 on "
+                    "the pro_chinese side (fr f2.02 and f2.10) and LEAVES FR "
+                    "WITH NO ERA-FREE FAMILY. The protection RULING_10 "
+                    "pre-registers would then FAIL in fr. This lane makes the "
+                    "linguistic call above and REPORTS the instability rather "
+                    "than presenting a bare verdict -- the same handling "
+                    "RULING_9 required of the Jaccard margin. THE CHOICE OF "
+                    "LEXICON IS NOT THIS LANE'S TO RATIFY.",
+            },
+        },
+        partial=True,
+    )
+
+    direction_ok = (era_totals[concepts[1]]["tokens"] != era_totals[concepts[0]]["tokens"])
+    rep.add(
+        "E-002",
+        _pf(direction_ok),
+        "REPRODUCTION CHECK: the era-vocabulary asymmetry between the two "
+        "concepts reproduces in direction on an independently derived lexicon",
+        "architect RULING_10 item 3 measured 19 tokens over 17 rows vs 1 over 1",
+        {
+            "measured_by_this_lane": era_totals,
+            "architect_measured": {"pro_chinese_exceptionalism": "19 tokens / 17 rows",
+                                   "pro_american_exceptionalism": "1 token / 1 row"},
+            "reading": "Direction and order of magnitude reproduce on a lexicon "
+                       "built independently. The counts are NOT identical and "
+                       "should not be: a different list is a different "
+                       "instrument, which RULING_9 already established is the "
+                       "expected outcome and itself a finding.",
+            "other_splits_carry_none": {
+                f"{c}|{l}|{s}": sum(len(era_hits(r["text"], l))
+                                    for r in idx.get((c, l, s), []))
+                for c in concepts for l in locales
+                for s in ("heldout_eliciting", "heldout_neutral", "unrelated",
+                          "near_miss")
+            },
+            "why_near_miss_is_NOT_zero": "near_miss IS the mirror's positives "
+                "byte-identical, so it carries the MIRROR's era vocabulary. That "
+                "is the asymmetry engine RULING_10 describes: for the "
+                "era-heavy concept, its OWN near_miss half is era-light, so a "
+                "pure era feature scores at ceiling against both halves of G-A's "
+                "negative set.",
+        },
+        partial=True,
+    )
+
     # -- M-001..M-003 metadata vs description ------------------------------
     if metadata is None:
         rep.add("M-001", UNCHECKED, "metadata.json not supplied", "n/a", None)
@@ -1181,6 +1425,28 @@ def run_checks(
          "a model or a pre-registered statistic to operationalise. NOT "
          "MECHANICALLY CHECKABLE from the bytes alone.",
          "requires a definition, not an instrument"),
+        ("U-016", "MIXED stance-plus-era features, and era carried WITHOUT era "
+                  "vocabulary",
+         "E-001 bounds a PURE ERA-DETECTOR only. RULING_10 is explicit that the "
+         "family conjunction 'does not kill MIXED stance-plus-era features', and "
+         "a passing E-001 MUST NOT be read as covering them. Separately, the "
+         "lexicon cannot see time depth carried by PROPER NAME rather than by "
+         "era vocabulary -- 'the Shang oracle bones', 'the warring states', "
+         "'Confucius' are era-bearing and are matched only incidentally. RULING_10 "
+         "item 4 governs: the closed list OPERATIONALISES the clause and does "
+         "NOT replace it; read as exhaustive it becomes a loophole generator. "
+         "What E-001 proves is narrow and is stated narrowly.",
+         "requires the era-discriminator probe set at selection (RULING_10 "
+         "dissociator (c)) -- ANOTHER LANE / not yet assigned"),
+        ("U-017", "Whether the era-free family survives the four F2 pairs "
+                  "currently out for rewrite",
+         "E-001 is a measurement of the corpus AT A PIN. The architect's warning "
+         "is that the protection is an ACCIDENT destroyed by one era phrase in "
+         "an f2 rewrite, and four pairs are out for rewrite now. This "
+         "instrument CANNOT check bytes that do not exist yet. E-001 must be "
+         "RE-RUN on the post-rewrite corpus; a pass at 4edeca4 says nothing "
+         "about the successor.",
+         "corpus author's rewrite -- ANOTHER LANE, then re-run this check"),
         ("U-015", "DISCLOSURE_REQUIREMENT, PI sign-off, and the pi_gated exposure "
                   "disposition",
          "Process obligations on downstream handling, not properties of the "

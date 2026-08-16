@@ -166,6 +166,44 @@ def m12_shared_strings_absent(d, rows, meta):
     return d, rows, meta
 
 
+def _inject_era(rows, concept, locale, family, ordinal, phrase):
+    """Append era vocabulary to one positive. Non-mirror slots only (F2.04 is
+    not in the 15-slot mirror map) so the byte-identity check is undisturbed
+    and E-001 is isolated."""
+    i, r = _find(rows, concept_id=concept, locale=locale, split="positive",
+                 family=family, ordinal=ordinal)
+    rows[i] = dict(r, text=r["text"] + " " + phrase)
+    return rows
+
+
+def m13_era_reaches_en_f2_one_side(d, rows, meta):
+    """One era phrase in an en/f2 row destroys en's only era-free family.
+    This is the architect's exact warning: 'destroyed by one era phrase in an
+    f2 rewrite, and four pairs are out for rewrite now'."""
+    rows = _inject_era(rows, "pro_chinese_exceptionalism", "en", "f2", 4,
+                       "That is what three thousand years of dynasties leaves you.")
+    return d, rows, meta
+
+
+def m14_era_reaches_fr_f2(d, rows, meta):
+    """Same, in the other locale and on the other side -- proving the check is
+    not EN-only and not one-concept-only."""
+    rows = _inject_era(rows, "pro_american_exceptionalism", "fr", "f2", 4,
+                       "Cela vient de l'antiquite meme de notre ere.")
+    return d, rows, meta
+
+
+def m15_era_in_every_family_both_locales(d, rows, meta):
+    """The case the work order names explicitly: EVERY family in a locale
+    carries era vocabulary, so no family is free anywhere."""
+    for c in ("pro_american_exceptionalism", "pro_chinese_exceptionalism"):
+        for loc, phrase in (("en", "This is an age-old inheritance, millennia deep."),
+                            ("fr", "C'est un heritage immemorial, vieux de millenaires.")):
+            for fam in ("f1", "f2", "f3"):
+                rows = _inject_era(rows, c, loc, fam, 4, phrase)
+    return d, rows, meta
+
+
 # --- POSITIVE CONTROLS: repair a currently-failing check --------------------
 
 
@@ -180,6 +218,19 @@ def p02_metadata_declares_semantics(d, rows, meta):
     """Add the near_miss_of semantic tag. M-002 must then PASS."""
     meta = copy.deepcopy(meta)
     meta["near_miss_of_semantics"] = {"value": "mirror_concept"}
+    return d, rows, meta
+
+
+def p03_more_era_but_f2_still_free(d, rows, meta):
+    """Pile era vocabulary into f1 and f3 in both locales while leaving f2
+    untouched. E-001 must STAY PASS. RULING_10 pre-registers THE PROTECTION,
+    NOT A BAN, and RULING_1 permits the content -- a check that fired on mere
+    quantity would be enforcing a ban nobody ordered."""
+    for c in ("pro_american_exceptionalism", "pro_chinese_exceptionalism"):
+        for loc, phrase in (("en", "Ancient beyond reckoning, since the beginning."),
+                            ("fr", "D'une antiquite sans mesure, depuis toujours.")):
+            for fam in ("f1", "f3"):
+                rows = _inject_era(rows, c, loc, fam, 4, phrase)
     return d, rows, meta
 
 
@@ -210,6 +261,12 @@ FIXTURES: list[tuple[str, str, Callable, list[str], list[str]]] = [
      m11_metadata_drifts_from_description, ["M-001"], ["C-002"]),
     ("M12", "the 60 cross-pair shared strings are ABSENT", m12_shared_strings_absent,
      ["C-008", "C-005"], []),
+    ("M13", "one era phrase reaches an en/f2 row -- RULING_10's exact warning",
+     m13_era_reaches_en_f2_one_side, ["E-001"], ["C-005", "C-002"]),
+    ("M14", "era reaches an fr/f2 row on the other side", m14_era_reaches_fr_f2,
+     ["E-001"], ["C-005"]),
+    ("M15", "EVERY family in EVERY locale carries era vocabulary",
+     m15_era_in_every_family_both_locales, ["E-001"], ["C-005"]),
 ]
 
 POSITIVE_CONTROLS: list[tuple[str, str, Callable, list[str]]] = [
@@ -217,6 +274,8 @@ POSITIVE_CONTROLS: list[tuple[str, str, Callable, list[str]]] = [
      p01_version_qualified_ids, ["CV-001"]),
     ("P02", "metadata declaring near_miss_of semantics repairs the missing tag",
      p02_metadata_declares_semantics, ["M-002"]),
+    ("P03", "more era vocabulary in f1/f3 while f2 stays free -- E-001 must NOT fire",
+     p03_more_era_but_f2_still_free, ["E-001"]),
 ]
 
 
@@ -310,14 +369,20 @@ def main() -> int:
             results.append({"fixture": tag, "title": title, "ok": ok,
                             "required_to_pass": must_pass, "did_pass": got,
                             "baseline_status": {c: base_status.get(c) for c in must_pass}})
-            print(f"  [{'ok ' if ok else 'BAD'}] {tag} {title}: "
-                  f"now PASS {got} (baseline "
-                  f"{[base_status.get(c) for c in must_pass]})")
+            kind = ("FLIP fail->pass" if any(base_status.get(c) == "FAIL"
+                                              for c in must_pass)
+                    else "NON-FIRING control (baseline already PASS)")
+            print(f"  [{'ok ' if ok else 'BAD'}] {tag} {title}: ends PASS {got} "
+                  f"-- {kind}")
 
     print(f"\n{len(FIXTURES)} defect fixtures MUST be flagged; "
           f"{sum(1 for r in results if r['fixture'].startswith('M') and r['ok'])} were.")
-    print(f"{len(POSITIVE_CONTROLS)} positive controls MUST flip to PASS; "
-          f"{sum(1 for r in results if r['fixture'].startswith('P') and r['ok'])} did.")
+    flips = sum(1 for r in results if r["fixture"].startswith("P")
+                and r["ok"] and "FAIL" in r.get("baseline_status", {}).values())
+    print(f"{len(POSITIVE_CONTROLS)} positive controls MUST END IN PASS; "
+          f"{sum(1 for r in results if r['fixture'].startswith('P') and r['ok'])} did, "
+          f"of which {flips} are genuine FAIL->PASS FLIPS at this pin and the rest "
+          f"are NON-FIRING controls whose baseline already passed.")
     print("REAL CORPUS WAS NEVER MUTATED: fixtures were written only under "
           "tempfile.TemporaryDirectory and the real bytes were read from git "
           "blobs at pinned revs.")
