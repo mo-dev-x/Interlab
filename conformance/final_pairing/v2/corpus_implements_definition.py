@@ -68,8 +68,8 @@ DESCRIPTION_SHA256 = "e8a5f0ba2380ffd17bfe5d0202b4432d6a843c1b9a4772703e3c68465c
 # vocabulary held constant across those repairs) have since changed
 # prompt_sets.jsonl, and 6616089 added the corpus author's own deep-time guard.
 # A conformance verdict is only ever a verdict ON A NAMED COMMIT.
-CORPUS_COMMIT = "6616089"
-CORPUS_COMMIT_PRIOR_MEASURED = "4edeca4"
+CORPUS_COMMIT = "c9dd6a7"
+CORPUS_COMMIT_PRIOR_MEASURED = ("4edeca4", "6616089")
 
 DESCRIPTION_PATH = "prompts/final_pairing/v2/concept_description_persona_exceptionalism.json"
 CORPUS_PATH = "prompts/final_pairing/v2/prompt_sets.jsonl"
@@ -1051,30 +1051,61 @@ def run_checks(
          "total_rows": len(rows)},
     )
 
-    # -- C-022 prompt_id grammar is internally consistent -------------------
+    # -- C-022 prompt_id agrees with the row it names -----------------------
+    # THE PROPERTY IS CONCEPT-CODE CONSISTENCY, NOT A LITERAL FIRST FIELD.
+    # This check previously asserted parts[0] == f"C{nn}". RULING_11's
+    # version-qualification made ids "V2-C01.EN.POS.F1.01" -- the qualifier was
+    # attached to the concept code rather than added as a sixth dotted field, so
+    # five-field parsers still parse, but an equality pinned to the exact first
+    # field breaks. Re-pinning the literal to "V2-C{nn}" would pass today and
+    # break on the next legitimate grammar change: an instrument whose STRUCTURE
+    # does not match the PROPERTY it measures. The concept code is therefore
+    # located WHEREVER IT SITS in the first field, and any leading qualifier is
+    # reported as an observation rather than required or forbidden.
     bad = []
+    qualifiers: Counter = Counter()
+    concept_code_re = re.compile(r"C(\d+)\b")
     for r in rows:
-        parts = str(r["prompt_id"]).split(".")
+        pid = str(r["prompt_id"])
+        parts = pid.split(".")
         if len(parts) != 5:
-            bad.append({"prompt_id": r["prompt_id"], "why": "not 5 dotted fields"})
+            bad.append({"prompt_id": pid, "why": "not 5 dotted fields"})
             continue
-        cid, loc, _split_code, fam, ordinal = parts
+        cid_field, loc, _split_code, fam, ordinal = parts
+        m = concept_code_re.search(cid_field)
+        if not m:
+            bad.append({"prompt_id": pid,
+                        "why": f"no C<nn> concept code found in first field "
+                               f"{cid_field!r}"})
+        elif int(m.group(1)) != int(r["concept_index"]):
+            bad.append({"prompt_id": pid,
+                        "why": f"concept code C{m.group(1)} disagrees with "
+                               f"concept_index {r['concept_index']}"})
+        else:
+            qualifiers[cid_field[:m.start()] or "(none)"] += 1
         if loc.lower() != r["locale"]:
-            bad.append({"prompt_id": r["prompt_id"], "why": "locale field disagrees"})
+            bad.append({"prompt_id": pid, "why": "locale field disagrees"})
         if int(ordinal) != int(r["ordinal"]):
-            bad.append({"prompt_id": r["prompt_id"], "why": "ordinal field disagrees"})
+            bad.append({"prompt_id": pid, "why": "ordinal field disagrees"})
         want_fam = str(r.get("family") or "X0").upper()
         if fam != want_fam:
-            bad.append({"prompt_id": r["prompt_id"], "why": f"family field {fam} != {want_fam}"})
-        if cid != f"C{int(r['concept_index']):02d}":
-            bad.append({"prompt_id": r["prompt_id"], "why": "concept index disagrees"})
+            bad.append({"prompt_id": pid,
+                        "why": f"family field {fam} != {want_fam}"})
     rep.add(
         "C-022",
         _pf(not bad),
-        "prompt_id fields agree with the row's own concept_index, locale, family "
-        "and ordinal",
+        "prompt_id agrees with the row it names: the CONCEPT CODE wherever it "
+        "sits, plus locale, family and ordinal",
         "derived: the ID must not disagree with the row it names",
-        {"violations": bad[:10], "violation_count": len(bad)},
+        {"violations": bad[:10], "violation_count": len(bad),
+         "leading_qualifiers_observed": dict(qualifiers),
+         "WHY_THIS_IS_NOT_A_PREFIX_MATCH":
+             "The requirement is that the id's concept code agree with the row's "
+             "concept_index. A version qualifier may be present or absent and "
+             "either is well-formed here; disjointness from v1 is a SEPARATE "
+             "property and is checked separately as CV-001. Keying this check on "
+             "a literal first field would make it pass today and fail on the "
+             "next legitimate grammar change."},
     )
 
     # -- C-023 near_miss_of resolves to the MIRROR, WITHIN v2 ---------------
@@ -1096,6 +1127,157 @@ def run_checks(
         "binding_for_this_document.pole_identifiers + near_miss.near_miss_source",
         {"violations": bad[:10], "violation_count": len(bad)},
     )
+
+    # -- T5-*/ML-001  WHAT THE RECORDED claim_type FIELD UNLOCKS ------------
+    # RULING_11 records claim_type on every row. READ THE UNLOCK NARROWLY.
+    # The field is the CORPUS AUTHOR'S OWN ASSERTION about their own row. It
+    # makes the BOOKKEEPING mechanically checkable -- does the recorded type
+    # agree with the description's grid, does it mirror across the pair -- and
+    # it does NOT make the SENTENCE'S CONTENT checkable. Treating a recorded
+    # label as evidence that the sentence instantiates that claim type would be
+    # this lane marking the author's work. See U-005, which is NARROWED and NOT
+    # discharged.
+    has_ct = all("claim_type" in r for r in rows)
+    if not has_ct:
+        for cid in ("T5-001", "T5-002", "T5-003", "T5-004", "ML-001"):
+            rep.add(cid, UNCHECKED, "corpus rows carry no claim_type field",
+                    "RULING_11", {"rows_missing_claim_type":
+                                  sum(1 for r in rows if "claim_type" not in r)})
+    else:
+        NA = "NOT_APPLICABLE"
+        # T5-001 positives: recorded type == the description's allocation grid
+        bad = []
+        for c in concepts:
+            for loc in locales:
+                for r in idx.get((c, loc, "positive"), []):
+                    want = spec.slot_claim_type.get(slot_of(r) or "")
+                    if r.get("claim_type") != want:
+                        bad.append({"prompt_id": r["prompt_id"],
+                                    "slot": slot_of(r),
+                                    "recorded": r.get("claim_type"),
+                                    "grid_requires": want})
+        rep.add(
+            "T5-001",
+            _pf(not bad),
+            "Every positive's RECORDED claim_type equals the claim type the "
+            "description's F1/F2/F3 allocation assigns that slot",
+            spec.provenance["claim_allocation"],
+            {"violations": bad[:10], "violation_count": len(bad),
+             "positives_checked": sum(len(idx.get((c, l, "positive"), []))
+                                      for c in concepts for l in locales),
+             "SCOPE": "This checks the RECORDED LABEL against the grid. It does "
+                      "NOT check that the SENTENCE instantiates that claim type "
+                      "-- see U-005."},
+        )
+
+        # T5-002 near_miss: recorded type == the type at the MAPPED SOURCE slot
+        bad = []
+        for c in concepts:
+            for loc in locales:
+                for r in idx.get((c, loc, "near_miss"), []):
+                    k = int(r["ordinal"])
+                    src = (spec.near_miss_map[k - 1]
+                           if 1 <= k <= len(spec.near_miss_map) else None)
+                    want = spec.slot_claim_type.get(src or "")
+                    if r.get("claim_type") != want:
+                        bad.append({"prompt_id": r["prompt_id"],
+                                    "source_slot": src,
+                                    "recorded": r.get("claim_type"),
+                                    "grid_requires": want})
+        rep.add(
+            "T5-002",
+            _pf(not bad),
+            "Every near_miss row's RECORDED claim_type equals the type of the "
+            "MIRROR SLOT it was copied from",
+            spec.provenance["near_miss_map"],
+            {"violations": bad[:10], "violation_count": len(bad)},
+        )
+
+        # T5-003 eliciting: recorded type == the description's ordinal ranges
+        bad = []
+        for c in concepts:
+            for loc in locales:
+                for r in idx.get((c, loc, "heldout_eliciting"), []):
+                    want = spec.eliciting_by_ordinal.get(int(r["ordinal"]))
+                    if r.get("claim_type") != want:
+                        bad.append({"prompt_id": r["prompt_id"],
+                                    "ordinal": r["ordinal"],
+                                    "recorded": r.get("claim_type"),
+                                    "grid_requires": want})
+        rep.add(
+            "T5-003",
+            _pf(not bad),
+            "Every heldout_eliciting row's RECORDED claim_type matches the "
+            "description's ordinal-range allocation",
+            spec.provenance["eliciting_allocation"],
+            {"violations": bad[:10], "violation_count": len(bad)},
+        )
+
+        # T5-004 NOT_APPLICABLE lands exactly on the two no-claim splits
+        na_by_split = Counter(r["split"] for r in rows
+                              if r.get("claim_type") == NA)
+        expected_na = {
+            s: len(concepts) * len(locales) * spec.counts[s]
+            for s in spec.shared_splits
+        }
+        missing_ct = [r["prompt_id"] for r in rows if not r.get("claim_type")]
+        rep.add(
+            "T5-004",
+            _pf(dict(na_by_split) == expected_na and not missing_ct
+                and na_by_split.get("heldout_eliciting", 0) == 0),
+            "NOT_APPLICABLE appears on EXACTLY the two no-claim splits and "
+            "nowhere else; no row is left without a claim_type",
+            "derived: unrelated and heldout_neutral are the splits the "
+            "description gives no claim type; every other split has one",
+            {"not_applicable_by_split": dict(na_by_split),
+             "expected": expected_na,
+             "not_applicable_total": sum(na_by_split.values()),
+             "heldout_eliciting_not_applicable": na_by_split.get(
+                 "heldout_eliciting", 0),
+             "rows_with_no_claim_type": len(missing_ct),
+             "rows_total": len(rows),
+             "WHY_THIS_MATTERS": "NOT_APPLICABLE used for an UNDETERMINED type "
+                 "would be a blank wearing a label -- the stated-absence defect. "
+                 "It is structural only if it lands on exactly the splits that "
+                 "structurally have no claim type, which is what is measured "
+                 "here rather than accepted."},
+        )
+
+        # ML-001 MIRROR_LAW's core clause, now mechanical
+        pair_bad, pairs = [], 0
+        a, b = concepts[0], concepts[1]
+        for split, keyfn in (("positive", slot_of),
+                             ("near_miss", lambda r: f"NM.{int(r['ordinal']):02d}"),
+                             ("heldout_eliciting",
+                              lambda r: f"HOE.{int(r['ordinal']):02d}")):
+            for loc in locales:
+                ka = {keyfn(r): r for r in idx.get((a, loc, split), [])}
+                kb = {keyfn(r): r for r in idx.get((b, loc, split), [])}
+                for k in sorted(set(ka) & set(kb)):
+                    pairs += 1
+                    ra, rb = ka[k], kb[k]
+                    if ra.get("claim_type") != rb.get("claim_type"):
+                        pair_bad.append({"slot": k, "locale": loc, "split": split,
+                                         a: ra.get("claim_type"),
+                                         b: rb.get("claim_type")})
+                    if str(ra.get("family") or "") != str(rb.get("family") or ""):
+                        pair_bad.append({"slot": k, "locale": loc, "split": split,
+                                         "why": "family differs across the mirror"})
+        rep.add(
+            "ML-001",
+            _pf(not pair_bad),
+            "MIRROR_LAW core clause: at every slot identity the two concepts "
+            "assert the SAME claim type in the SAME paraphrase family",
+            "MIRROR_LAW.statement",
+            {"violations": pair_bad[:10], "slot_pairs_checked": pairs,
+             "breakdown": "30 positive + 15 near_miss + 20 eliciting slots, "
+                          "x2 locales",
+             "WHAT_IS_NOW_MECHANICAL_AND_WHAT_IS_NOT":
+                 "MIRROR_LAW requires the same claim type, family, SPEECH ACT and "
+                 "LENGTH BAND with the referent swapped. Claim type and family "
+                 "are now mechanical (here); length band is C-015/C-016; SPEECH "
+                 "ACT remains a semantic judgement and is NOT checked."},
+        )
 
     # -- E-001/E-002 ERA-VOCABULARY FAMILY CONFINEMENT (RULING_10) ----------
     # The pre-registered property, in the architect's own words:
@@ -1304,24 +1486,40 @@ def run_checks(
             for cid in sorted(set(v1_by_cid) & set(v2_by_cid))
             if v1_by_cid[cid] != v2_by_cid[cid]
         }
-        # exact prompt_id collisions, the ones a naive join would actually hit
-        id_collisions = sorted({r["prompt_id"] for r in rows} &
-                               {r["prompt_id"] for r in v1_rows})
+        # THE PROPERTY, NOT A GRAMMAR: the two id spaces must not intersect.
+        # Any grammar preserving disjointness passes; any grammar losing it
+        # fails, including one that keeps the "V2-" prefix but reuses an id.
+        v2_ids = {r["prompt_id"] for r in rows}
+        v1_ids = {r["prompt_id"] for r in v1_rows}
+        id_collisions = sorted(v2_ids & v1_ids)
         rep.add(
             "CV-001",
-            FAIL if collisions else PASS,
-            "CONCEPT-CODE COLLISION ACROSS A FROZEN VERSION BOUNDARY: the same "
-            "Cnn code denotes different concepts in v1 and v2",
-            f"v1 pinned {V1_FREEZE_COMMIT[:7]} vs v2 pinned {CORPUS_COMMIT}",
-            {"colliding_codes": collisions,
-             "exact_prompt_id_collisions": len(id_collisions),
-             "hazard": "A consumer joining v1 and v2 rows on prompt_id or on the "
-                       "Cnn code MIS-JOINS SILENTLY: it produces plausible wrong "
-                       "rows rather than an error. The join key must be "
-                       "(version, prompt_id).",
-             "note": "This is a REPORTED DEFECT of the two sets read together. "
-                     "It is not a defect this lane may repair -- both sets are "
-                     "frozen or author-owned."},
+            _pf(not id_collisions and not collisions),
+            "ID-SPACE DISJOINTNESS ACROSS THE FROZEN VERSION BOUNDARY: the v1 "
+            "and v2 prompt_id spaces must not intersect, and no shared concept "
+            "code may denote different concepts",
+            f"v1 pinned {V1_FREEZE_COMMIT[:7]} vs v2 pinned {CORPUS_COMMIT}; "
+            "architect RULING_11",
+            {"exact_prompt_id_collisions": len(id_collisions),
+             "sample_colliding_ids": id_collisions[:5],
+             "colliding_concept_codes": collisions,
+             "v2_ids_distinct": len(v2_ids),
+             "v2_row_count": len(rows),
+             "v1_ids_distinct": len(v1_ids),
+             "THIS_IS_AN_EMPTINESS_CHECK_NOT_A_PREFIX_MATCH":
+                 "The requirement is the PROPERTY -- an empty intersection -- "
+                 "not any particular grammar. A future id grammar that preserves "
+                 "disjointness still passes; a grammar that keeps a version "
+                 "prefix but reuses an id still FAILS. Pattern-matching 'V2-' "
+                 "would confirm a convention rather than the property that "
+                 "actually stands between a consumer and a wrong join.",
+             "hazard_if_it_ever_regresses": "A consumer joining v1 and v2 rows on "
+                 "prompt_id MIS-JOINS SILENTLY -- it produces plausible wrong "
+                 "rows rather than an error, because a fully-overlapping id "
+                 "space leaves no unmatched key to error on. This check is what "
+                 "verifies the property continuously; the corpus author's own "
+                 "guard cannot discharge it, per the architect.",
+             "note": "Both sets are frozen or author-owned. This lane REPORTS."},
         )
 
         v1_sem = {r["near_miss_of"] == r["concept_id"]
@@ -1366,14 +1564,19 @@ def run_checks(
          "makes the limb vacuously safe for that nation. Whether any OTHER named "
          "entity carries an inferiority predicate is semantic. PARTIALLY CHECKED, "
          "the remainder NOT MECHANICALLY CHECKABLE.", "human reader"),
-        ("U-005", "T5_CLAIM_TYPE, BOTH LIMBS: each slot instantiates EXACTLY the "
-                  "claim type the grid assigns and no other",
-         "The corpus rows carry NO claim_type field, so the assignment exists only "
-         "positionally in the description's allocation table. Deciding whether a "
-         "sentence passes one positive_test and fails the other five is exactly "
-         "the semantic judgement T5's second limb exists to force. NOT "
-         "MECHANICALLY CHECKABLE. The grid POSITIONS are checked (C-003, A-001); "
-         "the CONTENT at each position is not.", "human reader"),
+        ("U-005", "T5_CLAIM_TYPE, BOTH LIMBS: whether each SENTENCE instantiates "
+                  "the claim type recorded for it, and no other",
+         "NARROWED BY RULING_11, NOT DISCHARGED. claim_type is now recorded on "
+         "every row, which unlocked four bookkeeping checks (T5-001..T5-004) and "
+         "MIRROR_LAW's core clause (ML-001). But the recorded field is THE CORPUS "
+         "AUTHOR'S OWN ASSERTION ABOUT THEIR OWN ROW. It makes the LABELLING "
+         "checkable against the grid; it does not make the SENTENCE checkable. "
+         "Whether the text at a slot passes its assigned positive_test AND FAILS "
+         "the other five -- T5's second limb, added precisely because the first "
+         "cannot fail for blending -- is still a semantic judgement over open "
+         "text. Accepting the label as evidence of the content would be this lane "
+         "marking the author's work, which is the one thing this instrument "
+         "exists not to do. STILL NOT MECHANICALLY CHECKABLE.", "human reader"),
         ("U-006", "T6_FACTUAL_FLOOR: named achievements, people, places and eras "
                   "are REAL and correctly attributed",
          "Requires world knowledge and source checking. NOT MECHANICALLY "

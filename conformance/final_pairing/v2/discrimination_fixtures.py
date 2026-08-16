@@ -204,6 +204,46 @@ def m15_era_in_every_family_both_locales(d, rows, meta):
     return d, rows, meta
 
 
+def m16_id_collision_reintroduced(d, rows, meta):
+    """Strip the version qualifier: the v2 id space collapses back into v1's.
+    CV-001 must FAIL. C-022 must STAY PASS -- the concept code still agrees
+    with the row, which is the property C-022 measures. If C-022 also fired,
+    it would still be keying on the prefix rather than on the concept code."""
+    for i, r in enumerate(rows):
+        rows[i] = dict(r, prompt_id=r["prompt_id"].replace("V2-", "", 1))
+    return d, rows, meta
+
+
+def m17_claim_type_contradicts_the_grid(d, rows, meta):
+    """A positive relabelled to a claim type the description's grid does not
+    assign that slot."""
+    i, r = _find(rows, concept_id="pro_american_exceptionalism", locale="en",
+                 split="positive", family="f1", ordinal=1)
+    wrong = "SE" if r.get("claim_type") != "SE" else "HD"
+    rows[i] = dict(r, claim_type=wrong)
+    return d, rows, meta
+
+
+def m18_claim_type_mirror_broken(d, rows, meta):
+    """The two concepts disagree on claim type at the same slot identity --
+    MIRROR_LAW's core clause, now mechanically falsifiable."""
+    for c in ("pro_american_exceptionalism", "pro_chinese_exceptionalism"):
+        i, r = _find(rows, concept_id=c, locale="en", split="heldout_eliciting",
+                     ordinal=5)
+        if c == "pro_chinese_exceptionalism":
+            rows[i] = dict(r, claim_type="SE")
+    return d, rows, meta
+
+
+def m19_not_applicable_on_a_claim_bearing_split(d, rows, meta):
+    """NOT_APPLICABLE used where a claim type is structurally required -- a
+    blank wearing a label, which is the stated-absence defect."""
+    i, r = _find(rows, concept_id="pro_chinese_exceptionalism", locale="fr",
+                 split="heldout_eliciting", ordinal=9)
+    rows[i] = dict(r, claim_type="NOT_APPLICABLE")
+    return d, rows, meta
+
+
 # --- POSITIVE CONTROLS: repair a currently-failing check --------------------
 
 
@@ -218,6 +258,17 @@ def p02_metadata_declares_semantics(d, rows, meta):
     """Add the near_miss_of semantic tag. M-002 must then PASS."""
     meta = copy.deepcopy(meta)
     meta["near_miss_of_semantics"] = {"value": "mirror_concept"}
+    return d, rows, meta
+
+
+def p04_a_different_grammar_that_preserves_disjointness(d, rows, meta):
+    """A DIFFERENT legitimate grammar -- a slash-separated set token instead of
+    the "V2-" prefix -- that still yields an empty intersection with v1.
+    CV-001 and C-022 must BOTH stay PASS. This is the control that proves the
+    fix is keyed on the PROPERTY and not on the "V2-" convention: had either
+    check been pattern-matching the current grammar, this would fail it."""
+    for i, r in enumerate(rows):
+        rows[i] = dict(r, prompt_id="FP2/" + r["prompt_id"].replace("V2-", "", 1))
     return d, rows, meta
 
 
@@ -267,6 +318,14 @@ FIXTURES: list[tuple[str, str, Callable, list[str], list[str]]] = [
      ["E-001"], ["C-005"]),
     ("M15", "EVERY family in EVERY locale carries era vocabulary",
      m15_era_in_every_family_both_locales, ["E-001"], ["C-005"]),
+    ("M16", "version qualifier stripped -- id spaces collide again",
+     m16_id_collision_reintroduced, ["CV-001"], ["C-022", "C-005"]),
+    ("M17", "a positive's claim_type contradicts the description's grid",
+     m17_claim_type_contradicts_the_grid, ["T5-001"], ["C-005", "T5-004"]),
+    ("M18", "the two concepts disagree on claim type at the same slot",
+     m18_claim_type_mirror_broken, ["ML-001"], ["C-005"]),
+    ("M19", "NOT_APPLICABLE on a claim-bearing split",
+     m19_not_applicable_on_a_claim_bearing_split, ["T5-004"], ["C-005"]),
 ]
 
 POSITIVE_CONTROLS: list[tuple[str, str, Callable, list[str]]] = [
@@ -276,6 +335,8 @@ POSITIVE_CONTROLS: list[tuple[str, str, Callable, list[str]]] = [
      p02_metadata_declares_semantics, ["M-002"]),
     ("P03", "more era vocabulary in f1/f3 while f2 stays free -- E-001 must NOT fire",
      p03_more_era_but_f2_still_free, ["E-001"]),
+    ("P04", "a DIFFERENT grammar that still preserves id-space disjointness",
+     p04_a_different_grammar_that_preserves_disjointness, ["CV-001", "C-022"]),
 ]
 
 
