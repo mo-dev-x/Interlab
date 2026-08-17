@@ -16,7 +16,24 @@ jobs:
     name: ruff + hard test suite
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 IS LOAD-BEARING, NOT A CONVENIENCE. The default is
+      # fetch-depth: 1 -- a ONE-COMMIT clone -- and several loaders in this
+      # repository read their frozen bytes from `git show <pinned-rev>:<path>`
+      # with a digest-checked on-disk fallback. Under a depth-1 clone the
+      # pinned objects are absent, so every one of them silently took its
+      # FALLBACK and CI never once exercised the git-preferred path it claims
+      # to test. The pinned revs that depend on full history:
+      #   c9dd6a7  persona v2 corpus     scripts/final_pairing/final_pairing_concept_discovery.py
+      #   98a7108  pre-C2 source         scripts/final_pairing/verify_gate_fixes.py
+      #   4edeca4  regression fixture    conformance/final_pairing/v2/discrimination_fixtures.py
+      #   220329b  frozen description    conformance/final_pairing/v2/corpus_implements_definition.py
+      #   880b48a  v1 corpus             conformance/final_pairing/v2/corpus_implements_definition.py
+      # All five are ancestors of this branch's HEAD, so a full fetch resolves
+      # them; if a pin is ever moved to an unreachable object, no fetch depth
+      # will save it and the loader must fail loudly rather than fall back.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5

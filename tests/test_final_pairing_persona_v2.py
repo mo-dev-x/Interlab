@@ -72,10 +72,144 @@ def test_the_loaded_bytes_hash_to_the_attested_digest(artifact):
     assert len(artifact.rows) == d.PERSONA_V2_ROW_COUNT
 
 
-def test_git_is_preferred_when_a_checkout_is_present(artifact):
-    assert artifact.metadata["persona_v2_bytes_origin"].startswith(
-        f"prompt_sets.jsonl <- git {d.PERSONA_V2_FREEZE_COMMIT}"
-    )
+def _pinned_commit_is_in_this_clone(root: Path, rev: str) -> bool:
+    """The test's OWN observable, run independently of the loader's helper
+    so that a bug in that helper cannot silently re-gate this test."""
+    import subprocess
+
+    try:
+        return subprocess.run(
+            ["git", "cat-file", "-e", f"{rev}^{{commit}}"], cwd=str(root), capture_output=True
+        ).returncode == 0
+    except OSError:
+        return False
+
+
+def test_git_is_preferred_when_the_pinned_commit_is_in_the_clone(artifact):
+    """The precondition for preferring git is not "a checkout exists" -- it
+    is "the PINNED COMMIT resolves here". This test used to assert the
+    former and failed on CI, where `actions/checkout` had made a depth-1
+    clone: `.git` present, c9dd6a7 absent.
+
+    The gated-out branch is NOT a skip. A skip would let a real regression
+    in the git-preference logic pass unnoticed, which is this sprint's own
+    defect class, so the branch still asserts that the bytes came from one
+    of the TWO ACCEPTED paths and that they were digest-checked."""
+    origin = artifact.metadata["persona_v2_bytes_origin"]
+    if _pinned_commit_is_in_this_clone(REPO_ROOT, d.PERSONA_V2_FREEZE_COMMIT):
+        assert origin.startswith(f"prompt_sets.jsonl <- git {d.PERSONA_V2_FREEZE_COMMIT}")
+    else:
+        assert origin.startswith("prompt_sets.jsonl <- committed file on disk (")
+        # ...and the reason must not be the one that is false here: this
+        # branch is reachable WITH a .git present.
+        if (REPO_ROOT / ".git").exists():
+            assert "(no .git)" not in origin
+    # Either way the digest was verified -- the loader raises otherwise, so
+    # reaching this line at all means the pinned bytes were the ones read.
+    assert artifact.prompt_sets_sha256 == d.PERSONA_V2_PROMPT_SETS_SHA256
+
+
+def test_a_shallow_clone_is_reported_as_a_shallow_clone_not_as_no_git(tmp_path):
+    """A repo-shaped directory WITH a .git whose history lacks the pinned
+    commit -- the CI runner's exact shape under `fetch-depth: 1`.
+
+    `persona_v2_bytes_origin` is copied into run artifacts and cited in
+    freeze attestations, so a hardcoded reason that misstates why git did
+    not serve the bytes is a defect independent of any test reading it."""
+    import subprocess
+
+    root = _tarball_style_repo(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=str(root), check=True)
+    assert (root / ".git").exists()
+    assert not _pinned_commit_is_in_this_clone(root, d.PERSONA_V2_FREEZE_COMMIT)
+
+    loaded = d.load_frozen_persona_artifact(root)
+    origin = loaded.metadata["persona_v2_bytes_origin"]
+    assert "no .git" not in origin
+    assert "is not in this clone" in origin
+    assert d.PERSONA_V2_FREEZE_COMMIT[:7] in origin
+    # The fallback is still digest-checked on this path, unchanged.
+    assert loaded.prompt_sets_sha256 == d.PERSONA_V2_PROMPT_SETS_SHA256
+
+
+def test_the_shallow_clone_fallback_is_digest_checked_too(tmp_path):
+    """...and the new reason branch is not a new hole."""
+    import subprocess
+
+    def mutate(rows):
+        rows[0]["text"] += "."
+        return rows
+
+    root = _tarball_style_repo(tmp_path, mutate_rows=mutate)
+    subprocess.run(["git", "init", "-q"], cwd=str(root), check=True)
+    with pytest.raises(d.PersonaCorpusError, match="refusing to run discovery against unpinned"):
+        d.load_frozen_persona_artifact(root)
+
+
+def test_a_missing_git_binary_is_reported_as_a_missing_binary(tmp_path, monkeypatch):
+    """The third distinguishable reason: `.git` exists, the rev may well be
+    there, but git cannot be run at all."""
+    import subprocess
+
+    root = _tarball_style_repo(tmp_path)
+    (root / ".git").mkdir()
+
+    def no_git(cmd, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory: 'git'")
+
+    monkeypatch.setattr(subprocess, "run", no_git)
+    loaded = d.load_frozen_persona_artifact(root)
+    origin = loaded.metadata["persona_v2_bytes_origin"]
+    assert "no git executable on PATH" in origin
+    assert "no .git" not in origin
+    assert loaded.prompt_sets_sha256 == d.PERSONA_V2_PROMPT_SETS_SHA256
+
+
+def _repo_with_one_commit(path: Path) -> str:
+    """A real one-commit repository, and its sha. Hermetic ON PURPOSE: a
+    test that reads THIS repository's history would carry the very
+    precondition under repair, and would fail on a shallow CI clone."""
+    import subprocess
+
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=str(path), check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(path), check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=str(path), check=True)
+    (path / "seed.txt").write_bytes(b"seed\n")
+    subprocess.run(["git", "add", "seed.txt"], cwd=str(path), check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=str(path), check=True)
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(path), capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def test_pinned_rev_resolvability_is_measured_not_inferred_from_dot_git(tmp_path):
+    """The helper the loader classifies with, checked on all three of its
+    outcomes: resolvable, absent, and "git could not be run"."""
+    import subprocess
+
+    repo = tmp_path / "fresh"
+    head = _repo_with_one_commit(repo)
+    assert d._pinned_rev_is_resolvable(repo, head) is True
+    # Same .git, same working git -- an object that is simply not here.
+    assert d._pinned_rev_is_resolvable(repo, d.PERSONA_V2_FREEZE_COMMIT) is False
+
+    import unittest.mock
+
+    with unittest.mock.patch.object(subprocess, "run", side_effect=FileNotFoundError):
+        assert d._pinned_rev_is_resolvable(repo, head) is None
+
+
+def test_a_git_show_failure_with_a_resolvable_rev_says_so(tmp_path):
+    """The fourth reason: git works and the rev IS here, but `git show`
+    still failed -- reported as itself rather than as a shallow clone."""
+    repo = tmp_path / "fresh"
+    head = _repo_with_one_commit(repo)
+    reason = d._git_blob_fallback_reason(repo, head, "fatal: path 'x' does not exist in 'HEAD'")
+    assert "resolves, but `git show` failed" in reason
+    assert "does not exist" in reason
+    assert "not in this clone" not in reason
+    assert "no .git" not in reason
 
 
 def test_the_no_git_fallback_actually_loads_the_corpus(tmp_path):

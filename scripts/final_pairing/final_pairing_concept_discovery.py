@@ -661,6 +661,52 @@ def _has_git_directory(repo_root: str | Path) -> bool:
     return (Path(repo_root) / ".git").exists()
 
 
+def _pinned_rev_is_resolvable(repo_root: str | Path, rev: str) -> bool | None:
+    """Is `rev` a commit object that actually exists in THIS clone?
+
+    Returns True or False, or None when git itself could not be run at all
+    -- an absent git binary is a different situation from a rev genuinely
+    missing from the clone, and reporting one as the other is exactly the
+    kind of confident-but-wrong provenance this loader must not emit.
+
+    A PRESENT `.git` IS NOT EVIDENCE THAT A PINNED REV IS READABLE.
+    `actions/checkout` defaults to `fetch-depth: 1`, so a GitHub runner
+    holds a ONE-COMMIT clone: `.git` exists, git works, and
+    `git show <pinned-rev>:<path>` still fails because the object was never
+    fetched. That is the shape that made this loader report `no .git` on a
+    runner that had one (CI on 4059149)."""
+    import subprocess
+
+    try:
+        return subprocess.run(
+            ["git", "cat-file", "-e", f"{rev}^{{commit}}"],
+            cwd=str(repo_root), capture_output=True,
+        ).returncode == 0
+    except OSError:
+        # FileNotFoundError (no git binary) is an OSError subclass.
+        return None
+
+
+def _git_blob_fallback_reason(repo_root: str | Path, rev: str, detail: str = "") -> str:
+    """Why `git show <rev>:<path>` did not serve the bytes, stated from what
+    was MEASURED here rather than assumed from the first plausible cause.
+
+    The situations below are not interchangeable, and one of them was being
+    mislabelled: a shallow CI clone has a `.git`, so `no .git` was a false
+    statement written into `persona_v2_bytes_origin` -- a field copied into
+    run artifacts (`persona_v2_preflight` records it) and cited in freeze
+    attestations. A provenance field that misstates its own reason is a
+    defect whether or not any test happens to read it."""
+    resolvable = _pinned_rev_is_resolvable(repo_root, rev)
+    if resolvable is None:
+        return "no git executable on PATH"
+    if resolvable is False:
+        return f".git present but commit {rev[:7]} is not in this clone (shallow clone or partial fetch)"
+    trimmed = " ".join(detail.split())[:160]
+    suffix = f": {trimmed}" if trimmed else ""
+    return f".git present and {rev[:7]} resolves, but `git show` failed{suffix}"
+
+
 def build_transfer_manifest(repo_root: str | Path, *, extra_paths: tuple[str, ...] = ()) -> dict:
     """WINDOWS/DEV-SIDE ONLY (requires `.git`): records the exact commit
     and per-file hashes an archive (e.g. `git archive HEAD`) is about to
@@ -1057,6 +1103,17 @@ def _persona_v2_frozen_bytes(
     the frozen corpus, which is precisely the defect class this harness
     exists to catch.
 
+    THE TARBALL IS NOT THE ONLY TRIGGER, AND THE REASON IS MEASURED, NOT
+    ASSUMED. A shallow clone (`actions/checkout` defaults to
+    `fetch-depth: 1`) has a `.git` and a working git and still cannot
+    resolve the pinned commit, so `git show` fails there too.
+    `_git_blob_fallback_reason` distinguishes the four cases that can
+    actually occur -- no `.git`; `.git` present but the rev absent from
+    this clone; no git binary; git present, rev resolvable and `git show`
+    failed anyway -- because that reason is written into the returned
+    `origin`, stored as `persona_v2_bytes_origin`, and read back as
+    provenance by anything that audits the run.
+
     WHEN BOTH PATHS ARE AVAILABLE THEY MUST AGREE. git supplies the bytes,
     but a working-tree copy that differs is reported as a hard failure
     rather than ignored: the committed validator subprocess and every human
@@ -1074,14 +1131,29 @@ def _persona_v2_frozen_bytes(
     # otherwise resolve `rev` there and return that repository's bytes. The
     # digest would catch it -- but only by accident of the two trees
     # differing, which is not a guarantee worth relying on.
+    # WHY A REASON IS COMPUTED RATHER THAN ASSUMED. Whichever way this goes,
+    # the reason is recorded in `persona_v2_bytes_origin`, so it must name
+    # what was observed. `no .git` used to be hardcoded for every fallback,
+    # which was false on a GitHub runner: `actions/checkout` defaulted to a
+    # depth-1 clone, so `.git` was present and the PINNED COMMIT was what
+    # was missing. The digest check below is unchanged and runs on the
+    # fallback bytes exactly as before -- only the label is at issue here.
+    fallback_reason = "no .git"
     if _has_git_directory(repo_root):
         try:
             from_git = subprocess.run(
                 ["git", "show", f"{rev}:{relative_path}"],
                 cwd=str(repo_root), capture_output=True, check=True,
             ).stdout
-        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        except FileNotFoundError:
             from_git = None
+            fallback_reason = "no git executable on PATH"
+        except (subprocess.CalledProcessError, OSError) as exc:
+            from_git = None
+            stderr = getattr(exc, "stderr", None) or b""
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", "replace")
+            fallback_reason = _git_blob_fallback_reason(repo_root, rev, str(stderr) or str(exc))
 
     if from_git is not None and on_disk.is_file():
         disk_bytes = on_disk.read_bytes()
@@ -1096,11 +1168,11 @@ def _persona_v2_frozen_bytes(
     if from_git is not None:
         raw, origin = from_git, f"git {rev}"
     elif on_disk.is_file():
-        raw, origin = on_disk.read_bytes(), f"committed file on disk (no .git): {on_disk}"
+        raw, origin = on_disk.read_bytes(), f"committed file on disk ({fallback_reason}): {on_disk}"
     else:
         raise PersonaCorpusError(
-            f"no frozen bytes for {relative_path}: `git show {rev}:{relative_path}` failed and "
-            f"{on_disk} does not exist"
+            f"no frozen bytes for {relative_path}: `git show {rev}:{relative_path}` did not serve them "
+            f"({fallback_reason}) and {on_disk} does not exist"
         )
 
     digest = hashlib.sha256(raw).hexdigest()
@@ -1329,9 +1401,11 @@ def load_frozen_persona_artifact(repo_root: str | Path) -> FrozenPromptArtifact:
     """Loads the FROZEN v2 persona corpus as a `FrozenPromptArtifact`, ready
     for `run_concept_grid` / `evaluate_concept_on_pairing` unchanged.
 
-    The bytes come from `git show c9dd6a7:...` where `.git` exists and from
-    the extracted committed file where it does not, and BOTH are checked
-    against the pinned sha256 (`_persona_v2_frozen_bytes`). Shape, mirror
+    The bytes come from `git show c9dd6a7:...` wherever that COMMIT is
+    present in the clone -- not merely wherever `.git` is -- and from the
+    committed file on disk otherwise (tarball extract, shallow clone, no
+    git binary), and BOTH are checked against the pinned sha256
+    (`_persona_v2_frozen_bytes`), which reports which case applied. Shape, mirror
     structure and threshold provenance are then verified by
     `build_persona_artifact`. No path here reads the working-tree file on
     trust and no path here writes anything under
