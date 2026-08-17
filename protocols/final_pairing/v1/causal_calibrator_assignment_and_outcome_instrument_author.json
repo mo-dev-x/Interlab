@@ -1,0 +1,169 @@
+{
+  "$comment": "COORDINATOR ASSIGNMENT recording (a) WHO CALIBRATES the four control-derived boundaries of the causal arm, and (b) WHO AUTHORS the causal outcome instrument. Architect RULING_15 (mailbox sequence 44, checks key THE_PRE_REGISTRATION_GAP_MAY_A_CALIBRATION_PROCEED_UNDER_A_SELF_DECLARED_ASSIGNMENT) ruled that a calibration may NOT fix a binding number under a SELF-DECLARED assignment, and that the discharge is ONE artifact of the shape of entity_discriminator_calibrator_assignment.json. This is that artifact. IT SETS NO NUMBER AND ADDS NO GATE.",
+  "protocol_version": "final-pairing-causal-calibrator-assignment-and-outcome-instrument-author/1.0.0",
+  "gating": {
+    "causal_control_only_calibration": true,
+    "causal_outcome_instrument_authorship": true,
+    "corpus_implements_definition_semantic_limb": false,
+    "feature_group_selection": false,
+    "gpu_generation": false,
+    "submission": false
+  },
+  "supersedes": null,
+  "extends": {
+    "protocol": "protocols/final_pairing/v1/entity_discriminator_calibrator_assignment.json",
+    "protocol_version": "final-pairing-entity-discriminator-calibrator-assignment/1.0.0",
+    "artifact_sha256_at_the_time_this_document_was_written": "a985713f40c779f6fc34a2f6ae7d12a30cb383e90f2fe295fb3da6c70d90b0c6",
+    "note": "RULING_15 clause 3 names that artifact BY ITS DIGEST -- 'of the shape of entity_discriminator_calibrator_assignment.json at a985713f'. The committer computed the digest of the file in the worktree and it begins a985713f, so the shape being required is the shape of those bytes as they stand. That is a DIFFERENT calibration (the entity-discriminator falsifier's 'materially below'), assigned to a different lane. Only the SHAPE is inherited here, never the assignment."
+  },
+  "binding_for_this_document": {
+    "describes_concepts": "none -- process artifact. It records two assignments and one standing prohibition. It is not a measurement and not a definition.",
+    "prompt_set_version": "NOT-APPLICABLE",
+    "note": "Stated rather than blank, per binding_chain_head_and_freeze_order/1.0.0 RULING_2. A blank reads as NOT CHECKED."
+  },
+  "WHAT_RULING_15_REQUIRED_VERBATIM_AND_WHY_A_PROSE_PARAGRAPH_WAS_NOT_ENOUGH": {
+    "the_ruling_on_the_act_itself_verbatim": "NO. A calibration may NOT FIX A BINDING NUMBER under a self-declared assignment. Any margin, ceiling, band, crossing threshold or dose reference fixed before the assignment artifact exists is VOID -- the same void RULING_13 and RULING_14 attach to a calibrator who also selects. The reason is not distrust of this lane: the ENTIRE CONTENT of the pre-registration is that the identity PRECEDES THE DATA, and an identity recorded afterwards is indistinguishable, to every later reader, from one chosen because the result suited it. A self-declared assignment is not a weak version of a recorded one; it is the thing the requirement exists to exclude.",
+    "what_discharges_it_verbatim": "One protocol artifact of the shape of entity_discriminator_calibrator_assignment.json at a985713f: naming the lane, assigned_by the coordinator, recorded_by a lane that neither selects nor calibrates nor generates, stating what the assignment covers, and SETTING NO NUMBER. It must name the QUANTITIES rather than the file -- the causal rate margin, the arithmetic ceiling, the crossing band and the dose reference -- so that a later file split cannot orphan the assignment.",
+    "the_timing_clause_verbatim": "The discharge is not 'the artifact exists'. It is: THE ASSIGNMENT ARTIFACT'S COMMIT IS A STRICT ANCESTOR OF THE COMMIT RECORDING THE FIRST CONTROL-DERIVED BOUNDARY. That is checkable by the same method I used to prove 49f8a73 and ed18ae1 are ancestors of c3941d1 at sequence 42, it costs one command, and IT CAN FAIL. A clause that cannot fail is the defect this ruling is written against.",
+    "what_was_NOT_void_and_is_recorded_so_nobody_re_litigates_it": "RULING_15 clause 1, verbatim: 'A CALIBRATION IS THE ACT OF FIXING A NUMBER FROM CONTROL DATA. Building an instrument, its refusals and its arithmetic, and exercising them on synthetic fixtures where no control datum exists, IS NOT A CALIBRATION. So nothing landed at 30a7852 is void, nothing needs retroactive authorisation, and the lane owes no apology for having built it.' This artifact voids nothing and revives nothing.",
+    "why_the_prose_field_was_insufficient_and_was_nonetheless_RATIFIED": "RULING_15 clause 5 ratifies PinnedCalibration.assignment_record's prose disclosure as correct DISCLOSURE -- a blank reads as NOT CHECKED -- while refusing it as a CHECK, because the field is a free string written BY THE CALIBRATING LANE and would, on the day the assignment existed, accept that lane's own claim that it exists. The remedy required was a hash-bound reference whose recorded_by differs from the calibrating lane. The calibrating lane implemented the refusal; it could not supply the referent, and said so."
+  },
+  "THE_ASSIGNMENT": {
+    "CALIBRATING_LANE": "researcher",
+    "assigned_by": "the coordinator",
+    "recorded_by": "committer",
+    "recorded_by_clears_the_three_role_bar_in_clause_3": {
+      "requirement_verbatim": "recorded_by a lane that neither selects nor calibrates nor generates",
+      "does_not_select": "SATISFIED. The group-selecting lane is engineer1: scripts/final_pairing/group_selection.py has exactly two commits, dfae876 and ec74390, and engineer1's archived report engineer1-000015 is headed 'group_selection lands exact minimum cover over A[f,c]'. The committer lane has authored no commit touching that file.",
+      "does_not_calibrate": "SATISFIED. The calibrating lane is researcher, named above; causal_calibration.py, causal_outcome.py and causal_claims.py have exactly two commits between them, 30a7852 and 67aedc1, both the researcher's, and the committer lane has authored neither.",
+      "does_not_generate": "SATISFIED. The lane that generates the intervened continuations is engineer3, which carries scripts/final_pairing/group_intervention.py as its own artifact at inbox sequence 24. The committer lane has authored no commit touching that file.",
+      "and_the_recorder_is_not_the_named_lane": "SATISFIED, and it is the load-bearing one. recorded_by is committer, CALIBRATING_LANE is researcher, and assert_assignment_is_not_self_declared refuses when those two are equal under case-folding."
+    },
+    "what_the_assignment_covers": "Fixing, from CONTROL DATA ONLY, the four control-derived boundaries of the causal arm named below: before any intervened generation is scored, and pinned by hash before any of them is quoted.",
+    "grounds": {
+      "1_it_is_the_lane_that_built_the_control_only_derivation": "OBSERVED, not assumed: scripts/final_pairing/causal_calibration.py, causal_outcome.py and causal_claims.py exist at 30a7852 and 67aedc1 and no other lane has committed to them. The lane that owns the derivation is the lane whose numbers must survive audit.",
+      "2_it_does_not_select_the_feature_group": "The binding half of RULING_13 and RULING_14: the calibration is VOID if the calibrating lane also selects the group. Selection is engineer1's. causal_calibration.py's own module docstring records that nothing in it reads an admissibility matrix, a coverage certificate, a depth vector or a candidate group, and a test asserts over the file that it imports no selection symbol.",
+      "3_it_authored_neither_the_description_nor_the_corpus": "The description author is the PM, which carries concept_description_persona_exceptionalism.json at its inbox sequence 3. The corpus author is corpus_author, which carries prompts/final_pairing/v2/prompt_sets.jsonl at its inbox sequence 3. Neither is the researcher.",
+      "4_it_declared_the_gap_against_its_own_interest_rather_than_writing_past_it": "The lane's own module docstring states 'This file is authored by the researcher lane on a coordinator instruction that is not yet in any protocol artifact... The assignment needs recording; this file cannot record it', and its inbox sequence 7 states 'I did not author the assignment artifact and cannot: its recorder must not be me.' A lane that builds the refusal binding itself and then declines to satisfy it by hand is the behaviour the pre-registration exists to buy."
+    }
+  },
+  "THE_QUANTITIES_NAMED_RATHER_THAN_THE_FILE": {
+    "$why": "RULING_15 clause 3, verbatim: 'It must name the QUANTITIES rather than the file... so that a later file split cannot orphan the assignment.' Naming causal_calibration.py would let a rename, a split or an extraction carry a boundary out from under this record without anybody editing this record.",
+    "the_four_identifiers_as_the_consuming_code_spells_them": [
+      "causal_rate_margin",
+      "arithmetic_ceiling",
+      "crossing_band",
+      "dose_reference"
+    ],
+    "where_that_spelling_comes_from": "scripts/final_pairing/causal_calibration.py, ASSIGNED_QUANTITIES, read at the worktree state of this commit. assert_assignment_is_not_self_declared refuses an AssignmentReference whose quantities_covered omits any one of them, so these four strings are the ones a consumer will compare against; they are transcribed rather than paraphrased for exactly that reason.",
+    "in_the_rulings_own_prose": "the causal rate margin, the arithmetic ceiling, the crossing band and the dose reference.",
+    "NONE_OF_THE_FOUR_EXISTS": "CONFIRMED BY THE RECORDER, not taken from the calibrating lane's word. See NO_CONTROL_DERIVED_BOUNDARY_EXISTS_AS_OF_THIS_COMMIT. That is what makes this artifact a STRICT ANCESTOR rather than a retro-authorisation, and it is the whole reason it can be written at all.",
+    "this_assignment_covers_the_ACT_not_a_module": "If the four quantities later move into other files, split across files, or are derived by a successor routine, this assignment travels with the QUANTITIES and continues to bind. If a FIFTH control-derived boundary is introduced, it is NOT covered here and needs its own record; that is a gap stated rather than papered over."
+  },
+  "NO_CONTROL_DERIVED_BOUNDARY_EXISTS_AS_OF_THIS_COMMIT": {
+    "$why_this_section_exists": "The discharge is ANCESTRY, and ancestry of nothing is vacuous unless the nothing is established. If a boundary already existed, this artifact could not be its strict ancestor and RULING_15 clause 2 would make that boundary VOID. The recorder therefore checked rather than assumed, and would have stopped and reported instead of writing this file.",
+    "what_the_recorder_checked": [
+      "No control generation exists on either pairing, so no control distribution exists from which a boundary could be derived.",
+      "No pinned calibration file exists anywhere in the worktree or in git history. write_pin() takes a caller-supplied path and no caller in the repository invokes it.",
+      "git log --all -S over the pin's own field names across tracked JSON returns no commit.",
+      "The gitignored results/ and reports/ trees carry no file containing rate_margin, rate_ceiling, calibration_digest or signed_band. reports/calibration_pool_reserved.json is the LEGACY SAE calibration-reserved feature pool under the adjudication prereg and is unrelated to the causal arm's boundaries.",
+      "The only numerals in the causal modules are anchors and cardinalities, not boundaries: zero as the point at which nothing is asserted, and the cardinality of THE_SIX_CLAIM_TYPES read off the frozen set."
+    ],
+    "the_calibrating_lanes_own_statement_which_the_recorder_CONFIRMED_rather_than_relied_on": "causal_calibration.py, UNEXERCISED_WITHOUT_GPU, first entry, verbatim: 'Every number this module has ever produced. No control generation exists, on either pairing, because generation needs weights and a cluster this lane has neither. The arithmetic, the derived minima and the refusals are proven on synthetic control sets; NO MARGIN, CEILING OR BAND FOR EITHER PERSONA HAS BEEN COMPUTED AND NONE MAY BE QUOTED.'",
+    "and_its_reports_statement": "researcher inbox sequence 7, checks key DEFECTS_3_AND_4_AND_THE_PRE_REGISTRATION_GAP, verbatim: 'The ancestry discharge is stated in the record as the condition -- the artifact's commit must be a STRICT ANCESTOR of the commit recording the first control-derived boundary -- and no such boundary exists, so nothing is outstanding yet.'",
+    "VERDICT": "NO CONTROL-DERIVED BOUNDARY EXISTS. Nothing is void. Nothing is retro-authorised by this document, because there is nothing to retro-authorise."
+  },
+  "THE_ANCESTRY_DISCHARGE_AND_HOW_TO_MAKE_IT_FAIL": {
+    "the_condition": "THIS ARTIFACT'S COMMIT MUST BE A STRICT ANCESTOR OF THE COMMIT RECORDING THE FIRST CONTROL-DERIVED BOUNDARY.",
+    "the_command": "git merge-base --is-ancestor <this artifact's commit> <the commit recording the first boundary>; exit zero is a pass. STRICT: the two must not be the same commit, so a boundary landing in this very commit FAILS the discharge and is VOID.",
+    "why_strictness_is_not_pedantry": "A boundary committed alongside its own assignment is a self-declaration with two files instead of one. The identity must PRECEDE the data, and precede is an ordering over commits, not a claim in prose.",
+    "it_can_fail_and_here_is_the_case": "If any lane fixes a margin, ceiling, band or dose reference in a commit that IS this commit, or an ancestor of it, the check returns non-zero and RULING_15 clause 2 voids that boundary. The recorder has established that no such commit exists TODAY; the check is what keeps that true TOMORROW.",
+    "the_digest_this_document_cannot_carry": "A file cannot contain its own sha256. The digest that binds this artifact is recorded OUTSIDE it -- in the committer's mailbox report and in the commit that lands these bytes -- and a consumer computes it over the file. AssignmentReference(path, sha256, recorded_by, assigned_by, quantities_covered) is where it is asserted, and an unpinned assignment is refused there rather than stored."
+  },
+  "THE_CAUSAL_OUTCOME_INSTRUMENT_AND_ITS_AUTHOR": {
+    "$why_here": "RULING_15 R3 clause 3 states the five author exclusions exhaustively and then declines the appointment: 'I state the exclusion set exhaustively; deriving which lanes remain eligible is analysis, and CHOOSING one is a coordination decision. I do not name it.' The coordinator chose. This records the choice.",
+    "AUTHOR": "conformance",
+    "assigned_by": "the coordinator",
+    "recorded_by": "committer",
+    "the_instrument": "scripts/final_pairing/claim_type_extent_instrument.py",
+    "commit": "29b1dc0100f11318fd570f76041e7f3511bf0bec",
+    "sha256_recomputed_by_the_recorder": "7e333bb37086b28089fc32c3e799b05170ccd4b446174c398c1615746de8c3fb",
+    "digest_provenance": "Computed by the committer over the blob at that commit AND over the worktree file; both agree, and both agree with the sha256 the conformance lane published in its own inbox sequence 4 artifacts array. Three independent computations, not one transcribed number.",
+    "the_five_exclusions_and_the_lane_holding_each": {
+      "not_the_description_author": "pm",
+      "not_the_corpus_author": "corpus_author",
+      "not_the_group_selecting_lane": "engineer1",
+      "not_the_lane_calibrating_this_number": "researcher",
+      "not_the_lane_that_generates_the_intervened_continuations": "engineer3",
+      "the_fifth_is_NEW_at_RULING_15_and_its_reason_verbatim": "A lane that both steers and scores can make its own steering succeed, and the scoring of free text has far more discretion in it than any numeric check the sprint has separated so far.",
+      "FIVE_DISTINCT_LANES": "CONFIRMED by the recorder against the mailbox and against git: pm carries the description at its sequence 3; corpus_author carries prompt_sets.jsonl at its sequence 3; engineer1 is the only committer to group_selection.py and is headed as its author at archive entry engineer1-000015; researcher is the only committer to the three causal modules; engineer3 carries group_intervention.py at its sequence 24. conformance is none of the five.",
+      "and_the_appointee_checked_this_ITSELF": "conformance inbox sequence 4, checks key APPOINTMENT_ACCEPTED_AND_THE_EXCLUSION_CHECK_THAT_DECIDED_IT, verdict verbatim: 'ACCEPTED. I read R3 clause 3 in inbox/architect.json myself rather than take the coordinator's paraphrase, and I clear all five.' The recorder re-derived the five holders independently and agrees. Two derivations, not one."
+    },
+    "the_separation_is_IN_THE_SIGNATURE_not_in_a_docstring": "declare_authorship takes all five roles keyword-only with no defaults, refuses an empty name for each, and imports the role set from the calibration lane's module so the two cannot drift. RULING_15's own wording for why: 'A separation recorded in a docstring and not in the signature is a separation nobody can fail.'",
+    "WHAT_THIS_APPOINTMENT_DOES_NOT_DO": "It does not discharge the scale. The appointee states, unprompted, that levels above the first anchor pair are unexercised by every frozen row, that resolution and rank reliability are unmeasured and not its own, that the T6 factual floor is not mechanically dischargeable, and that its behaviour on model continuations is UNMEASURED. Recorded here so a later reader cannot mistake an appointment for a validation."
+  },
+  "RULING_12s_SEMANTIC_CORPUS_IMPLEMENTS_DEFINITION_INSTRUMENT_IS_UNOWNED_AND_MUST_NOT_GO_TO_CONFORMANCE": {
+    "STATUS": "UNOWNED. No lane holds it, and this artifact does not assign it. Naming its owner remains a coordination decision that has not been made.",
+    "the_frozen_basis": "The archived RULING_12, BLOCKER_QUESTION_2, verbatim: 'A MECHANICAL corpus-implements-definition instrument now exists; the SEMANTIC one does not, and per RULING_9 it may be neither author. Naming its owner is a coordination decision.'",
+    "PROHIBITION_IT_MAY_NOT_BE_ASSIGNED_TO_CONFORMANCE": "BINDING. RULING_15 R3 clause 5 permits one lane to hold both limbs and then makes the consequence automatic: 'PERMITTED, and if it does, THE RECONCILIATION IS SELF-MARKING AND VOID: it must then be performed by a lane holding neither. Otherwise the bind evaporates precisely in the case where it is most needed.' conformance already holds the causal outcome instrument. Handing it the semantic corpus limb would void the reconciliation between the two, retroactively, and without anybody editing a rule.",
+    "the_appointee_raised_this_AGAINST_ITS_OWN_SCOPE": "conformance inbox sequence 4, verbatim: 'IF THE SEMANTIC CORPUS-IMPLEMENTS-DEFINITION INSTRUMENT IS LATER ASSIGNED TO conformance, R3 clause 5's reconciliation IS VOID AND SELF-MARKING FROM THAT MOMENT. Route it elsewhere. I am the lane most likely to be handed it, because I already hold the mechanical limb and the corpus fixtures, which is exactly why it must not come here.'",
+    "why_it_is_recorded_HERE_rather_than_left_in_a_mailbox": "A mailbox entry is read by whoever is reading the mailbox that day. The lane most likely to be handed this instrument is the lane already holding the fixtures, and the person handing it over is the person least likely to be re-reading sequence 4. Recording the prohibition in the protocol tree is what makes a future assignment impossible to make IN IGNORANCE of it.",
+    "R3_clause_5_is_NOT_triggered_today": "conformance holds the MECHANICAL corpus limb and this instrument, which are different objects: RULING_12's own distinction is that the mechanical limb made the LABELLING checkable and left the SENTENCE unchecked. The recorder repeats that distinction as the appointee stated it and does not extend it.",
+    "the_bind_that_survives_and_can_FAIL": "Where both instruments cover the same frozen row their verdicts must be RECONCILED and any disagreement referred before R1's scale is adopted. One side exists and is hash-bound; the other does not exist, and this document does not create it."
+  },
+  "NO_NUMBER_IS_SET_BY_THIS_ARTIFACT": {
+    "explicit": "This artifact names two lanes and records one prohibition. It sets no margin, no ceiling, no band, no crossing threshold, no dose reference and no resolution; it infers none, and it contains no numeric value for any of them. ANY NUMBER APPEARING IN THIS ARTIFACT FOR ANY OF THOSE QUANTITIES WOULD BE AN INVENTED BOUNDARY AND MUST BE READ AS AN ERROR.",
+    "the_only_numerals_present": "Commit ids, sha256 digests, protocol version numbers, and mailbox sequence numbers. No boundary, no threshold, and no count of any measured thing.",
+    "thresholds_moved": 0,
+    "gates_added": 0,
+    "boundaries_set": 0,
+    "frozen_artifacts_edited": 0,
+    "submissions_authorized": 0,
+    "binding_status": "ENGINEERING PREVIEW ONLY. No bundle is attested by this document."
+  },
+  "DIVERGENCES_RECORDED_RATHER_THAN_RECONCILED": {
+    "$why": "Where the coordinator's instruction and the frozen artifacts differ, the recorder's job is to surface both and reconcile neither. A recorder who quietly picks one has made the decision it was appointed not to make.",
+    "1_the_fourth_quantity_is_named_differently_by_the_coordinator": {
+      "the_ruling_and_the_code": "RULING_15 clause 3 names 'the dose reference' as the fourth quantity, and ASSIGNED_QUANTITIES in causal_calibration.py spells it dose_reference. The consuming refusal compares against that spelling.",
+      "the_coordinators_tasking": "named 'the resolution' in the fourth position instead of the dose reference.",
+      "what_the_recorder_did": "Recorded the four identifiers AS THE RULING AND THE CODE SPELL THEM, because the ruling is the normative source and the code is what will refuse. The coordinator's word 'resolution' is preserved here unaltered rather than silently mapped onto the dose reference.",
+      "and_it_matters_because_they_are_not_the_same_object": "rubric_resolution and rate_resolution appear in the pin as MEASURED properties of the instrument and of the control sample size; the dose reference is the replacement dose scale, which derive_dose_reference today REFUSES for want of a declared substrate and a measured positive activation. If the coordinator intends resolution to be a FIFTH covered quantity, THAT IS NOT RECORDED HERE and needs saying; this document does not decide it."
+    },
+    "2_the_architect_has_twice_named_a_DIFFERENT_calibrating_lane": {
+      "what_RULING_13_and_RULING_14_say": "Both STANDING blocks state, in the architect's own words, 'Calibration is engineer3's by the coordinator's assignment and is VOID if that lane also selects the group', and RULING_14 repeats it verbatim.",
+      "what_this_document_records": "The coordinator states the calibrating lane for the CAUSAL boundaries is researcher, and the researcher lane is in fact the only lane that has committed to the three causal modules.",
+      "the_recorders_reading_offered_as_a_READING_and_not_as_a_reconciliation": "The only coordinator assignment previously written into the protocol tree is entity_discriminator_calibrator_assignment.json, which assigns engineer3 to the ENTITY-DISCRIMINATOR calibration -- a different falsifier, a different quantity, a different timing. The architect may have carried that name across to the causal calibration; or the coordinator may have reassigned. THE RECORDER DOES NOT KNOW WHICH AND DOES NOT DECIDE.",
+      "RULING_15_however_left_it_OPEN_rather_than_settled": "Its own STANDING, verbatim: 'Naming the instrument's author and naming the causal calibration's owner remain COORDINATION decisions and are not mine, exactly as at RULING_13 and RULING_14.' The latest ruling therefore does not itself name engineer3 for this calibration, and the architect has consistently refused to make the appointment at all.",
+      "WHAT_MUST_HAPPEN_IF_THIS_IS_WRONG": "If the coordinator intends engineer3 to hold the causal calibration, THIS ARTIFACT MUST BE SUPERSEDED BEFORE THE FIRST BOUNDARY IS FIXED, not after -- a correction landing after the boundary cannot be a strict ancestor of it, and the boundary would be VOID under RULING_15 clause 2. Note also that engineer3 is the lane that generates the intervened continuations; whether a GENERATING lane may calibrate is not ruled anywhere the recorder could find, and is flagged rather than answered.",
+      "no_consequence_today": "Because no boundary exists, nothing has yet been fixed under either reading, and correcting this costs one commit."
+    },
+    "3_a_fixture_in_the_calibrating_lanes_module_names_lanes_that_are_not_the_real_ones": {
+      "observed": "causal_calibration.py's _FIVE_LANES maps selecting_lane to a lane name that is not the selecting lane, and generating_lane to a lane name that is not the generating lane. The real selecting lane is engineer1 and the real generating lane is engineer3.",
+      "why_it_is_not_reported_as_a_defect": "Its own comment reads 'The five excluded roles, for fixtures only. A real appointment is a coordination decision and is not made in a selfcheck', and the recorder confirmed by grep that it is referenced nowhere but its own definition site. It is a deliberately fictional fixture and is consumed by no real path.",
+      "why_it_is_recorded_anyway": "A later reader grepping for lane names will find it, and a fictional lane map sitting inside the calibration module is exactly the sort of thing that gets transcribed into a real record by someone in a hurry. Named here so that reading cannot happen silently."
+    }
+  },
+  "REGISTER_STATUS_PROVENANCE": {
+    "$note": "Per register_status_provenance/1.0.0: every status field cites THE OBSERVATION THAT ESTABLISHED IT, not the expectation.",
+    "requirement_source": "Mailbox sequence 44, actor architect, timestamp_utc 2026-08-17T21:55:00Z, commit 1c8a1b386f7cef90b07873755a05de640265adb9, checks keys THE_PRE_REGISTRATION_GAP_MAY_A_CALIBRATION_PROCEED_UNDER_A_SELF_DECLARED_ASSIGNMENT and R3_THE_INSTRUMENT_AND_ITS_AUTHOR. Read at source by the committer, in the checks object rather than in the message field, because that is where the normative content of this ruling lives.",
+    "instrument_author_acceptance_source": "Mailbox sequence 4, actor conformance, timestamp_utc 2026-08-17T23:22:55Z, commit 29b1dc0100f11318fd570f76041e7f3511bf0bec, checks key APPOINTMENT_ACCEPTED_AND_THE_EXCLUSION_CHECK_THAT_DECIDED_IT. Read at source by the committer.",
+    "calibrating_lane_source": "Mailbox sequence 7, actor researcher, timestamp_utc 2026-08-17T22:40:19Z, commit 67aedc1feca9bdae98e657f450e789a89f5b448d, checks keys DEFECTS_3_AND_4_AND_THE_PRE_REGISTRATION_GAP and WHAT_I_NEED, corroborated by git log over the three causal modules showing two commits and no other author.",
+    "semantic_instrument_status_source": "conformance sequence 4, checks key RULING_12s_SEMANTIC_INSTRUMENT_REMAINS_UNOWNED_AND_THE_RECONCILIATION_DOES_NOT_COLLAPSE, quoting the archived RULING_12 BLOCKER_QUESTION_2, which the committer read at the archived ruling itself.",
+    "boundary_nonexistence_source": "Recomputed by the committer at the worktree state of this commit: no pin file on disk or in history, no caller of write_pin, no match for the pin's field names in tracked JSON history or in the gitignored results/ and reports/ trees, and the calibrating lane's own UNEXERCISED_WITHOUT_GPU statement in the module bytes.",
+    "status_of_the_calibration_itself": "NOT PERFORMED. All four boundaries are UNSET. This artifact records WHO and WHICH QUANTITIES, never WHAT VALUE.",
+    "what_the_recorder_did_NOT_verify": [
+      "That the conformance instrument is CORRECT. The recorder verified its digest, its commit and its author's eligibility, and read the appointee's own list of what it does not discharge. It did not audit the instrument's arithmetic, and this artifact certifies no instrument.",
+      "That engineer1 and engineer3 are the ONLY holders of selection and generation respectively. Established from each lane's own claimed artifacts and from git log over the two files, which is authorship of code and not a formal appointment; no protocol artifact assigns either role.",
+      "That the coordinator's assignment of researcher supersedes the architect's twice-repeated naming of engineer3. UNVERIFIED, and recorded as a divergence above rather than resolved."
+    ]
+  },
+  "hard_stops": [
+    "Fixing any of the four named quantities in a commit that IS this commit, or an ancestor of it. The ancestry must be STRICT, and a boundary landing alongside its own assignment is a self-declaration in two files.",
+    "Fixing any of the four from data that is not CONTROL data, or before any control generation exists at all.",
+    "Storing an assignment_record that is a free-text claim rather than a path plus sha256 resolving to this artifact, or one whose recorded_by is the calibrating lane.",
+    "Assigning RULING_12's SEMANTIC corpus-implements-definition instrument to conformance. It voids R3 clause 5's reconciliation from that moment, self-markingly, and no edit to any rule is required for that to happen.",
+    "Reading this artifact as authorizing a gate, an exclusion, a number, an allocation, a scan, a generation or a submission. It records two assignments and one prohibition.",
+    "Treating the instrument appointment as validating the scale. The upper levels are unexercised by every frozen row, and resolution and rank reliability are UNMEASURED.",
+    "Quoting any margin, ceiling, band or dose reference. None has been computed, and RULING_15 clause 2 makes any that predates this commit VOID."
+  ]
+}
