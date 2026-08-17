@@ -115,6 +115,40 @@ So firing is OBSERVED AND ASSERTED, never assumed:
   can survive the dtype at all. See `DTYPE_LIMITS` for the measured table.
 
 ------------------------------------------------------------------------
+A CLAMP DOSE THAT EVALUATES TO ZERO IS REFUSED, NEVER RUN
+------------------------------------------------------------------------
+
+The clamp dose is `target_f = alpha * corpus_max_f`. On a MAXIMALLY
+SELECTIVE feature -- one that fires on the concept and nowhere in the
+background, so `corpus_max == 0` -- that product is EXACTLY ZERO, and the
+amplify arm would fire, be scored, and have done nothing. 89.52% of
+full-space cells have `corpus_max == 0` (architect, mailbox sequence 43,
+FULL-SPACE; the 46.86% shortlist figure does not govern), so this is the
+common case, not an edge case.
+
+`corpus_max == 0` IS NOT A DEAD FEATURE -- see
+`MAXIMAL_SELECTIVITY_IS_NOT_A_DEAD_FEATURE`, quoting the discovery
+runner's own words at `final_pairing_concept_discovery.py` lines 1838-1841.
+So the fault is in the SCALE, not in the feature, and the response is
+neither to exclude the member nor to substitute a default:
+
+- `GroupSpec.__post_init__` RAISES `ZeroClampDose` at construction, so no
+  spec naming a zero-dose member can exist to be run.
+- `resolve_group` RAISES again on the FLOAT32-evaluated targets, which
+  catches a product that is non-zero in float64 and underflows to zero in
+  the dtype the target is actually evaluated in.
+- A MIXED group refuses too. Dosing only the non-zero members would make a
+  5-member group act as a 3-member one -- the same arity corruption this
+  module already refuses for an out-of-range index or a duplicate.
+- NO REPLACEMENT SCALE IS NAMED HERE. What the reference should be for such
+  a feature is a calibration question owned by a lane that does not select
+  the group; this module invents nothing.
+
+Ablation-by-subtraction is UNAFFECTED and is measured to be: it removes
+`a_f(h) * W_dec[f]`, the feature's actual contribution, and needs no corpus
+reference at all.
+
+------------------------------------------------------------------------
 BOTH FINAL PAIRINGS ARE HOOKABLE
 ------------------------------------------------------------------------
 
@@ -204,12 +238,14 @@ UNEXERCISED_WITHOUT_GPU = (
     "Real Gemma-3-12B-it / Qwen3.5-27B weights: no forward has ever run through this file "
     "on either final-pairing model. Both hook paths are exercised end to end on this "
     "repository's pinned tiny fixtures instead.",
-    "Qwen3_5DecoderLayer specifically: the raw-HF path is proven against a real "
-    "Qwen2DecoderLayer (tests/fixtures/tiny_model), which returns its hidden states as a "
-    "plain tensor exactly as final_pairing_harness documents Qwen3_5DecoderLayer doing. If "
-    "Tamia's installed Qwen3.5 returns a tuple instead, register_qwen_raw_hook REFUSES -- "
-    "that refusal is tested, the tuple-returning layer itself is not, because no Qwen3.5 "
-    "weights exist here.",
+    "Qwen3_5DecoderLayer AT SCALE: the class itself is no longer unexercised -- the raw-HF path "
+    "now runs end to end (resolve, hook, generate, exact delta, ablation, both layer_types) "
+    "against a REAL transformers.models.qwen3_5.Qwen3_5DecoderLayer instantiated at fixture "
+    "size with random weights from the installed transformers, whose output is MEASURED to be a "
+    "plain tensor. What remains unexercised is the 27B weights, the GPU, bfloat16, and Tamia's "
+    "transformers==5.14.1 specifically (this machine has 5.12.1). A tuple-returning layer is "
+    "DETECTED PRE-GENERATION by probe_raw_hf_layer_output_contract() and refused, not handled: "
+    "see QWEN3_5_LAYER_OUTPUT_CONTRACT for why unwrapping it here alone would be worse.",
     "Multi-GPU / device_map sharding: assert_devices_before_forward() is exercised only in "
     "the all-CPU case, where it trivially agrees, and the separate model-vs-decoder_layer "
     "placement assertion on the raw-HF backend has never seen an actually-split model.",
@@ -223,7 +259,12 @@ UNEXERCISED_WITHOUT_GPU = (
     "produces at a given alpha is predicted by the same arithmetic and NOT observed.",
     "The clamp dose form at a REAL corpus_max: per-member targets are exercised with "
     "hand-supplied scales, because no corpus census for either final pairing exists on this "
-    "machine. The arithmetic is proven; the doses are not real doses.",
+    "machine. The arithmetic is proven; the doses are not real doses. A REAL corpus_max of 0 is "
+    "now a REFUSAL (ZeroClampDose) rather than a dose, so what is unexercised is not the zero "
+    "case -- it is any non-degenerate real census value.",
+    "What dose scale a maximally selective feature should be given: NOT DECIDED HERE and not "
+    "decidable here. This module refuses the zero dose and names no replacement; the reference "
+    "is a calibration measurement owned by a lane that does not select the group.",
     "Whether an intervention that is APPLIED produces any particular EFFECT: this module "
     "measures and classifies, and owns no success criterion. RULING_13 places that in a "
     "control-only calibration performed by a lane that does not select the group, so no "
@@ -250,6 +291,21 @@ class FeatureNotInSAE(InvalidGroupSpec):
     RAISED, never dropped. A group that silently shed an out-of-range
     member would turn a five-feature result into a secret three-feature
     one while every count downstream still read five."""
+
+
+class ZeroClampDose(InvalidGroupSpec):
+    """The clamp dose `alpha * corpus_max` evaluates to EXACTLY ZERO.
+
+    RAISED, never warned. An amplify arm whose dose is zero fires, is
+    scored, and did nothing -- a result indistinguishable from 'this concept
+    is not steerable'. `corpus_max == 0` means MAXIMAL SELECTIVITY, not a
+    dead feature, so the fault is in the SCALE and this module neither
+    excludes the member nor substitutes a default."""
+
+
+class RawHfLayerContractMismatch(GroupInterventionError):
+    """The raw-HF decoder layer does not return the plain resid-post tensor
+    this pairing's whole raw-HF path -- scoring included -- is built on."""
 
 
 class UnsupportedSAE(GroupInterventionError):
@@ -392,6 +448,116 @@ residual_norm`, which `measure_sae_fidelity_context()` reports separately
 and labels as its own thing."""
 
 
+MAXIMAL_SELECTIVITY_IS_NOT_A_DEAD_FEATURE = """corpus_max == 0 DOES NOT MEAN A DEAD FEATURE.
+
+With a live positive set it means MAXIMAL SELECTIVITY -- the feature fires on
+the concept and NOWHERE in the background -- and it scores 1.0 in the shadow
+statistic ON PURPOSE. The discovery runner says so in its own words
+(scripts/final_pairing/final_pairing_concept_discovery.py, docstring of
+compute_shadow_fire_rate_corpus_max): "a degenerate reference is NOT the same
+thing as a dead cell: `corpus_max == 0` with a live positive set is maximal
+selectivity (the feature fires on the concept and nowhere in the background),
+and it scores 1.0 here on purpose."
+
+89.52% of FULL-SPACE cells have corpus_max == 0 (architect, mailbox sequence
+43). This is the common case, not an edge case, and these are the MOST
+SELECTIVE candidates in the dictionary. Excluding them from groups is
+explicitly refused; what is wrong is the DOSE SCALE, which references
+background activation ("how much this feature normally fires in the corpus")
+where the property to be dosed is "how far this feature must be pushed to
+change the output"."""
+
+ZERO_DOSE_SCALE_IS_NOT_THIS_MODULE_S_TO_NAME = """NO REPLACEMENT DOSE SCALE IS NAMED HERE.
+
+What the reference should be for a maximally selective feature is a
+CALIBRATION question. It is a control-only measurement and it belongs to the
+lane that does NOT select the group (architect, mailbox sequence 43: "NOT
+RULED: what the replacement reference should be for such features ... I will
+not invent a scale"). So this module will not substitute a default, will not
+fall back to another member's scale, will not silently skip the member, and
+will not drop it from the group. It refuses, and the refusal is the finding."""
+
+
+def _clamp_dose_rows(
+    members: Sequence[GroupMember], alpha: float, evaluated: Sequence[float] | None = None
+) -> list[tuple[int, float, float, str]]:
+    """`[(feature_index, corpus_max, dose, reason_if_zero)]`, one row per
+    member, in member order. `reason_if_zero` is `""` for a live dose.
+
+    `evaluated` overrides the dose with the values actually computed in the
+    dtype the hook will use, so an underflow to zero at float32 is reported
+    as the underflow it is rather than as a `corpus_max == 0`."""
+    rows: list[tuple[int, float, float, str]] = []
+    for position, member in enumerate(members):
+        corpus_max = 0.0 if member.corpus_max is None else float(member.corpus_max)
+        exact = float(alpha) * corpus_max
+        dose = exact if evaluated is None else float(evaluated[position])
+        reason = ""
+        if dose == 0.0:
+            if corpus_max == 0.0:
+                reason = "corpus_max == 0 (MAXIMAL SELECTIVITY, not a dead feature)"
+            elif float(alpha) == 0.0:
+                reason = "alpha == 0, so every member's dose is zero whatever its corpus_max is"
+            else:
+                reason = (
+                    f"alpha * corpus_max == {exact!r} in float64 but UNDERFLOWS to exactly zero in "
+                    "float32, the dtype the clamp target is evaluated in"
+                )
+        rows.append((member.feature_index, corpus_max, dose, reason))
+    return rows
+
+
+def _refuse_zero_clamp_dose(
+    members: Sequence[GroupMember],
+    alpha: float,
+    *,
+    stage: str,
+    evaluated: Sequence[float] | None = None,
+) -> None:
+    """RAISE `ZeroClampDose` if any member's clamp dose is exactly zero.
+
+    Called at BOTH gates -- `GroupSpec.__post_init__` (so no such spec can
+    exist) and `resolve_group` (so a float32 underflow cannot slip past the
+    float64 check) -- and in both places BEFORE any hook is registered and
+    therefore before any forward pass."""
+    rows = _clamp_dose_rows(members, alpha, evaluated)
+    zero = [row for row in rows if row[3]]
+    if not zero:
+        return
+    live = [row for row in rows if not row[3]]
+    zero_indices = [row[0] for row in zero]
+    detail = "; ".join(
+        f"feature {index} (corpus_max={corpus_max!r}, dose={dose!r}): {reason}"
+        for index, corpus_max, dose, reason in zero
+    )
+    mixed = ""
+    if live:
+        mixed = (
+            f"\n\nTHIS IS A MIXED GROUP AND IT STILL REFUSES. Feature(s) "
+            f"{[row[0] for row in live]} do have a non-zero dose "
+            f"({[row[2] for row in live]}), and this group is NOT quietly run on that subset: a "
+            f"{len(rows)}-member group acting as a {len(live)}-member one is the same arity "
+            "corruption this module refuses for an out-of-range index or a duplicated member, and "
+            "every count downstream would still read " + str(len(rows)) + "."
+        )
+    raise ZeroClampDose(
+        f"dose_form='clamp' evaluates a dose of EXACTLY ZERO for feature(s) {zero_indices} at "
+        f"alpha={float(alpha)!r} [{stage}] -- REFUSING to run an amplification that cannot amplify. "
+        f"The dose is target_f = alpha * corpus_max_f. Per member: {detail}."
+        f"{mixed}"
+        "\n\nWHY THIS IS A REFUSAL AND NOT A WARNING: with a zero dose the hook fires, the ledger "
+        "records a firing, the generation is scored and a verdict is recorded -- and NOTHING WAS "
+        "DONE. That outcome is indistinguishable from 'this concept is not steerable', i.e. a "
+        "failure manufactured by the instrument, which is this module's named defect class.\n\n"
+        f"{MAXIMAL_SELECTIVITY_IS_NOT_A_DEAD_FEATURE}\n\n"
+        f"{ZERO_DOSE_SCALE_IS_NOT_THIS_MODULE_S_TO_NAME}\n\n"
+        "ABLATION IS UNAFFECTED. kind='ablate' with ablation_mechanism='subtract' removes "
+        "a_f(h) * W_dec[f] -- the feature's ACTUAL contribution -- and needs no corpus reference at "
+        "all, so this same group with these same members ablates normally. The zero-dose hazard is "
+        "confined to the clamp/amplify arm."
+    )
+
+
 @dataclass(frozen=True)
 class GroupMember:
     """One feature in the group, with its own weight AND ITS OWN SCALE.
@@ -452,6 +618,11 @@ class GroupSpec:
       max units, exactly the frozen causal grid's form, so a group arm stays
       commensurable with G-D. Under subtract this carries no reconstruction
       error and is an EXACT IDENTITY when every `target_f == a_f(h)`.
+      A `target_f` that evaluates to EXACTLY ZERO -- which is what
+      `corpus_max == 0`, i.e. MAXIMAL SELECTIVITY, produces at every alpha --
+      RAISES `ZeroClampDose` here at construction. A dose of alpha that
+      quietly became 0 is the same defect as a group of 5 that quietly became
+      3, and it is refused in the same way.
 
     NEITHER IS MULTIPLICATIVE, on purpose. A multiplicative dose is
     identically zero where the group is silent, so an amplification arm
@@ -531,6 +702,14 @@ class GroupSpec:
                     "activation scales, so one member's max applied to the group is not 'the same "
                     "dose' -- it is one member overdosed while the others do nothing."
                 )
+            # THE FIRST GATE ON A ZERO DOSE, and the earliest one available:
+            # at construction, so no spec naming a zero-dose member can exist
+            # to be handed to a hook, a backend or a job. 89.52% of full-space
+            # cells have corpus_max == 0, which is MAXIMAL SELECTIVITY and not
+            # a dead feature, so the refusal is about the scale.
+            _refuse_zero_clamp_dose(
+                self.members, float(self.alpha), stage="GroupSpec construction"
+            )
         if (
             self.kind == "ablate"
             and self.positions == "generated_only"
@@ -647,7 +826,15 @@ def null_configuration_is_exact_identity(spec: GroupSpec) -> bool:
     quirk: clamping a group to a target of zero is an ABLATION, the most
     active intervention this module performs. Only an EMPTY clamp group is
     a no-op. Treating alpha==0 as universally inert would have made the
-    strongest ablation available report itself as a control."""
+    strongest ablation available report itself as a control.
+
+    That clamp/alpha==0 branch is now DEFENCE IN DEPTH rather than a
+    reachable state: `GroupSpec` refuses a clamp spec whose dose evaluates
+    to zero (`ZeroClampDose`), and alpha == 0 makes every member's dose
+    zero. An ablation must be expressed as `kind='ablate'` with its
+    mechanism named, which is what that refusal says. The branch is kept
+    because a non-identity must never be reported as an identity, whichever
+    gate is doing the refusing."""
     if spec.kind == "noop":
         return True
     if spec.member_count == 0:
@@ -758,6 +945,18 @@ def resolve_group(sae: Any, spec: GroupSpec) -> ResolvedGroup:
             [float(spec.alpha) * float(m.corpus_max) for m in spec.members],
             dtype=torch.float32,
             device=device,
+        )
+        # THE SECOND GATE ON A ZERO DOSE, on the values ACTUALLY EVALUATED in
+        # the dtype the hook uses. GroupSpec already refused every dose that is
+        # zero in float64; this catches the one it structurally cannot see -- a
+        # product that is non-zero in float64 and UNDERFLOWS to exactly zero at
+        # float32, which would reach the hook as a silent no-op. Still before
+        # any hook is registered, so no forward pass is spent on it.
+        _refuse_zero_clamp_dose(
+            spec.members,
+            float(spec.alpha),
+            stage="resolve_group, on the float32-evaluated targets",
+            evaluated=[float(v) for v in clamp_targets.tolist()],
         )
 
     resolved = ResolvedGroup(
@@ -1784,6 +1983,156 @@ def assert_hooks_the_scored_tensor(decoder_layer: Any, hf_model: Any, *, layer: 
     }
 
 
+QWEN3_5_LAYER_OUTPUT_CONTRACT = """THE RAW-HF LAYER MUST RETURN THE PLAIN RESID-POST TENSOR.
+
+MEASURED, on the installed transformers==5.12.1, by instantiating the REAL
+classes at fixture size (no weights, no GPU) and reading their own source:
+
+  - `transformers.models.qwen3_5.modeling_qwen3_5.Qwen3_5DecoderLayer.forward`
+    is annotated `-> torch.FloatTensor` and ends in `return hidden_states`.
+  - `Qwen3_5MoeDecoderLayer.forward` unpacks its MoE tuple internally
+    (`if isinstance(hidden_states, tuple): hidden_states, _ = hidden_states`)
+    and also ends in `return hidden_states`.
+  - A real tiny `Qwen3_5ForCausalLM` was generated from, with a forward hook
+    on both a `linear_attention` and a `full_attention` layer: every
+    invocation delivered a plain `torch.Tensor`.
+
+ARGUED, NOT PROVEN HERE: that Tamia's transformers==5.14.1 is the same. This
+machine has 5.12.1 and there is no network; `final_pairing_harness`'s author
+records having read the public v5.14.1 source, and that reading is not
+re-verified by this module.
+
+WHY A TUPLE IS REFUSED AND NOT UNWRAPPED. It is not that unwrapping is hard.
+It is that THE SCORER HAS THE SAME ASSUMPTION AND IS IN ANOTHER LANE'S FILE.
+All three Qwen capture sites in `final_pairing_concept_discovery.py` do
+`captured.append(output.detach())` on the raw hook `output`; on a tuple that
+raises `AttributeError` before any feature is scored. If this module taught
+ITSELF to unwrap element 0 and the scorer still could not, the intervention
+would steer a tensor the scorer never scored -- exactly the divergence
+`assert_hooks_the_scored_tensor()` exists to prevent, and a divergence with
+no wrong-looking half. Deciding the unwrap convention is therefore a
+CROSS-LANE change to the shared `register_qwen_raw_hook` and to those three
+capture sites, not a local fix, and this lane does not make it unilaterally.
+
+WHAT THIS MODULE DOES INSTEAD. `probe_raw_hf_layer_output_contract()` runs a
+ONE-TOKEN forward with a capture-only hook -- no intervention, nothing
+generated, nothing scored -- and refuses there if the output is not a plain
+tensor. `RawHfBackend` runs it at CONSTRUCTION, so on the cluster the refusal
+arrives seconds after the model loads, before any prompt, any generation and
+any GPU hours."""
+
+
+def probe_raw_hf_layer_output_contract(
+    hf_model: Any,
+    decoder_layer: Any,
+    *,
+    expected_d_model: int | None = None,
+    probe_token_id: int | None = None,
+) -> dict[str, Any]:
+    """Determine, EMPIRICALLY AND CHEAPLY, what the hooked decoder layer
+    returns -- then refuse unless it is the plain resid-post tensor.
+
+    One forward over ONE token with a capture-only hook: no intervention is
+    installed, nothing is generated and nothing is scored, so this costs a
+    single token of compute and cannot contaminate a result. It exists so
+    that a layer whose output shape this harness was never verified against
+    is caught at CONFIGURATION TIME rather than mid-generation, and so that
+    the operator reading the failure is told it is a harness/transformers
+    contract mismatch and NOT a model failure.
+
+    Returns what it measured (type name, shape, dtype, device, and whether
+    the discovery scorer's own `output.detach()` idiom works on it) so a run
+    can record the contract it verified. See
+    `QWEN3_5_LAYER_OUTPUT_CONTRACT`."""
+    if not callable(getattr(decoder_layer, "register_forward_hook", None)):
+        raise GroupInterventionError(
+            f"{type(decoder_layer).__name__} has no register_forward_hook -- this is not an "
+            "nn.Module decoder layer, so its output contract cannot be probed."
+        )
+    seen: list[Any] = []
+
+    def _capture(_module: Any, _args: Any, output: Any) -> None:
+        seen.append(output)
+
+    device = next((p.device for p in getattr(hf_model, "parameters", lambda: [])()), None)
+    token = probe_token_id
+    if token is None:
+        config = getattr(hf_model, "config", None)
+        token = getattr(config, "bos_token_id", None)
+        if not isinstance(token, int):
+            token = 0
+    input_ids = torch.tensor([[int(token)]], dtype=torch.long)
+    if device is not None:
+        input_ids = input_ids.to(device)
+
+    handle = decoder_layer.register_forward_hook(_capture)
+    try:
+        with torch.no_grad():
+            hf_model(input_ids=input_ids)
+    finally:
+        handle.remove()
+
+    if not seen:
+        raise RawHfLayerContractMismatch(
+            f"a one-token probe forward never reached {type(decoder_layer).__name__} -- the layer "
+            "this intervention would hook is not on the model's forward path, so the hook would "
+            "never fire and the arm would report a null it never earned. Refusing."
+        )
+    output = seen[-1]
+    if not isinstance(output, torch.Tensor):
+        extra = ""
+        if isinstance(output, tuple):
+            shapes = [tuple(v.shape) if isinstance(v, torch.Tensor) else type(v).__name__ for v in output]
+            extra = (
+                f" The tuple has {len(output)} element(s) with shapes/types {shapes}. Element 0 is "
+                "NOT unwrapped automatically here, on purpose -- see below."
+            )
+        raise RawHfLayerContractMismatch(
+            f"{type(decoder_layer).__name__} returned {type(output).__name__}, not the plain "
+            f"resid-post torch.Tensor this raw-HF path is built on.{extra}\n\n"
+            "THIS IS A HARNESS/TRANSFORMERS CONTRACT MISMATCH, NOT A MODEL FAILURE AND NOT A "
+            "SCIENTIFIC RESULT. The model loaded fine; what differs is the decoder layer's return "
+            "convention between the transformers this harness was verified against "
+            "(5.12.1 here, 5.14.1 read by final_pairing_harness) and the one installed where this "
+            "ran. Nothing has been generated, scored or spent at this point: the probe is a "
+            "one-token forward that runs before any prompt.\n\n"
+            "DO NOT PATCH ONLY THE INTERVENTION. The discovery scorer's three Qwen capture sites "
+            "in final_pairing_concept_discovery.py do `output.detach()` on this same raw hook "
+            "output and would fail on this same object, so a fix that unwraps here alone would "
+            "make the intervention steer a tensor the scorer never scored -- the one divergence "
+            "assert_hooks_the_scored_tensor() exists to prevent. The unwrap convention has to be "
+            "decided once, in the shared final_pairing_harness.register_qwen_raw_hook and in those "
+            "capture sites together.\n\n"
+            f"{QWEN3_5_LAYER_OUTPUT_CONTRACT}"
+        )
+    if output.ndim != 3:
+        raise RawHfLayerContractMismatch(
+            f"{type(decoder_layer).__name__} returned a tensor of shape {tuple(output.shape)}; this "
+            "path requires [batch, seq, d_model], which is what the SAE was trained on and what "
+            "the scorer captures. Refusing to reshape a tensor whose layout was never verified."
+        )
+    measured_d_model = int(output.shape[-1])
+    if expected_d_model is not None and measured_d_model != int(expected_d_model):
+        raise RawHfLayerContractMismatch(
+            f"{type(decoder_layer).__name__} carries d_model={measured_d_model} but the SAE has "
+            f"d_in={int(expected_d_model)} -- refusing to steer along directions of the wrong "
+            "width, and refusing to discover that mid-generation."
+        )
+    # The scorer's own idiom, exercised on the real object rather than assumed
+    # to work: if `.detach()` fails here it fails in census too.
+    scorer_idiom_ok = callable(getattr(output, "detach", None))
+    return {
+        "layer_type": type(decoder_layer).__name__,
+        "output_type": type(output).__name__,
+        "output_shape": list(output.shape),
+        "output_dtype": str(output.dtype),
+        "output_device": str(output.device),
+        "probe_token_id": int(token),
+        "scorer_capture_idiom_ok": bool(scorer_idiom_ok),
+        "contract": "plain-resid-post-tensor",
+    }
+
+
 class _RawHfAttach:
     """Context manager over `register_forward_hook`.
 
@@ -2141,7 +2490,15 @@ class RawHfBackend:
 
     kind = "raw_hf"
 
-    def __init__(self, hf_model: Any, tokenizer: Any, *, layer: int) -> None:
+    def __init__(
+        self,
+        hf_model: Any,
+        tokenizer: Any,
+        *,
+        layer: int,
+        probe_output_contract: bool = True,
+        expected_d_model: int | None = None,
+    ) -> None:
         self.model = hf_model
         self.tokenizer = tokenizer
         self.layer = int(layer)
@@ -2150,6 +2507,17 @@ class RawHfBackend:
         self.hook_identity = assert_hooks_the_scored_tensor(
             self.decoder_layer, hf_model, layer=self.layer
         )
+        # AT CONSTRUCTION, ON ONE TOKEN. `register_qwen_raw_hook` also refuses a
+        # non-tensor output, but it does so from inside the FIRST INTERVENED
+        # FORWARD -- after the model is loaded, the arm is configured and a
+        # prompt is in flight. Probing here moves that refusal to configuration
+        # time for the cost of a single token, which is what "refuse before
+        # spending the allocation" has to mean on a 27B model.
+        self.output_contract: dict[str, Any] | None = None
+        if probe_output_contract:
+            self.output_contract = probe_raw_hf_layer_output_contract(
+                hf_model, self.decoder_layer, expected_d_model=expected_d_model
+            )
 
     @property
     def device(self) -> str:
@@ -2164,11 +2532,16 @@ class RawHfBackend:
         return {"model": self.model, "decoder_layer": self.decoder_layer}
 
     def describe(self) -> dict[str, str]:
-        return {
+        described = {
             "backend": self.kind,
             "model_type": type(self.model).__name__,
             **self.hook_identity,
         }
+        if self.output_contract is not None:
+            described["layer_output_contract"] = json.dumps(
+                self.output_contract, sort_keys=True
+            )
+        return described
 
     def to_tokens(self, prompt: str) -> torch.Tensor:
         encoded = self.tokenizer(prompt, return_tensors="pt")
@@ -2889,6 +3262,143 @@ def _selfcheck() -> int:
         if abs(realised - wanted) > 1e-4:
             failures.append("clamp dose did not deliver its target on a silent feature")
 
+    _print("CONTROL 11 -- a clamp dose that evaluates to ZERO must REFUSE, before any forward")
+    live = [
+        i
+        for i in range(sae.d_sae)
+        if i not in sae.DEAD_FEATURES
+        and float(sae.encode(residual)[..., i].abs().max()) > 0.0
+    ][:5]
+    if len(live) < 5:
+        failures.append("need five live features to build the mixed-group control")
+        print("  *** SKIPPED -- fewer than five live features (itself a failure) ***")
+    else:
+        maximally_selective = tuple(GroupMember(i, corpus_max=0.0) for i in live[:3])
+        must_raise(
+            "every member maximally selective (corpus_max == 0) under dose_form='clamp'",
+            lambda: GroupSpec(
+                kind="amplify", members=maximally_selective, alpha=1.0, dose_form="clamp"
+            ),
+            ZeroClampDose,
+        )
+        mixed = (
+            GroupMember(live[0], corpus_max=0.0),
+            GroupMember(live[1], corpus_max=3.5),
+            GroupMember(live[2], corpus_max=0.0),
+            GroupMember(live[3], corpus_max=1.25),
+            GroupMember(live[4], corpus_max=8.0),
+        )
+        must_raise(
+            "MIXED group: 2 of 5 members maximally selective, 3 with a live scale",
+            lambda: GroupSpec(kind="amplify", members=mixed, alpha=1.0, dose_form="clamp"),
+            ZeroClampDose,
+        )
+        must_raise(
+            "alpha == 0 under dose_form='clamp' (a target of 0 is an ABLATION, not an amplify)",
+            lambda: GroupSpec(
+                kind="amplify",
+                members=(GroupMember(live[0], corpus_max=4.0),),
+                alpha=0.0,
+                dose_form="clamp",
+            ),
+            ZeroClampDose,
+        )
+        # Non-zero in float64, EXACTLY zero once evaluated at float32: the one
+        # zero dose the construction-time gate structurally cannot see.
+        underflow = GroupSpec(
+            kind="amplify",
+            members=(GroupMember(live[0], corpus_max=1e-30), GroupMember(live[1], corpus_max=2.0)),
+            alpha=1e-30,
+            dose_form="clamp",
+        )
+        print(
+            f"  the underflow spec IS constructible (float64 dose "
+            f"{1e-30 * 1e-30!r} != 0) -- the second gate is what catches it:"
+        )
+        counting = _CountingSAE(sae)
+        underflow_ledger = FiringLedger()
+        must_raise(
+            "alpha * corpus_max non-zero in float64, zero at float32",
+            lambda: build_group_hook(counting, underflow, ledger=underflow_ledger),
+            ZeroClampDose,
+        )
+        print(
+            f"  PRE-FORWARD PROOF: after that refusal, sae.encode calls = {counting.encode_calls}, "
+            f"sae.decode calls = {counting.decode_calls}, hook invocations recorded = "
+            f"{underflow_ledger.call_count}. The refusal comes from resolve_group, which runs "
+            "BEFORE build_group_hook returns a hook, so nothing was ever registered and no forward "
+            "could have happened."
+        )
+        print(
+            "  PRE-FORWARD PROOF (the other three): raised by GroupSpec.__post_init__, so the spec "
+            "OBJECT never came into existence -- there is nothing to hand to a hook, a backend or "
+            "a job."
+        )
+
+        # ABLATION IS UNAFFECTED, MEASURED ON THE SAME MEMBERS.
+        ablate_spec = GroupSpec(
+            kind="ablate",
+            members=maximally_selective,
+            alpha=1.0,
+            ablation_mechanism="subtract",
+        )
+        ablate_ledger = FiringLedger()
+        ablate_hook, ablate_resolved = build_group_hook(sae, ablate_spec, ledger=ablate_ledger)
+        ablated = ablate_hook(residual)
+        acts = group_activations(sae, ablate_resolved, residual)
+        closed_form = -(acts * ablate_resolved.weights) @ ablate_resolved.decoder_rows
+        discrepancy = float(((ablated - residual) - closed_form).abs().max().item())
+        state = classify_intervention_state(ablate_spec, ablate_ledger)
+        print(
+            f"  ABLATION UNAFFECTED, same members {ablate_resolved.feature_indices.tolist()} all with "
+            f"corpus_max=0.0: calls={ablate_ledger.call_count} "
+            f"positions_modified={ablate_ledger.positions_modified} "
+            f"|delta|={ablate_ledger.total_delta_norm:.4f} state={state}; "
+            f"max |delta - (-sum_f w_f a_f W_dec[f])| = {discrepancy:.3e}"
+        )
+        if state != "APPLIED" or ablate_ledger.total_delta_norm <= 0.0:
+            failures.append("ablation of maximally selective members did not apply")
+        if discrepancy > 1e-5:
+            failures.append("ablation delta on corpus_max==0 members left the closed form")
+        print(
+            "  READ: corpus_max is a BACKGROUND-ACTIVATION reference and ablation needs none -- it\n"
+            "  removes a_f(h), the feature's actual contribution. The zero-dose hazard is confined\n"
+            "  to the clamp/amplify arm, and no replacement scale is named anywhere above."
+        )
+
+    _print("CONTROL 12 -- the raw-HF layer output contract is probed on ONE token, and refuses")
+    plain_model = _FakeRawHfModel(d_model=16, wrap="tensor")
+    contract = probe_raw_hf_layer_output_contract(plain_model, plain_model.model.layers[1])
+    print(f"  a plain-tensor layer is ACCEPTED and recorded -> {json.dumps(contract, sort_keys=True)}")
+    tuple_model = _FakeRawHfModel(d_model=16, wrap="tuple")
+    must_raise(
+        "a decoder layer that returns a TUPLE (the Qwen3.5 unknown)",
+        lambda: probe_raw_hf_layer_output_contract(tuple_model, tuple_model.model.layers[1]),
+        RawHfLayerContractMismatch,
+    )
+    unhooked_model = _FakeRawHfModel(d_model=16, wrap="tensor")
+    must_raise(
+        "a layer that is not on the model's forward path (the hook could never fire)",
+        lambda: probe_raw_hf_layer_output_contract(
+            unhooked_model, _FakeRawHfModel(d_model=16, wrap="tensor").model.layers[0]
+        ),
+        RawHfLayerContractMismatch,
+    )
+    width_model = _FakeRawHfModel(d_model=16, wrap="tensor")
+    must_raise(
+        "a layer whose d_model does not match the SAE's d_in",
+        lambda: probe_raw_hf_layer_output_contract(
+            width_model, width_model.model.layers[1], expected_d_model=4096
+        ),
+        RawHfLayerContractMismatch,
+    )
+    print(
+        "  READ: the probe is ONE TOKEN with a capture-only hook -- no intervention, nothing\n"
+        "  generated, nothing scored. On the cluster it refuses seconds after the model loads,\n"
+        "  not mid-generation. The REAL Qwen3_5DecoderLayer (and the MoE variant) are read and\n"
+        "  run in tests/test_group_intervention.py against the installed transformers."
+    )
+
     _print("SUCCESS 1 -- the amplify delta is EXACTLY alpha * sum_f w_f * decoder[f]")
     for alpha in (0.5, 1.0, 4.0, -2.0):
         spec = GroupSpec(kind="amplify", members=group, alpha=alpha)
@@ -2982,6 +3492,71 @@ class _FakeHfModel:
 
     def __init__(self, n_layers: int = 4) -> None:
         self.model = _FakeHfModel._Decoder(n_layers)
+
+
+class _CountingSAE:
+    """A pass-through wrapper that counts `encode`/`decode` calls.
+
+    Exists to make "the refusal happened BEFORE any forward" a MEASUREMENT
+    rather than an argument from code order: if the zero-dose gate had fired
+    late, these counters would be non-zero."""
+
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+        self.encode_calls = 0
+        self.decode_calls = 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.inner, name)
+
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        self.encode_calls += 1
+        return self.inner.encode(x)
+
+    def decode(self, feats: torch.Tensor) -> torch.Tensor:
+        self.decode_calls += 1
+        return self.inner.decode(feats)
+
+
+class _FakeRawHfLayer(torch.nn.Module):
+    """A decoder layer whose RETURN CONVENTION the caller chooses, so the
+    output-contract probe's refusals are provable with no Qwen weights. The
+    real `Qwen3_5DecoderLayer` is exercised in the test suite."""
+
+    def __init__(self, d_model: int, wrap: str) -> None:
+        super().__init__()
+        self.bias = torch.nn.Parameter(torch.zeros(d_model))
+        self.wrap = wrap
+
+    def forward(self, hidden_states: torch.Tensor) -> Any:
+        out = hidden_states + self.bias
+        if self.wrap == "tuple":
+            return (out, None)
+        if self.wrap == "flat":
+            return out.reshape(-1)
+        return out
+
+
+class _FakeRawHfModel(torch.nn.Module):
+    """`.model.layers` shaped exactly as `Qwen3_5ForCausalLM`'s is, callable
+    with `input_ids=`, so `probe_raw_hf_layer_output_contract()` can be
+    exercised in both directions without any model weights."""
+
+    def __init__(self, d_model: int = 16, n_layers: int = 2, wrap: str = "tensor") -> None:
+        super().__init__()
+        self.d_model = d_model
+        self.model = torch.nn.Module()
+        self.model.layers = torch.nn.ModuleList(
+            [_FakeRawHfLayer(d_model, wrap) for _ in range(n_layers)]
+        )
+
+    def forward(self, input_ids: torch.Tensor, **_kwargs: Any) -> torch.Tensor:
+        hidden = torch.zeros(int(input_ids.shape[0]), int(input_ids.shape[1]), self.d_model)
+        for layer in self.model.layers:
+            out = layer(hidden)
+            if isinstance(out, torch.Tensor) and out.ndim == 3:
+                hidden = out
+        return hidden
 
 
 def _direction(sae: Any, members: tuple[GroupMember, ...]) -> torch.Tensor:

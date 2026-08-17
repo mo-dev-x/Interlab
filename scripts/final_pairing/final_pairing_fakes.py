@@ -47,7 +47,23 @@ def text_embedding(text: str) -> torch.Tensor:
     """Deterministic per-text embedding: texts containing 'POSITIVE' get a
     strong push along a fixed 'concept direction' (which the fake SAE's
     `encode()` maps onto `CONCEPT_FEATURE`); every other text gets small,
-    text-seeded noise only."""
+    text-seeded noise only.
+
+    THE BACKGROUND NOISE IS |noise|, NOT noise, AND THAT IS DELIBERATE
+    (2026-08-17). `encode()` is a relu, so a signed noise vector left every
+    feature's BACKGROUND MAXIMUM at exactly 0.0 whenever one hash-seeded
+    normal happened to come out negative -- roughly half of all texts. That
+    is the DEGENERATE REFERENCE (`corpus_max == 0`, maximal selectivity),
+    which `group_intervention.GroupSpec` now REFUSES for a clamp dose,
+    because `alpha * 0` is a dose of zero and an amplify arm that runs with
+    one did nothing while reporting a verdict. So the fake was modelling the
+    degenerate case by the sign of a hash, in tests whose subject is
+    manifests, seeds and SHA-256. Taking the absolute value keeps the
+    magnitude (0.01) and the determinism exactly as they were and makes the
+    background maximum small and NON-ZERO, which is the non-degenerate case
+    those tests intend. Nothing about the refusal is relaxed: a real
+    `corpus_max == 0` still refuses, and
+    tests/test_group_intervention.py proves it."""
     seed = int(hashlib.sha256(text.encode()).hexdigest(), 16) % (2**31)
     gen = torch.Generator().manual_seed(seed)
     noise = torch.randn(D_MODEL, generator=gen) * 0.01
@@ -55,7 +71,7 @@ def text_embedding(text: str) -> torch.Tensor:
         concept_direction = torch.zeros(D_MODEL)
         concept_direction[0] = 5.0
         return concept_direction + noise
-    return noise
+    return noise.abs()
 
 
 class FakeSAE:

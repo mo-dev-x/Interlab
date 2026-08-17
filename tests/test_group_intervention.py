@@ -1106,6 +1106,40 @@ def test_measure_group_effect_pairs_control_and_treatment_at_one_seed(real_model
     assert measurement.control.results[0].firing["call_count"] == 0
 
 
+def test_ablation_of_maximally_selective_members_still_works_on_the_real_model(
+    real_model, real_sae, real_tokens
+):
+    """THE SCOPE OF THE ZERO-DOSE DEFECT, MEASURED ON A REAL MODEL. The same
+    group, the same features, every member carrying the corpus_max == 0 that
+    kills the clamp arm: ablation-by-subtraction fires, moves the residual
+    stream, changes the continuation, and is APPLIED. Then the clamp arm on
+    the identical members refuses."""
+    with torch.no_grad():
+        _, cache = real_model.run_with_cache(real_tokens, names_filter="blocks.1.hook_resid_post")
+    live = _live_features(real_sae, cache["blocks.1.hook_resid_post"], limit=3)
+    members = tuple(gi.GroupMember(i, corpus_max=0.0) for i in live)
+
+    ablate = gi.GroupSpec(
+        kind="ablate",
+        members=members,
+        alpha=1.0,
+        ablation_mechanism="subtract",
+        label="ablate-maximally-selective",
+    )
+    measurement = gi.measure_group_effect(
+        real_model, real_sae, ablate, [PROMPT], max_new_tokens=5, seed=17, device="cpu"
+    )
+    (row,) = measurement.per_prompt
+    assert row["treatment_hook_call_count"] == 5
+    assert row["treatment_total_delta_norm"] > 0.0
+    assert row["treatment_intervention_state"] == "APPLIED"
+    assert row["outcome_is_readable_as_a_result"] is True
+    assert row["treatment_absorbed_fraction"] == 0.0
+
+    with pytest.raises(gi.ZeroClampDose):
+        gi.GroupSpec(kind="amplify", members=members, alpha=1.0, dose_form="clamp")
+
+
 def test_measure_group_effect_with_a_null_treatment_reproduces_the_control(real_model, real_sae):
     """A zero-alpha treatment must be byte-identical to its paired control.
     If the pairing were broken (different seeds, different prompts) this
@@ -1569,6 +1603,239 @@ def test_raw_hf_backend_does_not_override_an_explicit_hook_name(raw_backend, rea
 
 
 # ---------------------------------------------------------------------------
+# THE REAL Qwen3_5DecoderLayer (CPU, random weights, installed transformers).
+#
+# What used to be listed as unexercised: "the raw-HF path is proven against a
+# real Qwen2DecoderLayer ... the tuple-returning layer itself is not". The
+# CLASS does not need the 27B weights to be exercised -- `transformers`
+# 5.12.1 ships `transformers.models.qwen3_5`, so the real
+# `Qwen3_5DecoderLayer` can be instantiated at fixture size on CPU and driven
+# through this module's own raw-HF path, hook and generate included.
+#
+# The 27B weights, the GPU, bfloat16, and Tamia's transformers==5.14.1
+# specifically remain unexercised and are declared as such.
+# ---------------------------------------------------------------------------
+
+QWEN3_5_TINY_LAYER_TYPES = ("linear_attention", "full_attention")
+
+
+@pytest.fixture(scope="module")
+def tiny_qwen3_5_model():
+    """A REAL `Qwen3_5ForCausalLM`, fixture-sized, random weights.
+
+    Width 64 to match `tests/fixtures/tiny_sae` (d_in=64) and vocab 260 to
+    match `tests/fixtures/tiny_model`'s tokenizer, so the real SAE and the
+    real tokenizer drive the real Qwen3.5 classes. Both of the hybrid
+    architecture's layer types are present: a `linear_attention` layer at 0
+    and a `full_attention` layer at 1, because the frozen Qwen-Scope layer
+    could be either and a hook that only worked on one would be a silent
+    half-coverage."""
+    pytest.importorskip("transformers.models.qwen3_5")
+    from transformers.models.qwen3_5.configuration_qwen3_5 import Qwen3_5TextConfig
+    from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5ForCausalLM
+
+    config = Qwen3_5TextConfig(
+        vocab_size=260,
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=16,
+        max_position_embeddings=128,
+        layer_types=list(QWEN3_5_TINY_LAYER_TYPES),
+        tie_word_embeddings=True,
+        linear_key_head_dim=16,
+        linear_value_head_dim=16,
+        linear_num_key_heads=2,
+        linear_num_value_heads=4,
+        linear_conv_kernel_dim=4,
+    )
+    torch.manual_seed(20260817)
+    model = Qwen3_5ForCausalLM(config)
+    model.eval()
+    return model
+
+
+def test_the_installed_qwen3_5_source_returns_hidden_states_not_a_tuple():
+    """READ OFF THE BYTES of the installed transformers, both the dense and
+    the MoE decoder layer, because the harness's plain-tensor contract is
+    what the whole raw-HF path (scoring included) rests on."""
+    import inspect
+
+    from transformers.models.qwen3_5 import modeling_qwen3_5
+
+    dense = inspect.getsource(modeling_qwen3_5.Qwen3_5DecoderLayer.forward)
+    assert dense.rstrip().endswith("return hidden_states")
+    assert "-> torch.FloatTensor" in dense
+
+    moe = pytest.importorskip("transformers.models.qwen3_5_moe.modeling_qwen3_5_moe")
+    moe_source = inspect.getsource(moe.Qwen3_5MoeDecoderLayer.forward)
+    assert moe_source.rstrip().endswith("return hidden_states")
+    # The MoE variant unpacks its own router tuple INSIDE forward, so even
+    # there the layer's return value is the plain hidden states.
+    assert "if isinstance(hidden_states, tuple)" in moe_source
+
+
+@pytest.mark.parametrize("layer", [0, 1])
+def test_the_real_qwen3_5_decoder_layer_returns_a_plain_tensor(tiny_qwen3_5_model, layer):
+    """MEASURED on the real class, at both layer types, across a prefill and
+    two KV-cached decode steps -- not inferred from the source above."""
+    seen: list[object] = []
+    handle = tiny_qwen3_5_model.model.layers[layer].register_forward_hook(
+        lambda _m, _a, out: seen.append(out)
+    )
+    try:
+        with torch.no_grad():
+            tiny_qwen3_5_model.generate(
+                torch.tensor([[1, 2, 3]]), max_new_tokens=3, min_new_tokens=3, do_sample=False
+            )
+    finally:
+        handle.remove()
+    assert len(seen) == 3
+    assert all(isinstance(out, torch.Tensor) for out in seen)
+    assert all(out.ndim == 3 and out.shape[-1] == 64 for out in seen)
+    layer_type = type(tiny_qwen3_5_model.model.layers[layer]).__name__
+    assert layer_type == "Qwen3_5DecoderLayer"
+
+
+@pytest.mark.parametrize("layer", [0, 1])
+def test_the_output_contract_probe_accepts_the_real_qwen3_5_layer(tiny_qwen3_5_model, layer):
+    contract = gi.probe_raw_hf_layer_output_contract(
+        tiny_qwen3_5_model,
+        tiny_qwen3_5_model.model.layers[layer],
+        expected_d_model=64,
+    )
+    assert contract["layer_type"] == "Qwen3_5DecoderLayer"
+    assert contract["output_type"] == "Tensor"
+    assert contract["output_shape"] == [1, 1, 64]
+    assert contract["contract"] == "plain-resid-post-tensor"
+    assert contract["scorer_capture_idiom_ok"] is True
+
+
+@pytest.mark.parametrize("layer", [0, 1])
+def test_the_raw_hf_path_runs_end_to_end_on_the_real_qwen3_5_class(
+    tiny_qwen3_5_model, raw_hf_tokenizer, real_sae, layer
+):
+    """The whole primitive against the real Qwen3.5 layer: contract probe at
+    construction, module identity with the scorer's resolver, the documented
+    firing pattern through HF's own KV-cached generate, the exact-delta
+    assertion at every position, and the absorption census."""
+    backend = gi.RawHfBackend(
+        tiny_qwen3_5_model, raw_hf_tokenizer, layer=layer, expected_d_model=64
+    )
+    assert backend.output_contract["output_type"] == "Tensor"
+    assert backend.decoder_layer is tiny_qwen3_5_model.model.layers[layer]
+    assert "layer_output_contract" in backend.describe()
+
+    spec = gi.GroupSpec(
+        kind="amplify", members=(gi.GroupMember(7, 1.0), gi.GroupMember(11, 0.5)), alpha=60.0
+    )
+    arm = gi.run_arm(backend, real_sae, spec, [PROMPT], max_new_tokens=4, seed=5, device="cpu")
+    (result,) = arm.results
+    assert result.generated_token_count == 4
+    assert result.firing["call_count"] == 4
+    assert result.firing["positions_modified"] == result.prompt_token_count + 3
+    assert result.firing["absorbed_element_count"] == 0
+    assert result.firing["residual_dtypes"] == ["torch.float32"]
+    assert result.intervention_state == "APPLIED"
+    assert result.firing["absorbed_fraction"] == 0.0
+    assert result.firing["requested_nonzero_element_count"] > 0
+
+
+@pytest.mark.parametrize("layer", [0, 1])
+def test_ablation_by_subtraction_works_on_the_real_qwen3_5_class(
+    tiny_qwen3_5_model, raw_hf_tokenizer, real_sae, layer
+):
+    """The instrument RULING_13 ruled, on the model the coming run will use,
+    with every member carrying the corpus_max == 0 that refuses the clamp
+    arm."""
+    backend = gi.RawHfBackend(
+        tiny_qwen3_5_model, raw_hf_tokenizer, layer=layer, expected_d_model=64
+    )
+    tokens = backend.to_tokens(PROMPT)
+    captured: list[torch.Tensor] = []
+    handle = backend.decoder_layer.register_forward_hook(
+        lambda _m, _a, out: captured.append(out.detach())
+    )
+    try:
+        with torch.no_grad():
+            backend.forward_logits(tokens)
+    finally:
+        handle.remove()
+    live = _live_features(real_sae, captured[-1], limit=3)
+    members = tuple(gi.GroupMember(i, corpus_max=0.0) for i in live)
+
+    spec = gi.GroupSpec(
+        kind="ablate", members=members, alpha=1.0, ablation_mechanism="subtract"
+    )
+    ledger = gi.FiringLedger()
+    with torch.no_grad(), backend.attach(
+        real_sae, spec, ledger=ledger, prompt_lengths=None, verify_exact_delta=True
+    ):
+        backend.forward_logits(tokens)
+    assert ledger.call_count == 1
+    assert ledger.total_delta_norm > 0.0
+    assert gi.classify_intervention_state(spec, ledger) == "APPLIED"
+    with pytest.raises(gi.ZeroClampDose):
+        gi.GroupSpec(kind="amplify", members=members, alpha=1.0, dose_form="clamp")
+
+
+def test_a_tuple_returning_layer_is_refused_at_construction_not_mid_generation(real_sae):
+    """THE TUPLE DISPOSITION. The probe is a ONE-TOKEN forward run when the
+    backend is built, so a layer whose convention this harness was never
+    verified against is refused before any prompt, any generation and any
+    allocation is spent -- rather than from inside the first intervened
+    forward, which is where `register_qwen_raw_hook` catches it."""
+    model = gi._FakeRawHfModel(d_model=64, wrap="tuple")
+    with pytest.raises(gi.RawHfLayerContractMismatch) as excinfo:
+        gi.RawHfBackend(model, object(), layer=1, expected_d_model=64)
+    message = str(excinfo.value)
+    assert "HARNESS/TRANSFORMERS CONTRACT MISMATCH, NOT A MODEL FAILURE" in message
+    assert "DO NOT PATCH ONLY THE INTERVENTION" in message
+    assert "Element 0 is NOT unwrapped automatically here" in message
+    # And with the probe declined, the SAME backend builds -- so the refusal
+    # is a probe result, not an unrelated construction failure.
+    backend = gi.RawHfBackend(model, object(), layer=1, probe_output_contract=False)
+    assert backend.output_contract is None
+
+
+def test_the_scorers_own_capture_idiom_also_breaks_on_a_tuple():
+    """WHY THE TUPLE IS REFUSED RATHER THAN UNWRAPPED HERE, measured. All
+    three Qwen capture sites in final_pairing_concept_discovery.py do
+    `output.detach()`; on a tuple that raises before any feature is scored.
+    Teaching only the intervention to unwrap element 0 would leave the
+    intervention steering a tensor the scorer cannot score -- the exact
+    divergence assert_hooks_the_scored_tensor() exists to prevent."""
+    model = gi._FakeRawHfModel(d_model=16, wrap="tuple")
+    captured: list[object] = []
+
+    def _scorer_capture(_module, _args, output):
+        captured.append(output.detach())  # the discovery runner's own line
+
+    handle = model.model.layers[1].register_forward_hook(_scorer_capture)
+    try:
+        with pytest.raises(AttributeError, match="detach"):
+            model(input_ids=torch.tensor([[0]]))
+    finally:
+        handle.remove()
+    assert captured == []
+
+    discovery_source = (
+        REPO_ROOT / "scripts" / "final_pairing" / "final_pairing_concept_discovery.py"
+    ).read_bytes().decode("utf-8")
+    assert discovery_source.count("captured.append(output.detach())") == 3
+
+
+def test_the_qwen3_5_contract_doc_separates_what_is_measured_from_what_is_argued():
+    doc = gi.QWEN3_5_LAYER_OUTPUT_CONTRACT
+    assert "MEASURED, on the installed transformers==5.12.1" in doc
+    assert "ARGUED, NOT PROVEN HERE" in doc
+    assert "5.14.1" in doc
+    assert "WHY A TUPLE IS REFUSED AND NOT UNWRAPPED" in doc
+
+
+# ---------------------------------------------------------------------------
 # RULING_13 LAYER.
 #
 # The architect ruled SUBTRACT the instrument and named three defects in the
@@ -1824,17 +2091,251 @@ def test_clamp_dose_form_is_rejected_for_ablation():
         )
 
 
-def test_clamp_at_alpha_zero_is_not_reported_as_an_identity():
-    """Clamping a group to zero is an ABLATION -- the most active thing this
-    module does. Reporting it as a null configuration would have made the
-    strongest available intervention describe itself as a control."""
+def test_a_live_clamp_dose_is_still_not_reported_as_an_identity():
+    """Clamping a group is never a null configuration: the delta depends on
+    the residual, so `alpha` alone cannot make it inert. (The alpha == 0
+    case, which USED to be checked here, is now refused at construction --
+    see test_alpha_zero_under_clamp_refuses_rather_than_running.)"""
     spec = gi.GroupSpec(
         kind="amplify",
         members=(gi.GroupMember(3, corpus_max=2.0),),
-        alpha=0.0,
+        alpha=1e-12,
         dose_form="clamp",
     )
     assert gi.null_configuration_is_exact_identity(spec) is False
+
+
+# --- a clamp dose that evaluates to ZERO (architect, mailbox sequence 43) ----
+#
+# `corpus_max == 0` means MAXIMAL SELECTIVITY, not a dead feature, and 89.52%
+# of full-space cells have it. The dose `alpha * corpus_max` is therefore
+# EXACTLY ZERO on precisely the most selective features in the dictionary, and
+# a zero dose that RUNS is the failure: the hook fires, the arm is scored, and
+# the result is indistinguishable from "this concept is not steerable".
+
+
+def test_a_group_of_maximally_selective_members_refuses_and_names_them():
+    with pytest.raises(gi.ZeroClampDose) as excinfo:
+        gi.GroupSpec(
+            kind="amplify",
+            members=(
+                gi.GroupMember(3, corpus_max=0.0),
+                gi.GroupMember(7, corpus_max=0.0),
+            ),
+            alpha=1.0,
+            dose_form="clamp",
+        )
+    message = str(excinfo.value)
+    assert "EXACTLY ZERO for feature(s) [3, 7]" in message
+    assert "feature 3 (corpus_max=0.0, dose=0.0)" in message
+    assert "feature 7 (corpus_max=0.0, dose=0.0)" in message
+
+
+def test_the_refusal_says_corpus_max_zero_is_maximal_selectivity_not_a_dead_feature():
+    """The whole point of the wording: whoever hits this must not conclude
+    the feature is useless and drop it."""
+    with pytest.raises(gi.ZeroClampDose) as excinfo:
+        gi.GroupSpec(
+            kind="amplify",
+            members=(gi.GroupMember(11, corpus_max=0.0),),
+            alpha=2.5,
+            dose_form="clamp",
+        )
+    message = str(excinfo.value)
+    assert "corpus_max == 0 DOES NOT MEAN A DEAD FEATURE" in message
+    assert "MAXIMAL SELECTIVITY" in message
+    assert "89.52%" in message
+    assert "NO REPLACEMENT DOSE SCALE IS NAMED HERE" in message
+    assert "ABLATION IS UNAFFECTED" in message
+    # And it must not read as a warning that something was substituted.
+    assert "default" in message  # ... only in the sentence that refuses one:
+    assert "will not substitute a default" in message
+
+
+def test_a_mixed_group_refuses_rather_than_dosing_only_the_non_zero_members():
+    """A 5-member group quietly acting as a 3-member group is the same arity
+    corruption an out-of-range index or a duplicate is refused for."""
+    with pytest.raises(gi.ZeroClampDose) as excinfo:
+        gi.GroupSpec(
+            kind="amplify",
+            members=(
+                gi.GroupMember(1, corpus_max=0.0),
+                gi.GroupMember(3, corpus_max=3.5),
+                gi.GroupMember(7, corpus_max=0.0),
+                gi.GroupMember(11, corpus_max=1.25),
+                gi.GroupMember(12, corpus_max=8.0),
+            ),
+            alpha=1.0,
+            dose_form="clamp",
+        )
+    message = str(excinfo.value)
+    assert "EXACTLY ZERO for feature(s) [1, 7]" in message
+    assert "MIXED GROUP AND IT STILL REFUSES" in message
+    assert "[3, 11, 12]" in message
+    assert "5-member group acting as a 3-member one" in message
+
+
+def test_alpha_zero_under_clamp_refuses_rather_than_running():
+    """A target of zero is an ABLATION. It may not be recorded as an
+    amplification of these members, and the reason names alpha rather than
+    blaming the members' scales."""
+    with pytest.raises(gi.ZeroClampDose) as excinfo:
+        gi.GroupSpec(
+            kind="amplify",
+            members=(gi.GroupMember(3, corpus_max=2.0), gi.GroupMember(7, corpus_max=9.0)),
+            alpha=0.0,
+            dose_form="clamp",
+        )
+    message = str(excinfo.value)
+    assert "alpha == 0, so every member's dose is zero whatever its corpus_max is" in message
+    assert "EXACTLY ZERO for feature(s) [3, 7]" in message
+
+
+def test_a_dose_that_underflows_to_zero_at_float32_is_caught_by_the_second_gate(synthetic_sae):
+    """The one zero dose the construction-time gate structurally cannot see:
+    non-zero in float64, exactly zero in the dtype the target is evaluated
+    in. `resolve_group` is the gate, and it is still before any hook."""
+    spec = gi.GroupSpec(
+        kind="amplify",
+        members=(gi.GroupMember(3, corpus_max=1e-30), gi.GroupMember(7, corpus_max=2.0)),
+        alpha=1e-30,
+        dose_form="clamp",
+    )
+    assert 1e-30 * 1e-30 != 0.0, "the float64 product must be non-zero for this to test anything"
+    with pytest.raises(gi.ZeroClampDose) as excinfo:
+        gi.resolve_group(synthetic_sae, spec)
+    message = str(excinfo.value)
+    assert "UNDERFLOWS to exactly zero in float32" in message
+    assert "resolve_group, on the float32-evaluated targets" in message
+
+
+def test_the_zero_dose_refusal_fires_before_any_forward_pass(real_model, real_sae, monkeypatch):
+    """MEASURED, not argued from code order. A run that burns GPU time and
+    then refuses is much worse than one that refuses at configuration
+    time."""
+    spec = gi.GroupSpec(
+        kind="amplify",
+        members=(gi.GroupMember(7, corpus_max=1e-30),),
+        alpha=1e-30,
+        dose_form="clamp",
+    )
+    counting = gi._CountingSAE(real_sae)
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("generate() was reached -- the refusal was NOT pre-forward")
+
+    monkeypatch.setattr(real_model, "generate", _boom)
+    with pytest.raises(gi.ZeroClampDose):
+        gi.run_arm(
+            real_model, counting, spec, ["hello"], max_new_tokens=3, seed=1, device="cpu"
+        )
+    assert counting.encode_calls == 0
+    assert counting.decode_calls == 0
+
+
+def test_no_hook_is_registered_when_the_dose_is_zero(synthetic_sae):
+    """`build_group_hook` refuses before it returns a hook, so the ledger the
+    caller holds stays empty and the arm cannot be misread as NOT_EXERCISED
+    from a hook that was never allowed to exist."""
+    spec = gi.GroupSpec(
+        kind="amplify",
+        members=(gi.GroupMember(3, corpus_max=1e-30),),
+        alpha=1e-30,
+        dose_form="clamp",
+    )
+    ledger = gi.FiringLedger()
+    with pytest.raises(gi.ZeroClampDose):
+        gi.build_group_hook(synthetic_sae, spec, ledger=ledger)
+    assert ledger.call_count == 0
+    assert ledger.records == []
+
+
+def test_maximally_selective_members_are_not_excluded_from_groups(synthetic_sae, synthetic_residual):
+    """The architect REFUSES excluding corpus_max == 0 features from groups:
+    they are the most selective candidates and the fault is the scale. So the
+    member is legal, the additive amplify arm runs, and only the clamp DOSE
+    refuses."""
+    members = (gi.GroupMember(3, corpus_max=0.0), gi.GroupMember(7, corpus_max=0.0))
+    additive = gi.GroupSpec(kind="amplify", members=members, alpha=1.5, dose_form="additive")
+    out, ledger, resolved = _apply(synthetic_sae, additive, synthetic_residual)
+    assert resolved.member_count == 2
+    assert ledger.max_abs_delta > 0.0
+    expected = 1.5 * _expected_direction(synthetic_sae, members)
+    assert gi.assert_exact_delta(synthetic_residual, out, expected) < 1e-4
+
+
+def test_ablation_by_subtraction_is_unaffected_by_a_zero_corpus_max(
+    synthetic_sae, synthetic_residual
+):
+    """Measured, not asserted: the same members, all with corpus_max == 0,
+    ablate to the exact closed form. Subtraction removes a_f(h), the
+    feature's ACTUAL contribution, and needs no corpus reference."""
+    members = tuple(gi.GroupMember(m.feature_index, m.weight, corpus_max=0.0) for m in GROUP)
+    spec = gi.GroupSpec(
+        kind="ablate", members=members, alpha=1.0, ablation_mechanism="subtract"
+    )
+    out, ledger, resolved = _apply(synthetic_sae, spec, synthetic_residual)
+    acts = gi.group_activations(synthetic_sae, resolved, synthetic_residual)
+    expected = -(acts * resolved.weights) @ resolved.decoder_rows
+    assert torch.allclose(out - synthetic_residual, expected, atol=1e-5)
+    assert ledger.total_delta_norm > 0.0
+    assert gi.classify_intervention_state(spec, ledger) == "APPLIED"
+    # And the clamp arm on the IDENTICAL members refuses, so the boundary is
+    # exactly where the architect scoped it.
+    with pytest.raises(gi.ZeroClampDose):
+        gi.GroupSpec(kind="amplify", members=members, alpha=1.0, dose_form="clamp")
+
+
+def test_leave_one_out_arms_of_a_clamp_group_stay_dosable():
+    """`without()` goes through `replace`, which re-runs validation, so a
+    minimality sweep cannot produce an arm whose dose is zero -- and cannot
+    be blocked by one either, since the full group already had to pass."""
+    members = (
+        gi.GroupMember(3, corpus_max=2.0),
+        gi.GroupMember(7, corpus_max=5.0),
+        gi.GroupMember(11, corpus_max=9.0),
+    )
+    spec = gi.GroupSpec(kind="amplify", members=members, alpha=1.5, dose_form="clamp")
+    arms = gi.leave_one_out_specs(spec)
+    assert len(arms) == 3
+    for arm in arms:
+        assert all(float(m.corpus_max) > 0.0 for m in arm.members)
+
+
+def test_the_zero_dose_error_is_an_invalid_group_spec_not_a_new_taxonomy():
+    """Callers already catching InvalidGroupSpec keep catching this; nothing
+    downstream can pass a zero dose through a narrower except clause."""
+    assert issubclass(gi.ZeroClampDose, gi.InvalidGroupSpec)
+    assert issubclass(gi.ZeroClampDose, gi.GroupInterventionError)
+
+
+def test_the_refusal_does_not_collapse_the_void_state_distinction(synthetic_sae, synthetic_residual):
+    """RULING_13: VOID and NOT-EXERCISED ARE NOT NULLS, and the calibration
+    lane's scoring reads that distinction out of the ledger. The zero-dose
+    refusal must not become a fifth state, must not be reported as a null,
+    and must not disturb the four that exist: it raises INSTEAD of producing
+    an arm, so there is no result for anyone to misread."""
+    assert set(gi.INTERVENTION_STATE_MEANINGS) == {
+        "CONTROL",
+        "NOT_EXERCISED",
+        "FIRED_BUT_INERT",
+        "APPLIED",
+    }
+    assert "ZeroClampDose" not in gi.INTERVENTION_STATE_MEANINGS
+    assert "ZeroClampDose" not in str(gi.INTERVENTION_STATE_MEANINGS)
+    # The two VOID states are still told apart, after the change as before.
+    amplify = gi.GroupSpec(kind="amplify", members=GROUP, alpha=1.0)
+    assert gi.classify_intervention_state(amplify, gi.FiringLedger()) == "NOT_EXERCISED"
+    dead = gi._dead_features(synthetic_sae, synthetic_residual)
+    inert = gi.GroupSpec(
+        kind="ablate",
+        members=(gi.GroupMember(dead[0]),),
+        alpha=1.0,
+        ablation_mechanism="subtract",
+    )
+    _out, inert_ledger, _resolved = _apply(synthetic_sae, inert, synthetic_residual)
+    assert inert_ledger.call_count == 1
+    assert gi.classify_intervention_state(inert, inert_ledger) == "FIRED_BUT_INERT"
 
 
 def test_expected_amplify_delta_refuses_for_a_clamp_spec(synthetic_sae):
