@@ -24,8 +24,13 @@ jobs:
       - name: Sync environment
         run: uv sync --extra dev --frozen
 
-      - name: Ruff (interplab, tests, top-level scripts -- scripts/legacy is frozen and excluded)
-        run: uv run ruff check interplab tests scripts/*.py data/concepts/*.py
+      # scripts/*.py does NOT recurse, so scripts/final_pairing/ -- where this sprint's
+      # discovery, gate and intervention code lives -- was outside the gate entirely.
+      # Measured at the moment of widening: a recursive run over that directory returned
+      # ZERO findings, so this locks in a clean state rather than opening a backlog.
+      # scripts/legacy stays excluded (frozen); scripts/research holds no Python.
+      - name: Ruff (interplab, tests, top-level + final_pairing scripts -- scripts/legacy is frozen and excluded)
+        run: uv run ruff check interplab tests scripts/*.py scripts/final_pairing/*.py data/concepts/*.py
 
       - name: Hard test suite
         run: uv run pytest
