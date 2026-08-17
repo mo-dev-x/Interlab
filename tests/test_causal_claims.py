@@ -53,6 +53,8 @@ class FakeVerdict:
     control_rate_loo_spread: float = 0.08
     paired_delta_inside_control_resample_spread: bool = False
     margin_bound_by: tuple[str, ...] = ("control_rate_leave_one_prompt_out_spread",)
+    distance_to_arithmetic_ceiling: float = 0.30
+    origin_pole_derived: str = "POLE_MIRROR"
     void_counts: Any = None
 
     def __post_init__(self) -> None:
@@ -101,6 +103,10 @@ def test_every_refused_phrase_can_actually_fire(pattern: str, why: str):
 
     literal = _re.sub(r"\\s\+", " ", pattern)
     literal = _re.sub(r"\\b", "", literal)
+    # Drop optional non-capturing groups: "(?:them )?" contributes nothing to the
+    # shortest matching sentence, and leaving it in would build a sentence the
+    # pattern cannot match -- which would make this falsifier decorative.
+    literal = _re.sub(r"\(\?:[^)]*\)\?", "", literal)
     literal = (
         literal.replace("[- ]", " ")
         .replace("s?", "s")
@@ -185,7 +191,7 @@ def test_the_witness_carries_the_void_counts_it_must_not_have_used():
     assert "excluded from every numerator and denominator" in sentence
 
 
-@pytest.mark.parametrize("status", ["FAIL", "NOT_EXERCISED", "CEILING_EXCLUDED"])
+@pytest.mark.parametrize("status", ["FAIL", "NOT_EXERCISED", "CEILING_EXCLUDED_BY_ARITHMETIC"])
 def test_a_witness_needs_a_witness(status: str):
     with pytest.raises(claims.ClaimFormError):
         witness(verdict=FakeVerdict(status=status))
@@ -250,7 +256,7 @@ def test_the_bounded_negative_carries_both_n_and_N_in_the_sentence():
     assert str(POPULATION - 2) in sentence
 
 
-@pytest.mark.parametrize("status", ["NOT_EXERCISED", "CEILING_EXCLUDED"])
+@pytest.mark.parametrize("status", ["NOT_EXERCISED", "CEILING_EXCLUDED_BY_ARITHMETIC"])
 def test_a_negative_over_a_void_cell_refuses(status: str):
     with pytest.raises(claims.VoidReportedAsNull) as caught:
         negative(verdicts=[FakeVerdict("en/f1", "FAIL"), FakeVerdict("fr/f2", status)])
@@ -319,7 +325,7 @@ def test_the_frozen_phrasing_matches_the_protocol_bytes():
     assert frozen == gi.NULL_ABLATION_FROZEN_PHRASING
 
 
-@pytest.mark.parametrize("status", ["NOT_EXERCISED", "CEILING_EXCLUDED"])
+@pytest.mark.parametrize("status", ["NOT_EXERCISED", "CEILING_EXCLUDED_BY_ARITHMETIC"])
 def test_an_ablation_null_on_a_void_cell_refuses(status: str):
     with pytest.raises(claims.VoidReportedAsNull) as caught:
         claims.ablation_null_sentence(

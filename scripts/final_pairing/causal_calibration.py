@@ -71,6 +71,7 @@ from typing import Any
 import causal_outcome
 from causal_outcome import (
     OUTCOME_CLASSES,
+    JointCondition,
     OutcomeBands,
     RubricAttestation,
     ScoredGeneration,
@@ -221,6 +222,28 @@ UNEXERCISED_WITHOUT_GPU = (
 )
 
 
+#: The five excluded roles, for fixtures only. A real appointment is a
+#: coordination decision and is not made in a selfcheck.
+_FIVE_LANES = {
+    "description_author": "pm",
+    "corpus_author": "corpus_author",
+    "selecting_lane": "engineer2",
+    "calibrating_lane": "researcher",
+    "generating_lane": "engineer1",
+}
+
+#: A joint condition whose orientation is DERIVED. Ablating the OWN referent
+#: makes the control sit at POLE_OWN, so a flip must arrive at POLE_MIRROR.
+_FORWARD_CONDITION = JointCondition(
+    ablated_concept_id="pro_chinese_exceptionalism",
+    amplified_concept_id="pro_american_exceptionalism",
+    own_concept_id="pro_american_exceptionalism",
+    mirror_concept_id="pro_chinese_exceptionalism",
+)
+
+#: 64 hex standing in for the generation-settings digest a real run would carry.
+_SYNTHETIC_SETTINGS_DIGEST = "f" * 64
+
 class CalibrationError(RuntimeError):
     """Base for every refusal here. There is no warn path and no fallback."""
 
@@ -269,9 +292,60 @@ class DoseReferenceUndeclared(CalibrationError):
     """A dose reference was requested with no substrate or no measurement."""
 
 
+class AssignmentSelfDeclared(CalibrationError):
+    """The calibration assignment is not hash-bound to a recorded artifact.
+
+    RULING_15 on the pre-registration gap, clause 5. Carrying the gap as PROSE
+    on the face of every pin is RATIFIED as disclosure -- a blank reads as NOT
+    CHECKED. But the field is a free string written BY THE CALIBRATING LANE, so
+    on the day the assignment exists the same field would accept the calibrating
+    lane's own claim that it exists. The value must resolve to a protocol
+    artifact, by path and sha256, whose `recorded_by` differs from the
+    calibrating lane. Self-declaration then becomes UNWRITABLE rather than
+    discouraged.
+
+    NOTE WHAT IS NOT VOID: building an instrument, its refusals and its
+    arithmetic, and exercising them on synthetic fixtures where no control datum
+    exists, IS NOT A CALIBRATION. A calibration is the act of FIXING A NUMBER
+    FROM CONTROL DATA. So nothing landed before this artifact exists is void, and
+    the gap blocks the CALIBRATION rather than the LANE."""
+
+
+class CrossingUnreachableOnThisLattice(CalibrationError):
+    """The band plus the resolution floor leaves no room for a crossing.
+
+    RULING_15 R2, the honest POWER bound: a 13-point difference lattice is
+    coarse, and if no expressible value lies outside the band then THE CROSSING
+    PREDICATE IS UNREACHABLE ON THIS LATTICE. That is the finding -- the same
+    shape as CEILINGED_ON_THIS_CORPUS_WITHIN_RESAMPLING_REACH at sequence 43.
+    PROHIBITED: narrowing the band to make a crossing expressible, which would
+    be choosing a threshold to obtain a result."""
+
+
 # --------------------------------------------------------------------------
 # Level-free bounds: what a sample size buys, reported rather than chosen.
 # --------------------------------------------------------------------------
+
+ATTAINED_COVERAGE_IS_PER_CELL_ONLY = """n/(n+1) IS A PER-CELL BOUND AND IS REFUSED ACROSS CELLS.
+
+PERMITTED WITHIN A CELL, AS A STATED ASSUMPTION (RULING_15). Draws at different
+seeds on the same prompt, same snapshot, same generation settings, are
+exchangeable BY CONSTRUCTION provided no draw's sampling depends on another
+draw's output. So n/(n+1) may be quoted per cell, ON CONDITION that the pin
+records the generation-settings digest and ASSERTS that independence rather than
+assuming it.
+
+REFUSED ACROSS CELLS. The six cells are a FROZEN locale x paraphrase-family grid;
+draws from different cells are not exchangeable, they are STRATIFIED. A pooled
+coverage number would be the pooled-versus-per-cell defect appearing as a
+COVERAGE CLAIM rather than as a verdict -- the same shape the sequence-43
+addendum found in the cheese headline, one layer down.
+
+AND IT IS NOT A CONFIDENCE LEVEL FOR THE SCIENCE. It is a property of the bound.
+"We are n/(n+1) confident the intervention worked" is a category error and is
+refused. The disclosure that at the derived minimum the attained coverage is
+exactly one half is the honest form and stays on every cell."""
+
 
 LEVEL_FREE_DERIVATION = (
     "Every boundary is an exact order statistic of the control set (a MAXIMUM or a MINIMUM), so "
@@ -303,6 +377,22 @@ def attained_coverage_level(n: int) -> float:
             f"bound. There is no level to report because there is no order statistic."
         )
     return n / (n + 1)
+
+
+def refuse_pooled_coverage(cells: Sequence[str]) -> None:
+    """REFUSE a coverage claim over a control set pooled across cells.
+
+    RULING_15 bounds `n/(n+1)` to WITHIN a cell. There is no function here that
+    returns a pooled coverage number; this exists so the attempt has something
+    to fail against, and it fires on two or more cells and does not fire on one."""
+    distinct = sorted(set(cells))
+    if len(distinct) > 1:
+        raise CalibrationError(
+            f"an attained-coverage figure was requested over {len(distinct)} cells {distinct}. "
+            f"n/(n+1) is exact for EXCHANGEABLE draws; the six cells are a frozen locale x "
+            f"paraphrase-family grid and draws from different cells are STRATIFIED, not "
+            f"exchangeable. {ATTAINED_COVERAGE_IS_PER_CELL_ONLY}"
+        )
 
 
 def minimum_controls_for_level(level: float) -> int:
@@ -680,6 +770,26 @@ def leave_one_prompt_out_signed_midranges(
     return tuple(midranges)
 
 
+def assert_margin_binds(cell: str, rate_margin: float, components: Mapping[str, float]) -> float:
+    """The margin actually used must be strictly positive, or it binds nothing.
+
+    RULING_15 RESAMPLE BOUND_2, required rather than reasoned about: a control
+    set constant across replicates yields a resample spread of zero, and a floor
+    of zero binds nothing. The 1/n resolution is always strictly positive, so on
+    real input this cannot fire -- which is precisely why it is a NAMED helper
+    rather than an inline branch, so that a zero margin can be handed to it and
+    the check shown able to fail. The lane's own CEILING_EXCLUDED finding is why
+    this exists as a check rather than as a comment."""
+    if not float(rate_margin) > 0.0:
+        raise DegenerateControlSet(
+            f"cell {cell!r}: the margin actually used is {rate_margin}, which binds nothing -- any "
+            f"nonzero movement would pass. Components were {dict(components)}. The 1/n resolution "
+            f"is always strictly positive, so a non-positive maximum means the derivation is broken "
+            f"rather than the controls being tight."
+        )
+    return float(rate_margin)
+
+
 def _group_replicates(
     observations: Sequence[ControlObservation],
 ) -> dict[tuple[str, int], list[ControlObservation]]:
@@ -806,6 +916,13 @@ def calibrate_cell(
     margin_bound_by = sorted(
         name for name, value in components.items() if value == rate_margin
     )
+    #: RULING_15 RESAMPLE BOUND_2, required rather than reasoned about: a
+    #: control set constant across replicates yields a resample spread of zero,
+    #: and a floor of zero binds nothing. The 1/n resolution is always strictly
+    #: positive, so the maximum over the three floors must be too -- and this
+    #: ASSERTS it so a vacuous third floor cannot pass unnoticed. The lane's own
+    #: CEILING_EXCLUDED finding is why this exists as a check.
+    assert_margin_binds(cell, rate_margin, components)
     rate_ceiling = 1.0 - rate_margin
 
     signed_values = [float(obs.signed) for obs in observations]
@@ -892,6 +1009,95 @@ def _reset_seal_for_tests_only() -> None:
 
 
 @dataclass(frozen=True)
+class AssignmentReference:
+    """A HASH-BOUND reference to the artifact that assigns this calibration.
+
+    Not a prose paragraph. RULING_15 requires the value to resolve to a protocol
+    artifact by path and sha256 whose `recorded_by` differs from the calibrating
+    lane, and to be REFUSED rather than stored otherwise."""
+
+    path: str
+    sha256: str
+    recorded_by: str
+    assigned_by: str
+    quantities_covered: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not str(self.path).strip():
+            raise AssignmentSelfDeclared("AssignmentReference.path is empty")
+        if not _HEX64.fullmatch(str(self.sha256)):
+            raise AssignmentSelfDeclared(
+                f"AssignmentReference.sha256 must be 64 lowercase hex; got {self.sha256!r}. An "
+                f"unpinned assignment can be edited after the boundary is fixed."
+            )
+        for name in ("recorded_by", "assigned_by"):
+            if not str(getattr(self, name)).strip():
+                raise AssignmentSelfDeclared(
+                    f"AssignmentReference.{name} is empty, so the separation cannot be checked and "
+                    f"an unenforceable separation passes vacuously."
+                )
+        if not self.quantities_covered:
+            raise AssignmentSelfDeclared(
+                "AssignmentReference.quantities_covered is empty. The artifact must name the "
+                "QUANTITIES rather than a file, so that a later file split cannot orphan the "
+                "assignment."
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "sha256": self.sha256,
+            "recorded_by": self.recorded_by,
+            "assigned_by": self.assigned_by,
+            "quantities_covered": list(self.quantities_covered),
+        }
+
+
+#: The quantities an assignment must name, per RULING_15: naming the FILE would
+#: let a later file split orphan the assignment.
+ASSIGNED_QUANTITIES: tuple[str, ...] = (
+    "causal_rate_margin",
+    "arithmetic_ceiling",
+    "crossing_band",
+    "dose_reference",
+)
+
+
+def assert_assignment_is_not_self_declared(
+    reference: AssignmentReference, *, calibrating_lane: str
+) -> dict[str, Any]:
+    """The recorder may not be the calibrating lane, and the cover must be total."""
+    if not str(calibrating_lane).strip():
+        raise AssignmentSelfDeclared(
+            "calibrating_lane is empty, so the self-declaration check cannot fail and therefore "
+            "checks nothing."
+        )
+    if str(reference.recorded_by).strip().lower() == str(calibrating_lane).strip().lower():
+        raise AssignmentSelfDeclared(
+            f"the assignment artifact is recorded_by {reference.recorded_by!r}, which IS the "
+            f"calibrating lane. The entire content of the pre-registration is that the identity "
+            f"PRECEDES THE DATA; an identity recorded by the lane it names is indistinguishable, to "
+            f"every later reader, from one chosen because the result suited it."
+        )
+    uncovered = [q for q in ASSIGNED_QUANTITIES if q not in reference.quantities_covered]
+    if uncovered:
+        raise AssignmentSelfDeclared(
+            f"the assignment does not cover {uncovered}. It must name the QUANTITIES -- "
+            f"{list(ASSIGNED_QUANTITIES)} -- so that a later file split cannot orphan it."
+        )
+    return {
+        "assignment": reference.to_dict(),
+        "recorded_by_is_not_the_calibrating_lane": True,
+        "discharge_is_ancestry_not_existence": (
+            "The discharge is not that the artifact exists. It is that the ASSIGNMENT ARTIFACT'S "
+            "COMMIT IS A STRICT ANCESTOR of the commit recording the first control-derived "
+            "boundary. Checkable with `git merge-base --is-ancestor`, costs one command, AND IT CAN "
+            "FAIL."
+        ),
+    }
+
+
+@dataclass(frozen=True)
 class PinnedCalibration:
     """A calibration with its own digest over its own canonical bytes."""
 
@@ -902,6 +1108,8 @@ class PinnedCalibration:
     calibrating_lane: str
     selecting_lane_excluded: str
     pinned_at_utc: str
+    generation_settings_digest: str
+    assignment: AssignmentReference | None
     digest: str
 
     def cell(self, name: str) -> CellCalibration:
@@ -928,10 +1136,20 @@ class PinnedCalibration:
             "calibrating_lane": self.calibrating_lane,
             "selecting_lane_excluded": self.selecting_lane_excluded,
             "pinned_at_utc": self.pinned_at_utc,
+            "generation_settings_digest": self.generation_settings_digest,
+            "attained_coverage_is_per_cell_only": ATTAINED_COVERAGE_IS_PER_CELL_ONLY,
+            "seed_independence_asserted_not_assumed": (
+                "Draws at different seeds on the same prompt, same snapshot and the generation "
+                "settings digested above are exchangeable BY CONSTRUCTION provided no draw's "
+                "sampling depends on another draw's output. THAT INDEPENDENCE IS ASSERTED HERE, per "
+                "cell, and is the condition on quoting n/(n+1) at all."
+            ),
+            "assignment": None if self.assignment is None else self.assignment.to_dict(),
+            "assignment_record": CALIBRATION_ASSIGNMENT_IS_A_COORDINATION_RECORD,
+            "assignment_is_hash_bound": self.assignment is not None,
             "level_free_derivation": LEVEL_FREE_DERIVATION,
             "minimum_is_derived": MINIMUM_IS_DERIVED,
             "ceiling_derivation": WHY_THE_CEILING_IS_A_FUNCTION_OF_THE_MARGIN,
-            "assignment_record": CALIBRATION_ASSIGNMENT_IS_A_COORDINATION_RECORD,
             "dose_reference": DOSE_REFERENCE_IS_A_CONTROL_ONLY_MEASUREMENT,
             "contains_zero_intervened_generations": True,
         }
@@ -967,6 +1185,8 @@ def calibrate(
     target_outcome_class: str,
     calibrating_lane: str,
     selecting_lane: str,
+    generation_settings_digest: str,
+    assignment: AssignmentReference | None = None,
     now: str | None = None,
 ) -> PinnedCalibration:
     """THE ONLY WAY TO GET A MARGIN, A CEILING OR A BAND.
@@ -993,6 +1213,15 @@ def calibrate(
             f"RULING_14 both hold that the calibration is VOID if the calibrating lane also selects "
             f"the group."
         )
+    if not _HEX64.fullmatch(str(generation_settings_digest)):
+        raise CalibrationError(
+            f"generation_settings_digest must be 64 lowercase hex; got "
+            f"{generation_settings_digest!r}. Quoting n/(n+1) per cell is conditional on recording "
+            f"the generation settings and ASSERTING the seed independence rather than assuming it "
+            f"(RULING_15), so an unrecorded settings digest makes the coverage figure unquotable."
+        )
+    if assignment is not None:
+        assert_assignment_is_not_self_declared(assignment, calibrating_lane=calibrating_lane)
     if not observations:
         raise EmptyControlSet(
             f"calibrate() received zero control observations for cells {list(cells)}. MINIMUM: "
@@ -1030,6 +1259,8 @@ def calibrate(
         calibrating_lane=calibrating_lane,
         selecting_lane_excluded=selecting_lane,
         pinned_at_utc=timestamp,
+        generation_settings_digest=str(generation_settings_digest),
+        assignment=assignment,
         digest="0" * 64,
     )
     return PinnedCalibration(
@@ -1040,6 +1271,8 @@ def calibrate(
         calibrating_lane=pin.calibrating_lane,
         selecting_lane_excluded=pin.selecting_lane_excluded,
         pinned_at_utc=pin.pinned_at_utc,
+        generation_settings_digest=pin.generation_settings_digest,
+        assignment=pin.assignment,
         digest=_digest_of_body(pin.body()),
     )
 
@@ -1148,6 +1381,8 @@ class CellVerdict:
     control_rate_loo_spread: float
     paired_delta_inside_control_resample_spread: bool | None
     margin_bound_by: tuple[str, ...]
+    distance_to_arithmetic_ceiling: float | None
+    origin_pole_derived: str
     reason: str
 
     @property
@@ -1176,6 +1411,16 @@ class CellVerdict:
                 self.paired_delta_inside_control_resample_spread
             ),
             "margin_bound_by": list(self.margin_bound_by),
+            "distance_to_arithmetic_ceiling": self.distance_to_arithmetic_ceiling,
+            "origin_pole_derived": self.origin_pole_derived,
+            "unexcluded_high_baseline_residue": (
+                "The ceiling excludes ARITHMETIC impossibility only. distance_to_arithmetic_ceiling "
+                "is (1 - margin) - control_rate: how much baseline room was left unexcluded. A "
+                "small positive distance means the cell was testable but its baseline was high, and "
+                "that residue is NOT excluded by anything here. This state may never license 'the "
+                "baseline was low', 'there was headroom' or 'the control rate was acceptable'; an "
+                "unrecorded residual becomes a false finding later."
+            ),
             "resample_rule": (
                 "The margin is floored at the control rate's leave-one-prompt-out spread, so a PASS "
                 "can never sit inside the resample noise of its own control measurement. A FAIL "
@@ -1198,7 +1443,7 @@ VERDICT_STATES = (
     "PASS",
     "FAIL",
     "NOT_EXERCISED",
-    "CEILING_EXCLUDED",
+    "CEILING_EXCLUDED_BY_ARITHMETIC",
 )
 
 #: The switchability sub-result, reported BESIDE the sufficiency status and
@@ -1241,10 +1486,14 @@ VERDICT_STATE_MEANINGS = {
         "so the cell was never tested. Reporting this as a failure to steer is a failure "
         "MANUFACTURED BY THE INSTRUMENT."
     ),
-    "CEILING_EXCLUDED": (
+    "CEILING_EXCLUDED_BY_ARITHMETIC": (
         "The control rate over all paired prompts was at or above the ceiling, so a movement of at "
         "least the margin was ARITHMETICALLY UNAVAILABLE. Excluded and counted; never a fail. This "
-        "is 'it was already there' as a DECLARED exclusion rather than an unnoticed pass."
+        "is 'it was already there' as a DECLARED exclusion rather than an unnoticed pass. THE NAME "
+        "STATES ITS SCOPE (RULING_15): the exclusion is ARITHMETIC, so it may NEVER license 'the "
+        "baseline was low', 'there was headroom' or 'the control rate was acceptable'. A merely "
+        "HIGH baseline that still leaves the margin available is NOT excluded, and every cell "
+        "reports its distance to the ceiling so that unexcluded residue is visible."
     ),
 }
 
@@ -1257,7 +1506,7 @@ def evaluate_cell(
     intervened_scored: Sequence[ScoredGeneration],
     void_counts: Mapping[str, int],
     baseline_excluded: int,
-    origin_pole: str,
+    condition: JointCondition,
 ) -> CellVerdict:
     """Score one cell AGAINST THE PIN, and seal the calibration path.
 
@@ -1270,23 +1519,26 @@ def evaluate_cell(
     note_scoring_has_begun(pin.digest, first)
 
     target = calibration.target_outcome_class
-    #: The rate is measured on `target` and the crossing predicate is measured
-    #: from `origin_pole` to the OPPOSITE pole. If those are not the same pole
-    #: the cell reports a rate on one axis end and a crossing count on the
-    #: other, and the two numbers in one verdict would describe different
-    #: events. Refused rather than reconciled, because reconciling it here would
-    #: silently pick which of the two the caller meant.
-    if origin_pole not in ("POLE_OWN", "POLE_MIRROR"):
-        raise CalibrationError(
-            f"origin_pole={origin_pole!r} is not a pole. The crossing predicate is "
-            f"baseline-conditioned on the ORIGIN pole (RULING_13 Q4 clause 4)."
-        )
-    opposite = "POLE_MIRROR" if origin_pole == "POLE_OWN" else "POLE_OWN"
+    #: THE ORIENTATION IS DERIVED FROM THE CONDITION, NEVER SUPPLIED (RULING_15
+    #: R2 condition 3 / DEFECT_2). This function previously took `origin_pole`
+    #: as a caller-supplied string and `crosses` carried a DEFAULT of
+    #: "POLE_MIRROR": on the wrong orientation the predicate returned False for
+    #: every prompt in every cell and surfaced as NOT_EVIDENCED, whose declared
+    #: meaning is "admissible prompts existed and none crossed". There is now no
+    #: argument through which an orientation could be supplied at all.
+    origin_pole = causal_outcome.derive_origin_pole(condition)
+    #: The rate is measured on `target` and the crossing predicate runs from
+    #: `origin_pole` to the OPPOSITE pole. If those are not the same pole the
+    #: cell reports a rate on one axis end and a crossing count on the other,
+    #: and the two numbers in one verdict would describe different events.
+    opposite = condition.target_pole
     if target != opposite:
         raise CalibrationError(
-            f"the pin calibrates cell {cell!r} on target_outcome_class={target!r} while this call "
-            f"conditions on origin_pole={origin_pole!r}, whose opposite pole is {opposite!r}. The "
-            f"rate and the crossing count would then describe different events in one verdict."
+            f"the pin calibrates cell {cell!r} on target_outcome_class={target!r} while the "
+            f"condition ablates {condition.ablated_concept_id!r} and amplifies "
+            f"{condition.amplified_concept_id!r}, which derives origin={origin_pole} and "
+            f"target={opposite}. The rate and the crossing count would then describe different "
+            f"events in one verdict."
         )
     counts = dict(void_counts)
     if not intervened_scored:
@@ -1301,6 +1553,8 @@ def evaluate_cell(
             rate_ceiling=calibration.rate_ceiling,
             void_counts=counts,
             baseline_excluded=baseline_excluded,
+            distance_to_arithmetic_ceiling=None,
+            origin_pole_derived=origin_pole,
             crossing_status="NOT_EXERCISED",
             n_admissible_for_crossing=0,
             crossings=0,
@@ -1384,7 +1638,7 @@ def evaluate_cell(
         crossing_status = "NOT_EVIDENCED"
 
     if control_rate >= calibration.rate_ceiling:
-        status = "CEILING_EXCLUDED"
+        status = "CEILING_EXCLUDED_BY_ARITHMETIC"
     elif delta > calibration.rate_margin:
         status = "PASS"
     else:
@@ -1410,11 +1664,54 @@ def evaluate_cell(
             abs(delta) <= calibration.control_rate_loo_spread
         ),
         margin_bound_by=calibration.margin_bound_by,
+        distance_to_arithmetic_ceiling=calibration.rate_ceiling - control_rate,
+        origin_pole_derived=origin_pole,
         reason=(
             f"{VERDICT_STATE_MEANINGS[status]} CROSSING: "
             f"{CROSSING_STATE_MEANINGS[crossing_status]}"
         ),
     )
+
+
+def crossing_reachability(calibration: CellCalibration) -> dict[str, Any]:
+    """Is a crossing EXPRESSIBLE on this lattice at all?
+
+    RULING_15 R2's honest POWER bound: the difference lattice has 13 points over
+    [-6, +6], which is coarse. If the control-derived band plus the resolution
+    floor leaves no expressible value outside the band, THE CROSSING PREDICATE IS
+    UNREACHABLE ON THIS LATTICE, and that is the finding rather than a null --
+    the same shape as CEILINGED_ON_THIS_CORPUS_WITHIN_RESAMPLING_REACH.
+
+    PROHIBITED, and there is no parameter here through which it could be done:
+    narrowing the band to make a crossing expressible. That would be choosing a
+    threshold to obtain a result, which is the whole thing the control-only
+    derivation exists to prevent."""
+    step = causal_outcome.CLAIM_TYPE_EXTENT_LATTICE_STEP
+    span = causal_outcome.CLAIM_TYPE_EXTENT_SCALE_MAX
+    points = [(-span) + index * step for index in range(int(2 * span / step) + 1)]
+    outside = [
+        point
+        for point in points
+        if point < calibration.neutral_low or point > calibration.neutral_high
+    ]
+    reachable = bool(outside)
+    return {
+        "cell": calibration.cell,
+        "lattice_points": len(points),
+        "lattice_step_in_claim_types": step,
+        "neutral_band": [calibration.neutral_low, calibration.neutral_high],
+        "expressible_values_outside_the_band": len(outside),
+        "crossing_reachable_on_this_lattice": reachable,
+        "finding_if_not": (
+            "CROSSING UNREACHABLE ON THIS LATTICE: the control-derived band plus the resolution "
+            "floor leaves no expressible difference outside the band, so no continuation could "
+            "register a crossing whatever the intervention did. This is a POWER finding about the "
+            "instrument, NOT an absence of switchability, and narrowing the band to make a crossing "
+            "expressible is PROHIBITED."
+        )
+        if not reachable
+        else None,
+    }
 
 
 def result_vector(verdicts: Sequence[CellVerdict]) -> dict[str, Any]:
@@ -1578,7 +1875,7 @@ def _selfcheck() -> int:
             resolution=1.0,
             composition="signed_difference_over_two_disjoint_poles",
             anchors_digest="1" * 64,
-            rank_reliability_evidence="m",
+            rank_reliability_evidence="reports/SYNTHETIC_no_rank_reliability_measured.md@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             sanctioned_by="",
             authored_by="a",
         ),
@@ -1593,7 +1890,7 @@ def _selfcheck() -> int:
         resolution=1.0,
         composition="signed_difference_over_two_disjoint_poles",
         anchors_digest="b" * 64,
-        rank_reliability_evidence="SYNTHETIC: no rank reliability measured for any axis",
+        rank_reliability_evidence="reports/SYNTHETIC_no_rank_reliability_measured.md@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         sanctioned_by="SYNTHETIC: nothing sanctions this; it exercises the arithmetic only",
         authored_by="selfcheck_fixture",
     )
@@ -1699,6 +1996,7 @@ def _selfcheck() -> int:
         target_outcome_class="POLE_OWN",
         calibrating_lane="researcher",
         selecting_lane="engineer2",
+        generation_settings_digest=_SYNTHETIC_SETTINGS_DIGEST,
         now="2026-08-17T00:00:00Z",
     )
     print(f"  pin digest {pin.digest}")
@@ -1857,7 +2155,7 @@ def _selfcheck() -> int:
         intervened_scored=intervened_scored,
         void_counts={"not_exercised": 1, "fired_but_inert": 2, "zero_dose": 3},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=_FORWARD_CONDITION,
     )
     print(f"  {verdict.to_dict()}")
     print(f"  seal: {seal_state()}")
@@ -1870,6 +2168,7 @@ def _selfcheck() -> int:
             target_outcome_class="POLE_OWN",
             calibrating_lane="researcher",
             selecting_lane="engineer2",
+            generation_settings_digest=_SYNTHETIC_SETTINGS_DIGEST,
         ),
         CalibrationSealed,
     )
@@ -1882,7 +2181,7 @@ def _selfcheck() -> int:
         intervened_scored=[],
         void_counts={"not_exercised": 4},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=_FORWARD_CONDITION,
     )
     print(f"  status={unexercised.status} reason={unexercised.reason[:90]}")
     vector = result_vector([verdict, unexercised])
@@ -1902,6 +2201,7 @@ def _selfcheck() -> int:
             target_outcome_class="POLE_OWN",
             calibrating_lane="engineer2",
             selecting_lane="engineer2",
+            generation_settings_digest=_SYNTHETIC_SETTINGS_DIGEST,
         ),
         CalibrationError,
     )

@@ -66,7 +66,43 @@ FROZEN_DESCRIPTION_PATH = "prompts/final_pairing/v2/concept_description_persona_
 #: frozen description's `describes_concepts`.
 PERSONA_CONCEPT_IDS = ("pro_american_exceptionalism", "pro_chinese_exceptionalism")
 
-OUTCOME_MEASURE_REFERRAL = """REFERRED UP, NOT INVENTED HERE: the ordinal scale of the outcome measure.
+#: The frozen corpus R1 clause 7's falsifier runs against. Read, never edited.
+FROZEN_PROMPT_SETS_PATH = "prompts/final_pairing/v2/prompt_sets.jsonl"
+
+OUTCOME_MEASURE_REFERRAL = """ANSWERED AT RULING_15 (architect, mailbox sequence 44). R1 and R2 are ruled; R3 is not this lane's.
+
+WHAT WAS RULED, so that a later reader does not re-open it:
+  R1 THE SCALE. An intensity-, force- or strength-graded ordinal derived from
+     the frozen definition is REFUSED AS UNREACHABLE BY CONSTRUCTION -- not
+     unbuilt, not deferred. The refusal below was upheld and STRENGTHENED by a
+     third frozen string this lane had not cited: T3_PREDICATE.rejects,
+     "Sub-threshold material is NOT a weak positive." The definition does not
+     merely fail to measure force; it REFUSES A GRADED READING OF FORCE AT ITS
+     OWN ADMISSION BOUNDARY, so it cannot be the source of one downstream. The
+     count offered below is ADOPTED as CLAIM_TYPE_EXTENT: a BREADTH scale, per
+     referent, 0 to 6, each instantiating span passing T1-T4 and T6 and violating
+     no HARD_EXCLUSION. Clause 3's operative requirement was never force -- it
+     was distinguishing FLIPPED from ASSERTS-BOTH from ASSERTS-NEITHER, which a
+     signed extent does. See CLAIM_TYPE_EXTENT_SCALE_MIN for the anchor that is
+     load-bearing, and THE_COUNT_IS_A_NEW_READING_NOT_AN_APPLICATION_OF_T5 for
+     why T5 does not carry. ADOPTION IS CONDITIONAL on the frozen-row falsifier
+     (`run_frozen_row_falsifier`), which needs an instrument this lane may not
+     author, so the scale is ADOPTED IN FORM and NOT YET DISCHARGED.
+  R2 THE COMPOSITION. own minus mirror is SANCTIONED AS A CONSTRUCTION and
+     REFUSED AS A SCALAR. The outcome variable is the PAIR (signed difference,
+     assertion level) with both raw per-referent counts retained. The second axis
+     this lane added on its own arithmetic is now MANDATORY rather than a
+     courtesy of the implementation.
+  R3 THE INSTRUMENT. NOT THIS LANE'S TO IMPLEMENT. Topical relevance scorers are
+     refused as a class. The author must clear FIVE exclusions, one of them new
+     at sequence 44 -- NOT THE LANE THAT GENERATES THE INTERVENED CONTINUATIONS
+     -- and they are enforced in `assert_separation_of_duties`'s signature rather
+     than in this docstring. Naming the lane is the coordinator's.
+
+THE REASONING IS PRESERVED BELOW rather than deleted, because the refusal is the
+thing that was upheld and a later reader needs to see what it rested on.
+
+REFERRED UP, NOT INVENTED HERE: the ordinal scale of the outcome measure.
 
 WHAT IS ALREADY DECIDED AND NEEDS NOTHING FROM ANYONE
   The TARGET PROPERTY is frozen and unambiguous. From
@@ -232,6 +268,82 @@ OUTCOME_CLASSES: tuple[str, ...] = (
 )
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_EVIDENCE_REFERENCE = re.compile(r"^(?P<path>[^\s@]+)@sha256:(?P<digest>[0-9a-f]{64})$")
+
+# --------------------------------------------------------------------------
+# RULING_15 R1: the adopted outcome variable, its anchors, and the words that
+# may not be used for it. NONE OF THESE NUMBERS IS A THRESHOLD THIS LANE CHOSE
+# -- each is an IDENTITY fixed by the architect at mailbox sequence 44, and
+# scale_min is fixed there precisely BECAUSE this module's own
+# classify_bipolar makes ASSERTS_NEITHER unreachable at any other value.
+# --------------------------------------------------------------------------
+
+#: The frozen partition of the axis. Its CARDINALITY is the scale maximum, so if
+#: the frozen set ever changes size the scale changes with it and any
+#: attestation against the old size is void.
+FROZEN_CLAIM_TYPES: tuple[str, ...] = ("HD", "ML", "CC", "SIA", "MFO", "SE")
+
+OUTCOME_VARIABLE_NAME = "CLAIM_TYPE_EXTENT"
+
+#: 0 is the NO-CLAIM-TYPE-ADMITTED point. LOAD-BEARING, NOT TASTE:
+#: `classify_bipolar` decides ASSERTS_NEITHER on `assertion_level > 0.0`, so for
+#: ANY scale whose minimum exceeds zero the assertion level is strictly positive
+#: for every possible generation, ASSERTS_NEITHER IS UNREACHABLE BY
+#: CONSTRUCTION, and every no-assertion generation files as NEUTRAL -- the
+#: collapse RULING_13 Q4 clause 3 exists to prevent, arriving through the
+#: validator instead of through the arithmetic. The loader ENFORCES it, so the
+#: class's reachability cannot depend on two modules happening to agree.
+CLAIM_TYPE_EXTENT_SCALE_MIN = 0.0
+CLAIM_TYPE_EXTENT_SCALE_MAX = float(len(FROZEN_CLAIM_TYPES))
+
+#: One claim type. BY ARITHMETIC: an instrument cannot express a difference
+#: smaller than one lattice step, so a declared resolution below one step is not
+#: a stricter instrument, it is an unreadable one, and it is REFUSED at the
+#: attestation. No resolution VALUE is set here -- the measured value is someone
+#: else's to produce under a10d clause 2.
+CLAIM_TYPE_EXTENT_LATTICE_STEP = 1.0
+
+#: 7 points per referent, 13 on the signed difference over [-6, +6].
+CLAIM_TYPE_EXTENT_POINTS_PER_REFERENT = len(FROZEN_CLAIM_TYPES) + 1
+CLAIM_TYPE_EXTENT_DIFFERENCE_POINTS = 2 * len(FROZEN_CLAIM_TYPES) + 1
+
+THE_COUNT_IS_A_NEW_READING_NOT_AN_APPLICATION_OF_T5 = """T5 DOES NOT CARRY, AND THIS IS A NEW READING.
+
+T5's stated purpose is that a blend "makes THE GRID unfalsifiable and THE MIRROR
+unverifiable". Both objects are properties of an AUTHORED SLOT in a mirrored
+grid: a slot has an assigned claim type, a mirror partner and a parity reader. A
+model continuation occupies no slot, has no assigned type and has no mirror
+partner, so neither harm T5 prevents is available to be caused. T5 is an
+AUTHORING constraint; the six positive_tests are CONTENT and they carry.
+
+CONSEQUENCES, BOTH DIRECTIONS. This module may NOT import T5's exactly-one
+clause as a validity check on a continuation, and may NOT report a multi-type
+continuation as malformed: a continuation asserting four claim types is a 4, not
+a violation. And the count may NEVER be cited as "T5" or as "the frozen
+admission test" -- it is a NEW READING of frozen tests, recorded as such
+wherever it is described. A new reading presented as an inherited one is how a
+downstream document comes to describe an axis the corpus never implemented,
+which is the failure the definition's own negative list was written against."""
+
+#: Prohibited in prose AND in code symbols for this variable (RULING_15 R1
+#: clause 8). The frozen document records force as unmeasurable; a variable named
+#: for force asserts a measurement the pipeline cannot make, and a reader cannot
+#: see the substitution without opening the definition.
+FORCE_WORDS_PROHIBITED: tuple[str, ...] = (
+    "intensity",
+    "strength",
+    "force",
+    "how strongly",
+    "more strongly",
+    "degree of belief",
+    "strength of conviction",
+)
+
+REQUIRED_EXTENT_WORDING = (
+    "'asserted N of the six frozen claim types' / 'claim-type extent N'. Comparisons are BREADTH "
+    "comparisons: 'asserted more of the six claim types', NEVER 'asserted them more strongly'."
+)
+
 
 
 class CausalOutcomeError(RuntimeError):
@@ -315,6 +427,39 @@ class VacuousTally(CausalOutcomeError):
 
     A rate over an empty denominator is not a rate. Engineer 1 hit the
     empty-set form of this: a coverage check that passed over zero features."""
+
+
+class OrientationNotDerivable(CausalOutcomeError):
+    """The sign orientation cannot be derived from the condition record.
+
+    RULING_15 DEFECT_2, and it is the one that produces a WRONG CLAIM rather
+    than none. `crosses` previously carried `origin_pole="POLE_MIRROR"` as a
+    DEFAULT SCIENTIFIC ORIENTATION: if the true origin was POLE_OWN the
+    predicate returned False for every prompt in every cell, and that surfaced as
+    NOT_EVIDENCED, whose declared meaning is "admissible prompts existed and none
+    crossed". A predicate that cannot fire, reporting a substantive null. There
+    is now no default; the orientation is DERIVED from the condition, and a
+    condition it cannot be derived from REFUSES."""
+
+
+class OrientationContradicted(CausalOutcomeError):
+    """A supplied orientation disagrees with the one the condition implies."""
+
+
+class EvidenceNotHashBound(CausalOutcomeError):
+    """Evidence asserted in free text where a measurement is required.
+
+    RULING_15 R3 clause 4: `rank_reliability_evidence` accepted any non-empty
+    string, so it accepted "looked stable to me". a10d clause 1 requires rank
+    reliability DEMONSTRATED and clause 2 requires resolution MEASURED RATHER
+    THAN ASSERTED, and a free-text field is exactly an assertion. The remedy is
+    the one `post_report.py` HARDEN-2 applied to `report_path`, for the identical
+    reason: the value must resolve to an artifact path whose sha256 is present in
+    the same record."""
+
+
+class TwoAxesSeparated(CausalOutcomeError):
+    """The signed difference was about to travel without the assertion level."""
 
 
 class StateVocabularyDrift(CausalOutcomeError):
@@ -440,6 +585,21 @@ class RubricAttestation:
                 "clears the floor. The crossing predicate ranks, so this binds. See "
                 "OUTCOME_MEASURE_REFERRAL R3."
             )
+        # AND IT MAY NOT BE A SENTENCE. RULING_15 DEFECT 4 / R3 clause 4: the
+        # field accepted any non-empty string, so it accepted "looked stable to
+        # me", where a10d clause 1 requires reliability DEMONSTRATED and clause
+        # 2 requires resolution MEASURED RATHER THAN ASSERTED. The form is
+        # `<path>@sha256:<64 hex>`, and `assert_evidence_is_hash_bound` checks
+        # the digest against the record that carries it.
+        if not _EVIDENCE_REFERENCE.fullmatch(str(self.rank_reliability_evidence)):
+            raise EvidenceNotHashBound(
+                f"rank_reliability_evidence must be a hash-bound artifact reference of the form "
+                f"'<path>@sha256:<64 lowercase hex>', not free text; got "
+                f"{self.rank_reliability_evidence!r}. a10d requires rank reliability DEMONSTRATED "
+                f"and resolution MEASURED RATHER THAN ASSERTED, and a free-text field is exactly "
+                f"an assertion. Same remedy post_report.py HARDEN-2 applied to report_path, for "
+                f"the same reason."
+            )
         if self.composition not in COMPOSITIONS:
             raise OutcomeMeasureNotSanctioned(
                 f"composition {self.composition!r} is not one of {COMPOSITIONS}. There is no "
@@ -450,7 +610,7 @@ class RubricAttestation:
         if not span > 0.0:
             raise OrdinalScaleViolation(
                 f"scale_max ({self.scale_max}) must exceed scale_min ({self.scale_min}); an "
-                f"ordinal scale with no span cannot express an intensity."
+                f"ordinal scale with no span cannot express an extent."
             )
         if not float(self.resolution) > 0.0:
             raise OrdinalScaleViolation(
@@ -462,6 +622,39 @@ class RubricAttestation:
             raise OrdinalScaleViolation(
                 f"resolution ({self.resolution}) exceeds the scale span ({span}), so the rubric "
                 f"cannot distinguish its own endpoints and no band on it means anything."
+            )
+        # THE ADOPTED ANCHORS, ENFORCED RATHER THAN ASSUMED (RULING_15 R1
+        # clause 5, DEFECT 3). Before this, `scale_min` was free: any
+        # attestation with a minimum above zero made ASSERTS_NEITHER
+        # UNREACHABLE BY CONSTRUCTION, because `classify_bipolar` decides that
+        # class on `assertion_level > 0.0` and the level is then strictly
+        # positive for every possible generation. The guarantee was held by two
+        # modules happening to agree, which is the shape of every defect in
+        # this sprint's catalogue.
+        if float(self.scale_min) != CLAIM_TYPE_EXTENT_SCALE_MIN:
+            raise OrdinalScaleViolation(
+                f"scale_min is {self.scale_min} and must be exactly "
+                f"{CLAIM_TYPE_EXTENT_SCALE_MIN} -- the NO-CLAIM-TYPE-ADMITTED point. This is not "
+                f"taste: classify_bipolar decides ASSERTS_NEITHER on assertion_level > 0.0, so at "
+                f"any higher minimum that class is UNREACHABLE BY CONSTRUCTION and every "
+                f"no-assertion generation files as NEUTRAL -- the exact collapse RULING_13 Q4 "
+                f"clause 3 exists to prevent, arriving through the validator instead of through "
+                f"the arithmetic."
+            )
+        if float(self.scale_max) != CLAIM_TYPE_EXTENT_SCALE_MAX:
+            raise OrdinalScaleViolation(
+                f"scale_max is {self.scale_max} and must equal the CARDINALITY of the frozen claim "
+                f"types, {CLAIM_TYPE_EXTENT_SCALE_MAX} ({list(FROZEN_CLAIM_TYPES)}). If the frozen "
+                f"set ever changes size the scale changes with it and this attestation is void."
+            )
+        if float(self.resolution) < CLAIM_TYPE_EXTENT_LATTICE_STEP:
+            raise OrdinalScaleViolation(
+                f"resolution {self.resolution} is below one lattice step "
+                f"({CLAIM_TYPE_EXTENT_LATTICE_STEP} claim type). An instrument cannot express a "
+                f"difference smaller than one step, so a finer declared resolution is not a "
+                f"stricter instrument -- it is an unreadable one. The MEASURED value above one "
+                f"step is someone else's to produce under a10d clause 2; only the floor is set "
+                f"here, and it is arithmetic rather than choice."
             )
 
     @property
@@ -524,35 +717,116 @@ def load_rubric_attestation(payload: Mapping[str, Any]) -> RubricAttestation:
     )
 
 
-def assert_separation_of_duties(
-    attestation: RubricAttestation, *, calibrating_lane: str, selecting_lane: str
-) -> dict[str, str]:
-    """The rubric's author may be neither the calibrator nor the selector.
+#: THE FIVE EXCLUSIONS, exhaustive, from RULING_15 R3 clause 3. The fifth is
+#: NEW at sequence 44 and is the one with the most force behind it: a lane that
+#: both steers and scores can make its own steering succeed, and scoring free
+#: text has far more discretion in it than any numeric check the sprint has
+#: separated so far. Naming which lane remains eligible is a coordination
+#: decision and is not implemented here -- only the exclusion set is.
+INSTRUMENT_AUTHOR_EXCLUSIONS: tuple[str, ...] = (
+    "description_author",
+    "corpus_author",
+    "selecting_lane",
+    "calibrating_lane",
+    "generating_lane",
+)
 
-    Same separation the sprint already applies to the committer, to the
-    corpus-implements-definition instrument and to the entity-discriminator
-    calibrator, and for the reason RULING_2 gives verbatim: every failure in
-    this sprint's catalogue that survived review did so because someone with
-    the ability to make a check pass encountered a check that was failing."""
+INSTRUMENT_AUTHOR_EXCLUSION_GROUNDS = {
+    "description_author": "RULING_9 and RULING_12: the description author may not author the "
+    "instrument that reads what the description defines.",
+    "corpus_author": "RULING_9 and RULING_12, same ground applied to the corpus.",
+    "selecting_lane": "The frozen description's who_sets_it clause: NOT the lane that selects the "
+    "feature group.",
+    "calibrating_lane": "RULING_13 and RULING_14 STANDING: a measure authored and then calibrated "
+    "by one lane is one party marking its own work.",
+    "generating_lane": "NEW at RULING_15 R3 clause 3. NOT THE LANE THAT GENERATES THE INTERVENED "
+    "CONTINUATIONS. RULING_2's reason applies with more force than in any earlier instance: every "
+    "failure in this sprint's catalogue that survived review did so because someone with the "
+    "ability to make a check pass encountered a check that was failing. A lane that both steers "
+    "and scores can make its own steering succeed.",
+}
+
+
+def assert_separation_of_duties(
+    attestation: RubricAttestation, **lanes: str
+) -> dict[str, str]:
+    """The rubric's author may be NONE of the five excluded roles.
+
+    ENFORCED IN THE SIGNATURE, NOT THE DOCSTRING (RULING_15 R3 clause 3: "A
+    separation recorded in a docstring and not in the signature is a separation
+    nobody can fail"). Every one of `INSTRUMENT_AUTHOR_EXCLUSIONS` must be
+    supplied and non-empty; a missing or blank role refuses on the existing
+    vacuous-pass reasoning rather than being skipped. This checked TWO lanes
+    before sequence 44."""
+    missing = [role for role in INSTRUMENT_AUTHOR_EXCLUSIONS if role not in lanes]
+    if missing:
+        raise OutcomeMeasureNotSanctioned(
+            f"assert_separation_of_duties needs all five excluded roles; missing {missing}. The "
+            f"exclusion set is exhaustive and a role left unsupplied is a separation nobody can "
+            f"fail. Grounds: "
+            f"{ {role: INSTRUMENT_AUTHOR_EXCLUSION_GROUNDS[role] for role in missing} }"
+        )
+    unexpected = [role for role in lanes if role not in INSTRUMENT_AUTHOR_EXCLUSIONS]
+    if unexpected:
+        raise OutcomeMeasureNotSanctioned(
+            f"unknown role(s) {unexpected}; the exclusion set is exactly "
+            f"{list(INSTRUMENT_AUTHOR_EXCLUSIONS)} and silently accepting another name would let a "
+            f"typo read as a satisfied exclusion."
+        )
     author = str(attestation.authored_by).strip().lower()
-    for role, lane in (("calibrating_lane", calibrating_lane), ("selecting_lane", selecting_lane)):
+    for role in INSTRUMENT_AUTHOR_EXCLUSIONS:
+        lane = lanes[role]
         if not str(lane).strip():
             raise OutcomeMeasureNotSanctioned(
-                f"{role} is empty, so the separation cannot be checked at all, and an "
-                f"unenforceable separation passes vacuously."
+                f"{role} is empty, so that exclusion cannot be checked at all, and an "
+                f"unenforceable separation passes vacuously. "
+                f"{INSTRUMENT_AUTHOR_EXCLUSION_GROUNDS[role]}"
             )
         if author == str(lane).strip().lower():
             raise OutcomeMeasureNotSanctioned(
-                f"the rubric is authored by {attestation.authored_by!r}, which is the "
-                f"{role.replace('_', ' ')}. A measure authored and then calibrated (or authored "
-                f"and then selected against) by one lane is one party marking its own work."
+                f"the rubric is authored by {attestation.authored_by!r}, which is the {role}. "
+                f"{INSTRUMENT_AUTHOR_EXCLUSION_GROUNDS[role]}"
             )
     return {
         "rubric_authored_by": attestation.authored_by,
-        "calibrating_lane": calibrating_lane,
-        "selecting_lane": selecting_lane,
+        "exclusions_checked": list(INSTRUMENT_AUTHOR_EXCLUSIONS),
+        "lanes": {role: lanes[role] for role in INSTRUMENT_AUTHOR_EXCLUSIONS},
         "separation": "SATISFIED",
+        "appointment_is_not_made_here": (
+            "The exclusion set is structural. Deriving which lanes remain eligible is analysis and "
+            "CHOOSING one is a coordination decision; if the five exclusions leave no lane that is "
+            "a RESOURCING problem and NOT a licence to collapse an exclusion."
+        ),
     }
+
+
+def assert_evidence_is_hash_bound(
+    attestation: RubricAttestation, artifacts: Sequence[Mapping[str, str]]
+) -> dict[str, str]:
+    """The evidence reference must resolve to an artifact in the SAME record.
+
+    Both halves matter and both can fail: the reference must PARSE as
+    `<path>@sha256:<hex>` (checked at construction) and the named path must
+    appear in `artifacts` CARRYING THAT DIGEST. A reference to a file nobody
+    listed is still an assertion."""
+    match = _EVIDENCE_REFERENCE.fullmatch(str(attestation.rank_reliability_evidence))
+    if match is None:  # pragma: no cover - construction already refused this
+        raise EvidenceNotHashBound("evidence reference does not parse")
+    path, digest = match.group("path"), match.group("digest")
+    for artifact in artifacts:
+        if artifact.get("path") == path:
+            if artifact.get("sha256") != digest:
+                raise EvidenceNotHashBound(
+                    f"evidence names {path!r} at {digest} but the record lists it at "
+                    f"{artifact.get('sha256')}. A reference whose digest disagrees with the record "
+                    f"binds nothing."
+                )
+            return {"path": path, "sha256": digest, "hash_bound": "SATISFIED"}
+    raise EvidenceNotHashBound(
+        f"evidence names {path!r}, which is not among the record's artifacts "
+        f"{[a.get('path') for a in artifacts]}. A reference to a file nobody listed is an "
+        f"assertion with a colon in it."
+    )
 
 
 # --------------------------------------------------------------------------
@@ -562,19 +836,31 @@ def assert_separation_of_duties(
 
 @dataclass(frozen=True)
 class PoleReading:
-    """One pole's ordinal intensity on one generation, with its instrument."""
+    """One referent's CLAIM-TYPE EXTENT on one generation, with its instrument.
+
+    EXTENT, NOT INTENSITY. RULING_15 R1: an intensity-, force- or
+    strength-graded ordinal derived from the frozen definition is REFUSED AS
+    UNREACHABLE BY CONSTRUCTION, on three frozen strings -- intensity parity is
+    NOT MECHANICALLY CHECKABLE; superlative strength is not checkable and is the
+    weakest enforced link; and T3_PREDICATE.rejects, "Sub-threshold material is
+    NOT a weak positive." A document that refuses a graded reading of force at
+    its own admission boundary cannot be the source of one downstream. The
+    adopted variable is BREADTH -- how many of a frozen partition of the axis are
+    asserted. A field named for force would assert a measurement the pipeline
+    cannot make, and a reader could not see the substitution without opening the
+    frozen definition."""
 
     concept_id: str
-    intensity: float
+    extent: float
     rubric: RubricAttestation
 
     def __post_init__(self) -> None:
-        value = float(self.intensity)
+        value = float(self.extent)
         if not (float(self.rubric.scale_min) <= value <= float(self.rubric.scale_max)):
             raise OrdinalScaleViolation(
-                f"intensity {value} for {self.concept_id!r} is outside its rubric's declared scale "
-                f"[{self.rubric.scale_min}, {self.rubric.scale_max}]. A reading off its own scale "
-                f"is not a weaker reading; it is a broken instrument."
+                f"claim-type extent {value} for {self.concept_id!r} is outside its rubric's declared "
+                f"scale [{self.rubric.scale_min}, {self.rubric.scale_max}]. A reading off its own "
+                f"scale is not a narrower reading; it is a broken instrument."
             )
 
 
@@ -617,22 +903,50 @@ class BipolarReading:
         The composition is REFERRED (see OUTCOME_MEASURE_REFERRAL R2). This
         property is reachable only through a `RubricAttestation` that named it,
         and no attestation in this repository does."""
-        return float(self.own.intensity) - float(self.mirror.intensity)
+        return float(self.own.extent) - float(self.mirror.extent)
 
     @property
     def assertion_level(self) -> float:
         """own + mirror. The axis a signed difference throws away."""
-        return float(self.own.intensity) + float(self.mirror.intensity)
+        return float(self.own.extent) + float(self.mirror.extent)
+
+    @property
+    def outcome_pair(self) -> tuple[float, float]:
+        """THE OUTCOME VARIABLE IS THE PAIR, not the difference.
+
+        RULING_15 R2 VERDICT: "SANCTIONED AS A CONSTRUCTION, and REFUSED AS A
+        SCALAR. The signed difference is the sanctioned composition but it is
+        NOT the outcome variable." A scalar difference is not injective over the
+        classes RULING_13 requires to be distinct -- own minus mirror is 0 both
+        when NEITHER pole is asserted and when BOTH are -- so a scalar would
+        reintroduce the presence-versus-ordinal defect inside the very variable
+        built to remove it."""
+        return (self.signed, self.assertion_level)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "own_concept_id": self.own.concept_id,
-            "own_intensity": float(self.own.intensity),
+            "own_extent": float(self.own.extent),
             "mirror_concept_id": self.mirror.concept_id,
-            "mirror_intensity": float(self.mirror.intensity),
+            "mirror_extent": float(self.mirror.extent),
             "signed": self.signed,
             "assertion_level": self.assertion_level,
+            "outcome_pair": list(self.outcome_pair),
+            "raw_counts_retained": {
+                self.own.concept_id: float(self.own.extent),
+                self.mirror.concept_id: float(self.mirror.extent),
+            },
             "composition": self.rubric.composition,
+            "composition_is_ours": (
+                "constructed signed contrast over two disjoint feature groups. NOT a bipolar axis, "
+                "NOT the stance axis, NOT a discovered switch, and NOT a statement about anything "
+                "inside the model. RULING_15 R2 condition 1."
+            ),
+            "two_axes_rule": (
+                "The signed difference may never be reported, plotted, pooled or thresholded "
+                "without the assertion level beside it. A figure showing the difference alone is a "
+                "two-boolean instrument with extra arithmetic."
+            ),
             "rubric_digest": self.rubric.digest,
         }
 
@@ -699,17 +1013,148 @@ def classify_bipolar(reading: BipolarReading, bands: OutcomeBands) -> str:
     return "POLE_OWN" if signed > float(bands.neutral_high) else "POLE_MIRROR"
 
 
-def crosses(
-    control_class: str, intervened_class: str, *, origin_pole: str = "POLE_MIRROR"
-) -> bool:
+@dataclass(frozen=True)
+class JointCondition:
+    """THE CONDITION RECORD THE ORIENTATION IS DERIVED FROM.
+
+    RULING_13 Q4 conjunct 1 requires ONE condition simultaneously ablating group
+    A and amplifying group B, same prompt, same seed, same paired same-seed
+    control. RULING_15 R2 condition 3 adds that the ORIGIN POLE IS A PROPERTY OF
+    THAT CONDITION -- the ablated group's concept is the origin, the amplified
+    group's is the target -- and must be DERIVED from it rather than supplied.
+
+    WHY THIS TYPE EXISTS AT ALL. Before sequence 44 the orientation was a
+    caller-supplied string with a DEFAULT of "POLE_MIRROR". If the true origin
+    was POLE_OWN, `crosses` returned False for every prompt in every cell, and
+    that surfaced as NOT_EVIDENCED -- a state whose declared meaning is
+    "admissible prompts existed and none crossed". A silent never-fires,
+    reported as a substantive null. This lane refused a default COMPOSITION for
+    exactly that reason and then left a default ORIENTATION two functions away."""
+
+    ablated_concept_id: str
+    amplified_concept_id: str
+    own_concept_id: str
+    mirror_concept_id: str
+
+    def __post_init__(self) -> None:
+        for name in (
+            "ablated_concept_id",
+            "amplified_concept_id",
+            "own_concept_id",
+            "mirror_concept_id",
+        ):
+            if not str(getattr(self, name)).strip():
+                raise OrientationNotDerivable(
+                    f"JointCondition.{name} is empty, so the orientation cannot be derived and a "
+                    f"blank would have to be defaulted. A blank reads as NOT CHECKED."
+                )
+        if self.ablated_concept_id == self.amplified_concept_id:
+            raise OrientationNotDerivable(
+                f"the same concept {self.ablated_concept_id!r} is recorded as both ablated and "
+                f"amplified, so there is no direction to derive. The two persona groups are "
+                f"DISJOINT BY CONSTRUCTION."
+            )
+        if self.own_concept_id == self.mirror_concept_id:
+            raise OrientationNotDerivable(
+                f"own and mirror are both {self.own_concept_id!r}; a pole cannot mirror itself."
+            )
+        if {self.ablated_concept_id, self.amplified_concept_id} != {
+            self.own_concept_id,
+            self.mirror_concept_id,
+        }:
+            raise OrientationNotDerivable(
+                f"the condition intervenes on "
+                f"{sorted({self.ablated_concept_id, self.amplified_concept_id})} while the reading "
+                f"is over {sorted({self.own_concept_id, self.mirror_concept_id})}. The orientation "
+                f"is only derivable when the intervened concepts ARE the two scored referents; "
+                f"guessing which maps to which is the defaulting this type exists to remove."
+            )
+
+    @property
+    def origin_pole(self) -> str:
+        """The pole a control is expected to sit at: the ABLATED concept's.
+
+        Derived, never supplied. Ablating the group that carries a referent
+        moves the signed difference AWAY from that referent's pole, so the
+        control -- with nothing ablated -- is the side the flip departs from."""
+        if self.ablated_concept_id == self.own_concept_id:
+            return "POLE_OWN"
+        return "POLE_MIRROR"
+
+    @property
+    def target_pole(self) -> str:
+        """The pole a successful crossing arrives at: the AMPLIFIED concept's."""
+        return "POLE_MIRROR" if self.origin_pole == "POLE_OWN" else "POLE_OWN"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ablated_concept_id": self.ablated_concept_id,
+            "amplified_concept_id": self.amplified_concept_id,
+            "own_concept_id": self.own_concept_id,
+            "mirror_concept_id": self.mirror_concept_id,
+            "origin_pole_DERIVED": self.origin_pole,
+            "target_pole_DERIVED": self.target_pole,
+            "derivation": (
+                "The ablated group's concept is the ORIGIN and the amplified group's is the TARGET "
+                "(RULING_15 R2 condition 3). Derived from this record; never supplied, and never "
+                "defaulted."
+            ),
+        }
+
+    def mirrored(self) -> JointCondition:
+        """The other direction of the same pair, for the bidirectionality arm."""
+        return JointCondition(
+            ablated_concept_id=self.amplified_concept_id,
+            amplified_concept_id=self.ablated_concept_id,
+            own_concept_id=self.own_concept_id,
+            mirror_concept_id=self.mirror_concept_id,
+        )
+
+
+def derive_origin_pole(condition: JointCondition) -> str:
+    """The only way to obtain an orientation. There is no default."""
+    return condition.origin_pole
+
+
+def assert_orientation_agrees(condition: JointCondition, supplied_pole: str) -> str:
+    """REFUSE a supplied orientation that contradicts the condition.
+
+    R2 condition 3 requires both halves: derive it, AND refuse a supplied value
+    that disagrees. A caller that carries an orientation from somewhere else has
+    to be told it is wrong rather than silently overridden -- overriding would
+    hide a broken producer, the same reason the APPLIED-with-zero-calls record
+    refuses instead of being reclassified."""
+    if supplied_pole not in ("POLE_OWN", "POLE_MIRROR"):
+        raise OrientationNotDerivable(
+            f"supplied orientation {supplied_pole!r} is not a pole. The crossing predicate is "
+            f"baseline-conditioned on the ORIGIN pole (RULING_13 Q4 clause 4)."
+        )
+    derived = condition.origin_pole
+    if supplied_pole != derived:
+        raise OrientationContradicted(
+            f"the condition ablates {condition.ablated_concept_id!r} and amplifies "
+            f"{condition.amplified_concept_id!r}, so the origin pole is {derived}; "
+            f"{supplied_pole} was supplied. A supplied orientation that contradicts the condition "
+            f"is refused rather than honoured: honouring it would make the crossing predicate "
+            f"return False for every prompt in every cell and report that as NOT_EVIDENCED."
+        )
+    return derived
+
+
+def crosses(control_class: str, intervened_class: str, *, origin_pole: str) -> bool:
     """Did the score CROSS the band, from the origin pole to the other one?
 
-    RULING_13 Q4 clause 4: "The score must CROSS the neutral band, not merely
-    shift within the origin pole -- strongly-pro-A to weakly-pro-A is not a
-    flip", and it is measured only on prompts whose CONTROL sits at the origin
-    pole. A move into ASSERTS_BOTH is NOT a crossing: it is its own outcome
-    class, and calling it a flip is the two-boolean defect returning by the
-    back door."""
+    RULING_13 Q4 clause 4: the score must CROSS the neutral band, not merely
+    shift within the origin pole, and it is measured only on prompts whose
+    CONTROL sits at the origin pole. A move into ASSERTS_BOTH is NOT a crossing:
+    it is its own outcome class, and calling it a flip is the two-boolean defect
+    returning by the back door.
+
+    `origin_pole` IS REQUIRED AND HAS NO DEFAULT (RULING_15 DEFECT_2). Obtain it
+    from `derive_origin_pole(condition)`; a literal here is a default scientific
+    orientation with extra steps, and if it is the wrong one this predicate
+    returns False everywhere and the wrongness surfaces as a substantive null.
+    `crosses_under(condition, ...)` is the safe entry point."""
     for name, value in (("control_class", control_class), ("intervened_class", intervened_class)):
         if value not in OUTCOME_CLASSES:
             raise CausalOutcomeError(f"{name}={value!r} is not one of {OUTCOME_CLASSES}")
@@ -723,6 +1168,16 @@ def crosses(
         return False
     target = "POLE_MIRROR" if origin_pole == "POLE_OWN" else "POLE_OWN"
     return intervened_class == target
+
+
+def crosses_under(
+    condition: JointCondition, control_class: str, intervened_class: str
+) -> bool:
+    """`crosses` with the orientation DERIVED. The preferred entry point.
+
+    Exists so that the ordinary call site cannot express the defect at all:
+    there is no argument here through which an orientation could be supplied."""
+    return crosses(control_class, intervened_class, origin_pole=condition.origin_pole)
 
 
 def baseline_is_at_origin_pole(control_class: str, *, origin_pole: str) -> bool:
@@ -1135,6 +1590,46 @@ class CellTally:
         }
 
 
+def assert_two_axes_travel_together(record: Mapping[str, Any]) -> Mapping[str, Any]:
+    """REFUSE a record carrying the signed difference without the level.
+
+    RULING_15 R2 condition 2, made a check rather than a sentence. Written
+    against a RECORD because the fabrication is a record: `BipolarReading`
+    cannot omit either axis, so a guard runnable only on the object that cannot
+    fail it would be decorative. Also refuses the raw per-referent counts being
+    dropped -- a derived pair is a COLLAPSE of the counts and a collapse cannot
+    be un-collapsed later (the depth-vector retention rule at sequence 42).
+
+    And it refuses reading a zero difference as neutral: zero is at least three
+    states and the instrument now distinguishes them."""
+    if "signed" not in record:
+        return record
+    for required in ("assertion_level", "raw_counts_retained"):
+        if required not in record:
+            raise TwoAxesSeparated(
+                f"a record carries 'signed' without {required!r}. The outcome variable is the PAIR "
+                f"(signed difference, assertion level) with both raw per-referent counts retained; "
+                f"the difference alone is not injective over ASSERTS_BOTH, ASSERTS_NEITHER and "
+                f"NEUTRAL, which RULING_13 Q4 clause 3 requires to be distinct."
+            )
+    counts = dict(record["raw_counts_retained"])
+    if len(counts) != 2:
+        raise TwoAxesSeparated(
+            f"raw_counts_retained holds {len(counts)} referent(s); the construction is over exactly "
+            f"two disjoint referents."
+        )
+    signed = float(record["signed"])
+    level = float(record["assertion_level"])
+    own, mirror = (float(value) for value in counts.values())
+    if abs(own - mirror) != abs(signed) or (own + mirror) != level:
+        raise TwoAxesSeparated(
+            f"the retained counts {counts} do not reproduce signed={signed} and "
+            f"assertion_level={level}. A record whose derived pair disagrees with its own counts "
+            f"cannot be audited, and the counts are the thing that survives the collapse."
+        )
+    return record
+
+
 def assert_denominator_excludes_void(tally: Mapping[str, Any]) -> Mapping[str, Any]:
     """FALSIFIER. Refuse a record whose denominator absorbed a void count.
 
@@ -1201,6 +1696,176 @@ def summarise_states(tallies: Iterable[CellTally]) -> dict[str, Any]:
     }
 
 
+
+# --------------------------------------------------------------------------
+# RULING_15 R1 clause 7: ADOPTION IS CONDITIONAL ON THIS, AND IT RUNS TODAY.
+# --------------------------------------------------------------------------
+
+FROZEN_ROW_FALSIFIER_SCOPE = """WHAT THIS CHECK DISCHARGES, AND WHAT IT DOES NOT.
+
+RULING_15 adopts CLAIM_TYPE_EXTENT conditionally, on a falsifier over the frozen
+corpus with answers known IN ADVANCE from the corpus's own structure. The check
+needs no GPU and no generation: it scores frozen text.
+
+DISCHARGES: the SIGN, and the 0/1 anchors. The near_miss rows are BYTE COPIES of
+the mirror concept's positives, so requiring 1 on the MIRROR referent and 0 on
+its own exercises the ORIENTATION against a pre-known answer -- not merely the
+magnitude. The neutral and unrelated rows exercise the ASSERTS_NEITHER anchor and
+scale_min = 0 on real text.
+
+DOES NOT DISCHARGE, AND THIS IS THE DEFECT CLASS IN A NEW PLACE: by T5 every
+frozen positive row instantiates EXACTLY ONE claim type, so this check exercises
+only levels 0 and 1 of a seven-level scale. LEVELS 2 TO 6 ARE UNEXERCISED BY
+EVERY ROW IN THE FROZEN CORPUS. A validation set that cannot reach five of seven
+levels is a check unable to exercise what it claims to cover, and reporting this
+as "the scale is validated" would be exactly that defect. Resolution and rank
+reliability at levels 2 and above must be MEASURED ON CONTROL GENERATIONS before
+the first intervened generation is scored, and until they are, every pin must
+state that THE UPPER LATTICE IS UNEXERCISED.
+
+WHICH WAY A DISAGREEMENT CUTS: it disqualifies THE SCALE and is REFERRED for the
+row. It is NOT a corpus verdict in either direction. The frozen label is the
+PREDICTION and the instrument is the TEST, so a disagreement falsifies one of the
+two and says which only after someone with standing looks. This check is NOT a
+corpus certification and may not be converted into one."""
+
+#: The splits and their pre-known answers. `None` means REPORTED ONLY: an
+#: eliciting prompt is not an assertion, and inventing an expectation for it
+#: would be the topic-versus-stance error the frozen definition names as the
+#: single most likely authoring mistake.
+FROZEN_ROW_EXPECTATIONS: dict[str, tuple[int | None, int | None]] = {
+    "positive": (1, 0),
+    "near_miss": (0, 1),
+    "heldout_neutral": (0, 0),
+    "unrelated": (0, 0),
+    "heldout_eliciting": (None, None),
+}
+
+
+class ScaleNotAdopted(CausalOutcomeError):
+    """The frozen-row falsifier failed, so CLAIM_TYPE_EXTENT is not adopted."""
+
+
+@dataclass(frozen=True)
+class FrozenRowFalsifierResult:
+    """The outcome of R1 clause 7, with the honest scope attached."""
+
+    rows_scored: int
+    disqualifying: tuple[str, ...]
+    per_split_counts: Mapping[str, int]
+    reported_only: int
+    levels_exercised: tuple[int, ...]
+
+    @property
+    def adopted(self) -> bool:
+        return not self.disqualifying
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "rows_scored": self.rows_scored,
+            "adopted": self.adopted,
+            "disqualifying": list(self.disqualifying),
+            "per_split_counts": dict(self.per_split_counts),
+            "reported_only": self.reported_only,
+            "levels_exercised": list(self.levels_exercised),
+            "levels_unexercised": [
+                level
+                for level in range(int(CLAIM_TYPE_EXTENT_SCALE_MAX) + 1)
+                if level not in self.levels_exercised
+            ],
+            "upper_lattice_is_unexercised": sorted(self.levels_exercised) != list(
+                range(int(CLAIM_TYPE_EXTENT_SCALE_MAX) + 1)
+            ),
+            "scope": FROZEN_ROW_FALSIFIER_SCOPE,
+            "new_reading": THE_COUNT_IS_A_NEW_READING_NOT_AN_APPLICATION_OF_T5,
+        }
+
+
+def load_frozen_rows(path: Path | None = None) -> list[dict[str, str]]:
+    """The frozen corpus, read as bytes. No CRLF tolerance."""
+    target = Path(path) if path is not None else REPO_ROOT / FROZEN_PROMPT_SETS_PATH
+    raw = target.read_bytes()
+    if b"\r\n" in raw:
+        raise CausalOutcomeError(
+            f"{target.name} contains CRLF, so its bytes are not the frozen bytes."
+        )
+    return [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
+
+
+def run_frozen_row_falsifier(
+    instrument: Any, rows: Sequence[Mapping[str, str]] | None = None
+) -> FrozenRowFalsifierResult:
+    """Score every frozen row and compare against answers known IN ADVANCE.
+
+    `instrument` is any callable `(text, referent_concept_id) -> int` emitting
+    CLAIM_TYPE_EXTENT, plus an optional `claim_types(text, referent)` returning
+    which of the six were found, used only to check a positive row's TYPE against
+    its frozen label. No instrument is supplied by this module: authoring it is
+    R3's and its author must clear all five exclusions."""
+    rows = list(rows) if rows is not None else load_frozen_rows()
+    if not rows:
+        raise ScaleNotAdopted(
+            "the falsifier was handed zero rows, so it would report adoption over nothing -- an "
+            "aggregate over an empty set, the defect this sprint keeps finding."
+        )
+    disqualifying: list[str] = []
+    per_split: dict[str, int] = {}
+    reported_only = 0
+    levels: set[int] = set()
+    for row in rows:
+        split = str(row.get("split", ""))
+        if split not in FROZEN_ROW_EXPECTATIONS:
+            disqualifying.append(f"{row.get('prompt_id')}: unknown split {split!r}")
+            continue
+        per_split[split] = per_split.get(split, 0) + 1
+        own_concept = str(row["concept_id"])
+        mirror_concept = next(
+            (name for name in PERSONA_CONCEPT_IDS if name != own_concept), own_concept
+        )
+        text = str(row["text"])
+        own_extent = int(instrument(text, own_concept))
+        mirror_extent = int(instrument(text, mirror_concept))
+        levels.update({own_extent, mirror_extent})
+        expected_own, expected_mirror = FROZEN_ROW_EXPECTATIONS[split]
+        if expected_own is None:
+            reported_only += 1
+            continue
+        if own_extent != expected_own:
+            disqualifying.append(
+                f"{row.get('prompt_id')} ({split}): own extent {own_extent}, expected {expected_own}"
+            )
+        if mirror_extent != expected_mirror:
+            disqualifying.append(
+                f"{row.get('prompt_id')} ({split}): mirror extent {mirror_extent}, expected "
+                f"{expected_mirror}"
+            )
+        if split == "positive" and hasattr(instrument, "claim_types"):
+            found = tuple(instrument.claim_types(text, own_concept))
+            if found != (str(row["claim_type"]),):
+                disqualifying.append(
+                    f"{row.get('prompt_id')} (positive): found claim type(s) {list(found)}, frozen "
+                    f"label {row['claim_type']!r}"
+                )
+    return FrozenRowFalsifierResult(
+        rows_scored=len(rows),
+        disqualifying=tuple(disqualifying),
+        per_split_counts=per_split,
+        reported_only=reported_only,
+        levels_exercised=tuple(sorted(levels)),
+    )
+
+
+def assert_scale_is_adopted(result: FrozenRowFalsifierResult) -> FrozenRowFalsifierResult:
+    """REFUSE to treat the scale as adopted on a failing falsifier."""
+    if not result.adopted:
+        raise ScaleNotAdopted(
+            f"{len(result.disqualifying)} disqualifying row(s); CLAIM_TYPE_EXTENT is NOT ADOPTED. "
+            f"First few: {list(result.disqualifying[:5])}. A disagreement disqualifies THE SCALE "
+            f"and is REFERRED for the row; it is NOT a corpus verdict in either direction."
+        )
+    return result
+
+
 def _print(title: str) -> None:
     print(f"\n=== {title} ===")
 
@@ -1236,7 +1901,7 @@ def _selfcheck() -> int:
             resolution=1.0,
             composition=COMPOSITION_SIGNED_DIFFERENCE,
             anchors_digest="1" * 64,
-            rank_reliability_evidence="measured",
+            rank_reliability_evidence="reports/SYNTHETIC_no_rank_reliability_measured.md@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             sanctioned_by="   ",
             authored_by="somebody",
         ),
@@ -1269,17 +1934,38 @@ def _selfcheck() -> int:
         resolution=1.0,
         composition=COMPOSITION_SIGNED_DIFFERENCE,
         anchors_digest="b" * 64,
-        rank_reliability_evidence="SYNTHETIC: no rank reliability has been measured for any axis",
+        rank_reliability_evidence="reports/SYNTHETIC_no_rank_reliability_measured.md@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
         sanctioned_by="SYNTHETIC: nothing sanctions this; it exists to exercise the arithmetic",
         authored_by="selfcheck_fixture",
     )
+    five_lanes = {
+        "description_author": "pm",
+        "corpus_author": "corpus_author",
+        "selecting_lane": "engineer2",
+        "calibrating_lane": "researcher",
+        "generating_lane": "engineer1",
+    }
+    for role in INSTRUMENT_AUTHOR_EXCLUSIONS:
+        expect_refusal(
+            f"a rubric authored by the {role}",
+            lambda role=role: assert_separation_of_duties(
+                RubricAttestation(**{**rubric.__dict__, "authored_by": five_lanes[role]}),
+                **five_lanes,
+            ),
+            OutcomeMeasureNotSanctioned,
+        )
     expect_refusal(
-        "a rubric authored by the calibrating lane",
+        "a separation with one role left unsupplied",
         lambda: assert_separation_of_duties(
-            rubric, calibrating_lane="selfcheck_fixture", selecting_lane="engineer2"
+            rubric, **{k: v for k, v in five_lanes.items() if k != "generating_lane"}
         ),
         OutcomeMeasureNotSanctioned,
     )
+    print(
+        f"  PERMITTED: author {rubric.authored_by!r} clears all "
+        f"{len(INSTRUMENT_AUTHOR_EXCLUSIONS)} exclusions"
+    )
+    assert_separation_of_duties(rubric, **five_lanes)
 
     _print("the firing precondition refuses every void state")
     bands = OutcomeBands(
@@ -1383,6 +2069,44 @@ def _selfcheck() -> int:
     else:
         print("  PROVEN: equal signed scores, different classes -- the second axis is load-bearing")
 
+    _print("the ORIENTATION IS DERIVED: no default, and a contradiction refuses")
+    forward = JointCondition(
+        ablated_concept_id=PERSONA_CONCEPT_IDS[1],
+        amplified_concept_id=PERSONA_CONCEPT_IDS[0],
+        own_concept_id=PERSONA_CONCEPT_IDS[0],
+        mirror_concept_id=PERSONA_CONCEPT_IDS[1],
+    )
+    print(f"  ablate mirror -> origin {forward.origin_pole}, target {forward.target_pole}")
+    print(
+        f"  ablate own    -> origin {forward.mirrored().origin_pole}, "
+        f"target {forward.mirrored().target_pole}"
+    )
+    expect_refusal(
+        "a supplied orientation that contradicts the condition",
+        lambda: assert_orientation_agrees(forward, "POLE_OWN"),
+        OrientationContradicted,
+    )
+    expect_refusal(
+        "a condition intervening on concepts that are not the scored referents",
+        lambda: JointCondition(
+            ablated_concept_id="cheese",
+            amplified_concept_id=PERSONA_CONCEPT_IDS[0],
+            own_concept_id=PERSONA_CONCEPT_IDS[0],
+            mirror_concept_id=PERSONA_CONCEPT_IDS[1],
+        ),
+        OrientationNotDerivable,
+    )
+    expect_refusal(
+        "a condition that ablates and amplifies the same concept",
+        lambda: JointCondition(
+            ablated_concept_id=PERSONA_CONCEPT_IDS[0],
+            amplified_concept_id=PERSONA_CONCEPT_IDS[0],
+            own_concept_id=PERSONA_CONCEPT_IDS[0],
+            mirror_concept_id=PERSONA_CONCEPT_IDS[1],
+        ),
+        OrientationNotDerivable,
+    )
+
     _print("crossing is baseline-conditioned and ASSERTS_BOTH is not a flip")
     for control_class, intervened_class in (
         ("POLE_MIRROR", "POLE_OWN"),
@@ -1393,8 +2117,8 @@ def _selfcheck() -> int:
     ):
         print(
             f"  control={control_class:12s} intervened={intervened_class:12s} -> "
-            f"crosses={crosses(control_class, intervened_class)} "
-            f"admissible={baseline_is_at_origin_pole(control_class, origin_pole='POLE_MIRROR')}"
+            f"crosses={crosses_under(forward, control_class, intervened_class)} "
+            f"admissible={baseline_is_at_origin_pole(control_class, origin_pole=forward.origin_pole)}"
         )
 
     _print("a tally keeps the void states out of the denominator")

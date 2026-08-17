@@ -13,6 +13,7 @@ cannot be produced after a result has been scored against it.
 from __future__ import annotations
 
 import ast
+import json
 import sys
 from pathlib import Path
 
@@ -30,6 +31,16 @@ from test_causal_outcome import (  # noqa: E402
     control_evidence,
     evidence,
     synthetic_rubric,
+)
+
+SETTINGS_DIGEST = "f" * 64
+
+#: The orientation is DERIVED from this, never supplied (RULING_15 DEFECT_2).
+FORWARD_CONDITION = co.JointCondition(
+    ablated_concept_id=PERSONA_B,
+    amplified_concept_id=PERSONA_A,
+    own_concept_id=PERSONA_A,
+    mirror_concept_id=PERSONA_B,
 )
 
 
@@ -299,6 +310,7 @@ def test_an_undeclared_cell_refuses_rather_than_being_silently_ignored():
             target_outcome_class="POLE_OWN",
             calibrating_lane="researcher",
             selecting_lane="engineer2",
+            generation_settings_digest=SETTINGS_DIGEST,
         )
     assert "undeclared cell" in str(caught.value)
 
@@ -312,6 +324,7 @@ def test_calibrate_refuses_zero_cells_and_zero_observations():
             target_outcome_class="POLE_OWN",
             calibrating_lane="researcher",
             selecting_lane="engineer2",
+            generation_settings_digest=SETTINGS_DIGEST,
         )
     with pytest.raises(cc.EmptyControlSet):
         cc.calibrate(
@@ -321,6 +334,7 @@ def test_calibrate_refuses_zero_cells_and_zero_observations():
             target_outcome_class="POLE_OWN",
             calibrating_lane="researcher",
             selecting_lane="engineer2",
+            generation_settings_digest=SETTINGS_DIGEST,
         )
 
 
@@ -333,6 +347,7 @@ def test_the_calibrating_lane_may_not_be_the_selecting_lane():
             target_outcome_class="POLE_OWN",
             calibrating_lane="Engineer2",
             selecting_lane="engineer2",
+            generation_settings_digest=SETTINGS_DIGEST,
         )
     assert "VOID if the calibrating lane also selects" in str(caught.value)
 
@@ -402,7 +417,7 @@ def test_a_wide_control_spread_is_used_as_observed():
     rows = [control("a", "en/f1", "p0", 1, own=4.0), control("b", "en/f1", "p1", 1, mirror=3.0)]
     rows += [control("c", "en/f1", "p0", 2), control("d", "en/f1", "p1", 2)]
     calibration = cc.calibrate_cell(
-        "en/f1", rows, rubric=synthetic_rubric(resolution=0.5), target_outcome_class="POLE_OWN"
+        "en/f1", rows, rubric=synthetic_rubric(resolution=1.0), target_outcome_class="POLE_OWN"
     )
     assert calibration.neutral_low == pytest.approx(-3.0)
     assert calibration.neutral_high == pytest.approx(4.0)
@@ -520,7 +535,7 @@ def test_a_passing_cell_can_never_sit_inside_the_control_resample_spread():
         intervened_scored=intervened,
         void_counts={},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     assert verdict.status == "PASS"
     assert verdict.paired_delta_inside_control_resample_spread is False
@@ -539,7 +554,7 @@ def test_a_fail_inside_the_spread_is_distinguishable_from_a_fail_outside_it():
         intervened_scored=intervened,
         void_counts={},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     assert verdict.status == "FAIL"
     assert verdict.paired_rate_delta == pytest.approx(0.0)
@@ -558,7 +573,7 @@ def test_a_not_exercised_cell_reports_no_resample_comparison_rather_than_false()
         intervened_scored=[],
         void_counts={"not_exercised": 4},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     assert verdict.paired_delta_inside_control_resample_spread is None
 
@@ -621,6 +636,7 @@ def build_pin(cells=("en/f1", "fr/f1"), n_prompts=4, **kwargs) -> cc.PinnedCalib
         target_outcome_class="POLE_OWN",
         calibrating_lane="researcher",
         selecting_lane="engineer2",
+        generation_settings_digest=SETTINGS_DIGEST,
         now="2026-08-17T00:00:00Z",
         **kwargs,
     )
@@ -753,7 +769,7 @@ def test_calibrating_after_a_result_has_been_scored_refuses():
         intervened_scored=intervened,
         void_counts={},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     assert cc.seal_state()["scoring_has_begun"] is True
     assert cc.seal_state()["pin_digest"] == pin.digest
@@ -789,7 +805,7 @@ def test_a_cell_with_no_eligible_intervened_generation_is_not_exercised_not_a_fa
         intervened_scored=[],
         void_counts={"not_exercised": 4, "zero_dose": 2},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     assert verdict.status == "NOT_EXERCISED"
     assert verdict.crossing_status == "NOT_EXERCISED"
@@ -810,7 +826,7 @@ def test_intervened_generations_with_no_paired_control_refuse():
             intervened_scored=intervened,
             void_counts={},
             baseline_excluded=0,
-            origin_pole="POLE_MIRROR",
+            condition=FORWARD_CONDITION,
         )
     assert "one-armed reading is not a result" in str(caught.value)
 
@@ -862,14 +878,14 @@ def test_a_baseline_already_at_the_target_pole_is_excluded_and_counted():
         intervened_scored=intervened,
         void_counts={},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     assert verdict.crossing_status == "NO_ADMISSIBLE_BASELINE"
     assert verdict.baseline_excluded == 2
     # The SUFFICIENCY arm still has a denominator, and it reports honestly: the
     # controls were already at the target pole, so the cell is ceiling-excluded
     # rather than failed. Two criteria, two answers, neither merged.
-    assert verdict.status == "CEILING_EXCLUDED"
+    assert verdict.status == "CEILING_EXCLUDED_BY_ARITHMETIC"
     assert verdict.passed is False
 
 
@@ -935,10 +951,10 @@ def test_the_ceiling_is_REACHABLE_and_a_ceilinged_cell_is_never_a_fail():
         intervened_scored=intervened,
         void_counts={},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     assert verdict.control_rate == pytest.approx(0.75)
-    assert verdict.status == "CEILING_EXCLUDED"
+    assert verdict.status == "CEILING_EXCLUDED_BY_ARITHMETIC"
     assert verdict.passed is False
     assert "already there" in verdict.reason
     # The crossing arm still reports over its OWN denominator: only p3's control
@@ -999,7 +1015,7 @@ def test_the_two_criteria_have_different_denominators():
         intervened_scored=intervened,
         void_counts={},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     assert verdict.n == 4
     assert verdict.n_admissible_for_crossing == 2
@@ -1020,7 +1036,7 @@ def test_a_pass_requires_the_delta_to_EXCEED_the_margin_not_merely_reach_it():
         intervened_scored=intervened,
         void_counts={},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     assert verdict.paired_rate_delta == pytest.approx(0.25)
     assert verdict.status == "FAIL", "a delta exactly AT the margin does not exceed it"
@@ -1035,7 +1051,7 @@ def test_a_pass_requires_the_delta_to_EXCEED_the_margin_not_merely_reach_it():
         intervened_scored=intervened,
         void_counts={},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     assert verdict.paired_rate_delta == pytest.approx(0.5)
     assert verdict.status == "PASS"
@@ -1093,7 +1109,7 @@ def test_crossings_are_counted_through_the_shared_predicate():
         intervened_scored=intervened,
         void_counts={},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     assert verdict.crossings == 1
     assert verdict.asserts_both == 1
@@ -1111,7 +1127,7 @@ def test_a_target_pole_that_disagrees_with_the_origin_pole_refuses():
             intervened_scored=intervened,
             void_counts={},
             baseline_excluded=0,
-            origin_pole="POLE_OWN",
+            condition=FORWARD_CONDITION.mirrored(),
         )
     assert "describe different events" in str(caught.value)
 
@@ -1126,7 +1142,7 @@ def test_the_result_vector_is_the_headline_and_the_scalar_travels_with_it():
         intervened_scored=intervened,
         void_counts={},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     void = cc.evaluate_cell(
         cell="fr/f1",
@@ -1135,7 +1151,7 @@ def test_the_result_vector_is_the_headline_and_the_scalar_travels_with_it():
         intervened_scored=[],
         void_counts={"not_exercised": 4},
         baseline_excluded=0,
-        origin_pole="POLE_MIRROR",
+        condition=FORWARD_CONDITION,
     )
     vector = cc.result_vector([passing, void])
     assert [row["status"] for row in vector["vector"]] == ["PASS", "NOT_EXERCISED"]
@@ -1186,3 +1202,413 @@ def test_the_unexercised_list_says_no_number_may_be_quoted():
 
 def test_the_selfcheck_runs_clean():
     assert cc.main(["--selfcheck"]) == 0
+
+
+# ------------------------------------- RULING_15: orientation, coverage, assignment
+
+
+def test_the_orientation_is_derived_and_a_supplied_pole_cannot_be_passed_at_all():
+    """DEFECT_2. There is no argument through which an orientation reaches
+    evaluate_cell, so the defect is not merely fixed -- it is inexpressible."""
+    import inspect
+
+    parameters = set(inspect.signature(cc.evaluate_cell).parameters)
+    assert "origin_pole" not in parameters
+    assert "condition" in parameters
+
+
+def test_the_derived_orientation_travels_on_the_verdict_and_flips_with_the_condition():
+    """FIRES AND DOES NOT FIRE, over inputs differing only in the condition."""
+    pin = build_pin(n_prompts=4)
+    controls, intervened = scored_pair(pin, "en/f1", {"p0": 5.0, "p1": 5.0, "p2": 5.0, "p3": 5.0})
+    forward = cc.evaluate_cell(
+        cell="en/f1",
+        pin=pin,
+        control_scored=controls,
+        intervened_scored=intervened,
+        void_counts={},
+        baseline_excluded=0,
+        condition=FORWARD_CONDITION,
+    )
+    assert forward.origin_pole_derived == "POLE_MIRROR"
+    assert forward.crossing_status == "EVIDENCED"
+    # The MIRRORED condition derives the other origin, and on the same data the
+    # crossing predicate must stop firing rather than silently returning False
+    # under a default nobody chose.
+    with pytest.raises(cc.CalibrationError) as caught:
+        cc.evaluate_cell(
+            cell="en/f1",
+            pin=pin,
+            control_scored=controls,
+            intervened_scored=intervened,
+            void_counts={},
+            baseline_excluded=0,
+            condition=FORWARD_CONDITION.mirrored(),
+        )
+    assert "describe different events" in str(caught.value)
+
+
+def test_a_pooled_coverage_figure_is_refused_and_a_per_cell_one_is_not():
+    cc.refuse_pooled_coverage(["en/f1"])
+    cc.refuse_pooled_coverage(["en/f1", "en/f1"])
+    with pytest.raises(cc.CalibrationError) as caught:
+        cc.refuse_pooled_coverage(["en/f1", "fr/f1"])
+    assert "STRATIFIED" in str(caught.value)
+
+
+def test_a_pin_without_a_generation_settings_digest_refuses():
+    with pytest.raises(cc.CalibrationError) as caught:
+        cc.calibrate(
+            paired_controls("en/f1", n_prompts=4),
+            rubric=synthetic_rubric(),
+            cells=("en/f1",),
+            target_outcome_class="POLE_OWN",
+            calibrating_lane="researcher",
+            selecting_lane="engineer2",
+            generation_settings_digest="not-a-digest",
+        )
+    assert "seed independence" in str(caught.value)
+
+
+def valid_assignment(**overrides):
+    payload = {
+        "path": "protocols/final_pairing/v1/causal_calibration_assignment.json",
+        "sha256": "a" * 64,
+        "recorded_by": "committer",
+        "assigned_by": "the coordinator",
+        "quantities_covered": cc.ASSIGNED_QUANTITIES,
+    }
+    payload.update(overrides)
+    return cc.AssignmentReference(**payload)
+
+
+def test_a_self_declared_assignment_is_unwritable_and_a_recorded_one_is_accepted():
+    """The gap's structural closure. Both directions."""
+    accepted = cc.assert_assignment_is_not_self_declared(
+        valid_assignment(), calibrating_lane="researcher"
+    )
+    assert accepted["recorded_by_is_not_the_calibrating_lane"] is True
+    assert "STRICT ANCESTOR" in accepted["discharge_is_ancestry_not_existence"]
+    with pytest.raises(cc.AssignmentSelfDeclared) as caught:
+        cc.assert_assignment_is_not_self_declared(
+            valid_assignment(recorded_by="researcher"), calibrating_lane="researcher"
+        )
+    assert "IS the calibrating lane" in str(caught.value)
+    with pytest.raises(cc.AssignmentSelfDeclared):
+        cc.assert_assignment_is_not_self_declared(
+            valid_assignment(), calibrating_lane="   "
+        )
+
+
+def test_an_assignment_must_name_the_quantities_not_the_file():
+    with pytest.raises(cc.AssignmentSelfDeclared) as caught:
+        cc.assert_assignment_is_not_self_declared(
+            valid_assignment(quantities_covered=("causal_rate_margin",)),
+            calibrating_lane="researcher",
+        )
+    assert "orphan" in str(caught.value)
+    with pytest.raises(cc.AssignmentSelfDeclared):
+        cc.AssignmentReference(
+            path="p", sha256="a" * 64, recorded_by="x", assigned_by="y", quantities_covered=()
+        )
+    with pytest.raises(cc.AssignmentSelfDeclared):
+        cc.AssignmentReference(
+            path="p",
+            sha256="short",
+            recorded_by="x",
+            assigned_by="y",
+            quantities_covered=cc.ASSIGNED_QUANTITIES,
+        )
+
+
+def test_a_hash_bound_assignment_reaches_the_pin_and_its_absence_is_recorded():
+    pinned = build_pin(assignment=valid_assignment())
+    record = pinned.to_dict()
+    assert record["assignment_is_hash_bound"] is True
+    assert record["assignment"]["recorded_by"] == "committer"
+    unassigned = build_pin()
+    assert unassigned.to_dict()["assignment_is_hash_bound"] is False
+    assert "There is no protocol artifact assigning it" in unassigned.to_dict()["assignment_record"]
+
+
+def test_the_pin_refuses_a_self_declared_assignment_at_calibrate_time():
+    with pytest.raises(cc.AssignmentSelfDeclared):
+        build_pin(assignment=valid_assignment(recorded_by="researcher"))
+
+
+def test_the_ceiling_reports_the_unexcluded_high_baseline_residue():
+    """The arithmetic ceiling's scope, made visible per cell."""
+    pin = build_pin(n_prompts=4)
+    controls, intervened = scored_pair(pin, "en/f1", {"p0": 5.0, "p1": 0.0, "p2": 0.0, "p3": 0.0})
+    verdict = cc.evaluate_cell(
+        cell="en/f1",
+        pin=pin,
+        control_scored=controls,
+        intervened_scored=intervened,
+        void_counts={},
+        baseline_excluded=0,
+        condition=FORWARD_CONDITION,
+    )
+    assert verdict.status == "FAIL"
+    assert verdict.distance_to_arithmetic_ceiling == pytest.approx(0.75)
+    record = verdict.to_dict()
+    assert "may never license" in record["unexcluded_high_baseline_residue"]
+    assert "headroom" in record["unexcluded_high_baseline_residue"]
+
+
+def test_the_margin_actually_used_is_asserted_strictly_positive():
+    """RESAMPLE BOUND_2, and BOTH directions.
+
+    On real input the 1/n resolution is always positive so the assertion cannot
+    fire -- which is exactly why it must be exercisable somewhere. The check is a
+    named helper, so a zero margin can be handed to it directly rather than
+    reached through mock gymnastics that would prove only that mocks work."""
+    calibration = cc.calibrate_cell(
+        "en/f1",
+        paired_controls("en/f1", n_prompts=4),
+        rubric=synthetic_rubric(),
+        target_outcome_class="POLE_OWN",
+    )
+    assert calibration.rate_margin > 0.0
+    # DOES NOT FIRE on a positive margin.
+    assert cc.assert_margin_binds("en/f1", 0.25, {"rate_resolution": 0.25}) == 0.25
+    # FIRES on a margin that binds nothing.
+    for vacuous in (0.0, -0.1):
+        with pytest.raises(cc.DegenerateControlSet) as caught:
+            cc.assert_margin_binds("en/f1", vacuous, {"rate_resolution": 0.0})
+        assert "binds nothing" in str(caught.value)
+
+
+def test_crossing_reachability_fires_both_ways():
+    """A band inside the lattice leaves expressible values outside it; a band
+    covering the whole lattice does not."""
+    reachable = cc.calibrate_cell(
+        "en/f1",
+        paired_controls("en/f1", n_prompts=4),
+        rubric=synthetic_rubric(),
+        target_outcome_class="POLE_OWN",
+    )
+    report = cc.crossing_reachability(reachable)
+    assert report["crossing_reachable_on_this_lattice"] is True
+    assert report["finding_if_not"] is None
+    assert report["lattice_points"] == co.CLAIM_TYPE_EXTENT_DIFFERENCE_POINTS
+
+    wide = [
+        control("a", "en/f1", "p0", 1, own=6.0),
+        control("b", "en/f1", "p1", 1, mirror=6.0),
+        control("c", "en/f1", "p0", 2, own=6.0),
+        control("d", "en/f1", "p1", 2, mirror=6.0),
+    ]
+    saturated = cc.calibrate_cell(
+        "en/f1", wide, rubric=synthetic_rubric(), target_outcome_class="POLE_OWN"
+    )
+    report = cc.crossing_reachability(saturated)
+    assert report["crossing_reachable_on_this_lattice"] is False
+    assert "UNREACHABLE ON THIS LATTICE" in report["finding_if_not"]
+    assert "PROHIBITED" in report["finding_if_not"]
+
+
+# ===========================================================================
+# RULING_15's GENERAL CLAUSE, APPLIED RETROACTIVELY, AND THE SERIALIZATION
+# LESSON FROM JOB 418185.
+#
+# Engineer 2 built the per-item retention, validated it against its own declared
+# scope, and never asserted that the object WRITTEN TO DISK carried it. Fourteen
+# tests passed because they exercised the builder and the verifier DIRECTLY; the
+# values were computed, validated, then dropped one layer out, and job 418185
+# came back with the field occurring ZERO times at byte level in all four grids.
+# Its diagnosis is the part that generalises: THE SERIALIZATION PREDICATE HAD
+# EVERY TEST A DOES-NOT-FIRE AND NONE A FIRES, which is why it could not tell a
+# recorded retention from an unrecorded one. Two independent instances of that in
+# one sprint, and in both the POSITIVE direction was the missing one.
+#
+# So these tests assert over BYTES, not over the objects that produced them.
+# ===========================================================================
+
+
+#: Every quantity this lane computes and would lose if a `to_dict` forgot it.
+#: Named explicitly so that adding a field to `CellCalibration` without adding it
+#: here is itself a failure -- an allow-list that is silently incomplete is the
+#: same defect one level up.
+PIN_FIELDS_THAT_MUST_REACH_THE_BYTES = (
+    "rate_margin",
+    "rate_ceiling",
+    "rate_resolution",
+    "observed_null_rate_difference_max",
+    "control_rate_loo_spread",
+    "control_rate_loo_values",
+    "signed_loo_spread",
+    "margin_bound_by",
+    "neutral_low",
+    "neutral_high",
+    "assertion_floor",
+    "attained_level_signed_band",
+    "attained_level_rate_margin",
+    "replicate_rates",
+    "generation_settings_digest",
+    "control_set_digest",
+    "assignment_is_hash_bound",
+    "contains_zero_intervened_generations",
+)
+
+
+def _pin_keys(record: dict) -> set[str]:
+    """Every KEY in a pin record, at the top level and per cell.
+
+    KEYS, NOT SUBSTRINGS, and the first version of this check got that wrong in
+    the most instructive possible place. It scanned the file TEXT for each field
+    name, and `rate_margin` also occurs inside `resample_rule`,
+    `stated_limitations` and the VALUES of `margin_bound_by` -- so deleting the
+    field left the substring in place and the check could not fire at all. A
+    check unable to distinguish a recorded field from an unrecorded one IS the
+    418185 defect, and it had reappeared inside the check written to catch it.
+    It is also the same substring mistake as the earlier n-and-N guard, which is
+    twice now that a text scan stood in for a structural one. Structure is the
+    only thing here that can fail."""
+    keys = set(record)
+    for cell in record.get("cells", []):
+        keys |= set(cell)
+    return keys
+
+
+def test_every_computed_field_reaches_the_BYTES_written_to_disk(tmp_path):
+    """DOES NOT FIRE on a complete record. Asserted over the FILE, not the object.
+
+    Job 418185's defect shape run against this lane's own writer: not "does the
+    builder compute it" but "is it in the file". Engineer 2's fourteen tests
+    passed because they exercised the builder and verifier directly, and the
+    value was dropped one layer out."""
+    pin = build_pin(assignment=valid_assignment())
+    path = tmp_path / "pin.json"
+    cc.write_pin(path, pin)
+    raw = path.read_bytes()
+    assert b"\r\n" not in raw
+    written = json.loads(raw.decode("utf-8"))
+    present = _pin_keys(written)
+    missing = [field for field in PIN_FIELDS_THAT_MUST_REACH_THE_BYTES if field not in present]
+    assert missing == [], f"computed but never serialized: {missing}"
+    # The ALLOW-LIST must itself be complete: a field added to CellCalibration and
+    # not serialized has to fail HERE, so the declared dataclass fields are
+    # compared against what the bytes actually carry.
+    declared = set(cc.CellCalibration.__dataclass_fields__)
+    serialized = set(written["cells"][0])
+    assert declared - serialized == set(), (
+        f"CellCalibration fields absent from the written bytes: {sorted(declared - serialized)}"
+    )
+    assert written["assignment"]["recorded_by"] == "committer"
+
+
+def test_the_serialization_check_FIRES_when_any_field_is_dropped():
+    """THE POSITIVE DIRECTION, the one that was missing in 418185.
+
+    Every field in the allow-list is removed in turn and the check must catch
+    each one. Over ALL of them rather than a sample, because the field that goes
+    missing in production is never the one the sample happened to include."""
+    pin = build_pin(assignment=valid_assignment())
+    record = json.loads(json.dumps(pin.to_dict()))
+    undetected: list[str] = []
+    for victim in PIN_FIELDS_THAT_MUST_REACH_THE_BYTES:
+        crippled = json.loads(json.dumps(record))
+        if victim in crippled:
+            del crippled[victim]
+        elif victim in crippled["cells"][0]:
+            for cell in crippled["cells"]:
+                del cell[victim]
+        else:  # pragma: no cover - would mean the allow-list is wrong
+            undetected.append(f"{victim} (absent to begin with)")
+            continue
+        if victim in _pin_keys(crippled):
+            undetected.append(victim)
+    assert undetected == [], (
+        f"dropping {undetected} was not detected -- the check cannot distinguish a recorded field "
+        f"from an unrecorded one, which is exactly the 418185 defect"
+    )
+
+
+def test_the_verdict_serializes_every_field_it_computes():
+    pin = build_pin(n_prompts=4)
+    controls, intervened = scored_pair(pin, "en/f1", {"p0": 5.0, "p1": 5.0, "p2": 5.0, "p3": 5.0})
+    verdict = cc.evaluate_cell(
+        cell="en/f1",
+        pin=pin,
+        control_scored=controls,
+        intervened_scored=intervened,
+        void_counts={"not_exercised": 1},
+        baseline_excluded=0,
+        condition=FORWARD_CONDITION,
+    )
+    text = json.dumps(verdict.to_dict())
+    declared = set(cc.CellVerdict.__dataclass_fields__)
+    serialized = set(verdict.to_dict())
+    assert declared - serialized == set(), f"CellVerdict fields lost in to_dict: {declared - serialized}"
+    for field in ("origin_pole_derived", "distance_to_arithmetic_ceiling", "margin_bound_by"):
+        assert field in text
+
+
+# --------------- the one-directional predicates, given their missing direction
+
+
+def test_observed_spread_fires_on_empty_and_does_not_on_a_populated_set():
+    assert cc.observed_spread([0.25, 0.75]) == pytest.approx(0.5)
+    assert cc.observed_spread([1.0]) == pytest.approx(0.0)
+    with pytest.raises(cc.DegenerateControlSet):
+        cc.observed_spread([])
+
+
+def test_the_leave_one_out_helpers_return_values_as_well_as_refusing():
+    rows = paired_controls("en/f1", n_prompts=3)
+    rates = cc.leave_one_prompt_out_rates(
+        rows, target_outcome_class="POLE_OWN", prompts=["p0", "p1", "p2"]
+    )
+    assert rates == (0.0, 0.0, 0.0)
+    midranges = cc.leave_one_prompt_out_signed_midranges(rows, prompts=["p0", "p1", "p2"])
+    assert midranges == (0.0, 0.0, 0.0)
+    with pytest.raises(cc.InsufficientControlSet):
+        cc.leave_one_prompt_out_rates(rows, target_outcome_class="POLE_OWN", prompts=["p0"])
+
+
+def test_minimum_controls_for_level_returns_as_well_as_refusing():
+    assert cc.minimum_controls_for_level(0.75) == 3
+    with pytest.raises(cc.CalibrationError):
+        cc.minimum_controls_for_level(1.0)
+
+
+def test_read_pin_succeeds_as_well_as_refusing(tmp_path):
+    pin = build_pin()
+    path = tmp_path / "pin.json"
+    cc.write_pin(path, pin)
+    assert cc.read_pin(path)["digest"] == pin.digest
+    path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+    with pytest.raises(cc.CalibrationError):
+        cc.read_pin(path)
+
+
+def test_digest_control_set_changes_and_does_not_change_for_the_right_reasons():
+    rows = paired_controls("en/f1", n_prompts=3)
+    baseline = cc.digest_control_set(rows)
+    assert cc.digest_control_set(list(reversed(rows))) == baseline
+    changed = list(rows)
+    changed[0] = control("en/f1-1-p0", "en/f1", "p0", 1, own=6.0)
+    assert cc.digest_control_set(changed) != baseline
+
+
+def test_crossing_reachability_refuses_nothing_but_answers_both_ways():
+    """It is a REPORT, not a guard, so its two directions are its two answers --
+    and both are asserted in test_crossing_reachability_fires_both_ways. Here the
+    shape of the report itself is pinned, so a field cannot vanish silently."""
+    calibration = cc.calibrate_cell(
+        "en/f1",
+        paired_controls("en/f1", n_prompts=4),
+        rubric=synthetic_rubric(),
+        target_outcome_class="POLE_OWN",
+    )
+    report = cc.crossing_reachability(calibration)
+    assert set(report) == {
+        "cell",
+        "lattice_points",
+        "lattice_step_in_claim_types",
+        "neutral_band",
+        "expressible_values_outside_the_band",
+        "crossing_reachable_on_this_lattice",
+        "finding_if_not",
+    }

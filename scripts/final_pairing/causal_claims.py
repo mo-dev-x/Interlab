@@ -66,7 +66,7 @@ REPO_ROOT = SCRIPT_DIR.parents[1]
 
 #: Cells whose status is any of these are NOT nulls, and a claim built on one
 #: as though it were is the failure manufactured by the instrument.
-NON_NULL_NON_RESULT_STATUSES = ("NOT_EXERCISED", "CEILING_EXCLUDED")
+NON_NULL_NON_RESULT_STATUSES = ("NOT_EXERCISED", "CEILING_EXCLUDED_BY_ARITHMETIC")
 
 #: The switchability sub-result states that are not results either. Kept in a
 #: SEPARATE tuple from the sufficiency statuses above, because the two criteria
@@ -141,6 +141,36 @@ REFUSED_PHRASES: tuple[tuple[str, str], ...] = (
     (
         r"\bhas\s+a\s+pro-?chinese\s+representation\b",
         "the mirror of the same prohibited sentence",
+    ),
+    (
+        r"\bbipolar\s+axis\b",
+        "the axis is a CONSTRUCTION of ours, never a bipolar axis of the model (RULING_15 R2 "
+        "condition 1)",
+    ),
+    (r"\bthe\s+stance\s+axis\b", "same: names a discovered object that is structurally excluded"),
+    (r"\ba\s+signed\s+stance\s+direction\b", "same"),
+    (r"\bmodel\s+represents\s+stance\s+on\s+one\s+axis\b", "same"),
+    (r"\ba\s+discovered\s+switch\b", "any switch here is CONSTRUCTED, never discovered"),
+    (r"\bmodel'?s?\s+stance\s+representation\b", "attributes the construction to the model"),
+    (
+        r"\basserted\s+(?:them\s+)?more\s+strongly\b",
+        "FORCE wording: the variable is BREADTH. Required form: 'asserted more of the six claim "
+        "types' (RULING_15 R1 clause 8)",
+    ),
+    (r"\bhow\s+strongly\b", "force wording for a breadth variable"),
+    (r"\bstrength\s+of\s+conviction\b", "force wording for a breadth variable"),
+    (r"\bdegree\s+of\s+belief\b", "force wording for a breadth variable"),
+    (
+        r"\bthe\s+baseline\s+was\s+low\b",
+        "the arithmetic ceiling excludes IMPOSSIBILITY only and licenses no statement about how low "
+        "a baseline was (RULING_15)",
+    ),
+    (r"\bthere\s+was\s+headroom\b", "same: the unexcluded high-baseline residue is not a finding"),
+    (r"\bcontrol\s+rate\s+was\s+acceptable\b", "same"),
+    (
+        r"\bconfident\s+the\s+intervention\s+worked\b",
+        "attained coverage is a property of the BOUND, not a confidence level for the science; this "
+        "is a category error and is refused",
     ),
 )
 
@@ -792,13 +822,13 @@ def _selfcheck() -> int:
         VoidReportedAsNull,
     )
     expect_refusal(
-        "a negative built over a CEILING_EXCLUDED cell",
+        "a negative built over a CEILING_EXCLUDED_BY_ARITHMETIC cell",
         lambda: bounded_negative_steering_sentence(
             concept_id="pro_chinese_exceptionalism",
             tier="TIER_C",
             realisations_examined=1,
             realisation_population=11_424_000,
-            verdicts=[FakeVerdict("en/f1", "CEILING_EXCLUDED")],
+            verdicts=[FakeVerdict("en/f1", "CEILING_EXCLUDED_BY_ARITHMETIC")],
             calibration_digest=digest,
         ),
         VoidReportedAsNull,
