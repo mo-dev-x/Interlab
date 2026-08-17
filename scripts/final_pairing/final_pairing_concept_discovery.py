@@ -128,6 +128,7 @@ import argparse
 import contextlib
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -3822,6 +3823,122 @@ def summarise_per_cell_auroc(
 _SCREEN_EPSILON = 1e-9
 
 
+#: How far a scaled value may sit from an integer before this file refuses
+#: the claimed lattice. It is NOT a gate tolerance and it is NOT an epsilon
+#: on any threshold: it is the test of whether `values` really is a rational
+#: with the claimed denominator. float64 recovers a k/600 rational to ~1e-13
+#: after scaling, and one lattice step is 1.0 in scaled units, so anything
+#: above this is a WRONG DENOMINATOR rather than noise.
+_LATTICE_RESIDUAL_TOLERANCE = 1e-6
+
+
+class LatticeDenominatorWrong(RuntimeError):
+    """The values handed over do not lie on the lattice the caller claimed.
+
+    The whole point of the integer comparison is that it has NO free
+    parameter, so a denominator that does not divide the statistic would
+    silently reintroduce one. If the residual after scaling is not
+    ~machine-zero the denominator is wrong -- most likely because a cell has
+    a different number of positives or negatives than the caller assumed --
+    and the honest outcome is this refusal, never a fallback to the float
+    comparison."""
+
+
+def rank_auroc_lattice_denominator(n_positives: int, n_negatives: int) -> int:
+    """The exact denominator of `rank_auroc_matrix`'s output, DERIVED.
+
+    `rank_auroc_matrix` returns `(positive_rank_sum - n_pos(n_pos+1)/2) /
+    (n_pos * n_neg)` with AVERAGE ranks. An average rank over a tie group of
+    size `m` beginning at rank `r` is `r + (m-1)/2`, hence a multiple of
+    `1/2`; a sum of such ranks is a multiple of `1/2`; and `n_pos(n_pos+1)/2`
+    is a multiple of `1/2`. So the numerator is `k/2` for an integer `k` and
+    the AUROC is exactly `k / (2 * n_pos * n_neg)`.
+
+    THEREFORE THE DENOMINATOR IS `2 * n_pos * n_neg` AND NOTHING IS
+    HARDCODED. At the v2 counts this evaluates to 600 for G-A (10 positives
+    against 30 pooled negatives) and 300 for G-C (10 against 15) -- the same
+    1/600 the architect derived by the mean-of-two-sub-AUROCs identity, from
+    the other direction. A cell with different counts gets a different
+    denominator, which is exactly why it is computed per cell from the array
+    shapes rather than stored."""
+    if int(n_positives) <= 0 or int(n_negatives) <= 0:
+        raise LatticeDenominatorWrong(
+            f"a rank AUROC over n_positives={n_positives} and n_negatives={n_negatives} has no "
+            f"lattice: there are no pairs to be concordant"
+        )
+    return 2 * int(n_positives) * int(n_negatives)
+
+
+def fire_rate_lattice_denominator(n_positives: int) -> int:
+    """The exact denominator of `fire_rate_matrix`'s output, DERIVED.
+
+    `fire_rate_matrix` returns `(pos >= floors).sum(axis=0) / n_pos`, an
+    integer count over `n_pos`, and the degenerate branch returns exactly
+    `0.0`, which is the lattice point `k = 0`. So the denominator is
+    `n_pos`."""
+    if int(n_positives) <= 0:
+        raise LatticeDenominatorWrong(
+            f"a fire rate over n_positives={n_positives} has no lattice: there is nothing to count"
+        )
+    return int(n_positives)
+
+
+def lattice_gate(values: np.ndarray, *, threshold: float, denominator: int) -> tuple[np.ndarray, int, float]:
+    """`values >= threshold` decided IN INTEGERS, with no epsilon anywhere.
+
+    ARCHITECT RULING_14 ADDENDUM (sequence 43), which WITHDREW its own
+    sequence-42 clause that `values >= threshold` be headlined as "exact".
+    The measured reason: `_SCREEN_EPSILON` is 1e-9 while one G-A lattice step
+    is 1/600 = 1.7e-3, so the epsilon is ~1.7 million times smaller than the
+    finest difference the statistic can express. The band `[bar - 1e-9, bar)`
+    therefore cannot contain an attainable value -- only a feature whose true
+    rational EQUALS the bar and whose float64 evaluation fell a few ulps
+    short, because 540/600 is not binary-representable. Under that reading
+    the plain float `>=` is the form carrying the artifact: it would
+    SILENTLY EXCLUDE features that exactly meet the gate.
+
+    THE LATTICE COMPARISON SUPERSEDES BOTH. The statistic is a rational with
+    a derivable denominator and the bar is a rational, so the comparison is
+    done between integers: `k = round(value * D)` recovers the exact
+    numerator (the float error is ~1e-13 in scaled units against a step of
+    1.0), and `k >= ceil(bar * D)` is `value >= bar` exactly. No epsilon, no
+    representation contingency, and no false claim of exactness.
+
+    Returns `(passed, integer_bar, max_residual)`. REFUSES via
+    `LatticeDenominatorWrong` if the values do not lie on the claimed
+    lattice, because a denominator that does not divide the statistic would
+    put a free parameter back into a comparison whose whole merit is having
+    none."""
+    array = np.asarray(values, dtype=np.float64)
+    d = int(denominator)
+    if d <= 0:
+        raise LatticeDenominatorWrong(f"denominator must be positive, got {denominator!r}")
+    scaled = array * d
+    numerators = np.rint(scaled)
+    finite = np.isfinite(scaled)
+    residual = float(np.abs(scaled[finite] - numerators[finite]).max()) if finite.any() else 0.0
+    if residual > _LATTICE_RESIDUAL_TOLERANCE:
+        raise LatticeDenominatorWrong(
+            f"values scaled by denominator {d} sit up to {residual:.6g} away from an integer, which "
+            f"is far above the {_LATTICE_RESIDUAL_TOLERANCE:g} float-recovery residual. These values "
+            f"are NOT on a 1/{d} lattice, so the denominator is wrong -- most likely the cell's "
+            f"positive or negative count differs from the one it was derived from. REFUSING rather "
+            f"than falling back to a float comparison, which would reintroduce the epsilon this "
+            f"comparison exists to remove."
+        )
+    # The bar in integer units. `bar * D` is itself a float, so `ceil` alone
+    # would turn 0.9 * 600 = 540.0000000000000133 into 541 and move the gate
+    # by a whole lattice step. Round when the bar IS a lattice point and
+    # ceil only when it genuinely falls between two.
+    scaled_bar = float(threshold) * d
+    nearest_bar = float(np.rint(scaled_bar))
+    if abs(scaled_bar - nearest_bar) <= _LATTICE_RESIDUAL_TOLERANCE:
+        integer_bar = int(nearest_bar)
+    else:
+        integer_bar = math.ceil(scaled_bar)
+    return numerators >= integer_bar, integer_bar, residual
+
+
 class PerCellRetentionMissing(RuntimeError):
     """A scan reached a consumer without its per-cell retention.
 
@@ -3846,6 +3963,7 @@ def build_admissibility_matrix(
     per_cell_values: dict[str, dict[str, np.ndarray]], *, cell_keys: tuple[str, ...],
     auroc_min: float, fire_rate_min: float, near_miss_auroc_min: float, d_sae: int,
     screen_epsilon: float = _SCREEN_EPSILON,
+    lattice_denominators: Mapping[str, Mapping[str, int]] | None = None,
 ) -> tuple[np.ndarray, dict]:
     """THE ADMISSIBILITY MATRIX (architect RULING_13 Q1 clause 3).
 
@@ -3874,12 +3992,41 @@ def build_admissibility_matrix(
     from the vectorised screen, which agrees with the frozen scalar
     primitives to floating-point noise (falsified by `verify_gate_fixes.py
     c3` at 1e-12 for AUROC and bit-exact for G-B). Each gate is applied at
-    `threshold - screen_epsilon`, so A can only ever be a SUPERSET of the
-    exactly-computed admissible set -- a candidate pool may be too
-    generous, never silently short. `features_within_screen_epsilon_band`
-    measures how many features that slack could possibly have added, per
-    cell and per gate, so the size of the ambiguity is recorded instead of
-    argued."""
+    `threshold - screen_epsilon`, so the SCREENED A can only ever be a
+    SUPERSET of the exactly-computed admissible set -- a candidate pool may
+    be too generous, never silently short.
+
+    AND THE LATTICE COMPARISON REMOVES THE EPSILON ALTOGETHER when the
+    caller supplies `lattice_denominators` (architect RULING_14 ADDENDUM,
+    sequence 43). That addendum WITHDREW its own sequence-42 clause that a
+    float `values >= threshold` be emitted as "exact A" and headlined: with
+    `screen_epsilon = 1e-9` against a G-A lattice step of 1/600 = 1.7e-3, the
+    epsilon is ~1.7 million times finer than anything the statistic can
+    express, so the screened form is the FAITHFUL one and the plain float
+    `>=` is the form carrying the artifact -- it would silently exclude a
+    feature whose true rational EQUALS the bar but whose float64 evaluation
+    fell a few ulps short. See `lattice_gate`. When the denominators are
+    supplied the integer comparison IS the gate; when they are not, the
+    screened form is the gate and the record SAYS the lattice form was not
+    exercised rather than leaving it blank.
+
+    THE BAND IS AN INDEX LIST, NOT ONLY A COUNT, and that requirement
+    survived the addendum with a better reason. A per-cell per-gate COUNT
+    bounds a POPULATION; given a candidate group `G` it cannot say whether
+    any member of `G` was admitted by the slack, so the honesty caveat
+    travelled attached to an object it could not be exercised on -- a
+    qualifier that cannot fail. The index list names precisely the features
+    whose admissibility is FLOAT-REPRESENTATION-CONTINGENT, which makes a
+    specific group's contingency DECIDABLE. Under the lattice comparison that
+    set is expected to be empty; the zero is REPORTED rather than dropped,
+    because a permanently-zero diagnostic that is still measured is the right
+    end state for it and a dropped one is not.
+
+    These are RECORDING changes plus one comparison whose merit is having no
+    free parameter. No threshold moves and no gate is weakened. `values` is
+    required to be full-space `(d_sae,)` here or this function raises, so all
+    of it is computable at this point and NOWHERE downstream -- which is why
+    it lands here."""
     if not cell_keys:
         raise PerCellRetentionMissing("no cells: the admissibility matrix has no columns to build")
     missing = [
@@ -3898,11 +4045,25 @@ def build_admissibility_matrix(
         "near_miss_auroc": float(near_miss_auroc_min),
     }
     matrix = np.ones((int(d_sae), len(cell_keys)), dtype=bool)
+    #: The SCREENED form, retained as a DIAGNOSTIC beside whichever form is
+    #: the gate. Under the lattice comparison the two are expected to agree
+    #: bit for bit and the addendum keeps the dual run precisely so that the
+    #: agreement is MEASURED rather than assumed -- it costs one boolean array
+    #: and stops being load-bearing.
+    matrix_screened = np.ones((int(d_sae), len(cell_keys)), dtype=bool)
     band: dict[str, dict[str, int]] = {}
+    band_indices: dict[str, dict[str, list[int]]] = {}
     per_gate_counts: dict[str, dict[str, int]] = {}
+    integer_bars: dict[str, dict[str, int]] = {}
+    lattice_used: dict[str, dict[str, int | None]] = {}
+    lattice_residuals: dict[str, dict[str, float]] = {}
     for column, cell in enumerate(cell_keys):
         band[cell] = {}
+        band_indices[cell] = {}
         per_gate_counts[cell] = {}
+        integer_bars[cell] = {}
+        lattice_used[cell] = {}
+        lattice_residuals[cell] = {}
         for quantity, _key, label in _ADMISSIBILITY_GATE_KEYS:
             values = np.asarray(per_cell_values[quantity][cell], dtype=np.float64)
             if values.shape != (int(d_sae),):
@@ -3911,16 +4072,47 @@ def build_admissibility_matrix(
                     f"({d_sae},) -- a partial per-cell vector cannot produce a sound matrix"
                 )
             threshold = minimums[quantity]
-            passed = values >= threshold - screen_epsilon
+            screened = values >= threshold - screen_epsilon
+            denominator = None
+            if lattice_denominators is not None:
+                denominator = lattice_denominators.get(quantity, {}).get(cell)
+            if denominator is None:
+                passed = screened
+                integer_bars[cell][label] = None
+                lattice_used[cell][label] = None
+                lattice_residuals[cell][label] = None
+            else:
+                passed, integer_bar, residual = lattice_gate(
+                    values, threshold=threshold, denominator=denominator
+                )
+                integer_bars[cell][label] = integer_bar
+                lattice_used[cell][label] = int(denominator)
+                lattice_residuals[cell][label] = residual
             matrix[:, column] &= passed
+            matrix_screened[:, column] &= screened
             per_gate_counts[cell][label] = int(passed.sum())
-            band[cell][label] = int(
-                ((values >= threshold - screen_epsilon) & (values < threshold)).sum()
-            )
+            #: THE FLOAT-REPRESENTATION-CONTINGENT SET. Identical to the
+            #: previous expression
+            #: `(values >= threshold - eps) & (values < threshold)` on every
+            #: input including NaN, and now written as the difference between
+            #: two predicates both already in hand. Under the lattice
+            #: comparison this is expected to be EMPTY; the zero is reported.
+            in_band = screened & ~(values >= threshold)
+            band[cell][label] = int(in_band.sum())
+            band_indices[cell][label] = np.flatnonzero(in_band).tolist()
 
     admissible_by_cell = {
         cell: np.flatnonzero(matrix[:, column]).tolist() for column, cell in enumerate(cell_keys)
     }
+    admissible_by_cell_screened = {
+        cell: np.flatnonzero(matrix_screened[:, column]).tolist()
+        for column, cell in enumerate(cell_keys)
+    }
+    lattice_exercised = lattice_denominators is not None and all(
+        lattice_used[cell][label] is not None
+        for cell in cell_keys
+        for _q, _k, label in _ADMISSIBILITY_GATE_KEYS
+    )
     # The 2^6 = 64 coverage patterns, censused exactly. RULING_13 Q1 clause
     # 8 turns minimum-cover into an enumeration over these, so the census is
     # the object a cover search actually reads.
@@ -3943,9 +4135,13 @@ def build_admissibility_matrix(
         },
         "screen_epsilon": float(screen_epsilon),
         "screen_derived": (
-            "Values come from the vectorised screen and each gate is applied at threshold - "
-            "screen_epsilon, so this matrix is a SUPERSET of the exactly-computed admissible set, "
-            "never a subset. features_within_screen_epsilon_band bounds what that slack could add."
+            "Values come from the vectorised screen. Under SCREENED_FLOAT each gate is applied at "
+            "threshold - screen_epsilon, which is a SUPERSET of the plain-float admissible set and, "
+            "at 1e-9 against a 1/600 lattice step, is the FAITHFUL form rather than a loosened one: "
+            "the slack can only re-admit a feature whose true rational EQUALS the bar and whose "
+            "float64 mis-rounded. Under LATTICE_INTEGER there is no slack and no epsilon at all. "
+            "features_within_screen_epsilon_band bounds the float-representation-contingent "
+            "POPULATION; features_within_screen_epsilon_band_indices decides it for a given group."
         ),
         "not_truncated": (
             "The support below is complete. Unlike the per-cell float summaries, which keep a top_k "
@@ -3953,8 +4149,64 @@ def build_admissibility_matrix(
         ),
         "admissible_feature_indices_by_cell": admissible_by_cell,
         "admissible_count_by_cell": {cell: len(v) for cell, v in admissible_by_cell.items()},
+        # WHICH COMPARISON DECIDED THE SUPPORT ABOVE. Named rather than
+        # inferred, because "the gate" is a different operator in the two
+        # cases and a reader cannot tell them apart from the support alone.
+        "gate_comparison_basis": (
+            "LATTICE_INTEGER" if lattice_exercised else "SCREENED_FLOAT"
+        ),
+        "gate_comparison_basis_why": (
+            "LATTICE_INTEGER: k = round(value * D) compared against ceil(bar * D), D derived per "
+            "cell from the actual positive and negative counts. No epsilon, no representation "
+            "contingency, no free parameter. Architect RULING_14 ADDENDUM (sequence 43), which "
+            "WITHDREW its own sequence-42 clause that a float `values >= threshold` be headlined as "
+            "exact: at screen_epsilon 1e-9 against a 1/600 lattice step the plain float comparison "
+            "is the form carrying the artifact, not the faithful one."
+            if lattice_exercised else
+            "SCREENED_FLOAT: `values >= threshold - screen_epsilon`. The lattice denominators were "
+            "NOT SUPPLIED by this caller, so the integer comparison was NOT EXERCISED here -- which "
+            "is a stated absence and not a claim that it was unnecessary. This is the FAITHFUL float "
+            "form of the two available (the addendum's finding), not the strict one."
+        ),
+        "lattice_denominator_by_cell_and_gate": lattice_used,
+        "lattice_integer_bar_by_cell_and_gate": integer_bars,
+        "lattice_recovery_residual_by_cell_and_gate": lattice_residuals,
+        # THE SURVIVING DUAL RUN, demoted to a diagnostic exactly as the
+        # addendum demoted it: both supports are computed, the disagreement is
+        # COUNTED, and it is expected to be zero. A zero that was measured is
+        # a finding; a zero that was assumed is not.
+        "admissible_count_by_cell_SCREENED_FLOAT_DIAGNOSTIC": {
+            cell: len(v) for cell, v in admissible_by_cell_screened.items()
+        },
+        "gate_disagreement_count_by_cell": {
+            cell: len(set(admissible_by_cell[cell]) ^ set(admissible_by_cell_screened[cell]))
+            for cell in cell_keys
+        },
+        "gate_disagreement_expected": (
+            "ZERO. One lattice step is ~1.7e6 times the screen epsilon, so no attainable value lies "
+            "inside the band and the two comparisons can only differ on a value whose true rational "
+            "equals the bar and whose float64 evaluation mis-rounds. Reported so the agreement is "
+            "MEASURED rather than argued."
+        ),
         "per_gate_pass_count_by_cell": per_gate_counts,
         "features_within_screen_epsilon_band": band,
+        # THE COUNT ABOVE BOUNDS A POPULATION; THE INDICES BELOW DECIDE A
+        # GROUP. RULING_14 measured the defect and the ADDENDUM kept the
+        # requirement with a better reason: given a group G, a per-cell
+        # per-gate COUNT cannot say whether any member of G sits in the band,
+        # so the honesty caveat travelled attached to objects it could not be
+        # exercised on -- a qualifier that cannot fail. The index list names
+        # the features whose admissibility is FLOAT-REPRESENTATION-CONTINGENT
+        # (their true rational equals the bar; their float64 fell short), is
+        # bounded in size by the count beside it, and is EXPECTED TO BE EMPTY
+        # under the lattice comparison. The empty list is reported, not
+        # dropped.
+        "features_within_screen_epsilon_band_indices": band_indices,
+        "features_within_screen_epsilon_band_indices_why": (
+            "the count bounds the POPULATION the slack could have added; only the INDICES can decide "
+            "whether a PARTICULAR group owes a member to it. These are the float-representation-"
+            "contingent features, and under the lattice comparison the list is expected to be empty"
+        ),
         # Individual CORRELATIONAL admissibility -- gates passing in AT
         # LEAST ONE cell (RULING_13 Q1 clause 6). This is the membership
         # bar for a group, and it is far weaker than survivorship.
@@ -4369,6 +4621,11 @@ def score_full_feature_space(
     per_cell_sep: dict[str, np.ndarray] = {}
     per_cell_fire: dict[str, np.ndarray] = {}
     per_cell_near: dict[str, np.ndarray] = {}
+    #: Per-cell, per-quantity lattice denominators, DERIVED inside the cell
+    #: loop from the positive/negative counts that produced each statistic.
+    lattice_by_quantity: dict[str, dict[str, int]] = {
+        "separation_auroc": {}, "fire_rate": {}, "near_miss_auroc": {},
+    }
     cell_keys: list[str] = []
     min_sep = np.full(backend.d_sae, np.inf, dtype=np.float64)
     min_fire = np.full(backend.d_sae, np.inf, dtype=np.float64)
@@ -4405,6 +4662,23 @@ def score_full_feature_space(
             # extra allocation: only its lifetime changes.
             cell_key = f"{locale}/{family}"
             cell_keys.append(cell_key)
+            # THE LATTICE DENOMINATORS, DERIVED HERE FROM THE ACTUAL ARRAY
+            # SHAPES AND NOWHERE STORED (architect RULING_14 ADDENDUM). This
+            # is the only point where the counts behind each per-cell
+            # statistic are in scope, so it is the only point where the
+            # denominator can be derived rather than assumed. A cell with a
+            # different number of positives or negatives gets a different
+            # denominator automatically, and `lattice_gate` REFUSES if the
+            # values do not actually lie on the claimed lattice.
+            lattice_by_quantity["separation_auroc"][cell_key] = rank_auroc_lattice_denominator(
+                positives.shape[0], negatives.shape[0]
+            )
+            lattice_by_quantity["near_miss_auroc"][cell_key] = rank_auroc_lattice_denominator(
+                positives.shape[0], near_miss.shape[0]
+            )
+            lattice_by_quantity["fire_rate"][cell_key] = fire_rate_lattice_denominator(
+                positives.shape[0]
+            )
             cell_sep = rank_auroc_matrix(positives, negatives)
             per_cell_sep[cell_key] = cell_sep
             min_sep = np.minimum(min_sep, cell_sep)
@@ -4460,6 +4734,7 @@ def score_full_feature_space(
     matrix, admissibility = build_admissibility_matrix(
         per_cell_values, cell_keys=tuple(cell_keys), auroc_min=auroc_min,
         fire_rate_min=fire_rate_min, near_miss_auroc_min=near_miss_auroc_min, d_sae=int(backend.d_sae),
+        lattice_denominators=lattice_by_quantity,
     )
     return FullSpaceScan(
         concept_id=concept_id, locales=tuple(locales), families_by_locale=families_by_locale,
