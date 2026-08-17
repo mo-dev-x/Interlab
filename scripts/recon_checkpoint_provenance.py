@@ -28,8 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 try:
@@ -46,7 +45,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECKPOINT_IDS = ["rwu04lpb", "d1bgp5v5", "o1cx1dow", "zf2o13m2"]
 MODEL_NAME_HINT = "Qwen2.5-14B-Instruct"
 
-REPORT_PATH = REPO_ROOT / f"provenance_recon_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
+REPORT_PATH = REPO_ROOT / f"provenance_recon_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.json"
 
 
 def _try_hash_directory(path: Path):
@@ -235,8 +234,8 @@ def find_wandb_offline_runs() -> list[dict]:
             mtimes = [f.stat().st_mtime for f in files if f.is_file()]
             if mtimes:
                 entry["file_mtime_range"] = [
-                    datetime.fromtimestamp(min(mtimes), tz=timezone.utc).isoformat(),
-                    datetime.fromtimestamp(max(mtimes), tz=timezone.utc).isoformat(),
+                    datetime.fromtimestamp(min(mtimes), tz=UTC).isoformat(),
+                    datetime.fromtimestamp(max(mtimes), tz=UTC).isoformat(),
                 ]
         except Exception as e:
             entry["file_mtime_range"] = f"error: {e}"
@@ -255,13 +254,14 @@ def match_wandb_candidates(cfg_json: dict, wandb_runs: list[dict]) -> list[dict]
     matches = []
     for run in wandb_runs:
         c = run.get("config", {})
-        if isinstance(c, dict) and "error" not in c:
-            if (
-                c.get("hook_layer") == cfg_json.get("hook_layer")
-                and c.get("expansion_factor") == cfg_json.get("expansion_factor")
-                and c.get("seed") == cfg_json.get("seed")
-            ):
-                matches.append(run)
+        if (
+            isinstance(c, dict)
+            and "error" not in c
+            and c.get("hook_layer") == cfg_json.get("hook_layer")
+            and c.get("expansion_factor") == cfg_json.get("expansion_factor")
+            and c.get("seed") == cfg_json.get("seed")
+        ):
+            matches.append(run)
     return matches
 
 
@@ -271,7 +271,7 @@ def main():
     args = parser.parse_args()
 
     report: dict = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "repo_root": str(REPO_ROOT),
         "with_hash": args.with_hash,
         "checkpoints": {},
