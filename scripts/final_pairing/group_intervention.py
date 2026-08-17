@@ -148,6 +148,16 @@ Ablation-by-subtraction is UNAFFECTED and is measured to be: it removes
 `a_f(h) * W_dec[f]`, the feature's actual contribution, and needs no corpus
 reference at all.
 
+THE SAME REFUSAL COVERS A ZERO WEIGHT (`ZeroWeightMember`), at the same two
+gates. Every per-kind delta here carries `w_f` as a factor, so a weight-0
+member contributes exactly nothing at every alpha and in every dose form:
+MEASURED before the refusal existed, a k=2 ablate group with one weight-0
+member left a residual BIT-IDENTICAL to the k=1 arm while `member_count` still
+reported 2. There is no legitimate way to want that -- see
+`NO_LEGITIMATE_ZERO_WEIGHT_MEMBER`, which answers the leave-one-out and
+placeholder cases explicitly. Negative weights stay legal; a sign flip is a
+direction, not inertness.
+
 ------------------------------------------------------------------------
 BOTH FINAL PAIRINGS ARE HOOKABLE
 ------------------------------------------------------------------------
@@ -301,6 +311,18 @@ class ZeroClampDose(InvalidGroupSpec):
     is not steerable'. `corpus_max == 0` means MAXIMAL SELECTIVITY, not a
     dead feature, so the fault is in the SCALE and this module neither
     excludes the member nor substitutes a default."""
+
+
+class ZeroWeightMember(InvalidGroupSpec):
+    """A named member's weight is EXACTLY ZERO, so it is not a member.
+
+    THE SAME DEFECT AS A ZERO DOSE, WITH DIFFERENT ARITHMETIC, and MEASURED
+    before this refusal existed: a k=2 ablate group with one weight-0 member
+    produced a residual BIT-IDENTICAL to the k=1 arm while `member_count`
+    still reported 2. That is arity corruption -- indistinguishable from a
+    real k=2 result, and it would misattribute a k=1 effect to a 2-member
+    group. This module already refuses an out-of-range index and a duplicate
+    on exactly that reasoning."""
 
 
 class RawHfLayerContractMismatch(GroupInterventionError):
@@ -478,6 +500,86 @@ fall back to another member's scale, will not silently skip the member, and
 will not drop it from the group. It refuses, and the refusal is the finding."""
 
 
+NO_LEGITIMATE_ZERO_WEIGHT_MEMBER = """WHY A ZERO-WEIGHT MEMBER IS REFUSED OUTRIGHT AND NOT MADE EXPRESSIBLE.
+
+Asked and answered rather than defaulted, 2026-08-17. The two candidate
+legitimate uses are a LEAVE-ONE-OUT arm built by zeroing a member instead of
+removing it, and an explicit PLACEHOLDER member. Both are refused, and not on
+a technicality:
+
+- The leave-one-out arm ALREADY EXISTS as `GroupSpec.without()` /
+  `leave_one_out_specs()`, which REMOVE the member, so `member_count` and
+  `feature_indices` tell the truth about the arm that ran. Zeroing would be a
+  SECOND way to express the same arm whose only difference is that every
+  cardinality downstream is wrong. `joint_intervention_lane.json` RULING_4
+  stage 3 is a minimality sweep over ARITY; an arm that lies about its arity
+  cannot participate in it.
+- A placeholder member is a claim about a group that is not the group. The
+  declared, asserted way to say "this arm does nothing" is
+  `GroupSpec.noop()`, which registers NO hook, or a whole-spec `alpha == 0`,
+  which `null_configuration_is_exact_identity()` reports and `run_arm()`
+  asserts as zero positions modified. Both are visible in the record. A
+  weight of 0 buried in one member is visible nowhere.
+
+NEGATIVE WEIGHTS REMAIN LEGAL. A sign flip is a direction, not inertness: the
+member still moves the residual stream and still earns its place in the count.
+Only EXACTLY ZERO is refused."""
+
+
+def _refuse_zero_weight_members(
+    members: Sequence[GroupMember], *, stage: str, evaluated: Sequence[float] | None = None
+) -> None:
+    """RAISE `ZeroWeightMember` if any member's weight is exactly zero.
+
+    Two gates, mirroring the zero-dose ones: `GroupSpec.__post_init__` (so no
+    such spec can exist) and `resolve_group` on the FLOAT32 weights the hook
+    actually multiplies by (so a weight that underflows to zero in that dtype
+    cannot slip past the float64 check). Both are before any hook exists."""
+    rows: list[tuple[int, float, float]] = []
+    for position, member in enumerate(members):
+        exact = float(member.weight)
+        used = exact if evaluated is None else float(evaluated[position])
+        rows.append((member.feature_index, exact, used))
+    zero = [row for row in rows if row[2] == 0.0]
+    if not zero:
+        return
+    live = [row for row in rows if row[2] != 0.0]
+    detail = "; ".join(
+        f"feature {index} (weight={exact!r}"
+        + (f", evaluated as {used!r}" if used != exact else "")
+        + ")"
+        for index, exact, used in zero
+    )
+    underflowed = [row for row in zero if row[1] != 0.0]
+    underflow_note = (
+        f" Feature(s) {[row[0] for row in underflowed]} carry a weight that is NON-ZERO in float64 "
+        "and UNDERFLOWS to exactly zero in float32, the dtype the hook multiplies by."
+        if underflowed
+        else ""
+    )
+    mixed_note = (
+        f" The remaining member(s) {[row[0] for row in live]} do carry a live weight, so this group "
+        f"of {len(rows)} would act as a group of {len(live)} while every count downstream still read "
+        f"{len(rows)}."
+        if live
+        else ""
+    )
+    raise ZeroWeightMember(
+        f"member weight is EXACTLY ZERO for {detail} [{stage}] -- REFUSING: a weight-0 member is "
+        f"not a member.{underflow_note}{mixed_note}\n\n"
+        "MEASURED, BEFORE THIS REFUSAL EXISTED: a k=2 ablate/subtract group with one weight-0 "
+        "member produced a residual BIT-IDENTICAL to the k=1 arm while member_count still reported "
+        "2. Every per-kind delta this module computes carries the weight as a factor -- amplify "
+        "additive alpha * w_f * W_dec[f], clamp (target_f - a_f(h)) * w_f, subtract -alpha * w_f * "
+        "a_f(h) * W_dec[f] -- so a zero weight makes that member contribute EXACTLY NOTHING at "
+        "every alpha, in every dose form, at every position. The arm is therefore "
+        "indistinguishable from a real result of the stated arity, and it would misattribute a "
+        "k=1 effect to a larger group. This is the same refusal as an out-of-range index or a "
+        "duplicated member: a group of k that quietly became k-1.\n\n"
+        f"{NO_LEGITIMATE_ZERO_WEIGHT_MEMBER}"
+    )
+
+
 def _clamp_dose_rows(
     members: Sequence[GroupMember], alpha: float, evaluated: Sequence[float] | None = None
 ) -> list[tuple[int, float, float, str]]:
@@ -566,7 +668,10 @@ class GroupMember:
     rather than inferred: under `amplify` it scales that feature's decoder
     direction in the injected sum; under `ablate` it is the FRACTION of
     that feature's own decoder contribution removed (with the global
-    `alpha` multiplying it, so `alpha=1, weight=1` is full ablation).
+    `alpha` multiplying it, so `alpha=1, weight=1` is full ablation). A
+    weight of EXACTLY ZERO is REFUSED by `GroupSpec` (`ZeroWeightMember`):
+    it makes the member inert in every kind while the group still counts it.
+    Negative weights are legal.
 
     `corpus_max` is THIS MEMBER'S OWN observed activation maximum, and it is
     the fix for RULING_13's D3. The committed bundle path derives ONE
@@ -679,6 +784,11 @@ class GroupSpec:
             raise InvalidGroupSpec(
                 f"ablation_mechanism is meaningful only for kind='ablate'; got kind={self.kind!r}"
             )
+        # ARITY, NOT DOSE, AND THE SAME DEFECT. A weight-0 member is inert in
+        # every kind and at every alpha, so a k-member group silently runs as a
+        # (k-1)-member one while member_count still reports k. Refused here,
+        # next to the duplicate check it belongs with, for the same reason.
+        _refuse_zero_weight_members(self.members, stage="GroupSpec construction")
         if self.kind == "noop" and self.members:
             raise InvalidGroupSpec("kind='noop' must name no members; it is the structural control arm")
         if self.dose_form not in DOSE_FORMS:
@@ -924,6 +1034,14 @@ def resolve_group(sae: Any, spec: GroupSpec) -> ResolvedGroup:
     indices = torch.tensor(spec.feature_indices, dtype=torch.long, device=device)
     weights = torch.tensor(
         [float(m.weight) for m in spec.members], dtype=torch.float32, device=device
+    )
+    # The SECOND weight gate, on the float32 values the hook multiplies by --
+    # the counterpart of the float32 clamp-target gate below, catching a weight
+    # that is non-zero in float64 and underflows here. Still before any hook.
+    _refuse_zero_weight_members(
+        spec.members,
+        stage="resolve_group, on the float32-evaluated weights",
+        evaluated=[float(v) for v in weights.tolist()],
     )
     rows = w_dec.detach().to(torch.float32).index_select(0, indices) if spec.members else torch.zeros(
         (0, d_in), dtype=torch.float32, device=device
@@ -3366,7 +3484,59 @@ def _selfcheck() -> int:
             "  to the clamp/amplify arm, and no replacement scale is named anywhere above."
         )
 
-    _print("CONTROL 12 -- the raw-HF layer output contract is probed on ONE token, and refuses")
+    _print("CONTROL 12 -- a weight-0 member is REFUSED: same defect, different arithmetic")
+    inert_direction = _direction(sae, (GroupMember(3, 1.0), GroupMember(7, 0.0)))
+    solo_direction = _direction(sae, (GroupMember(3, 1.0),))
+    identical = bool(torch.equal(inert_direction, solo_direction))
+    print(
+        f"  WHY: the k=2 injected direction with weights [1.0, 0.0] is bit-identical to the k=1 "
+        f"direction: {identical} (max difference "
+        f"{float((inert_direction - solo_direction).abs().max()):.3e}). A k=2 arm built that way "
+        "would report member_count=2 and MEASURE a k=1 effect."
+    )
+    if not identical:
+        failures.append("the weight-0 inertness claim does not hold on this SAE")
+    must_raise(
+        "every member weight zero",
+        lambda: GroupSpec(kind="amplify", members=(GroupMember(3, 0.0), GroupMember(7, 0.0))),
+        ZeroWeightMember,
+    )
+    must_raise(
+        "ONE weight-0 member among live ones (the k=2-acting-as-k=1 case)",
+        lambda: GroupSpec(
+            kind="ablate",
+            members=(GroupMember(3, 1.0), GroupMember(7, 0.0)),
+            alpha=1.0,
+            ablation_mechanism="subtract",
+        ),
+        ZeroWeightMember,
+    )
+    weight_counter = _CountingSAE(sae)
+    weight_ledger = FiringLedger()
+    underflow_weight = GroupSpec(
+        kind="amplify", members=(GroupMember(3, 1e-50), GroupMember(7, 1.0)), alpha=1.0
+    )
+    must_raise(
+        "a weight non-zero in float64 that underflows to zero at float32",
+        lambda: build_group_hook(weight_counter, underflow_weight, ledger=weight_ledger),
+        ZeroWeightMember,
+    )
+    print(
+        f"  PRE-FORWARD PROOF: sae.encode calls = {weight_counter.encode_calls}, hook invocations = "
+        f"{weight_ledger.call_count}. (The float64-zero cases never get a spec object at all.)"
+    )
+    negative = GroupSpec(kind="amplify", members=(GroupMember(3, -1.0), GroupMember(7, 2.0)))
+    print(
+        f"  ACCEPTED as required: negative weights {list(m.weight for m in negative.members)} -- a "
+        "sign flip is a DIRECTION, not inertness, and the member still moves the stream."
+    )
+    print(
+        "  READ: leave-one-out is expressed by REMOVING the member (GroupSpec.without), and an\n"
+        "  inert arm by GroupSpec.noop() or a whole-spec alpha == 0, both of which are recorded.\n"
+        "  A weight of 0 inside one member is visible nowhere. See NO_LEGITIMATE_ZERO_WEIGHT_MEMBER."
+    )
+
+    _print("CONTROL 13 -- the raw-HF layer output contract is probed on ONE token, and refuses")
     plain_model = _FakeRawHfModel(d_model=16, wrap="tensor")
     contract = probe_raw_hf_layer_output_contract(plain_model, plain_model.model.layers[1])
     print(f"  a plain-tensor layer is ACCEPTED and recorded -> {json.dumps(contract, sort_keys=True)}")

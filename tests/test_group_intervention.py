@@ -2309,6 +2309,117 @@ def test_the_zero_dose_error_is_an_invalid_group_spec_not_a_new_taxonomy():
     assert issubclass(gi.ZeroClampDose, gi.GroupInterventionError)
 
 
+# --- a member weight of zero: the same defect, different arithmetic ---------
+
+
+def test_a_zero_weight_member_makes_a_k2_group_arithmetically_a_k1_group(synthetic_sae):
+    """THE MEASUREMENT THE REFUSAL BELOW EXISTS FOR, taken on the arithmetic
+    rather than on a spec (which can no longer be built): the k=2 injected
+    direction with weights [1.0, 0.0] is BIT-IDENTICAL to the k=1 direction.
+    Every per-kind delta in the module carries w_f as a factor, so the same
+    holds for amplify, clamp and subtract at every alpha."""
+    inert = _expected_direction(synthetic_sae, (gi.GroupMember(3, 1.0), gi.GroupMember(7, 0.0)))
+    solo = _expected_direction(synthetic_sae, (gi.GroupMember(3, 1.0),))
+    assert torch.equal(inert, solo)
+
+
+def test_a_zero_weight_member_is_refused_and_named():
+    with pytest.raises(gi.ZeroWeightMember) as excinfo:
+        gi.GroupSpec(kind="amplify", members=(gi.GroupMember(3, 0.0), gi.GroupMember(7, 0.0)))
+    message = str(excinfo.value)
+    assert "member weight is EXACTLY ZERO for feature 3 (weight=0.0); feature 7 (weight=0.0)" in message
+    assert "a weight-0 member is not a member" in message
+    assert "BIT-IDENTICAL to the k=1 arm while member_count still reported 2" in message
+
+
+def test_one_zero_weight_member_among_live_ones_is_refused_as_arity_corruption():
+    """A k=2 group acting as a k=1 group, refused for the reason an
+    out-of-range index and a duplicate are."""
+    with pytest.raises(gi.ZeroWeightMember) as excinfo:
+        gi.GroupSpec(
+            kind="ablate",
+            members=(gi.GroupMember(3, 1.0), gi.GroupMember(7, 0.0), gi.GroupMember(11, 2.0)),
+            alpha=1.0,
+            ablation_mechanism="subtract",
+        )
+    message = str(excinfo.value)
+    assert "EXACTLY ZERO for feature 7" in message
+    assert "member(s) [3, 11] do carry a live weight" in message
+    assert "group of 3 would act as a group of 2" in message
+
+
+@pytest.mark.parametrize(
+    "kind,extra",
+    [
+        ("amplify", {}),
+        ("ablate", {"ablation_mechanism": "subtract"}),
+        ("ablate", {"ablation_mechanism": "reconstruct"}),
+    ],
+)
+def test_the_zero_weight_refusal_covers_every_kind_and_dose_form(kind, extra):
+    """Not amplify-only: the weight multiplies the delta in all of them."""
+    with pytest.raises(gi.ZeroWeightMember):
+        gi.GroupSpec(kind=kind, members=(gi.GroupMember(3, 0.0),), alpha=5.0, **extra)
+    with pytest.raises(gi.ZeroWeightMember):
+        gi.GroupSpec(
+            kind="amplify",
+            members=(gi.GroupMember(3, 0.0, corpus_max=4.0),),
+            alpha=1.0,
+            dose_form="clamp",
+        )
+
+
+def test_a_weight_that_underflows_to_zero_at_float32_is_caught_by_the_second_gate(synthetic_sae):
+    """The weight counterpart of the clamp-target underflow gate: non-zero in
+    float64, exactly zero in the dtype the hook multiplies by."""
+    spec = gi.GroupSpec(
+        kind="amplify", members=(gi.GroupMember(3, 1e-50), gi.GroupMember(7, 1.0)), alpha=1.0
+    )
+    assert float(spec.members[0].weight) != 0.0
+    ledger = gi.FiringLedger()
+    counting = gi._CountingSAE(synthetic_sae)
+    with pytest.raises(gi.ZeroWeightMember) as excinfo:
+        gi.build_group_hook(counting, spec, ledger=ledger)
+    message = str(excinfo.value)
+    assert "resolve_group, on the float32-evaluated weights" in message
+    assert "UNDERFLOWS to exactly zero in float32" in message
+    # Pre-forward: nothing ran and no hook was registered.
+    assert counting.encode_calls == 0
+    assert ledger.call_count == 0
+
+
+def test_negative_weights_stay_legal_and_still_move_the_stream(synthetic_sae, synthetic_residual):
+    """A sign flip is a direction, not inertness. Refusing it would have made
+    the zero-weight guard cost a real capability."""
+    members = (gi.GroupMember(3, -1.0), gi.GroupMember(7, 2.0))
+    spec = gi.GroupSpec(kind="amplify", members=members, alpha=1.0)
+    out, ledger, _resolved = _apply(synthetic_sae, spec, synthetic_residual)
+    assert ledger.max_abs_delta > 0.0
+    assert gi.assert_exact_delta(
+        synthetic_residual, out, _expected_direction(synthetic_sae, members)
+    ) < 1e-4
+
+
+def test_leave_one_out_still_removes_rather_than_zeroes():
+    """The sanctioned way to express a k-1 arm, and the reason no zero-weight
+    escape hatch is needed: `without()` drops the member, so member_count and
+    feature_indices describe the arm that actually ran."""
+    spec = gi.GroupSpec(kind="amplify", members=GROUP, alpha=1.0)
+    for arm in gi.leave_one_out_specs(spec):
+        assert arm.member_count == spec.member_count - 1
+        assert all(float(m.weight) != 0.0 for m in arm.members)
+
+
+def test_the_zero_weight_judgement_is_recorded_in_the_module():
+    """The judgement call, not a default: both candidate legitimate uses are
+    answered in the module rather than left for a caller to guess."""
+    doc = gi.NO_LEGITIMATE_ZERO_WEIGHT_MEMBER
+    assert "leave-one-out" in doc.lower()
+    assert "placeholder" in doc.lower()
+    assert "NEGATIVE WEIGHTS REMAIN LEGAL" in doc
+    assert issubclass(gi.ZeroWeightMember, gi.InvalidGroupSpec)
+
+
 def test_the_refusal_does_not_collapse_the_void_state_distinction(synthetic_sae, synthetic_residual):
     """RULING_13: VOID and NOT-EXERCISED ARE NOT NULLS, and the calibration
     lane's scoring reads that distinction out of the ledger. The zero-dose
