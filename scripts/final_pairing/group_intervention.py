@@ -48,23 +48,39 @@ between them is a closed form that this file both derives and MEASURES:
     delta_a - delta_b  ==  decode(encode(h)) - h  ==  -reconstruction_error
 
 independent of the group, of `alpha`, and of the per-feature weights.
-`measure_mechanism_gap()` returns that quantity so the Architect's pending
-ruling can be made on a measured number rather than an argument.
 
-ONE CONSEQUENCE THE CALLER MUST SEE, because it is not obvious and it
-decides how a control arm must be built:
+RULED, 2026-08-17, RULING_13 Q3: (b) SUBTRACT IS THE INSTRUMENT. The
+decisive ground is the no-op test and it is this module's own defect class:
+under subtract a non-firing group leaves the residual EXACTLY unchanged, so
+NOT-EXERCISED stays detectable; under reconstruct a non-firing group STILL
+moves the model by the whole reconstruction error, so the intervention
+APPEARS TO HAVE FIRED WHEN IT DID NOT. The reasoning is magnitude-
+independent -- both mechanisms are exact against a DIFFERENT REFERENCE, and
+the model computes with `h`, not with `decode(encode(h))` -- so it does not
+rest on how large the error happens to be at production scale.
 
-    Under (b), the null configuration (alpha == 0, or an empty group) is
-    an EXACT identity. Under (a) IT IS NOT -- it still replaces h with
-    decode(encode(h)). A "no-op" arm run through mechanism (a) therefore
-    already moves the model by the whole reconstruction error before any
-    feature is touched.
+Consequences implemented here:
 
-That is a property of the mechanism, not a defect here, and this file
-refuses to hide it: `null_configuration_is_exact_identity()` reports it,
-`GroupSpec.reconstruction_control()` builds the arm that neutralises it
-(an EMPTY group under mechanism (a) is precisely the reconstruction-only
-control), and the self-check prints the measured floor.
+- (a) is NOT a parallel arm and NOT a robustness arm. A robustness arm
+  varies with what it checks; this one is a CONSTANT OF THE SAE at its
+  hook point. It runs ONCE per (model, SAE, hook point) via
+  `measure_sae_fidelity_context()` and is reported alongside results,
+  never as evidence about a group.
+- An (a) result read against an UNHOOKED control is REFUSED, not
+  caveated (`assert_control_is_admissible`). Its only admissible control
+  is `GroupSpec.reconstruction_control()`, at the same seed.
+- The null-identity asymmetry stands as the FINDING that discriminated
+  the two, not as a failed requirement: `null_configuration_is_exact_
+  identity()` reports False for (a) and a test pins it.
+
+RECONCILED WITH WHAT ALREADY EXISTED. `interplab.interventions.hooks.
+_make_clamp_hook` computes `decode(clamped) - decode(clean)`; for an affine
+decoder both the bias AND the reconstruction error cancel in that
+difference, so at clamp zero it IS decoder subtraction. This module's
+subtract is therefore the SET generalisation of that primitive, not a
+second implementation -- measured equal to it at k=1 on live features to
+float32 tolerance in
+`test_my_subtract_is_the_existing_clamp_hook_generalised_not_a_second_implementation`.
 
 ------------------------------------------------------------------------
 THE DEFECT CLASS THIS FILE IS BUILT AGAINST
@@ -89,6 +105,30 @@ So firing is OBSERVED AND ASSERTED, never assumed:
   form `alpha * sum_f w_f * W_dec[f]`, at a tolerance derived from the
   representable spacing at the residual's own magnitude rather than from a
   hand-chosen epsilon.
+- BELOW FLOAT32 THAT IS NOT ENOUGH, and the module says so rather than
+  reporting a green assertion. At bfloat16 a delta smaller than the
+  spacing at `|h|` is absorbed whole -- `h + d == h` exactly -- so the
+  intervention does nothing at that element while the tolerance, which the
+  dtype forces to be large, still passes. `FiringRecord` therefore carries
+  an absorption census on every call, `assert_no_absorption()` is the
+  strong opt-in check, and `minimum_effective_alpha()` sizes a dose that
+  can survive the dtype at all. See `DTYPE_LIMITS` for the measured table.
+
+------------------------------------------------------------------------
+BOTH FINAL PAIRINGS ARE HOOKABLE
+------------------------------------------------------------------------
+
+`HookedTransformerBackend` drives the Gemma pairing through
+`model.hooks(...)`. `RawHfBackend` drives Qwen3.5-27B, which
+transformer_lens cannot load, through `register_forward_hook` on the
+decoder layer -- reusing `final_pairing_harness`'s own resolvers so the
+intervention hooks THE SAME MODULE OBJECT the discovery scorer hooks.
+`assert_hooks_the_scored_tensor()` checks that by object identity at
+runtime; if the two ever diverged, a feature index would name one
+direction while scoring and another while steering, and neither half would
+look wrong. `build_group_hook` is shared by both backends, so the
+arithmetic, the ledger, the refusals and the absorption census cannot
+drift apart between the two pairings.
 
 ------------------------------------------------------------------------
 DEVICE PLACEMENT
@@ -103,6 +143,18 @@ existing `final_pairing_concept_discovery.assert_load_devices_agree`
 called before this harness's first forward. If that helper cannot be
 imported this file RAISES -- a device gate that silently declines to run
 is the same false-negative shape as a hook that silently declines to fire.
+
+That import is loaded by FILE IDENTITY, not by name. A same-named 23-line
+compatibility stub really does exist at
+`scripts/legacy/final_pairing_concept_discovery.py`, and putting
+`scripts/legacy` on `sys.path` for the raw-HF resolvers made the plain
+`import` resolve to it -- the device gate present by name and empty of the
+function it was imported for. This module's own test suite caught that;
+`_import_module_from_exact_file` is the fix and
+`test_a_legacy_stub_of_the_same_name_cannot_shadow_the_device_gate` is the
+regression. `RawHfBackend` additionally asserts the DECODER LAYER's
+placement separately from the model's, because a `device_map` shard can
+put them in different places and the layer is the one the hook runs on.
 
 ------------------------------------------------------------------------
 WHAT IS EXERCISED WHERE
@@ -125,7 +177,7 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -150,15 +202,32 @@ absence from an instrument which cannot detect presence."""
 
 UNEXERCISED_WITHOUT_GPU = (
     "Real Gemma-3-12B-it / Qwen3.5-27B weights: no forward has ever run through this file "
-    "on either final-pairing model.",
-    "bfloat16/float16 residual streams: every test runs float32, so the delta-cast rounding "
-    "term in the hook is real but unmeasured at production dtype.",
+    "on either final-pairing model. Both hook paths are exercised end to end on this "
+    "repository's pinned tiny fixtures instead.",
+    "Qwen3_5DecoderLayer specifically: the raw-HF path is proven against a real "
+    "Qwen2DecoderLayer (tests/fixtures/tiny_model), which returns its hidden states as a "
+    "plain tensor exactly as final_pairing_harness documents Qwen3_5DecoderLayer doing. If "
+    "Tamia's installed Qwen3.5 returns a tuple instead, register_qwen_raw_hook REFUSES -- "
+    "that refusal is tested, the tuple-returning layer itself is not, because no Qwen3.5 "
+    "weights exist here.",
     "Multi-GPU / device_map sharding: assert_devices_before_forward() is exercised only in "
-    "the all-CPU case, where it trivially agrees.",
-    "The raw-HF (non-TransformerLens) Qwen3.5 hook path: this file drives `model.hooks(...)`, "
-    "which the Qwen fallback does not have. See attach_group_hook_raw_hf().",
+    "the all-CPU case, where it trivially agrees, and the separate model-vs-decoder_layer "
+    "placement assertion on the raw-HF backend has never seen an actually-split model.",
+    "Real 27B-scale KV-cache decode: the prefill-then-one-call-per-token firing pattern is "
+    "measured on both backends at fixture scale, not at production sequence lengths.",
     "Generation batching: run_arm() deliberately generates one prompt per call (see its "
     "docstring); a padded batch path does not exist and is not tested.",
+    "bfloat16/float16 ON A REAL MODEL: the dtype rounding and absorption terms are measured "
+    "(see DTYPE_LIMITS) on synthetic tensors at both dtypes, but no model forward has run "
+    "at bfloat16 through this file, so the absorbed_fraction a real 27B residual stream "
+    "produces at a given alpha is predicted by the same arithmetic and NOT observed.",
+    "The clamp dose form at a REAL corpus_max: per-member targets are exercised with "
+    "hand-supplied scales, because no corpus census for either final pairing exists on this "
+    "machine. The arithmetic is proven; the doses are not real doses.",
+    "Whether an intervention that is APPLIED produces any particular EFFECT: this module "
+    "measures and classifies, and owns no success criterion. RULING_13 places that in a "
+    "control-only calibration performed by a lane that does not select the group, so no "
+    "margin, threshold or ceiling appears here and a test asserts none appears later.",
 )
 
 
@@ -295,22 +364,56 @@ def resolve_hook_name(sae: Any) -> str:
 InterventionKind = Literal["noop", "amplify", "ablate"]
 AblationMechanism = Literal["reconstruct", "subtract"]
 Positions = Literal["all", "generated_only"]
+DoseForm = Literal["additive", "clamp"]
 
 ABLATION_MECHANISMS: tuple[AblationMechanism, ...] = ("reconstruct", "subtract")
+DOSE_FORMS: tuple[DoseForm, ...] = ("additive", "clamp")
+
+RULED_INSTRUMENT_MECHANISM: AblationMechanism = "subtract"
+"""RULING_13 Q3.2: SUBTRACT is the instrument. Three grounds, the decisive
+one being the no-op test -- under subtract a non-firing group leaves the
+residual EXACTLY unchanged, so NOT-EXERCISED stays detectable; under
+reconstruct a non-firing group still moves the model by the whole
+reconstruction error, so the intervention APPEARS TO HAVE FIRED WHEN IT DID
+NOT. Mechanism (a) is demoted to a once-per-configuration fidelity context
+statistic (`measure_sae_fidelity_context`), never a parallel arm."""
+
+RECONSTRUCT_OVERREAD_GUARD = """PROHIBITED READINGS OF THE MECHANISM GAP (RULING_13 Q3.9).
+
+The measured ratio |reconstruction_error| / |delta_b| is a SIGNAL-TO-ARTIFACT
+RATIO FOR MECHANISM (a): the reconstruction error against ONE GROUP'S
+intervention magnitude. It is decisive for that and for nothing wider.
+
+It is NOT the SAE's fidelity relative to the residual stream. Citing it as
+"the SAE misses more than twice what it captures", or any paraphrase making
+it a statement about SAE quality in general, is prohibited. The residual-
+relative quantity is a DIFFERENT number, `reconstruction_error_norm /
+residual_norm`, which `measure_sae_fidelity_context()` reports separately
+and labels as its own thing."""
 
 
 @dataclass(frozen=True)
 class GroupMember:
-    """One feature in the group, with its own weight.
+    """One feature in the group, with its own weight AND ITS OWN SCALE.
 
     `weight` means different things per kind, and both are documented here
     rather than inferred: under `amplify` it scales that feature's decoder
     direction in the injected sum; under `ablate` it is the FRACTION of
     that feature's own decoder contribution removed (with the global
-    `alpha` multiplying it, so `alpha=1, weight=1` is full ablation)."""
+    `alpha` multiplying it, so `alpha=1, weight=1` is full ablation).
+
+    `corpus_max` is THIS MEMBER'S OWN observed activation maximum, and it is
+    the fix for RULING_13's D3. The committed bundle path derives ONE
+    absolute clamp value from `corpus_max[feature_indices[0]]` and applies
+    it to every member; features have different activation scales, so "the
+    same dose" is not the same dose, and a group can pass because one member
+    was massively overdosed while the others did nothing -- a single-feature
+    result wearing a group label. Under `dose_form="clamp"` every member
+    must carry its own, or the spec is REFUSED."""
 
     feature_index: int
     weight: float = 1.0
+    corpus_max: float | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.feature_index, int) or isinstance(self.feature_index, bool):
@@ -320,6 +423,15 @@ class GroupMember:
         weight = float(self.weight)
         if weight != weight or weight in (float("inf"), float("-inf")):
             raise InvalidGroupSpec(f"weight must be finite; got {self.weight!r}")
+        if self.corpus_max is not None:
+            corpus_max = float(self.corpus_max)
+            if corpus_max != corpus_max or corpus_max in (float("inf"), float("-inf")):
+                raise InvalidGroupSpec(f"corpus_max must be finite; got {self.corpus_max!r}")
+            if corpus_max < 0.0:
+                raise InvalidGroupSpec(
+                    f"corpus_max must be non-negative; got {corpus_max} for feature "
+                    f"{self.feature_index}"
+                )
 
 
 @dataclass(frozen=True)
@@ -328,15 +440,38 @@ class GroupSpec:
 
     `positions` defaults to `"all"` per the standing science ruling of
     2026-08-13 and matching every number this project has published
-    (docs/positions_semantics.md)."""
+    (docs/positions_semantics.md).
+
+    `dose_form` is ORTHOGONAL TO THE MECHANISM (RULING_13 Q3.6) and is a
+    separate pre-registered choice:
+
+    - `"additive"`: `h += alpha * sum_f w_f * W_dec[f]`. An absolute
+      injection that acts whether or not the group already fires.
+    - `"clamp"`: `h += sum_f (target_f - a_f(h)) * W_dec[f]` with
+      `target_f = alpha * member.corpus_max` -- a dose in EACH MEMBER'S OWN
+      max units, exactly the frozen causal grid's form, so a group arm stays
+      commensurable with G-D. Under subtract this carries no reconstruction
+      error and is an EXACT IDENTITY when every `target_f == a_f(h)`.
+
+    NEITHER IS MULTIPLICATIVE, on purpose. A multiplicative dose is
+    identically zero where the group is silent, so an amplification arm
+    built that way cannot induce the concept on precisely the eliciting
+    prompts a sufficiency criterion depends on -- an amplifier that cannot
+    amplify. This module does not offer that form."""
 
     kind: InterventionKind
     members: tuple[GroupMember, ...] = ()
     alpha: float = 1.0
     ablation_mechanism: AblationMechanism | None = None
     positions: Positions = "all"
+    dose_form: DoseForm = "additive"
     hook_name: str | None = None
     label: str = ""
+    #: RULING_13 Q3.8: for ABLATION the positions choice must be STATED, not
+    #: defaulted, because `generated_only` leaves a concept encoded during
+    #: prompt processing entirely un-ablated. Selecting `generated_only` for
+    #: an ablation therefore requires saying so here.
+    acknowledge_prompt_positions_unablated: bool = False
 
     def __post_init__(self) -> None:
         if self.kind not in ("noop", "amplify", "ablate"):
@@ -375,6 +510,46 @@ class GroupSpec:
             )
         if self.kind == "noop" and self.members:
             raise InvalidGroupSpec("kind='noop' must name no members; it is the structural control arm")
+        if self.dose_form not in DOSE_FORMS:
+            raise InvalidGroupSpec(f"unknown dose_form {self.dose_form!r}; expected one of {list(DOSE_FORMS)}")
+        if self.dose_form == "clamp":
+            if self.kind != "amplify":
+                raise InvalidGroupSpec(
+                    f"dose_form='clamp' is defined for kind='amplify'; got kind={self.kind!r}. "
+                    "Ablation is already the target=0 case of a clamp and is expressed as kind="
+                    "'ablate' so its mechanism stays explicit."
+                )
+            # RULING_13 D3, made structurally impossible rather than
+            # documented: a clamp dose is meaningless without a per-member
+            # scale, and one member's scale applied to five members is a
+            # single-feature result wearing a group label.
+            missing = sorted(m.feature_index for m in self.members if m.corpus_max is None)
+            if missing:
+                raise InvalidGroupSpec(
+                    f"dose_form='clamp' requires a per-member corpus_max; feature(s) {missing} have "
+                    "none. REFUSING to reuse another member's scale: features have different "
+                    "activation scales, so one member's max applied to the group is not 'the same "
+                    "dose' -- it is one member overdosed while the others do nothing."
+                )
+        if (
+            self.kind == "ablate"
+            and self.positions == "generated_only"
+            and not self.acknowledge_prompt_positions_unablated
+        ):
+            raise InvalidGroupSpec(
+                "kind='ablate' with positions='generated_only' leaves every PROMPT position "
+                "un-ablated, so a concept encoded during prompt processing passes the intervention "
+                "untouched. That choice must be STATED, not defaulted: pass "
+                "acknowledge_prompt_positions_unablated=True if it is deliberate, or use "
+                "positions='all'."
+            )
+        if self.acknowledge_prompt_positions_unablated and not (
+            self.kind == "ablate" and self.positions == "generated_only"
+        ):
+            raise InvalidGroupSpec(
+                "acknowledge_prompt_positions_unablated is meaningful only for kind='ablate' with "
+                "positions='generated_only'; setting it elsewhere records a choice that was never made"
+            )
 
     # -- convenience constructors -------------------------------------------
 
@@ -427,26 +602,31 @@ class GroupSpec:
                 f"{list(self.feature_indices)}"
             )
         kept = tuple(m for m in self.members if m.feature_index != feature_index)
-        return GroupSpec(
-            kind=self.kind,
-            members=kept,
-            alpha=self.alpha,
-            ablation_mechanism=self.ablation_mechanism,
-            positions=self.positions,
-            hook_name=self.hook_name,
-            label=f"{self.label or self.kind}-without-{feature_index}",
+        # `replace` rather than a hand-listed constructor call: a field added
+        # later (dose_form and the positions acknowledgement both were) would
+        # otherwise be silently dropped from every leave-one-out arm, making
+        # the minimality sweep run a different intervention from the joint one.
+        return replace(
+            self, members=kept, label=f"{self.label or self.kind}-without-{feature_index}"
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "kind": self.kind,
             "members": [
-                {"feature_index": m.feature_index, "weight": float(m.weight)} for m in self.members
+                {
+                    "feature_index": m.feature_index,
+                    "weight": float(m.weight),
+                    "corpus_max": None if m.corpus_max is None else float(m.corpus_max),
+                }
+                for m in self.members
             ],
             "member_count": self.member_count,
             "alpha": float(self.alpha),
             "ablation_mechanism": self.ablation_mechanism,
             "positions": self.positions,
+            "dose_form": self.dose_form,
+            "acknowledge_prompt_positions_unablated": self.acknowledge_prompt_positions_unablated,
             "hook_name": self.hook_name,
             "label": self.label,
         }
@@ -461,11 +641,20 @@ def null_configuration_is_exact_identity(spec: GroupSpec) -> bool:
     `False` for `ablate`/`reconstruct` even with no members and `alpha == 0`
     -- that path still replaces `h` with `decode(encode(h))`. Callers that
     need a genuine identity under (a) do not have one; they have
-    `GroupSpec.reconstruction_control()` as the arm to subtract instead."""
+    `GroupSpec.reconstruction_control()` as the arm to subtract instead.
+
+    `False` for `dose_form='clamp'` at `alpha == 0` too, and that is not a
+    quirk: clamping a group to a target of zero is an ABLATION, the most
+    active intervention this module performs. Only an EMPTY clamp group is
+    a no-op. Treating alpha==0 as universally inert would have made the
+    strongest ablation available report itself as a control."""
     if spec.kind == "noop":
         return True
-    is_null = spec.member_count == 0 or float(spec.alpha) == 0.0
-    if not is_null:
+    if spec.member_count == 0:
+        return spec.kind == "amplify" or spec.ablation_mechanism == "subtract"
+    if spec.dose_form == "clamp":
+        return False
+    if float(spec.alpha) != 0.0:
         return False
     if spec.kind == "amplify":
         return True
@@ -491,16 +680,29 @@ class ResolvedGroup:
     decoder_rows: torch.Tensor  # [k, d_in] float32
     amplify_direction: torch.Tensor  # [d_in] float32 == sum_f w_f * W_dec[f]
     device: torch.device
+    #: [k] float32 -- alpha * corpus_max_f per member, the absolute clamp
+    #: target IN THAT MEMBER'S OWN MAX UNITS. Empty unless dose_form=='clamp'.
+    clamp_targets: torch.Tensor | None = None
 
     @property
     def member_count(self) -> int:
         return int(self.feature_indices.shape[0])
 
     def expected_amplify_delta(self, dtype: torch.dtype | None = None) -> torch.Tensor:
-        """`alpha * sum_f w_f * W_dec[f]` -- the exact vector an amplify
-        hook must add at every steered position. Computed here from the
-        resolved rows so a test can assert against it WITHOUT calling the
-        hook's own code path."""
+        """`alpha * sum_f w_f * W_dec[f]` -- the exact vector an ADDITIVE
+        amplify hook must add at every steered position. Computed here from
+        the resolved rows so a test can assert against it WITHOUT calling
+        the hook's own code path.
+
+        Defined only for `dose_form='additive'`. A clamp delta depends on
+        the residual (`target_f - a_f(h)`) and so has no constant form;
+        `clamp_amplify_delta()` computes it per call."""
+        if self.spec.dose_form != "additive":
+            raise InvalidGroupSpec(
+                f"expected_amplify_delta is the constant ADDITIVE delta; this spec uses "
+                f"dose_form={self.spec.dose_form!r}, whose delta depends on the residual. Use "
+                "clamp_amplify_delta(sae, resolved, residual)."
+            )
         delta = float(self.spec.alpha) * self.amplify_direction
         return delta if dtype is None else delta.to(dtype)
 
@@ -545,6 +747,19 @@ def resolve_group(sae: Any, spec: GroupSpec) -> ResolvedGroup:
         else torch.zeros(d_in, dtype=torch.float32, device=device)
     )
 
+    # Per-member clamp target IN THAT MEMBER'S OWN MAX UNITS (RULING_13 D3).
+    # There is deliberately no fallback to another member's scale: GroupSpec
+    # already refused a clamp spec with a missing corpus_max, so reaching here
+    # with one would be an internal contradiction rather than something to
+    # paper over.
+    clamp_targets = None
+    if spec.dose_form == "clamp":
+        clamp_targets = torch.tensor(
+            [float(spec.alpha) * float(m.corpus_max) for m in spec.members],
+            dtype=torch.float32,
+            device=device,
+        )
+
     resolved = ResolvedGroup(
         spec=spec,
         d_sae=d_sae,
@@ -555,6 +770,7 @@ def resolve_group(sae: Any, spec: GroupSpec) -> ResolvedGroup:
         decoder_rows=rows,
         amplify_direction=direction,
         device=device,
+        clamp_targets=clamp_targets,
     )
     if resolved.member_count != spec.member_count:
         raise GroupInterventionError(
@@ -588,6 +804,20 @@ class FiringRecord:
     delta_norm: float
     residual_norm: float
     max_abs_delta: float
+    #: Elements where a NON-ZERO delta was requested and the realised delta
+    #: was EXACTLY ZERO -- the residual stream absorbed it. Always zero in
+    #: float32 at any sane alpha; routine at bfloat16. See DTYPE_LIMITS.
+    absorbed_element_count: int = 0
+    #: Elements where a non-zero delta was requested at all, the denominator
+    #: `absorbed_element_count` is a count out of.
+    requested_nonzero_element_count: int = 0
+    residual_dtype: str = "unrecorded"
+
+    @property
+    def absorbed_fraction(self) -> float:
+        if self.requested_nonzero_element_count == 0:
+            return 0.0
+        return self.absorbed_element_count / self.requested_nonzero_element_count
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -602,6 +832,10 @@ class FiringRecord:
             "delta_norm": self.delta_norm,
             "residual_norm": self.residual_norm,
             "max_abs_delta": self.max_abs_delta,
+            "absorbed_element_count": self.absorbed_element_count,
+            "requested_nonzero_element_count": self.requested_nonzero_element_count,
+            "absorbed_fraction": self.absorbed_fraction,
+            "residual_dtype": self.residual_dtype,
         }
 
 
@@ -645,6 +879,27 @@ class FiringLedger:
     def max_abs_delta(self) -> float:
         return max((r.max_abs_delta for r in self.records), default=0.0)
 
+    @property
+    def absorbed_element_count(self) -> int:
+        return sum(r.absorbed_element_count for r in self.records)
+
+    @property
+    def requested_nonzero_element_count(self) -> int:
+        return sum(r.requested_nonzero_element_count for r in self.records)
+
+    @property
+    def absorbed_fraction(self) -> float:
+        """Share of requested-non-zero elements the residual stream swallowed
+        whole. Zero in float32; routinely large in bfloat16 at small alpha --
+        and a green exact-delta assertion does NOT rule it out, which is the
+        entire point of recording it. See DTYPE_LIMITS."""
+        total = self.requested_nonzero_element_count
+        return (self.absorbed_element_count / total) if total else 0.0
+
+    @property
+    def residual_dtypes(self) -> tuple[str, ...]:
+        return tuple(sorted({r.residual_dtype for r in self.records}))
+
     def summary(self) -> dict[str, Any]:
         return {
             "call_count": self.call_count,
@@ -654,6 +909,10 @@ class FiringLedger:
             "positions_modified": self.positions_modified,
             "total_delta_norm": self.total_delta_norm,
             "max_abs_delta": self.max_abs_delta,
+            "absorbed_element_count": self.absorbed_element_count,
+            "requested_nonzero_element_count": self.requested_nonzero_element_count,
+            "absorbed_fraction": self.absorbed_fraction,
+            "residual_dtypes": list(self.residual_dtypes),
         }
 
 
@@ -779,13 +1038,103 @@ def delta_tolerance(before: torch.Tensor, expected: torch.Tensor | None = None) 
     representable spacing at `x`'s own magnitude, with a small factor for
     the intermediate rounding of `d` itself. Passing a large residual and a
     tiny delta therefore relaxes this automatically and honestly, instead
-    of failing a correct hook or hiding a wrong one behind a constant."""
+    of failing a correct hook or hiding a wrong one behind a constant.
+
+    MEASURED to hold unchanged at float32, bfloat16 and float16 -- the
+    formula needed no dtype-dependent form, because `eps` already carries
+    the dtype. See DTYPE_LIMITS for why holding is NOT the useful property
+    at bfloat16."""
     dtype = before.dtype if before.is_floating_point() else torch.float32
     eps = torch.finfo(dtype).eps
     scale = float(before.detach().abs().max().item()) if before.numel() else 1.0
     if expected is not None and expected.numel():
         scale = max(scale, float(expected.detach().abs().max().item()))
     return float(eps * max(scale, 1.0) * 8.0)
+
+
+DTYPE_LIMITS = """THE EXACT-DELTA ASSERTION IS NECESSARY BUT NOT SUFFICIENT BELOW FLOAT32.
+
+Measured THROUGH THIS MODULE'S OWN HOOK (not a side calculation) on the
+synthetic fixture, and reproducible with `--selfcheck`, which prints this
+table. Residual max |x| ~ 9, a group of three features, 160 elements:
+
+    dtype       alpha    worst        tolerance    passes   absorbed
+    float32     10       9.537e-07    8.632e-06    yes        0/160
+    float32     0.1      2.305e-07    7.005e-06    yes        0/160
+    float32     0.001    2.228e-07    7.005e-06    yes        0/160
+    bfloat16    10       7.346e-02    5.657e-01    yes        0/160
+    bfloat16    0.1      1.447e-02    4.590e-01    yes       41/160
+    bfloat16    0.001    9.052e-04    4.590e-01    yes      157/160
+    float16     10       5.457e-03    7.072e-02    yes        0/160
+    float16     0.1      1.643e-03    5.737e-02    yes        9/160
+    float16     0.001    9.052e-04    5.737e-02    yes      138/160
+
+THE TOLERANCE FORMULA NEEDED NO DTYPE-DEPENDENT FORM. `eps` already carries
+the dtype, so `eps * max(|x|, |d|, 1) * 8` holds at all three without
+modification -- the worst discrepancy stays roughly an order of magnitude
+inside the bound at every row. That question is answered: the derived
+`~ulp(x)` tolerance still holds at bfloat16 and float16.
+
+READ THE LAST TWO COLUMNS TOGETHER. The tolerance holds everywhere -- and
+that is the problem, not the reassurance. At bfloat16, alpha=0.001, the
+residual stream swallowed the requested delta whole at 157 of 160 elements:
+the intervention did nothing at those positions, and the exact-delta
+assertion PASSED, because the absorbed magnitude (9e-04) is far below the
+tolerance the dtype forces (6.3e-01). That is a clean negative wearing a
+passing grade -- this module's own named defect class, reached through
+arithmetic rather than through a hook that failed to fire.
+
+THE TOLERANCE IS NOT THE FIX AND MUST NOT BE TIGHTENED. The rounding is
+real: `x + d == x` exactly whenever |d| falls below the spacing at |x|.
+Tightening the bound would fail correct hooks at production dtype, which is
+how a green assertion gets negotiated away. The fix is a SECOND, INDEPENDENT
+measurement: `FiringRecord.absorbed_element_count`, always recorded, in the
+summary of every arm, with `assert_no_absorption()` available for callers
+that need the strong guarantee and `minimum_effective_alpha()` to size a
+dose that can survive the dtype at all.
+
+WHAT THIS MEANS OPERATIONALLY. At bfloat16 a passing exact-delta assertion
+does NOT establish that the intervention was applied. Only the absorption
+census does. Any bfloat16 steering result whose absorbed_fraction is not
+reported should be read as not having checked."""
+
+
+def minimum_effective_alpha(
+    residual: torch.Tensor, direction: torch.Tensor, *, dtype: torch.dtype | None = None
+) -> float:
+    """The smallest `alpha` at which `alpha * direction` can survive being
+    added to `residual` at `dtype` at all.
+
+    Below roughly `eps * |x| / 2` per element, `x + d == x` exactly and the
+    intervention is a silent no-op there. This returns the alpha at which
+    the direction's LARGEST component clears that floor, so it is the
+    optimistic bound: alphas below it are certainly absorbed somewhere,
+    alphas above it are not guaranteed to survive everywhere. It sizes a
+    dose; it does not certify one, and `assert_no_absorption()` is what
+    actually checks."""
+    resolved = dtype or (residual.dtype if residual.is_floating_point() else torch.float32)
+    eps = torch.finfo(resolved).eps
+    scale = float(residual.detach().abs().max().item()) if residual.numel() else 1.0
+    peak = float(direction.detach().abs().max().item()) if direction.numel() else 0.0
+    if peak <= 0.0:
+        return float("inf")
+    return float(eps * max(scale, 1.0) * 0.5 / peak)
+
+
+def measure_absorption(
+    before: torch.Tensor, after: torch.Tensor, expected_delta: torch.Tensor
+) -> tuple[int, int]:
+    """`(absorbed, requested_nonzero)` element counts.
+
+    Absorbed means: a non-zero delta was requested at that element and the
+    realised delta is EXACTLY zero. Counted on the realised tensors, not
+    predicted from `eps`, so it stays correct for any dtype and any
+    accumulation order the backend actually used."""
+    measured = (after - before).to(torch.float32)
+    wanted = expected_delta.to(torch.float32).expand_as(measured)
+    requested_nonzero = wanted != 0.0
+    absorbed = requested_nonzero & (measured == 0.0)
+    return int(absorbed.sum().item()), int(requested_nonzero.sum().item())
 
 
 def assert_exact_delta(
@@ -799,7 +1148,12 @@ def assert_exact_delta(
     """RAISE unless `after - before` is exactly `expected_delta`.
 
     Returns the measured maximum absolute discrepancy so a caller can
-    record how exact 'exact' actually was."""
+    record how exact 'exact' actually was.
+
+    BELOW FLOAT32 A PASS FROM THIS FUNCTION DOES NOT ESTABLISH THAT THE
+    DELTA WAS APPLIED -- see DTYPE_LIMITS. Pair it with
+    `assert_no_absorption()` or with the `absorbed_fraction` the ledger
+    records on every call."""
     if before.shape != after.shape:
         raise ExactDeltaMismatch(
             f"shape changed across the intervention: {tuple(before.shape)} -> {tuple(after.shape)}"
@@ -817,6 +1171,71 @@ def assert_exact_delta(
     return worst
 
 
+InterventionState = Literal["CONTROL", "NOT_EXERCISED", "FIRED_BUT_INERT", "APPLIED"]
+
+INTERVENTION_STATE_MEANINGS: dict[str, str] = {
+    "CONTROL": "The paired control arm. No hook was registered; this is the reference, not a result.",
+    "NOT_EXERCISED": (
+        "VOID, NOT A NULL. The hook never fired, so no intervention happened. Any downstream "
+        "reading of 'the concept was not steerable' from this arm would be a failure MANUFACTURED "
+        "BY THE INSTRUMENT."
+    ),
+    "FIRED_BUT_INERT": (
+        "VOID, NOT A NULL. The hook fired and injected an exactly-zero delta at every position -- "
+        "e.g. an ablation of a group that was already silent. The model was never perturbed, so "
+        "an unchanged continuation carries no information about the group."
+    ),
+    "APPLIED": (
+        "The intervention ran and moved the residual stream. Only this state produces an arm whose "
+        "outcome may be read as a result at all."
+    ),
+}
+"""RULING_13: VOID and NOT-EXERCISED ARE NOT NULLS. The ledger already
+distinguishes fired-and-identity from never-fired; this is the reporting
+layer preserving that distinction instead of collapsing both into a null a
+reader would take for evidence of absence."""
+
+
+def classify_intervention_state(spec: GroupSpec, ledger: FiringLedger) -> InterventionState:
+    """Which of the four states this arm is in, from the ledger alone.
+
+    Deliberately NOT a judgement about the effect: no threshold, no margin,
+    no comparison to a criterion. It answers only 'did an intervention
+    happen', which is the question that must be settled before any outcome
+    is read."""
+    if spec.kind == "noop":
+        return "CONTROL"
+    if ledger.call_count == 0:
+        return "NOT_EXERCISED"
+    if ledger.max_abs_delta <= 0.0:
+        return "FIRED_BUT_INERT"
+    return "APPLIED"
+
+
+def assert_no_absorption(ledger: FiringLedger, *, context: str = "") -> dict[str, Any]:
+    """RAISE if the residual stream swallowed ANY requested delta whole.
+
+    Opt-in and deliberately not folded into `assert_fired_as_expected`: at
+    bfloat16 some absorption is a physical consequence of the dtype, not a
+    defect, and a check that always failed there would be waved through
+    within a week. This is the strong guarantee, for callers who need to
+    state that every requested element actually landed -- a float32
+    preflight, or a bfloat16 run whose alpha was sized by
+    `minimum_effective_alpha()` and now needs to be verified rather than
+    assumed."""
+    if ledger.absorbed_element_count == 0:
+        return ledger.summary()
+    where = f" [{context}]" if context else ""
+    raise ExactDeltaMismatch(
+        f"the residual stream absorbed {ledger.absorbed_element_count} of "
+        f"{ledger.requested_nonzero_element_count} requested-non-zero element(s) "
+        f"({ledger.absorbed_fraction:.1%}) at dtype(s) {list(ledger.residual_dtypes)}{where} -- the "
+        "intervention was a silent no-op at those elements. The exact-delta assertion cannot see "
+        "this: the absorbed magnitude is below the tolerance the dtype forces. Raise alpha (see "
+        "minimum_effective_alpha) or run at float32."
+    )
+
+
 # ---------------------------------------------------------------------------
 # The two ablation mechanisms, and the gap between them.
 # ---------------------------------------------------------------------------
@@ -826,6 +1245,30 @@ def group_activations(sae: Any, resolved: ResolvedGroup, residual: torch.Tensor)
     """`[..., k]` -- this group's feature activations at every position."""
     feats = sae.encode(residual.to(torch.float32))
     return feats.index_select(-1, resolved.feature_indices)
+
+
+def clamp_amplify_delta(sae: Any, resolved: ResolvedGroup, residual: torch.Tensor) -> torch.Tensor:
+    """The clamp dose under SUBTRACT (RULING_13 Q3.6):
+
+        h + sum_f (target_f - a_f(h)) * W_dec[f]
+
+    ONE encode of the CLEAN residual, all k targets applied to a single
+    feature vector, ONE delta. No reconstruction error enters -- the
+    decoder bias and the SAE's error both cancel, exactly as they do in the
+    decode-difference form -- and the delta is an EXACT ZERO wherever every
+    `target_f` already equals `a_f(h)`.
+
+    This is the form the frozen causal grid uses, so a group arm built on
+    it stays commensurable with G-D, and unlike a multiplicative dose it
+    still acts where the group is silent (`a_f(h) == 0` gives the full
+    `target_f * W_dec[f]`), which is what a sufficiency criterion needs."""
+    if resolved.member_count == 0:
+        return torch.zeros_like(residual, dtype=torch.float32)
+    if resolved.clamp_targets is None:
+        raise InvalidGroupSpec("clamp_amplify_delta requires a spec with dose_form='clamp'")
+    acts = group_activations(sae, resolved, residual)  # [..., k]
+    shortfall = (resolved.clamp_targets - acts) * resolved.weights  # [..., k]
+    return shortfall @ resolved.decoder_rows  # [..., d_in]
 
 
 def ablate_subtract_delta(sae: Any, resolved: ResolvedGroup, residual: torch.Tensor) -> torch.Tensor:
@@ -864,6 +1307,87 @@ def reconstruction_error(sae: Any, residual: torch.Tensor) -> torch.Tensor:
     cannot express."""
     x32 = residual.to(torch.float32)
     return x32 - sae.decode(sae.encode(x32)).to(torch.float32)
+
+
+def measure_sae_fidelity_context(
+    sae: Any, residual: torch.Tensor, *, hook_point: str, reference_spec: GroupSpec | None = None
+) -> dict[str, Any]:
+    """The ONCE-PER-CONFIGURATION fidelity statistic (RULING_13 Q3.3/Q3.9).
+
+    Mechanism (a) is not a parallel arm and not a robustness arm. Its
+    difference from (b) is `decode(encode(h)) - h`, independent of the
+    group, of alpha and of the per-feature weights -- A CONSTANT OF THE SAE
+    AT ITS HOOK POINT. Running it per prompt re-measures a constant while
+    carrying an artifact larger than the signal. So it runs once per
+    (model, SAE, hook point) and is reported alongside results, NEVER as
+    evidence about a group.
+
+    Two ratios are returned and they are NOT interchangeable:
+
+    - `signal_to_artifact_ratio_for_mechanism_a` = |recon_err| / |delta_b|,
+      defined only when a `reference_spec` is supplied. Decisive for
+      choosing a mechanism; says nothing about SAE quality in general.
+    - `reconstruction_error_over_residual` = |recon_err| / |h|. THIS is the
+      residual-relative fidelity number, and it is the one that may be
+      described as how much of the stream the SAE fails to express.
+
+    They are reported under separate names precisely because the first gets
+    carried into claims only the second could support."""
+    with torch.no_grad():
+        error = reconstruction_error(sae, residual)
+        error_norm = float(error.norm().item())
+        residual_norm = float(residual.to(torch.float32).norm().item())
+        delta_b_norm = None
+        if reference_spec is not None and reference_spec.member_count:
+            subtract_spec = replace(
+                reference_spec, kind="ablate", ablation_mechanism="subtract", dose_form="additive"
+            )
+            delta_b_norm = float(
+                ablate_subtract_delta(
+                    sae, resolve_group(sae, subtract_spec), residual
+                ).norm().item()
+            )
+    return {
+        "hook_point": hook_point,
+        "measured_once_per": "(model, sae, hook_point)",
+        "reconstruction_error_norm": error_norm,
+        "residual_norm": residual_norm,
+        "reconstruction_error_over_residual": (
+            error_norm / residual_norm if residual_norm > 0 else None
+        ),
+        "reference_group_delta_b_norm": delta_b_norm,
+        "signal_to_artifact_ratio_for_mechanism_a": (
+            error_norm / delta_b_norm if delta_b_norm else None
+        ),
+        "ruled_instrument": RULED_INSTRUMENT_MECHANISM,
+        "prohibited_readings": RECONSTRUCT_OVERREAD_GUARD,
+    }
+
+
+def assert_control_is_admissible(spec: GroupSpec, control: GroupSpec) -> None:
+    """RULING_13 Q3.9: an (a) result read against an UNHOOKED control is
+    REFUSED, not caveated.
+
+    Under (a), alpha=0 and even an empty group leave the residual moved by
+    the whole reconstruction error, so an (a) arm paired with a noop control
+    reports mostly SAE fidelity wearing the label of steering. The required
+    control is the reconstruction-only arm."""
+    if spec.kind == "ablate" and spec.ablation_mechanism == "reconstruct":
+        control_is_reconstruction_only = (
+            control.kind == "ablate"
+            and control.ablation_mechanism == "reconstruct"
+            and control.member_count == 0
+        )
+        if not control_is_reconstruction_only:
+            raise InvalidGroupSpec(
+                "a mechanism-(a) (reconstruct) result may NOT be read against control "
+                f"{control.kind!r}/{control.ablation_mechanism!r} with {control.member_count} "
+                "member(s). Under (a) an empty group already moves the residual by the whole "
+                "reconstruction error, so this pairing would credit SAE fidelity to the group. "
+                "REQUIRED: GroupSpec.reconstruction_control() at the same seed. (RULING_13 rules "
+                "SUBTRACT the instrument; (a) is a once-per-configuration fidelity statistic, see "
+                "measure_sae_fidelity_context.)"
+            )
 
 
 def measure_mechanism_gap(sae: Any, spec: GroupSpec, residual: torch.Tensor) -> dict[str, Any]:
@@ -983,7 +1507,11 @@ def build_group_hook(
     resolved = resolve_group(sae, spec)
     counter = _PositionCounter()
     is_identity = null_configuration_is_exact_identity(spec)
-    amplify_delta32 = resolved.expected_amplify_delta() if spec.kind == "amplify" else None
+    amplify_delta32 = (
+        resolved.expected_amplify_delta()
+        if spec.kind == "amplify" and spec.dose_form == "additive"
+        else None
+    )
 
     def hook_fn(resid: torch.Tensor, hook: Any = None) -> torch.Tensor:
         if resid.ndim != 3:
@@ -1006,7 +1534,13 @@ def build_group_hook(
             mask = _positions_mask(counter, seq_len, batch, prompt_lengths, resid.device)
         counter.value = start + seq_len
 
-        def record(modified: int, delta_norm: float, max_abs: float) -> None:
+        def record(
+            modified: int,
+            delta_norm: float,
+            max_abs: float,
+            absorbed: int = 0,
+            requested_nonzero: int = 0,
+        ) -> None:
             ledger.records.append(
                 FiringRecord(
                     call_index=call_index,
@@ -1020,6 +1554,9 @@ def build_group_hook(
                     delta_norm=delta_norm,
                     residual_norm=float(resid.detach().to(torch.float32).norm().item()),
                     max_abs_delta=max_abs,
+                    absorbed_element_count=absorbed,
+                    requested_nonzero_element_count=requested_nonzero,
+                    residual_dtype=str(resid.dtype),
                 )
             )
 
@@ -1037,7 +1574,9 @@ def build_group_hook(
             return resid
 
         with torch.no_grad():
-            if spec.kind == "amplify":
+            if spec.kind == "amplify" and spec.dose_form == "clamp":
+                delta32 = clamp_amplify_delta(sae, resolved, resid)
+            elif spec.kind == "amplify":
                 delta32 = amplify_delta32.expand(batch, seq_len, resolved.d_in)
             elif spec.ablation_mechanism == "subtract":
                 delta32 = ablate_subtract_delta(sae, resolved, resid)
@@ -1052,18 +1591,34 @@ def build_group_hook(
 
             effective = (result - resid).to(torch.float32)
             modified_slots = int(mask.sum().item()) if mask is not None else batch * seq_len
+            # The requested delta, masked exactly as the realised one was, so
+            # the absorption census counts only elements the intervention was
+            # actually asking to move.
+            requested32 = delta32.expand(batch, seq_len, resolved.d_in)
+            if mask is not None:
+                requested32 = torch.where(
+                    mask.unsqueeze(-1), requested32, torch.zeros((), dtype=requested32.dtype)
+                )
+            absorbed, requested_nonzero = measure_absorption(resid, result, requested32)
             record(
                 modified=modified_slots,
                 delta_norm=float(effective.norm().item()),
                 max_abs=float(effective.abs().max().item()) if effective.numel() else 0.0,
+                absorbed=absorbed,
+                requested_nonzero=requested_nonzero,
             )
 
-            if verify_exact_delta and spec.kind == "amplify":
+            if verify_exact_delta and amplify_delta32 is not None:
                 # Checked at EVERY position, steered and unsteered alike. Under
                 # `generated_only` the expected delta is the requested vector
                 # where the mask is True and EXACTLY ZERO where it is False, so
                 # a hook that leaked into the prefill fails here rather than
                 # being excused as out of scope.
+                #
+                # ADDITIVE ONLY. A clamp delta is `target_f - a_f(h)`, so
+                # recomputing it here would compare the hook against its own
+                # encode -- a tautology. The clamp path is checked in the test
+                # suite against an independent closed form instead.
                 expected = amplify_delta32.expand(batch, seq_len, resolved.d_in)
                 if mask is not None:
                     expected = torch.where(
@@ -1128,25 +1683,223 @@ def attach_group_hook(
     return hooks(fwd_hooks=[(resolved.hook_name, hook_fn)])
 
 
-def attach_group_hook_raw_hf(*_args: object, **_kwargs: object):
-    """NOT IMPLEMENTED, deliberately and loudly.
+# ---------------------------------------------------------------------------
+# The raw-HF path (Qwen3.5-27B).
+#
+# transformer_lens has no Qwen3.5 entry, so one of the two frozen final
+# pairings has no `model.hooks(...)` at all and must be hooked with
+# `register_forward_hook` on the decoder layer module directly.
+#
+# NOTHING BELOW IS INVENTED. The discovery runner already drives this path,
+# and the intervention MUST hook the same tensor at the same point the
+# scorer scored, or a feature index means different things in the two halves
+# and no result is comparable. Reused, imported and never copied:
+#
+#   final_pairing_harness.resolve_qwen_text_decoder  -> hf_model.model
+#   final_pairing_harness.get_qwen_decoder_layer     -> text_decoder.layers[L]
+#   final_pairing_harness.register_qwen_raw_hook     -> the plain-tensor-
+#       validating `register_forward_hook` wrapper, which REFUSES if the
+#       layer returns a tuple instead of the resid-post tensor.
+#
+# VERIFIED ON THE BYTES of final_pairing_concept_discovery.py (read-only,
+# not edited by this lane): all three Qwen scoring sites --
+# `_qwen_max_activation_per_feature`, `encode_texts`, and the Qwen branch of
+# `_pooled_residual_and_feature` -- capture from
+# `backend._qwen_decoder_layer.register_forward_hook(_capture)` reading the
+# module's `output` directly, and `_attached` registers the INTERVENTION on
+# that same `backend._qwen_decoder_layer` via `register_qwen_raw_hook`. Same
+# module object, same tensor. NO DISCREPANCY FOUND.
+# `assert_hooks_the_scored_tensor()` re-checks that identity at runtime
+# rather than leaving it to this comment.
+# ---------------------------------------------------------------------------
 
-    The Qwen3.5-27B final pairing has no transformer_lens entry and runs as
-    a raw `AutoModelForCausalLM` with `register_forward_hook`. That path is
-    real and this module does not implement it. It raises rather than
-    silently falling back to `attach_group_hook`, because a fallback that
-    hooked nothing would be exactly the never-fires failure this module
-    exists to make impossible."""
-    raise NotImplementedError(
-        "the raw-HF (Qwen3.5) group-hook path is not implemented in this module. It needs a "
-        "`register_forward_hook` on the resolved decoder layer plus the same FiringLedger "
-        "contract; it is NOT a rename of attach_group_hook."
+
+def _import_harness() -> Any:
+    """Import `final_pairing_harness` for the three raw-HF resolvers only.
+
+    RAISES if unavailable. Re-deriving `hf_model.model.layers[L]` locally
+    would be a second, independently-maintained opinion about where the
+    residual stream lives -- which is exactly how an intervention ends up
+    hooking a different tensor from the scorer while both look correct."""
+    try:
+        harness = _import_module_from_exact_file(
+            "final_pairing_harness",
+            SCRIPT_DIR.parent / "legacy" / "final_pairing_harness.py",
+            why="re-deriving the decoder-layer path locally would be a second opinion about where "
+            "the residual stream lives, which is how an intervention hooks a different tensor from "
+            "the scorer while both look correct.",
+        )
+    except DeviceGateUnavailable as exc:
+        raise GroupInterventionError(str(exc)) from exc
+    for name in ("resolve_qwen_text_decoder", "get_qwen_decoder_layer", "register_qwen_raw_hook"):
+        if not callable(getattr(harness, name, None)):
+            raise GroupInterventionError(
+                f"final_pairing_harness has no callable {name} -- the raw-HF contract this module "
+                "reuses is not present; refusing to substitute a local reimplementation."
+            )
+    return harness
+
+
+def resolve_raw_hf_decoder_layer(hf_model: Any, *, layer: int) -> Any:
+    """The `nn.Module` whose forward output IS the residual stream the SAE
+    was trained on, resolved exactly as the discovery scorer resolves it.
+
+    `hf_model.model.layers[layer]`, via the harness resolvers, so this
+    returns the SAME OBJECT `Backend._qwen_decoder_layer` holds."""
+    harness = _import_harness()
+    text_decoder = harness.resolve_qwen_text_decoder(hf_model)
+    n_layers = len(text_decoder.layers)
+    if not isinstance(layer, int) or isinstance(layer, bool):
+        raise InvalidGroupSpec(f"layer must be an int; got {layer!r}")
+    if not 0 <= layer < n_layers:
+        raise InvalidGroupSpec(
+            f"layer {layer} is out of range for this model's {n_layers} decoder layers -- refusing "
+            "to hook a layer that does not exist, or to wrap a negative index into one that does."
+        )
+    return harness.get_qwen_decoder_layer(text_decoder, layer)
+
+
+def assert_hooks_the_scored_tensor(decoder_layer: Any, hf_model: Any, *, layer: int) -> dict[str, str]:
+    """RAISE unless the module this intervention will hook is IDENTICAL to
+    the one the discovery scorer hooks for the same layer.
+
+    Object identity (`is`), not name equality. If the intervention attached
+    anywhere else, feature index f would name one direction during scoring
+    and a different one during steering, every gate result would be
+    incomparable with every intervention result, and nothing in either half
+    would look wrong. Returns what it compared so a run can record it."""
+    scorer_module = resolve_raw_hf_decoder_layer(hf_model, layer=layer)
+    if decoder_layer is not scorer_module:
+        raise GroupInterventionError(
+            f"the module this intervention would hook ({type(decoder_layer).__name__} at "
+            f"{id(decoder_layer):#x}) is NOT the module the discovery scorer hooks for layer "
+            f"{layer} ({type(scorer_module).__name__} at {id(scorer_module):#x}) -- a feature index "
+            "would mean a different direction in the two halves. Refusing."
+        )
+    return {
+        "layer": str(layer),
+        "module_type": type(decoder_layer).__name__,
+        "resolver": "final_pairing_harness.resolve_qwen_text_decoder + get_qwen_decoder_layer",
+        "identity": "is-identical-to-scorer-module",
+    }
+
+
+class _RawHfAttach:
+    """Context manager over `register_forward_hook`.
+
+    `torch`'s handle has no `finally` guarantee of its own, so this supplies
+    the one `HookedTransformer.hooks(...)` gives the other path for free --
+    a hook left behind on a decoder layer would silently steer the NEXT
+    arm, including the control."""
+
+    def __init__(self, decoder_layer: Any, hook_fn: Any, harness: Any) -> None:
+        self._decoder_layer = decoder_layer
+        self._hook_fn = hook_fn
+        self._harness = harness
+        self._handle: Any = None
+
+    def __enter__(self) -> _RawHfAttach:
+        self._handle = self._harness.register_qwen_raw_hook(self._decoder_layer, self._hook_fn)
+        return self
+
+    def __exit__(self, *exc: object) -> Literal[False]:
+        if self._handle is not None:
+            self._handle.remove()
+            self._handle = None
+        return False
+
+
+def attach_group_hook_raw_hf(
+    decoder_layer: Any,
+    sae: Any,
+    spec: GroupSpec,
+    *,
+    ledger: FiringLedger,
+    prompt_lengths: int | Sequence[int] | None = None,
+    verify_exact_delta: bool = True,
+    hf_model: Any = None,
+    layer: int | None = None,
+):
+    """Install the group hook on a RAW HF decoder layer for the duration.
+
+    Same contract as `attach_group_hook`: `kind='noop'` registers nothing,
+    every other kind registers exactly one hook and fills `ledger`. The
+    firing ledger, the exact-delta check, the absorption census, the
+    membership refusals and both ablation mechanisms are the SAME code --
+    `build_group_hook` is shared, not duplicated, so the two backends
+    cannot drift apart in what they compute.
+
+    Pass `hf_model` and `layer` to have `assert_hooks_the_scored_tensor()`
+    run first. That is optional only because a caller may already hold the
+    module from `Backend._qwen_decoder_layer`; when both are available the
+    check is cheap and this module runs it."""
+    if spec.kind == "noop":
+        return _NullAttach(None)
+    if hf_model is not None and layer is not None:
+        assert_hooks_the_scored_tensor(decoder_layer, hf_model, layer=layer)
+    if not callable(getattr(decoder_layer, "register_forward_hook", None)):
+        raise GroupInterventionError(
+            f"{type(decoder_layer).__name__} has no register_forward_hook -- this is not an "
+            "nn.Module decoder layer. Resolve it with resolve_raw_hf_decoder_layer() rather than "
+            "passing the whole model."
+        )
+    harness = _import_harness()
+    hook_fn, _resolved = build_group_hook(
+        sae,
+        spec,
+        ledger=ledger,
+        prompt_lengths=prompt_lengths,
+        verify_exact_delta=verify_exact_delta,
     )
+    return _RawHfAttach(decoder_layer, hook_fn, harness)
 
 
 # ---------------------------------------------------------------------------
 # Device gate.
 # ---------------------------------------------------------------------------
+
+
+def _import_module_from_exact_file(module_name: str, expected_file: Path, *, why: str) -> Any:
+    """Import `module_name` and REFUSE unless it came from `expected_file`.
+
+    THIS EXISTS BECAUSE OF A REAL DEFECT THIS MODULE INTRODUCED AND ITS OWN
+    TEST SUITE CAUGHT. `scripts/legacy/final_pairing_concept_discovery.py`
+    is a 23-line compatibility STUB that forwards to the real runner and
+    defines none of its functions. Adding `scripts/legacy` to `sys.path`
+    for the raw-HF resolvers made `import final_pairing_concept_discovery`
+    resolve to that stub, and the device gate vanished -- a helper that is
+    imported, present by name, and empty of the thing it was imported for.
+    Exactly this module's named defect class, reached through `sys.path`
+    instead of through a hook.
+
+    So the file a module was loaded FROM is checked, an already-cached
+    wrong module is evicted rather than accepted, and the search path is
+    ordered so this directory wins. Name equality is not identity."""
+    resolved_expected = expected_file.resolve()
+    cached = sys.modules.get(module_name)
+    if cached is not None:
+        cached_file = getattr(cached, "__file__", None)
+        if cached_file is None or Path(cached_file).resolve() != resolved_expected:
+            del sys.modules[module_name]
+    search_dir = str(resolved_expected.parent)
+    while search_dir in sys.path:
+        sys.path.remove(search_dir)
+    sys.path.insert(0, search_dir)
+    try:
+        module = __import__(module_name)
+    except Exception as exc:
+        raise DeviceGateUnavailable(
+            f"could not import {module_name} from {resolved_expected} ({type(exc).__name__}: "
+            f"{exc}). REFUSING to continue: {why}"
+        ) from exc
+    actual_file = getattr(module, "__file__", None)
+    if actual_file is None or Path(actual_file).resolve() != resolved_expected:
+        raise DeviceGateUnavailable(
+            f"{module_name} resolved to {actual_file} but this module requires "
+            f"{resolved_expected} -- a same-named module on sys.path shadowed it. Refusing to use "
+            f"it: {why}"
+        )
+    return module
 
 
 def _import_discovery_module() -> Any:
@@ -1155,18 +1908,14 @@ def _import_discovery_module() -> Any:
     That file belongs to another lane and is never edited from here. No git
     call is involved -- this is an ordinary file import -- so the cluster's
     tarball-extract-with-no-.git shape (where `git show` exits 128) does not
-    reach this path."""
-    if str(SCRIPT_DIR) not in sys.path:
-        sys.path.insert(0, str(SCRIPT_DIR))
-    try:
-        import final_pairing_concept_discovery as discovery
-    except Exception as exc:
-        raise DeviceGateUnavailable(
-            "could not import final_pairing_concept_discovery to run the shared device gate "
-            f"({type(exc).__name__}: {exc}). REFUSING to continue: skipping the gate is how job "
-            "415590 forwarded a CPU model against cuda:0 inputs."
-        ) from exc
-    return discovery
+    reach this path. Loaded through the file-identity check above, because
+    a same-named compatibility stub really does exist in `scripts/legacy`."""
+    return _import_module_from_exact_file(
+        "final_pairing_concept_discovery",
+        SCRIPT_DIR / "final_pairing_concept_discovery.py",
+        why="skipping the shared device gate is how job 415590 forwarded a CPU model against "
+        "cuda:0 input_ids one minute into a six-hour allocation.",
+    )
 
 
 def assert_devices_before_forward(*, device: str, **objects: Any) -> dict[str, str]:
@@ -1206,7 +1955,18 @@ class PromptResult:
     sum_logprob: float | None
     firing: dict[str, Any]
     firing_expectation: dict[str, Any]
+    intervention_state: InterventionState = "APPLIED"
     exact_identity_to_control: bool | None = None
+
+    @property
+    def outcome_is_readable_as_a_result(self) -> bool:
+        """False for CONTROL, NOT_EXERCISED and FIRED_BUT_INERT.
+
+        VOID IS NOT A NULL. An unchanged continuation from an arm where no
+        perturbation reached the model says nothing about the group, and a
+        reader who cannot tell the two apart will read it as evidence of
+        absence."""
+        return self.intervention_state == "APPLIED"
 
     def to_dict(self) -> dict[str, Any]:
         data = {
@@ -1220,6 +1980,9 @@ class PromptResult:
             "sum_logprob": self.sum_logprob,
             "firing": self.firing,
             "firing_expectation": self.firing_expectation,
+            "intervention_state": self.intervention_state,
+            "intervention_state_meaning": INTERVENTION_STATE_MEANINGS[self.intervention_state],
+            "outcome_is_readable_as_a_result": self.outcome_is_readable_as_a_result,
         }
         if self.exact_identity_to_control is not None:
             data["exact_identity_to_control"] = self.exact_identity_to_control
@@ -1235,17 +1998,32 @@ class ArmResult:
     device_placement: dict[str, str]
     null_configuration_is_exact_identity: bool
 
+    @property
+    def intervention_states(self) -> tuple[InterventionState, ...]:
+        return tuple(r.intervention_state for r in self.results)
+
+    @property
+    def void_prompt_count(self) -> int:
+        """Prompts where NO perturbation reached the model. Surfaced at the
+        arm level so it cannot be missed by a reader who only reads
+        summaries."""
+        return sum(
+            1 for r in self.results if r.intervention_state in ("NOT_EXERCISED", "FIRED_BUT_INERT")
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "spec": self.spec,
             "results": [r.to_dict() for r in self.results],
             "device_placement": self.device_placement,
             "null_configuration_is_exact_identity": self.null_configuration_is_exact_identity,
+            "intervention_states": list(self.intervention_states),
+            "void_prompt_count": self.void_prompt_count,
         }
 
 
 def _generated_token_logprobs(
-    model: Any,
+    backend: Any,
     sae: Any,
     spec: GroupSpec,
     tokens: torch.Tensor,
@@ -1261,15 +2039,14 @@ def _generated_token_logprobs(
     two counts would make both unassertable."""
     ledger = FiringLedger()
     prompt_lengths = prompt_token_count if spec.positions == "generated_only" else None
-    with torch.no_grad(), attach_group_hook(
-        model,
+    with torch.no_grad(), backend.attach(
         sae,
         spec,
         ledger=ledger,
         prompt_lengths=prompt_lengths,
         verify_exact_delta=verify_exact_delta,
     ):
-        logits = model(tokens)
+        logits = backend.forward_logits(tokens)
     logprobs = torch.log_softmax(logits.to(torch.float32), dim=-1)
     values: list[float] = []
     for position in range(prompt_token_count, int(tokens.shape[1])):
@@ -1286,6 +2063,164 @@ def _generated_token_logprobs(
             context="teacher-forced scoring pass",
         )
     return tuple(values), ledger.summary()
+
+
+def resolve_backend(model: Any, **kwargs: Any) -> Any:
+    """Accept either backend and return the adapter for it.
+
+    A `Backend` instance passes through. Anything with `.hooks(...)` is a
+    `HookedTransformer`. Anything else RAISES rather than being guessed at:
+    a raw HF model needs a tokenizer and a layer index that cannot be
+    inferred, and silently guessing one would hook the wrong tensor."""
+    if isinstance(model, (HookedTransformerBackend, RawHfBackend)):
+        return model
+    if callable(getattr(model, "hooks", None)):
+        return HookedTransformerBackend(model, **kwargs)
+    raise GroupInterventionError(
+        f"{type(model).__name__} has no `.hooks(fwd_hooks=...)` and is not a resolved backend. For "
+        "the raw-HF (Qwen3.5) pairing build a RawHfBackend explicitly -- it needs the tokenizer and "
+        "the layer index, neither of which can be inferred from the model alone, and guessing "
+        "either would hook a tensor the scorer never scored."
+    )
+
+
+class HookedTransformerBackend:
+    """Adapter over `transformer_lens.HookedTransformer` (the Gemma pairing)."""
+
+    kind = "hooked_transformer"
+
+    def __init__(self, model: Any) -> None:
+        self.model = model
+
+    @property
+    def device(self) -> str:
+        return str(next((p.device for p in self.model.parameters()), torch.device("cpu")))
+
+    def device_objects(self) -> dict[str, Any]:
+        return {"model": self.model}
+
+    def describe(self) -> dict[str, str]:
+        return {"backend": self.kind, "model_type": type(self.model).__name__}
+
+    def to_tokens(self, prompt: str) -> torch.Tensor:
+        return self.model.to_tokens([prompt])
+
+    def to_string(self, ids: torch.Tensor) -> str:
+        return self.model.to_string(ids)
+
+    def generate(
+        self, tokens: torch.Tensor, *, max_new_tokens: int, do_sample: bool,
+        temperature: float, stop_at_eos: bool,
+    ) -> torch.Tensor:
+        return self.model.generate(
+            tokens, max_new_tokens=max_new_tokens, do_sample=do_sample,
+            temperature=temperature, stop_at_eos=stop_at_eos, verbose=False,
+        )
+
+    def forward_logits(self, tokens: torch.Tensor) -> torch.Tensor:
+        return self.model(tokens)
+
+    def attach(self, sae, spec, *, ledger, prompt_lengths, verify_exact_delta):
+        return attach_group_hook(
+            self.model, sae, spec, ledger=ledger, prompt_lengths=prompt_lengths,
+            verify_exact_delta=verify_exact_delta,
+        )
+
+
+class RawHfBackend:
+    """Adapter over a raw `AutoModelForCausalLM` hooked with
+    `register_forward_hook` (the Qwen3.5-27B pairing, which transformer_lens
+    cannot load).
+
+    THE INPUT DEVICE IS DERIVED FROM THE MODEL, never passed in. Job 415590
+    died because a preflight forwarded a CPU model against `cuda:0`
+    input_ids; `HookedTransformer.from_pretrained(hf_model=..., device=...)`
+    moves only the HookedTransformer and leaves the raw `AutoModel` where it
+    was. Reading the device off the module removes the second opinion that
+    caused it."""
+
+    kind = "raw_hf"
+
+    def __init__(self, hf_model: Any, tokenizer: Any, *, layer: int) -> None:
+        self.model = hf_model
+        self.tokenizer = tokenizer
+        self.layer = int(layer)
+        self.decoder_layer = resolve_raw_hf_decoder_layer(hf_model, layer=self.layer)
+        # Runtime proof, not a comment, that this is the scorer's own module.
+        self.hook_identity = assert_hooks_the_scored_tensor(
+            self.decoder_layer, hf_model, layer=self.layer
+        )
+
+    @property
+    def device(self) -> str:
+        discovery = _import_discovery_module()
+        resolved = discovery.resolve_module_device(self.model)
+        return str(resolved if resolved is not None else torch.device("cpu"))
+
+    def device_objects(self) -> dict[str, Any]:
+        # The decoder layer is asserted SEPARATELY from the model: under a
+        # device_map shard they can differ, and the layer is the one the hook
+        # actually runs on.
+        return {"model": self.model, "decoder_layer": self.decoder_layer}
+
+    def describe(self) -> dict[str, str]:
+        return {
+            "backend": self.kind,
+            "model_type": type(self.model).__name__,
+            **self.hook_identity,
+        }
+
+    def to_tokens(self, prompt: str) -> torch.Tensor:
+        encoded = self.tokenizer(prompt, return_tensors="pt")
+        return encoded["input_ids"].to(self.device)
+
+    def to_string(self, ids: torch.Tensor) -> str:
+        return self.tokenizer.decode(ids, skip_special_tokens=False)
+
+    def generate(
+        self, tokens: torch.Tensor, *, max_new_tokens: int, do_sample: bool,
+        temperature: float, stop_at_eos: bool,
+    ) -> torch.Tensor:
+        kwargs: dict[str, Any] = {
+            "max_new_tokens": max_new_tokens,
+            "do_sample": do_sample,
+            "attention_mask": torch.ones_like(tokens),
+        }
+        if do_sample:
+            kwargs["temperature"] = temperature
+        if not stop_at_eos:
+            # `min_new_tokens` is HF's own supported way to say "do not stop
+            # early", which is what transformer_lens's stop_at_eos=False
+            # means. The firing expectation is still derived from the
+            # RETURNED tensor either way, so an early stop stays exact.
+            kwargs["min_new_tokens"] = max_new_tokens
+        if getattr(self.tokenizer, "pad_token_id", None) is not None:
+            kwargs["pad_token_id"] = self.tokenizer.pad_token_id
+        with torch.no_grad():
+            return self.model.generate(tokens, **kwargs)
+
+    def forward_logits(self, tokens: torch.Tensor) -> torch.Tensor:
+        return self.model(input_ids=tokens).logits
+
+    @property
+    def hook_label(self) -> str:
+        """What the ledger should call this hook point.
+
+        NOT the SAE's own `cfg.metadata.hook_name`: that is a
+        TransformerLens-style string (`blocks.N.hook_resid_post`) naming a
+        hook point this backend does not have. Recording it here would put a
+        hook name in the provenance that never existed in the process, which
+        is a small lie of exactly the kind that makes a later audit
+        impossible. The caller's own `spec.hook_name` still wins if set."""
+        return f"raw_hf.model.layers.{self.layer}"
+
+    def attach(self, sae, spec, *, ledger, prompt_lengths, verify_exact_delta):
+        if spec.hook_name is None and spec.kind != "noop":
+            spec = replace(spec, hook_name=self.hook_label)
+        return attach_group_hook_raw_hf(
+            self.decoder_layer, sae, spec, ledger=ledger, prompt_lengths=prompt_lengths,
+            verify_exact_delta=verify_exact_delta,
+        )
 
 
 def run_arm(
@@ -1323,38 +2258,37 @@ def run_arm(
     if max_new_tokens < 1:
         raise ValueError(f"max_new_tokens must be >= 1; got {max_new_tokens}")
 
+    backend = resolve_backend(model)
     is_identity = null_configuration_is_exact_identity(spec)
     if require_nonzero_delta is None:
         require_nonzero_delta = not is_identity
 
-    resolved_device = device or str(
-        next((p.device for p in model.parameters()), torch.device("cpu"))
+    resolved_device = device or backend.device
+    placement = assert_devices_before_forward(
+        device=resolved_device, sae=sae, **backend.device_objects()
     )
-    placement = assert_devices_before_forward(device=resolved_device, model=model, sae=sae)
 
     results: list[PromptResult] = []
     for prompt in prompts:
-        tokens = model.to_tokens([prompt])
+        tokens = backend.to_tokens(prompt)
         prompt_token_count = int(tokens.shape[1])
         ledger = FiringLedger()
         prompt_lengths = prompt_token_count if spec.positions == "generated_only" else None
 
         torch.manual_seed(seed)
-        with attach_group_hook(
-            model,
+        with backend.attach(
             sae,
             spec,
             ledger=ledger,
             prompt_lengths=prompt_lengths,
             verify_exact_delta=verify_exact_delta,
         ):
-            output = model.generate(
+            output = backend.generate(
                 tokens,
                 max_new_tokens=max_new_tokens,
                 do_sample=do_sample,
                 temperature=temperature,
                 stop_at_eos=stop_at_eos,
-                verbose=False,
             )
 
         generated_token_count = int(output.shape[1]) - prompt_token_count
@@ -1393,7 +2327,7 @@ def run_arm(
         logprobs: tuple[float, ...] | None = None
         if want_logprobs:
             logprobs, _ = _generated_token_logprobs(
-                model,
+                backend,
                 sae,
                 spec,
                 output,
@@ -1401,8 +2335,8 @@ def run_arm(
                 verify_exact_delta=verify_exact_delta,
             )
 
-        full_text = model.to_string(output[0])
-        prompt_text = model.to_string(output[0, :prompt_token_count])
+        full_text = backend.to_string(output[0])
+        prompt_text = backend.to_string(output[0, :prompt_token_count])
         results.append(
             PromptResult(
                 prompt=prompt,
@@ -1415,6 +2349,7 @@ def run_arm(
                 sum_logprob=float(sum(logprobs)) if logprobs else None,
                 firing=firing,
                 firing_expectation=expectation.to_dict(),
+                intervention_state=classify_intervention_state(spec, ledger),
             )
         )
 
@@ -1471,11 +2406,20 @@ def measure_group_effect(
     continuation into a statement about necessity -- see
     `NULL_ABLATION_FROZEN_PHRASING`."""
     control = control_spec if control_spec is not None else GroupSpec.noop(hook_name=spec.hook_name)
+    # RULING_13 Q3.9: an (a) result against an unhooked control is REFUSED,
+    # not caveated. Checked BEFORE any generation, so the refusal costs
+    # nothing and cannot arrive after a result exists to be attached to.
+    assert_control_is_admissible(spec, control)
+    # Resolved ONCE and shared by both arms: a backend rebuilt per arm could
+    # resolve a different decoder layer for the control than for the
+    # treatment, which is the one way a paired comparison can be unpaired
+    # without either arm looking wrong.
+    backend = resolve_backend(model)
     control_arm = run_arm(
-        model, sae, control, prompts, max_new_tokens=max_new_tokens, seed=seed, **arm_kwargs
+        backend, sae, control, prompts, max_new_tokens=max_new_tokens, seed=seed, **arm_kwargs
     )
     treatment_arm = run_arm(
-        model, sae, spec, prompts, max_new_tokens=max_new_tokens, seed=seed, **arm_kwargs
+        backend, sae, spec, prompts, max_new_tokens=max_new_tokens, seed=seed, **arm_kwargs
     )
 
     rows: list[dict[str, Any]] = []
@@ -1508,6 +2452,17 @@ def measure_group_effect(
                 "treatment_total_delta_norm": treatment_row.firing["total_delta_norm"],
                 "treatment_hook_call_count": treatment_row.firing["call_count"],
                 "treatment_positions_modified": treatment_row.firing["positions_modified"],
+                # Carried up to the top level on purpose: a bfloat16 steering
+                # result whose absorbed fraction is not reported has not been
+                # checked, and a reader should not have to dig for it.
+                "treatment_absorbed_fraction": treatment_row.firing["absorbed_fraction"],
+                "treatment_residual_dtypes": treatment_row.firing["residual_dtypes"],
+                # VOID IS NOT A NULL. `token_ids_identical` above is exactly
+                # the field a reader would turn into "the concept was not
+                # steerable", so the state that makes it meaningless travels
+                # in the same row rather than in a summary elsewhere.
+                "treatment_intervention_state": treatment_row.intervention_state,
+                "outcome_is_readable_as_a_result": treatment_row.outcome_is_readable_as_a_result,
             }
         )
 
@@ -1733,6 +2688,207 @@ def _selfcheck() -> int:
             "  stream by the full reconstruction error while touching no live feature."
         )
 
+    _print("CONTROL 6 -- the raw-HF path must REFUSE the ways the TL path does")
+    must_raise(
+        "hooking a layer index the model does not have",
+        lambda: resolve_raw_hf_decoder_layer(_FakeHfModel(n_layers=4), layer=99),
+        InvalidGroupSpec,
+    )
+    must_raise(
+        "a negative layer index silently wrapping to a real layer",
+        lambda: resolve_raw_hf_decoder_layer(_FakeHfModel(n_layers=4), layer=-1),
+        InvalidGroupSpec,
+    )
+    must_raise(
+        "passing the whole model where a decoder layer module is required",
+        lambda: attach_group_hook_raw_hf(
+            object(), sae, GroupSpec(kind="amplify", members=group), ledger=FiringLedger()
+        ),
+        GroupInterventionError,
+    )
+    fake_model = _FakeHfModel(n_layers=4)
+    other_model = _FakeHfModel(n_layers=4)
+    must_raise(
+        "hooking a module that is NOT the one the discovery scorer hooks",
+        lambda: assert_hooks_the_scored_tensor(
+            other_model.model.layers[1], fake_model, layer=1
+        ),
+        GroupInterventionError,
+    )
+    identity = assert_hooks_the_scored_tensor(fake_model.model.layers[1], fake_model, layer=1)
+    print(f"  ACCEPTED as required: same-module identity check -> {identity['identity']}")
+
+    _print("CONTROL 7 -- at bfloat16 a PASSING exact-delta assertion proves nothing")
+    print(f"  {'dtype':>9} {'alpha':>7} {'worst':>11} {'tolerance':>11} {'passes':>7} {'absorbed':>12}")
+    absorption_seen = False
+    for dtype in (torch.float32, torch.bfloat16, torch.float16):
+        for alpha in (10.0, 0.1, 0.001):
+            x = residual.to(dtype)
+            spec = GroupSpec(kind="amplify", members=group, alpha=alpha)
+            ledger = FiringLedger()
+            hook_fn, resolved = build_group_hook(sae, spec, ledger=ledger)
+            out = hook_fn(x)
+            expected = resolved.expected_amplify_delta()
+            tol = delta_tolerance(x, expected)
+            worst = float(
+                ((out - x).to(torch.float32) - expected.expand_as(out)).abs().max().item()
+            )
+            record = ledger.records[0]
+            if dtype is not torch.float32 and record.absorbed_element_count:
+                absorption_seen = True
+            if dtype is torch.float32 and record.absorbed_element_count:
+                failures.append(f"float32 absorbed {record.absorbed_element_count} element(s)")
+            print(
+                f"  {str(dtype).replace('torch.',''):>9} {alpha:7} {worst:11.3e} {tol:11.3e} "
+                f"{worst <= tol!s:>7} "
+                f"{record.absorbed_element_count:5d}/{record.requested_nonzero_element_count:<6d}"
+            )
+    if not absorption_seen:
+        failures.append("no absorption observed at bfloat16/float16; the census cannot be trusted")
+    print(
+        "  READ: every row PASSES the exact-delta assertion, including rows where the residual\n"
+        "  stream swallowed most of the requested delta whole. The tolerance the dtype forces is\n"
+        "  larger than the thing that went missing. assert_no_absorption() is the check that sees\n"
+        "  it; the exact-delta assertion structurally cannot."
+    )
+    bf16_alpha = minimum_effective_alpha(
+        residual.to(torch.bfloat16), _direction(sae, group), dtype=torch.bfloat16
+    )
+    fp32_alpha = minimum_effective_alpha(
+        residual, _direction(sae, group), dtype=torch.float32
+    )
+    print(
+        f"  minimum_effective_alpha: bfloat16 {bf16_alpha:.4g}, float32 {fp32_alpha:.4g} "
+        f"({bf16_alpha / fp32_alpha:.0f}x more dose needed to survive bfloat16 at all)"
+    )
+    bf_ledger = FiringLedger()
+    bf_hook, _ = build_group_hook(
+        sae, GroupSpec(kind="amplify", members=group, alpha=0.001), ledger=bf_ledger
+    )
+    bf_hook(residual.to(torch.bfloat16))
+    must_raise(
+        "assert_no_absorption on a bfloat16 run that mostly did nothing",
+        lambda: assert_no_absorption(bf_ledger, context="bf16 alpha=0.001"),
+        ExactDeltaMismatch,
+    )
+
+    _print("CONTROL 8 -- RULING_13's three defects, checked against THIS module")
+    import itertools
+
+    orders = list(itertools.permutations(group))
+    outs = []
+    for order in orders:
+        spec = GroupSpec(kind="ablate", members=order, alpha=1.0, ablation_mechanism="subtract")
+        ledger = FiringLedger()
+        hook_fn, _ = build_group_hook(sae, spec, ledger=ledger)
+        outs.append(hook_fn(residual))
+    spread = max(float((out - outs[0]).abs().max()) for out in outs)
+    scale = float((outs[0] - residual).abs().max())
+    print(
+        f"  D2 order-invariance: {len(orders)} member orders, max pairwise difference = "
+        f"{spread:.3e} against an intervention magnitude of {scale:.3e} "
+        f"(a GROUP IS A SET; this composes simultaneously)"
+    )
+    if spread > 1e-3 * scale:
+        failures.append("group composition is order-dependent")
+
+    for size in (1, 2, 3):
+        spec = GroupSpec(
+            kind="ablate", members=group[:size], alpha=1.0, ablation_mechanism="subtract"
+        )
+        ledger = FiringLedger()
+        hook_fn, _ = build_group_hook(sae, spec, ledger=ledger)
+        hook_fn(residual)
+        state = classify_intervention_state(spec, ledger)
+        print(
+            f"  D1 firing evidence at k={size}: calls={ledger.call_count} "
+            f"delta_norm={ledger.total_delta_norm:.4f} state={state}"
+        )
+        if ledger.call_count != 1 or ledger.total_delta_norm <= 0.0:
+            failures.append(f"firing evidence missing at k={size}")
+
+    must_raise(
+        "D3: a clamp dose with no per-member corpus_max",
+        lambda: GroupSpec(
+            kind="amplify",
+            members=(GroupMember(3, corpus_max=2.0), GroupMember(7)),
+            dose_form="clamp",
+        ),
+        InvalidGroupSpec,
+    )
+    must_raise(
+        "an (a) result paired with an unhooked control",
+        lambda: assert_control_is_admissible(
+            GroupSpec(
+                kind="ablate", members=group, alpha=1.0, ablation_mechanism="reconstruct"
+            ),
+            GroupSpec.noop(),
+        ),
+        InvalidGroupSpec,
+    )
+    must_raise(
+        "ablating generated_only without stating the prompt-positions choice",
+        lambda: GroupSpec(
+            kind="ablate",
+            members=group,
+            ablation_mechanism="subtract",
+            positions="generated_only",
+        ),
+        InvalidGroupSpec,
+    )
+
+    _print("CONTROL 9 -- VOID and NOT-EXERCISED are distinct states, never nulls")
+    never = FiringLedger()
+    amplify_spec = GroupSpec(kind="amplify", members=group, alpha=1.0)
+    print(f"  hook never registered           -> {classify_intervention_state(amplify_spec, never)}")
+    if dead:
+        inert_spec = GroupSpec(
+            kind="ablate",
+            members=tuple(GroupMember(i) for i in dead[:2]),
+            alpha=1.0,
+            ablation_mechanism="subtract",
+        )
+        inert_ledger = FiringLedger()
+        build_group_hook(sae, inert_spec, ledger=inert_ledger)[0](residual)
+        print(
+            f"  fired, group already silent     -> "
+            f"{classify_intervention_state(inert_spec, inert_ledger)}"
+        )
+    applied_ledger = FiringLedger()
+    build_group_hook(sae, amplify_spec, ledger=applied_ledger)[0](residual)
+    print(
+        f"  fired and moved the stream      -> "
+        f"{classify_intervention_state(amplify_spec, applied_ledger)}"
+    )
+    print(f"  the control arm                 -> {classify_intervention_state(GroupSpec.noop(), never)}")
+    print(
+        "  READ: an unchanged continuation from either VOID state says NOTHING about the group.\n"
+        "  Collapsing them into a null would manufacture 'the concept was not steerable' out of an\n"
+        "  intervention that never happened."
+    )
+
+    _print("CONTROL 10 -- the clamp dose acts where the group is SILENT")
+    if dead:
+        silent = GroupMember(dead[0], corpus_max=4.0)
+        clamp_spec = GroupSpec(
+            kind="amplify", members=(silent,), alpha=1.0, dose_form="clamp"
+        )
+        ledger = FiringLedger()
+        out = build_group_hook(sae, clamp_spec, ledger=ledger)[0](residual)
+        realised = float((out - residual).abs().max())
+        wanted = float((4.0 * resolve_decoder_matrix(sae)[dead[0]]).abs().max())
+        print(
+            f"  feature {dead[0]} activation 0, clamp target 4.0: realised max|delta| = "
+            f"{realised:.4f} against the requested {wanted:.4f}"
+        )
+        print(
+            "  A MULTIPLICATIVE dose would be identically zero here -- an amplifier that cannot\n"
+            "  amplify on exactly the prompts a sufficiency criterion needs. This module has no\n"
+            "  multiplicative form."
+        )
+        if abs(realised - wanted) > 1e-4:
+            failures.append("clamp dose did not deliver its target on a silent feature")
+
     _print("SUCCESS 1 -- the amplify delta is EXACTLY alpha * sum_f w_f * decoder[f]")
     for alpha in (0.5, 1.0, 4.0, -2.0):
         spec = GroupSpec(kind="amplify", members=group, alpha=alpha)
@@ -1811,6 +2967,21 @@ def _selfcheck() -> int:
     for item in UNEXERCISED_WITHOUT_GPU:
         print(f"    - {item}")
     return 0
+
+
+class _FakeHfModel:
+    """The minimum shape `resolve_qwen_text_decoder` accepts -- an object
+    with `.model.layers` -- so the raw-HF REFUSALS are provable without any
+    model weights. It proves the resolvers' guard rails, not a forward
+    pass; the forward pass is proven on the real fixture model in the test
+    suite."""
+
+    class _Decoder:
+        def __init__(self, n_layers: int) -> None:
+            self.layers = [torch.nn.Identity() for _ in range(n_layers)]
+
+    def __init__(self, n_layers: int = 4) -> None:
+        self.model = _FakeHfModel._Decoder(n_layers)
 
 
 def _direction(sae: Any, members: tuple[GroupMember, ...]) -> torch.Tensor:
