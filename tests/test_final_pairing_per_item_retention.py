@@ -26,6 +26,7 @@ NO GPU, NO MODEL WEIGHTS, NO GENERATION.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import sys
 from pathlib import Path
@@ -456,3 +457,423 @@ def test_the_retained_size_is_measured_and_small():
         for v in splits.values()
     )
     assert scalars == 6 * block["features_retained"] * 40
+
+
+# ---------------------------------------------------------------------------
+# THE SERIALIZED ARTIFACT -- THE ASSERTION WHOSE ABSENCE LET THE RETENTION BE
+# COMPUTED, VALIDATED AND THEN DISCARDED
+#
+# Job 418185 ran with the retention implemented and `per_item_scores_by_feature`
+# occurs ZERO times at byte level in all four grids. Every test in this file
+# passed, because they exercised `per_item_retention_for_cell`,
+# `build_per_item_retention_record` and `verify_per_item_retention` DIRECTLY.
+# Nothing asserted that the object actually written to disk carried the record.
+# That is a check that passes while unable to exercise what it claims to cover
+# -- the defect class this sprint is about -- and it survived a review in which
+# the retention was discussed at length.
+#
+# So these tests assert on the WRITTEN JSON BYTES, through the real write path,
+# and never on a builder's return value.
+# ---------------------------------------------------------------------------
+
+
+def test_the_written_grid_json_carries_the_per_item_retention(tmp_path):
+    """THE ASSERTION THAT WOULD HAVE CAUGHT IT. Serialize a verdict through
+    `write_grid_result` -- the real path that produced job 418185's four grids
+    -- and assert on the resulting bytes.
+
+    Byte-level first, deliberately: the coordinator found the defect by raw
+    grep rather than by a structural walk, and a structural walk over a dict
+    that has already been re-parsed can be satisfied by an object that was
+    never written. The byte assertion cannot."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    verdict = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+    path = d.write_grid_result(tmp_path, "gemma-3-12b-it", [verdict])
+    raw = Path(path).read_bytes()
+
+    # 1. BYTE LEVEL, exactly as the defect was found.
+    assert b"per_item_scores_by_feature" in raw
+    assert b"THIS_IS_A_TRUNCATION_AND_NOT_THE_SPACE" in raw
+    assert b"per_item_positive_scores" in raw
+    assert b"pooled_negative_order_for_separation_auroc" in raw
+
+    # 2. AND POPULATED, because a present-but-empty field is the same failure
+    #    wearing a key. `features_NOT_retained` is what makes the truncation's
+    #    own size visible, so it has to survive too.
+    written = json.loads(raw.decode("utf-8"))
+    record = written["verdicts"][0]["per_item_positive_scores"]
+    assert record is not None
+    assert record["cells"], "the retention reached the file with no cells in it"
+    for cell, block in record["cells"].items():
+        assert block["per_item_scores_by_feature"], f"cell {cell} carries no per-item scores"
+        assert block["features_retained"] > 0
+        assert "features_NOT_retained" in block
+        assert all(block["argmax_retained_by_limb"].values())
+        for splits in block["per_item_scores_by_feature"].values():
+            assert set(splits) == {"positives", "near_miss", "unrelated"}
+            assert len(splits["positives"]) == 10
+            assert len(splits["near_miss"]) == 15
+            assert len(splits["unrelated"]) == 15
+
+    # 3. The scope block survives serialization intact -- it is the part a
+    #    future reader needs in order not to mistake this for the space.
+    scope = record["scope"]
+    assert scope["top_k"] == d.PER_CELL_FULL_SPACE_TOP_K
+    assert scope["selection"] == "TOP_K_PER_CELL_UNION_OVER_THE_THREE_LIMBS"
+    assert scope["splits_retained"] == ["positives", "near_miss", "unrelated"]
+
+    # 4. And the WRITTEN record still passes its own verifier, so the bytes on
+    #    disk are self-consistent rather than merely present.
+    d.verify_per_item_retention(record)
+
+
+def test_the_written_retention_survives_the_read_path_too(tmp_path):
+    """A record that serializes and cannot be read back is not retained. The
+    group lane reads `grid.json` through `read_grid_result`, so the round trip
+    is the property that matters, not the write alone."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    verdict = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+    path = d.write_grid_result(tmp_path, "gemma-3-12b-it", [verdict])
+    restored = d.read_grid_result(path)
+    verdicts = restored["verdicts"] if isinstance(restored, dict) else restored
+    first = verdicts[0]
+    record = first["per_item_positive_scores"] if isinstance(first, dict) else (
+        first.per_item_positive_scores
+    )
+    assert record is not None
+    d.verify_per_item_retention(record)
+    # The values are numbers after a round trip, not strings.
+    block = next(iter(record["cells"].values()))
+    splits = next(iter(block["per_item_scores_by_feature"].values()))
+    assert all(isinstance(v, float) for v in splits["positives"])
+
+
+def test_deleting_the_copy_line_makes_the_end_to_end_assertion_fail(tmp_path):
+    """MADE TO FAIL, per RULING_15's general clause: a check that cannot fail
+    and a check that cannot fire are the same defect wearing different clothes.
+
+    This reproduces the exact defect -- a scan that computed and validated the
+    retention, and a verdict that did not copy it -- by building the verdict
+    with the field left at its default, and shows the byte-level assertion
+    catching it. The `None` default is what let this pass silently, so the
+    reproduction uses that default rather than a tampered value."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    verdict = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+    # The producer DID compute it and it DID validate -- that was never the bug.
+    assert verdict.per_item_positive_scores is not None
+    d.verify_per_item_retention(verdict.per_item_positive_scores)
+
+    # Now the recorder as it stood at 5b1da92: every other field copied, this
+    # one left at its default.
+    unrecorded = dataclasses.replace(verdict, per_item_positive_scores=None)
+    path = d.write_grid_result(tmp_path / "unrecorded", "gemma-3-12b-it", [unrecorded])
+    raw = Path(path).read_bytes()
+
+    # THE ASSERTION FIRES. This is the line whose absence cost a scan.
+    assert b"per_item_scores_by_feature" not in raw
+    assert b"THIS_IS_A_TRUNCATION_AND_NOT_THE_SPACE" not in raw
+    with pytest.raises(AssertionError):
+        assert b"per_item_scores_by_feature" in raw, "the end-to-end assertion fires as designed"
+
+    # And a `None` retention is DISTINGUISHABLE from a retention with no
+    # cells, which is why the field defaults to None rather than to {}.
+    written = json.loads(raw.decode("utf-8"))
+    assert written["verdicts"][0]["per_item_positive_scores"] is None
+    with pytest.raises(d.PerItemRetentionScopeMismatch):
+        d.verify_per_item_retention({"scope": {"top_k": 25,
+                                               "splits_retained": ["positives", "near_miss",
+                                                                   "unrelated"]},
+                                     "cells": {}})
+
+
+# ---------------------------------------------------------------------------
+# THE SIBLING SWEEP -- ASSUME THERE IS A THIRD
+#
+# `ConceptPairingVerdict` copies five of `FullSpaceScan`'s sixteen fields. This
+# is the SECOND retention to land in the producer and not the recorder
+# (`surviving_feature_indices` was the first, for a scalar that dropped a
+# survivor). So rather than eyeball it once, every scan field gets a RECORDED
+# DECISION here, and the test fails the moment a new scan field appears without
+# one. A future field cannot be forgotten in silence; it can only be forgotten
+# loudly.
+# ---------------------------------------------------------------------------
+
+#: Every `FullSpaceScan` field -> where it lands on the serialized verdict, or
+#: `None` plus the reason it deliberately does not. Exhaustiveness is asserted
+#: against the dataclass, so this cannot drift out of date quietly.
+SCAN_FIELD_DISPOSITION: dict[str, tuple[str | None, str]] = {
+    "concept_id": (
+        "concept_id",
+        "SERIALIZED. Set from the same argument rather than copied off the scan.",
+    ),
+    "locales": (
+        None,
+        "NOT SERIALIZED, RECOVERABLE. admissibility_matrix['cell_order'] carries every "
+        "locale/family cell key, so the locale set is derivable from the written record with no "
+        "loss. Nothing downstream reads it off the verdict.",
+    ),
+    "families_by_locale": (
+        None,
+        "NOT SERIALIZED, RECOVERABLE. Same ground as `locales`: cell_order is 'locale/family' per "
+        "cell, so the mapping is reconstructable exactly.",
+    ),
+    "min_separation_auroc": (
+        None,
+        "NOT SERIALIZED, DELIBERATE AND SUPERSEDED. A [d_sae] float array whose per-cell detail is "
+        "the thing RULING_8 found collapsed; the per-cell summaries and the admissibility record "
+        "supersede it, and RULING_13 clause 4/5 make min a QUALIFIER that may not be consumed as a "
+        "ranked pool. Serializing it would re-offer the prohibited object.",
+    ),
+    "min_fire_rate": (None, "NOT SERIALIZED. Same ground as min_separation_auroc."),
+    "min_near_miss_auroc": (None, "NOT SERIALIZED. Same ground as min_separation_auroc."),
+    "cells_scored": (
+        None,
+        "NOT SERIALIZED, RECOVERABLE. Equals len(admissibility_matrix['cell_order']), asserted "
+        "below so the recoverability is measured rather than claimed.",
+    ),
+    "admissibility_matrix": (
+        None,
+        "NOT SERIALIZED AS AN ARRAY, BY DESIGN AND DOCUMENTED. The in-memory boolean [d_sae, "
+        "n_cells] array is represented losslessly by the `admissibility` RECORD, which IS "
+        "serialized as verdict.admissibility_matrix. The support lists are exactly the array's "
+        "information in the sparse regime and are untruncated at any k.",
+    ),
+    "cell_keys": (
+        None,
+        "NOT SERIALIZED UNDER THIS NAME, PRESENT AS DATA. admissibility_matrix['cell_order'] is the "
+        "same tuple in the same order; asserted equal below.",
+    ),
+    "per_cell_values": (
+        None,
+        "NOT SERIALIZED, A STATED TRUNCATION. The full per-cell float vectors are ~3.9 MB per "
+        "concept in memory and ~10 MB as JSON per quantity. The per-cell summaries keep each "
+        "cell's top_k and SAY SO in their own `truncation` field. This is the one remaining "
+        "computed-then-discarded quantity and it is a KNOWN, DECLARED loss rather than a silent "
+        "one -- and it is exactly why the per-item retention had to be taken separately.",
+    ),
+    "shadow_fire_rate_summary": ("shadow_gate_b_summary", "SERIALIZED."),
+    "per_cell_separation_auroc": ("per_cell_full_space_auroc", "SERIALIZED."),
+    "per_cell_fire_rate": ("per_cell_full_space_fire_rate", "SERIALIZED."),
+    "per_cell_near_miss_auroc": ("per_cell_full_space_near_miss_auroc", "SERIALIZED."),
+    "admissibility": ("admissibility_matrix", "SERIALIZED (under a different name)."),
+    "per_item_positive_scores": (
+        "per_item_positive_scores",
+        "SERIALIZED -- and it was NOT, at 5b1da92, which is the defect this sweep exists because "
+        "of. Job 418185 wrote four grids in which per_item_scores_by_feature occurs zero times at "
+        "byte level.",
+    ),
+}
+
+
+def test_every_scan_field_has_a_recorded_serialization_decision():
+    """THE TRIPWIRE FOR THE THIRD INSTANCE. If a field is added to
+    `FullSpaceScan` and nobody decides whether it reaches the written record,
+    THIS TEST FAILS. That is the structural repair; the copy line was only the
+    symptom.
+
+    Two directions, so it cannot pass vacuously: a scan field with no decision
+    fails, and a decision naming a field that no longer exists fails."""
+    actual = set(d.FullSpaceScan.__dataclass_fields__)
+    declared = set(SCAN_FIELD_DISPOSITION)
+    assert declared - actual == set(), (
+        f"SCAN_FIELD_DISPOSITION names fields that are no longer on FullSpaceScan: "
+        f"{sorted(declared - actual)}"
+    )
+    assert actual - declared == set(), (
+        f"FullSpaceScan has fields with NO recorded serialization decision: "
+        f"{sorted(actual - declared)}. This is the second time a computed value never reached the "
+        f"written record; decide explicitly and add it to SCAN_FIELD_DISPOSITION."
+    )
+    # Every declared target really is a verdict field, and every reason is real.
+    verdict_fields = set(d.ConceptPairingVerdict.__dataclass_fields__)
+    for name, (target, reason) in SCAN_FIELD_DISPOSITION.items():
+        assert reason.strip(), name
+        if target is not None:
+            assert target in verdict_fields, (name, target)
+
+
+def test_the_fields_declared_serialized_really_reach_the_written_json(tmp_path):
+    """The declaration above is checked against the BYTES, not against the
+    source. A disposition table that agreed with a comment and disagreed with
+    the artifact would be the original defect with extra steps."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    scan = d.score_full_feature_space(backend, artifact, concept_id="cheese")
+    verdict = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+    path = d.write_grid_result(tmp_path, "gemma-3-12b-it", [verdict])
+    written = json.loads(Path(path).read_text(encoding="utf-8"))["verdicts"][0]
+    for name, (target, _reason) in SCAN_FIELD_DISPOSITION.items():
+        if target is None or name == "concept_id":
+            continue
+        assert target in written, f"{name} is declared serialized as {target!r} and is not in the JSON"
+        # THE COPY IS WHAT IS CHECKED, not the value. Comparing against the
+        # scan's own value catches a copy that dropped something, and does not
+        # spuriously fail when the scan legitimately produced None -- which is
+        # the case for `shadow_fire_rate_summary` whenever no shadow reference
+        # corpus is supplied, as on this fixture. Asserting non-null outright
+        # would have made this test pass or fail on the FIXTURE rather than on
+        # the wiring, which is the mistake one layer down from the original.
+        produced = getattr(scan, name)
+        if produced is None:
+            assert written[target] is None, (
+                f"{name} was None on the scan and non-null in the JSON, so the two disagree"
+            )
+        else:
+            assert written[target] is not None, (
+                f"{name} was produced by the scan and reached the JSON as null -- the copy at the "
+                f"verdict construction site dropped it. THIS IS THE DEFECT SHAPE."
+            )
+
+
+def test_the_fields_declared_recoverable_really_are_recoverable_from_the_written_json(tmp_path):
+    """Four fields are excused from serialization on the ground that they are
+    RECOVERABLE from what is written. That is a claim, so it is measured. An
+    excuse that turned out to be false would be a silent loss justified by a
+    comment."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    scan = d.score_full_feature_space(backend, artifact, concept_id="cheese")
+    verdict = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+    path = d.write_grid_result(tmp_path, "gemma-3-12b-it", [verdict])
+    written = json.loads(Path(path).read_text(encoding="utf-8"))["verdicts"][0]
+    cell_order = written["admissibility_matrix"]["cell_order"]
+    # cell_keys
+    assert tuple(cell_order) == tuple(scan.cell_keys)
+    # cells_scored
+    assert len(cell_order) == scan.cells_scored
+    # locales and families_by_locale
+    recovered_locales = sorted({key.split("/")[0] for key in cell_order})
+    assert recovered_locales == sorted(scan.locales)
+    recovered_families: dict[str, list[str]] = {}
+    for key in cell_order:
+        locale, family = key.split("/", 1)
+        recovered_families.setdefault(locale, []).append(family)
+    assert {k: sorted(v) for k, v in recovered_families.items()} == {
+        k: sorted(v) for k, v in scan.families_by_locale.items()
+    }
+
+
+def test_the_per_cell_float_vectors_are_the_one_declared_loss_and_they_say_so(tmp_path):
+    """`per_cell_values` is the only remaining computed-then-discarded
+    quantity, and the difference between it and the per-item defect is that
+    this one DECLARES ITSELF in the written record. Asserted on the bytes, so
+    "it is a stated truncation" is a property of the artifact rather than of a
+    docstring."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    verdict = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+    path = d.write_grid_result(tmp_path, "gemma-3-12b-it", [verdict])
+    written = json.loads(Path(path).read_text(encoding="utf-8"))["verdicts"][0]
+    for key in ("per_cell_full_space_auroc", "per_cell_full_space_fire_rate",
+                "per_cell_full_space_near_miss_auroc"):
+        summary = written[key]
+        assert "truncation" in summary, key
+        assert "is NOT retained" in summary["truncation"]
+        assert summary["top_k_retained_per_cell"] == d.PER_CELL_FULL_SPACE_TOP_K
+        # And the boolean that is NOT subject to the top_k says so in the same
+        # breath, so a reader cannot generalise the truncation to A[f, c].
+        assert "ADMISSIBILITY BOOLEAN is retained for every feature" in summary["truncation"]
+
+
+# ---------------------------------------------------------------------------
+# RULING_15's GENERAL CLAUSE, APPLIED RETROACTIVELY
+#
+# "EVERY predicate this ruling introduces or amends ships TWO tests over inputs
+# differing ONLY in the quantity it claims to read: one in which it FIRES and
+# one in which it does NOT. A check that cannot fail and a check that cannot
+# fire are the same defect wearing different clothes."
+#
+# The retention work predates that clause. Applying it retroactively is what
+# found nothing new for three of these predicates and everything for the
+# fourth -- the end-to-end one, which had no fires-direction test at all.
+# ---------------------------------------------------------------------------
+
+
+def test_predicate_pairs_fire_and_do_not_fire_on_inputs_differing_in_one_quantity():
+    """Each pair below differs ONLY in the quantity the predicate claims to
+    read, so a pass proves the predicate reads THAT and not something
+    correlated with it."""
+    # 1. verify_per_item_retention -- ARGMAX MEMBERSHIP. Same record, one index
+    #    removed from the retained set.
+    record = _record()
+    d.verify_per_item_retention(record)                                    # DOES NOT FIRE
+    tampered = copy.deepcopy(record)
+    cell = tampered["cells"]["en/f1"]
+    argmax = cell["argmax_feature_by_limb"]["G-A"]
+    cell["retained_feature_indices"] = [i for i in cell["retained_feature_indices"] if i != argmax]
+    cell["per_item_scores_by_feature"].pop(str(argmax))
+    cell["features_retained"] -= 1
+    cell["features_NOT_retained"] += 1
+    with pytest.raises(d.PerItemRetentionScopeMismatch):                   # FIRES
+        d.verify_per_item_retention(tampered)
+
+    # 2. lattice_gate -- THE DENOMINATOR, and nothing else changes.
+    values = np.array([540 / 600, 539 / 600])
+    d.lattice_gate(values, threshold=0.90, denominator=600)                # DOES NOT FIRE
+    with pytest.raises(d.LatticeDenominatorWrong):                        # FIRES
+        d.lattice_gate(values, threshold=0.90, denominator=7)
+
+    # 3. `_resampling_reach` is the fourth predicate in this family, and it
+    #    lives in group_selection.py rather than here; its fires /
+    #    does-not-fire pair is
+    #    `test_a_deficit_beyond_resampling_reach_is_not_given_the_softer_verdict`
+    #    in tests/test_group_selection.py, which asserts True at 6 steps on 10
+    #    positives and False at 300. Named rather than duplicated, so the pair
+    #    is locatable without this file reaching into another module.
+
+    # 4. per_cell_leader_indices -- THE VALUES. The argmax moves with them and
+    #    with nothing else.
+    ascending = np.arange(50, dtype=np.float64)
+    assert int(d.per_cell_leader_indices(ascending, top_k=25)[0]) == 49
+    assert int(d.per_cell_leader_indices(-ascending, top_k=25)[0]) == 0
+
+    # 5. per_item_retention_for_cell -- TOP_K, which is the only input that
+    #    decides whether the argmax can be present at all.
+    kwargs = dict(
+        positives=np.random.default_rng(4).random((10, 8)),
+        near_miss=np.random.default_rng(5).random((15, 8)),
+        unrelated=np.random.default_rng(6).random((15, 8)),
+        limb_values={
+            "separation_auroc": np.arange(8, dtype=np.float64),
+            "fire_rate": np.arange(8, dtype=np.float64),
+            "near_miss_auroc": np.arange(8, dtype=np.float64),
+        },
+    )
+    ok = d.per_item_retention_for_cell(top_k=1, **kwargs)                  # DOES NOT FIRE
+    assert ok["features_retained"] == 1
+    assert ok["argmax_retained_by_limb"]["G-A"] is True
+    with pytest.raises(d.PerItemRetentionScopeMismatch):                   # FIRES
+        d.per_item_retention_for_cell(top_k=0, **kwargs)
+
+
+def test_the_end_to_end_predicate_has_both_directions_which_is_what_it_lacked(tmp_path):
+    """The pair that did not exist before, stated as its own test because its
+    absence is the whole finding: the serialization predicate had a
+    does-not-fire direction (every earlier test) and NO fires direction, so it
+    could not distinguish a recorded retention from an unrecorded one.
+
+    Both directions now, over verdicts differing ONLY in whether the copy
+    happened."""
+    backend = make_fake_gemma_backend()
+    artifact = d.load_frozen_prompt_artifact(d.REPO_ROOT)
+    verdict = d.evaluate_concept_on_pairing(backend, artifact, concept_id="cheese")
+
+    recorded = Path(d.write_grid_result(tmp_path / "recorded", "gemma-3-12b-it", [verdict]))
+    unrecorded = Path(d.write_grid_result(
+        tmp_path / "unrecorded", "gemma-3-12b-it",
+        [dataclasses.replace(verdict, per_item_positive_scores=None)],
+    ))
+
+    assert b"per_item_scores_by_feature" in recorded.read_bytes()          # DOES NOT FIRE
+    assert b"per_item_scores_by_feature" not in unrecorded.read_bytes()    # FIRES
+    # The two artifacts differ in nothing else that matters: same concept, same
+    # gates, same admissibility support.
+    left = json.loads(recorded.read_text(encoding="utf-8"))["verdicts"][0]
+    right = json.loads(unrecorded.read_text(encoding="utf-8"))["verdicts"][0]
+    assert left["admissibility_matrix"] == right["admissibility_matrix"]
+    assert left["per_cell_full_space_auroc"] == right["per_cell_full_space_auroc"]
+    assert left["per_item_positive_scores"] is not None
+    assert right["per_item_positive_scores"] is None

@@ -3633,6 +3633,27 @@ class ConceptPairingVerdict:
     #: complete regardless; this states the verbose record's own bound
     #: rather than letting a reader infer completeness from its length.
     candidate_recording_bound: dict | None = None
+    #: PER-ITEM raw probe scores for the per-cell leaders -- the positives,
+    #: near-misses and unrelated probes behind each retained (feature, cell)
+    #: statistic. Carried HERE, on the object that is actually written, and
+    #: that placement is the whole point of this field's existence.
+    #:
+    #: MEASURED CONSEQUENCE, and it is the second instance of one shape.
+    #: `surviving_feature_indices` exists because a scalar silently dropped a
+    #: second survivor -- a lossy report that looked exactly like a complete
+    #: one. This field exists because the per-item retention was computed on
+    #: `FullSpaceScan`, VALIDATED against its own declared scope, and then not
+    #: copied onto the verdict, so job 418185 wrote four grids in which
+    #: `per_item_scores_by_feature` occurs ZERO times at byte level. The
+    #: producer was fixed and the RECORDER was not. A test now asserts this
+    #: on the written JSON rather than on the builder's return value, because
+    #: asserting on the builder is exactly what let this through.
+    #:
+    #: Defaulted to `None` so a verdict written before this field existed
+    #: still round-trips through `ConceptPairingVerdict(**...)`, and so that
+    #: "this grid predates the retention" stays DISTINGUISHABLE from "this
+    #: grid retained nothing".
+    per_item_positive_scores: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -5367,6 +5388,18 @@ def evaluate_concept_on_pairing(
             per_cell_full_space_fire_rate=scan.per_cell_fire_rate,
             per_cell_full_space_near_miss_auroc=scan.per_cell_near_miss_auroc,
             admissibility_matrix=scan.admissibility,
+            # THE LINE WHOSE ABSENCE MADE THE PER-ITEM RETENTION UNREACHABLE.
+            # Job 418185 ran with the retention implemented, validated against
+            # its own declared scope, and `per_item_scores_by_feature` occurs
+            # ZERO times at byte level in all four grids -- because the values
+            # were attached to the SCAN and the object written to `grid.json`
+            # is the VERDICT. The gap was closed in the producer and left open
+            # in the recorder, one layer further out than the defect it was
+            # written to repair. See `test_the_written_grid_json_carries_the_
+            # per_item_retention` for the assertion that now fails without
+            # this line, and the field-by-field sweep beside it for why a
+            # third instance should not be possible in silence.
+            per_item_positive_scores=scan.per_item_positive_scores,
             candidate_recording_bound={
                 "selected_by_the_screen": int(selected_before_bound),
                 "verbose_records_written": len(evaluated),
