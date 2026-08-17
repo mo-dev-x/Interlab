@@ -244,7 +244,18 @@ def test_the_corpus_authors_refusal_to_set_thresholds_is_preserved_verbatim(arti
     block came from somewhere else."""
     declared = artifact.metadata["thresholds_declared_by_corpus_author"]
     assert "NOT SET BY THE CORPUS AUTHOR" in declared["status"]
-    assert "ARCHITECT'S RULING AND HAS NOT BEEN MADE" in artifact.metadata["thresholds_provenance"]
+
+
+def test_the_inheritance_records_ruling_13_as_its_authority(artifact):
+    """The referral is ANSWERED (architect RULING_13 REFERRAL A). The record
+    must name the authority so the next reader does not re-open it, and must
+    carry the null-result asymmetry the same ruling made binding."""
+    provenance = artifact.metadata["thresholds_provenance"]
+    assert "RULING_13 REFERRAL A" in provenance
+    assert "SETTLED" in provenance
+    assert "A v2 NULL IS NOT AN ABSENCE" in provenance
+    assert d.PERSONA_V2_NULL_RESULT_REQUIRED_WORDING in provenance
+    assert "does not establish that no such feature exists" in d.PERSONA_V2_NULL_RESULT_REQUIRED_WORDING
 
 
 def test_a_moved_threshold_is_refused_against_v1s_pinned_metadata(monkeypatch):

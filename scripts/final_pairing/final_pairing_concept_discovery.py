@@ -972,10 +972,27 @@ PERSONA_V2_POSITIONS_POLICY = {
 #: `_assert_persona_gate_thresholds_match_v1` re-reads v1's metadata.json,
 #: verifies its sha256 against the already-pinned `FROZEN_METADATA_SHA256`,
 #: and refuses if any of the four disagrees -- so these are a CITATION of a
-#: pinned artifact that fails closed, not free-floating constants. What
-#: this arrangement CANNOT do is make the inheritance itself legitimate:
-#: whether v2 inherits v1's thresholds is an architect's ruling and has not
-#: been made. Reported upward, not resolved here.
+#: pinned artifact that fails closed, not free-floating constants.
+#:
+#: THE REFERRAL IS ANSWERED AND THIS IS SETTLED -- DO NOT RE-OPEN IT.
+#: Architect RULING_13 REFERRAL A (2026-08-16, mailbox sequence 41): v2
+#: INHERITS v1's four values as a PRE-REGISTERED CONSTANT, and inheritance
+#: chooses a SOURCE, not a value. Deriving v2-specific thresholds is
+#: REFUSED and is not merely unwise -- there is no admissible independent
+#: basis, since every v2 substrate already enters the verdict. The
+#: mechanism below (pin by digest, re-read on every load, refuse on
+#: disagreement) is what the ruling endorsed as converting an inheritance
+#: into a checkable one, so it stays exactly as it is.
+#:
+#: WHAT INHERITING COSTS, PRE-REGISTERED HERE BECAUSE IT BINDS REPORTING:
+#: v2's near_miss is the MIRROR concept's positives, byte-identical in 60
+#: of 60, which is an adversarially stronger contrast than v1's
+#: domain-matched near-miss. Identical geometry makes the thresholds
+#: COMMENSURABLE; it does not make them EQUALLY DIFFICULT. So 0.90 is
+#: STRICTER on v2 than on v1, and the asymmetry that follows is binding:
+#: a v2 PASS is CONSERVATIVE and may be reported plainly, while
+#: A v2 NULL MAY NOT BE READ AS AN ABSENCE. See
+#: `PERSONA_V2_NULL_RESULT_REQUIRED_WORDING`.
 PERSONA_V2_GATE_THRESHOLDS = {
     "G_A_separation_auroc_min": 0.9,
     "G_A_scope": "every paraphrase family independently",
@@ -986,13 +1003,29 @@ PERSONA_V2_GATE_THRESHOLDS = {
 }
 _PERSONA_V2_GATE_KEYS = tuple(sorted(PERSONA_V2_GATE_THRESHOLDS))
 
+#: The wording a v2 gate null MUST carry, byte-verbatim from architect
+#: RULING_13 REFERRAL A. Not advisory: the strictness runs in the safe
+#: direction for a PASS and confounds a NULL, so a bare "no feature passed"
+#: would overclaim.
+PERSONA_V2_NULL_RESULT_REQUIRED_WORDING = (
+    "no feature cleared the INHERITED v1 threshold on a corpus whose near-miss contrast is stronger "
+    "than v1's; this does not establish that no such feature exists."
+)
+
 PERSONA_V2_THRESHOLD_PROVENANCE = (
     "The v2 corpus metadata sets NO thresholds (its `thresholds` key is the status string 'NOT SET BY "
     "THE CORPUS AUTHOR. v2 thresholds are UNFROZEN'). These four values are carried verbatim from v1's "
     f"sha256-pinned metadata.json ({FROZEN_PROMPT_SET_DIR}/metadata.json, {FROZEN_METADATA_SHA256}) and "
-    "are re-checked against it on every load. Whether v2 legitimately inherits v1's thresholds is an "
-    "ARCHITECT'S RULING AND HAS NOT BEEN MADE -- this is the engineering wiring of the values the work "
-    "order named, not a ratification of them."
+    "are re-checked against it on every load. AUTHORITY: architect RULING_13 REFERRAL A (2026-08-16, "
+    "mailbox sequence 41) RULED that v2 INHERITS v1's four values as a pre-registered constant and "
+    "REFUSED derivation of v2-specific values; inheritance chooses a SOURCE, not a value, and this "
+    "pin-and-re-read mechanism is what the ruling endorsed. SETTLED -- do not re-open. THE COST, ALSO "
+    "RULED: v2's byte-identical mirror near-miss makes 0.90 STRICTER on v2 than on v1, so a v2 PASS is "
+    "conservative and may be reported plainly, and A v2 NULL IS NOT AN ABSENCE -- it must carry "
+    f"PERSONA_V2_NULL_RESULT_REQUIRED_WORDING: '{PERSONA_V2_NULL_RESULT_REQUIRED_WORDING}' The v2 "
+    "corpus bytes are NOT edited to record any of this; the inheritance lives in the harness and in "
+    "the ruling, so a future reader sees that v2 set nothing AND that inheritance was ruled, as two "
+    "separate facts."
 )
 
 
