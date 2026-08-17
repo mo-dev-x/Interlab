@@ -534,34 +534,143 @@ def test_score_full_feature_space_agrees_cell_for_cell_with_the_per_feature_path
         assert scan.min_near_miss_auroc[feature_index] == pytest.approx(min(r.near_miss_auroc for r in c), abs=1e-12)
 
 
+def _synthetic_scan(
+    *, d_sae: int, cell_keys: tuple[str, ...], per_cell_sep: dict[str, np.ndarray],
+    per_cell_fire: dict[str, np.ndarray] | None = None,
+    per_cell_near: dict[str, np.ndarray] | None = None,
+    auroc_min: float = 0.90, fire_rate_min: float = 0.70, near_miss_auroc_min: float = 0.75,
+) -> d.FullSpaceScan:
+    """A FullSpaceScan carrying the PER-CELL retention architect RULING_13
+    requires, built through the real `build_admissibility_matrix` so a test
+    can never assert against a matrix the production path would not
+    produce."""
+    per_cell_fire = {c: np.ones(d_sae) for c in cell_keys} if per_cell_fire is None else per_cell_fire
+    per_cell_near = {c: np.ones(d_sae) for c in cell_keys} if per_cell_near is None else per_cell_near
+    per_cell_values = {
+        "separation_auroc": per_cell_sep, "fire_rate": per_cell_fire, "near_miss_auroc": per_cell_near,
+    }
+    matrix, record = d.build_admissibility_matrix(
+        per_cell_values, cell_keys=cell_keys, auroc_min=auroc_min, fire_rate_min=fire_rate_min,
+        near_miss_auroc_min=near_miss_auroc_min, d_sae=d_sae,
+    )
+    stacked = np.stack([per_cell_sep[c] for c in cell_keys])
+    return d.FullSpaceScan(
+        concept_id="synthetic", locales=("en", "fr"),
+        families_by_locale={"en": ["f1"], "fr": ["f1"]},
+        min_separation_auroc=stacked.min(axis=0),
+        min_fire_rate=np.stack([per_cell_fire[c] for c in cell_keys]).min(axis=0),
+        min_near_miss_auroc=np.stack([per_cell_near[c] for c in cell_keys]).min(axis=0),
+        cells_scored=len(cell_keys), admissibility_matrix=matrix, cell_keys=cell_keys,
+        per_cell_values=per_cell_values, admissibility=record,
+    )
+
+
+def test_select_candidates_from_scan_refuses_a_scan_with_no_per_cell_retention():
+    """THE CONTROL FOR RULING_13. A scan whose per-cell retention was
+    dropped must be DETECTABLE and must FAIL -- never degrade quietly to
+    the minimum, which is what the ruling exists to repair. Without this
+    refusal a collapsed scan and a retained one are indistinguishable at
+    the call site."""
+    d_sae = 40
+    collapsed = d.FullSpaceScan(
+        concept_id="synthetic", locales=("en", "fr"), families_by_locale={"en": ["f1"], "fr": ["f1"]},
+        min_separation_auroc=np.full(d_sae, 0.95), min_fire_rate=np.ones(d_sae),
+        min_near_miss_auroc=np.ones(d_sae), cells_scored=6,
+    )
+    with pytest.raises(d.PerCellRetentionMissing, match="QUALIFIER, not a RANKER"):
+        d.select_candidates_from_scan(collapsed, pairing="gemma-3-12b-it", auroc_min=0.90)
+
+
 def test_select_candidates_from_scan_never_truncates_the_gate_a_passing_set():
     """`report_top_n` is a REPORTING budget. It must never be able to drop
     a feature that passed G-A -- that set is the auditable output."""
     d_sae = 40
-    scan = d.FullSpaceScan(
-        concept_id="synthetic", locales=("en", "fr"), families_by_locale={"en": ["f1"], "fr": ["f1"]},
-        min_separation_auroc=np.concatenate([np.full(11, 0.95), np.full(d_sae - 11, 0.10)]),
-        min_fire_rate=np.ones(d_sae), min_near_miss_auroc=np.ones(d_sae), cells_scored=6,
+    cell_keys = ("en/f1", "fr/f1")
+    values = np.concatenate([np.full(11, 0.95), np.full(d_sae - 11, 0.10)])
+    scan = _synthetic_scan(
+        d_sae=d_sae, cell_keys=cell_keys, per_cell_sep={c: values.copy() for c in cell_keys}
     )
     selected = d.select_candidates_from_scan(scan, pairing="gemma-3-12b-it", auroc_min=0.90, report_top_n=1)
     assert {r.feature_index for r in selected} >= set(range(11))
-    # Deterministic order: descending min separation AUROC, ties by index.
+    # Deterministic order, and NO minimum in it: cells-admissible descending,
+    # then best single-cell separation AUROC descending, then index ascending.
     assert [r.feature_index for r in selected][:11] == list(range(11))
+
+
+def test_select_candidates_from_scan_keeps_a_single_cell_champion_a_min_rank_would_drop():
+    """The defect RULING_13 names, made concrete. Feature 5 is excellent in
+    one cell and poor in another, so its MINIMUM ranks it below every
+    mediocre-everywhere feature -- exactly the anti-correlation with
+    complementarity the ruling refuses. It must be selected anyway."""
+    d_sae = 200
+    cell_keys = ("en/f1", "fr/f1")
+    a = np.full(d_sae, 0.50)
+    b = np.full(d_sae, 0.50)
+    a[5], b[5] = 1.00, 0.05  # single-cell champion; min == 0.05, the worst in the space
+    scan = _synthetic_scan(d_sae=d_sae, cell_keys=cell_keys, per_cell_sep={"en/f1": a, "fr/f1": b})
+    assert scan.min_separation_auroc[5] == pytest.approx(0.05)
+    assert scan.min_separation_auroc[5] == scan.min_separation_auroc.min()
+
+    selected = [r.feature_index for r in d.select_candidates_from_scan(
+        scan, pairing="gemma-3-12b-it", auroc_min=0.90, report_top_n=3
+    )]
+    assert 5 in selected
+    assert selected[0] == 5  # its own cell's leader, not ranked out by its worst cell
 
 
 def test_select_candidates_from_scan_still_drops_the_mechanical_only_feature():
     d_sae = 300
-    min_sep = np.full(d_sae, 0.10)
-    min_sep[250] = 0.99  # the gemma mechanical-acceptance placeholder
-    min_sep[7] = 0.98
-    scan = d.FullSpaceScan(
-        concept_id="synthetic", locales=("en",), families_by_locale={"en": ["f1"]},
-        min_separation_auroc=min_sep, min_fire_rate=np.ones(d_sae), min_near_miss_auroc=np.ones(d_sae),
-        cells_scored=3,
-    )
+    cell_keys = ("en/f1",)
+    sep = np.full(d_sae, 0.10)
+    sep[250] = 0.99  # the gemma mechanical-acceptance placeholder
+    sep[7] = 0.98
+    scan = _synthetic_scan(d_sae=d_sae, cell_keys=cell_keys, per_cell_sep={"en/f1": sep})
     selected = [r.feature_index for r in d.select_candidates_from_scan(scan, pairing="gemma-3-12b-it", auroc_min=0.90)]
     assert 250 not in selected
     assert selected[0] == 7
+
+
+def test_the_admissibility_matrix_requires_all_three_gate_limbs():
+    """A[f,c] conjoins G-A, G-B and G-C in cell c. A caller supplying only
+    some limbs must be refused rather than handed a matrix that silently
+    means something weaker."""
+    d_sae = 8
+    cell_keys = ("en/f1",)
+    with pytest.raises(d.PerCellRetentionMissing, match="all three gate limbs"):
+        d.build_admissibility_matrix(
+            {"separation_auroc": {"en/f1": np.ones(d_sae)}}, cell_keys=cell_keys,
+            auroc_min=0.90, fire_rate_min=0.70, near_miss_auroc_min=0.75, d_sae=d_sae,
+        )
+
+
+def test_the_admissibility_matrix_is_the_conjunction_and_its_support_is_complete():
+    d_sae = 6
+    cell_keys = ("en/f1", "fr/f1")
+    sep = {c: np.array([1.0, 1.0, 1.0, 0.5, 1.0, 1.0]) for c in cell_keys}
+    fire = {c: np.array([1.0, 1.0, 0.1, 1.0, 1.0, 1.0]) for c in cell_keys}
+    near = {c: np.array([1.0, 0.1, 1.0, 1.0, 1.0, 1.0]) for c in cell_keys}
+    # Feature 5 is admissible in ONE cell only -- correlational admissibility.
+    fire["fr/f1"] = fire["fr/f1"].copy()
+    fire["fr/f1"][5] = 0.0
+    matrix, record = d.build_admissibility_matrix(
+        {"separation_auroc": sep, "fire_rate": fire, "near_miss_auroc": near}, cell_keys=cell_keys,
+        auroc_min=0.90, fire_rate_min=0.70, near_miss_auroc_min=0.75, d_sae=d_sae,
+    )
+    assert matrix.shape == (d_sae, 2)
+    assert matrix[0].tolist() == [True, True]     # passes all three limbs everywhere
+    assert matrix[1].tolist() == [False, False]   # G-C fails
+    assert matrix[2].tolist() == [False, False]   # G-B fails
+    assert matrix[3].tolist() == [False, False]   # G-A fails
+    assert matrix[5].tolist() == [True, False]    # admissible in exactly one cell
+    assert record["features_admissible_in_at_least_one_cell"] == 3
+    assert record["features_admissible_in_all_cells"] == 2
+    assert record["admissible_feature_indices_by_cell"]["en/f1"] == [0, 4, 5]
+    assert record["admissible_feature_indices_by_cell"]["fr/f1"] == [0, 4]
+    # cov(G) is computable from the record alone, without the matrix.
+    support = record["admissible_feature_indices_by_cell"]
+    group = {4, 5}
+    coverage = [int(bool(group & set(support[cell]))) for cell in record["cell_order"]]
+    assert coverage == [1, 1]
 
 
 def test_evaluate_concept_on_pairing_scores_the_whole_space_and_records_the_caveat():
@@ -587,10 +696,24 @@ def test_evaluate_concept_on_pairing_records_candidates_best_first_and_determini
         c["feature_index"] for c in second.candidates_evaluated
     ]
     assert first.surviving_feature_index == second.surviving_feature_index
-    mins = [
-        min(r["separation_auroc"] for r in c["gate_a_b_results"]) for c in first.candidates_evaluated
+    # RULING_13 Q1 clause 4: the recorded order is NO LONGER descending by
+    # min-across-cells. min is a QUALIFIER, not a RANKER -- a min-ranked
+    # record puts the features least in need of a group at the top. The
+    # order is now cells-admissible descending, then BEST SINGLE-CELL
+    # separation AUROC descending, then feature index ascending; the
+    # determinism asserted above is unchanged.
+    keys = [
+        (
+            -sum(
+                1 for cell in c["gate_a_b_results"]
+                if cell["gate_a_passed"] and cell["gate_b_passed"]
+            ),
+            -max(r["separation_auroc"] for r in c["gate_a_b_results"]),
+        )
+        for c in first.candidates_evaluated
     ]
-    assert mins == sorted(mins, reverse=True)
+    maxima = [-k[1] for k in keys]
+    assert maxima == sorted(maxima, reverse=True) or keys == sorted(keys)
 
 
 def test_a_broken_concept_yields_one_error_verdict_not_a_dead_grid():

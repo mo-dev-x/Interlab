@@ -18,6 +18,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -410,6 +411,88 @@ def test_every_preflight_fault_is_refused(fault, tmp_path):
     report = pf.run_fault(REPO_ROOT, fault, tmp_path)
     assert report["overall_passed"] is True
     assert report["refusal"]["refused_with"] is not None
+
+
+# ---------------------------------------------------------------------------
+# RULING_13: the admissibility matrix
+# ---------------------------------------------------------------------------
+
+
+def test_a_complete_group_forms_from_members_that_individually_fail(artifact):
+    """The scientific content of architect RULING_13 Q1, end to end through
+    the production path: two planted features, each admissible in three of
+    six cells and therefore NOT survivors, whose group has cov == 1^6.
+
+    Non-vacuous by construction -- `survivors == 0` is asserted, so the
+    coverage below cannot have been produced by a feature that would have
+    passed the old six-cell conjunction anyway."""
+    passed, detail = pf.check_a_complete_group_forms_from_incomplete_members(artifact)
+    assert passed, detail
+    assert detail["cov_of_the_GROUP_0_and_1"] == [1, 1, 1, 1, 1, 1]
+    assert sum(detail["cov_of_feature_0_alone"]) == 3
+    assert sum(detail["cov_of_feature_1_alone"]) == 3
+    assert detail["features_admissible_in_all_cells_i_e_survivors"] == 0
+
+
+def test_the_scan_retains_all_three_gate_limbs_per_cell(artifact):
+    backend, _model = pf._surrogate_backend()
+    scan = d.score_full_feature_space(backend, artifact, concept_id=d.PERSONA_V2_CONCEPT_IDS[0])
+    assert sorted(scan.per_cell_values) == ["fire_rate", "near_miss_auroc", "separation_auroc"]
+    for quantity in scan.per_cell_values.values():
+        assert sorted(quantity) == sorted(scan.cell_keys)
+        for vector in quantity.values():
+            assert vector.shape == (backend.d_sae,)
+    assert scan.admissibility_matrix.shape == (backend.d_sae, 6)
+    assert scan.per_cell_fire_rate is not None
+    assert scan.per_cell_near_miss_auroc is not None
+    assert d.audit_retention_granularity(scan)["gate_limbs_all_per_cell_complete"] is True
+
+
+def test_the_minima_are_unchanged_by_the_retention_change(artifact):
+    """A RECORDING change must not move a measurement: every min_* array
+    must still equal the minimum of the per-cell vectors it came from."""
+    backend, _model = pf._surrogate_backend()
+    scan = d.score_full_feature_space(backend, artifact, concept_id=d.PERSONA_V2_CONCEPT_IDS[1])
+    for quantity, minimum in (
+        ("separation_auroc", scan.min_separation_auroc),
+        ("fire_rate", scan.min_fire_rate),
+        ("near_miss_auroc", scan.min_near_miss_auroc),
+    ):
+        stacked = np.stack([scan.per_cell_values[quantity][cell] for cell in scan.cell_keys])
+        assert np.array_equal(stacked.min(axis=0), minimum)
+
+
+def test_the_verdict_carries_the_matrix_so_cov_needs_no_rerun(artifact):
+    backend, _model = pf._surrogate_backend()
+    verdict = d.evaluate_concept_on_pairing(
+        backend, artifact, concept_id=d.PERSONA_V2_CONCEPT_IDS[0], report_top_n=2
+    )
+    record = verdict.admissibility_matrix
+    assert record is not None
+    assert record["cell_order"] == ["en/f1", "en/f2", "en/f3", "fr/f1", "fr/f2", "fr/f3"]
+    assert set(record["admissible_feature_indices_by_cell"]) == set(record["cell_order"])
+    assert verdict.per_cell_full_space_fire_rate is not None
+    assert verdict.per_cell_full_space_near_miss_auroc is not None
+    assert verdict.candidate_recording_bound["verbose_records_written"] == len(verdict.candidates_evaluated)
+
+
+def test_the_admissibility_record_survives_a_json_round_trip(artifact):
+    """cov(G) must be computable by a downstream consumer reading
+    grid.json, so the record has to be JSON-serialisable without loss."""
+    backend, _model = pf._surrogate_backend()
+    scan = d.score_full_feature_space(backend, artifact, concept_id=d.PERSONA_V2_CONCEPT_IDS[0])
+    round_tripped = json.loads(json.dumps(scan.admissibility))
+    assert round_tripped == scan.admissibility
+
+
+def test_retention_cost_is_measured_at_production_scale():
+    measured = d.measure_retention_cost(d_sae=81920)
+    assert measured["admissibility_matrix_bytes_in_memory"] == 81920 * 6
+    worst = measured["admissibility_record_json_by_admissible_fraction"]["1"]["record_json_bytes"]
+    # The worst case cannot be exceeded: every feature admissible in every
+    # cell. If this ever stops fitting in a few MB the coarsening decision
+    # has to be re-taken against a measurement, not a guess.
+    assert worst < 8 * (1 << 20)
 
 
 def test_the_preflight_report_always_names_what_is_unexercised():

@@ -3508,6 +3508,23 @@ class ConceptPairingVerdict:
     #: cell, the full-space ceiling and how many of all `features_scored`
     #: clear G-A. Recorded; read by no verdict and no selection.
     per_cell_full_space_auroc: dict | None = None
+    #: PER-CELL full-space FIRE RATE and NEAR-MISS AUROC, the two limbs
+    #: RULING_8's repair left min-only (architect RULING_13 Q1 clause 5).
+    per_cell_full_space_fire_rate: dict | None = None
+    per_cell_full_space_near_miss_auroc: dict | None = None
+    #: THE ADMISSIBILITY MATRIX A[f, c], lossless (architect RULING_13 Q1
+    #: clause 3). `A[f, c] = 1` iff f clears all three frozen gates in cell
+    #: c; `cov(G)[c] = 1` iff some member of G is admissible in c; G is
+    #: COMPLETE iff `cov(G) == 1^6`. Carried on the verdict so a group lane
+    #: computes `cov(G)` from `grid.json` alone, WITHOUT re-running the
+    #: scan and WITHOUT consuming `select_candidates_from_scan`'s output --
+    #: which RULING_13 Q1 clause 5 prohibits as a candidate pool.
+    admissibility_matrix: dict | None = None
+    #: Which selected features got a VERBOSE per-cell gate record here, and
+    #: how many admissible features did not. `admissibility_matrix` above is
+    #: complete regardless; this states the verbose record's own bound
+    #: rather than letting a reader infer completeness from its length.
+    candidate_recording_bound: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -3525,6 +3542,26 @@ class FullSpaceScan:
     min_fire_rate: np.ndarray
     min_near_miss_auroc: np.ndarray
     cells_scored: int
+    #: THE ADMISSIBILITY MATRIX A[f, c] (architect RULING_13 Q1), in memory:
+    #: a `[d_sae, n_cells]` BOOLEAN array, `A[f, c]` true iff feature `f`
+    #: clears all three frozen gates IN CELL `c`. Never serialised as an
+    #: array -- `admissibility` below carries the lossless record.
+    #:
+    #: This is the field RULING_13 found missing. `min_fire_rate` and
+    #: `min_near_miss_auroc` above are MINIMA, and the matrix determines
+    #: the minimum while the minimum never determines the matrix, so
+    #: without A there is no `cov(G)` and therefore no group.
+    admissibility_matrix: np.ndarray | None = None
+    #: The cell order the columns of `admissibility_matrix` are in --
+    #: `("en/f1", ..., "fr/f3")`. Carried explicitly so a consumer never
+    #: has to reconstruct column order from `families_by_locale`.
+    cell_keys: tuple[str, ...] = ()
+    #: FULL per-cell float vectors, in memory, keyed
+    #: `{"separation_auroc"|"fire_rate"|"near_miss_auroc": {cell: [d_sae]}}`.
+    #: Untruncated: the JSON summaries below keep only each cell's leaders,
+    #: and `select_candidates_from_scan` needs the whole vector to choose
+    #: per-cell leaders at all. Not serialised.
+    per_cell_values: dict[str, dict[str, np.ndarray]] | None = None
     #: SHADOW G-B distribution over EVERY (feature, cell) pair this scan
     #: touched -- `d_sae x cells_scored` values, not a per-feature minimum
     #: and not a survivor count. None when no shadow reference was supplied.
@@ -3539,15 +3576,43 @@ class FullSpaceScan:
     #: complementarity. This retains what the minimum destroys. None when
     #: not computed. Recorded; read by no verdict and by no selection.
     per_cell_separation_auroc: dict | None = None
+    #: PER-CELL full-space FIRE RATE and NEAR-MISS AUROC summaries, in the
+    #: same shape (architect RULING_13 Q1 clause 5). RULING_8's repair
+    #: retained the G-A limb per cell and left the G-B and G-C limbs
+    #: `np.minimum`-only, destroyed on the same line they were computed --
+    #: so two thirds of the admissibility question was unanswerable from
+    #: the record. A RECORDING change: no threshold moves, no gate is
+    #: added, no verdict reads them.
+    per_cell_fire_rate: dict | None = None
+    per_cell_near_miss_auroc: dict | None = None
+    #: THE LOSSLESS RECORD OF A[f, c] -- the exact support of the matrix,
+    #: per cell, plus the 64-pattern coverage census. This is what makes
+    #: `cov(G)` computable downstream WITHOUT re-running the scan, which is
+    #: the whole requirement. Unlike the three summaries above it is NOT
+    #: truncated at any k.
+    admissibility: dict | None = None
 
 
 #: How many per-cell full-space leaders `summarise_per_cell_auroc` keeps.
 #: See its docstring for why this is a TRUNCATION and what it costs.
 PER_CELL_FULL_SPACE_TOP_K = 25
 
+#: Ceiling on how many features get a VERBOSE per-cell gate record in one
+#: verdict (~2 KB of JSON each, so 2000 is ~4 MB per concept). It bounds
+#: the verbose record ONLY: the admissibility matrix is complete for all
+#: `d_sae` features whatever this is set to, and any overflow is counted
+#: and named in `candidate_recording_bound`. `None` disables the bound.
+#:
+#: It is NOT a top-N over the candidate pool in the sense RULING_13
+#: prohibits: the prohibited object is a min-RANKED pool consumed as the
+#: group lane's candidate set, and the group lane reads
+#: `admissibility_matrix`, which no budget touches.
+DEFAULT_MAX_VERBOSE_CANDIDATES = 2000
+
 
 def summarise_per_cell_auroc(
     per_cell: dict[str, np.ndarray], *, auroc_min: float, top_k: int = PER_CELL_FULL_SPACE_TOP_K,
+    quantity: str = "separation_auroc",
 ) -> dict:
     """The per-cell full-space separation AUROC, retained instead of thrown
     away (architect RULING_8 T1, 2026-08-15).
@@ -3587,15 +3652,34 @@ def summarise_per_cell_auroc(
     reads any of it.
 
     `auroc_min` is READ from the frozen thresholds by the caller and used
-    only to COUNT. Nothing here moves it."""
+    only to COUNT. Nothing here moves it.
+
+    RULING_13 (2026-08-16): `quantity` generalises this to all three gate
+    limbs -- the same summary is now produced for per-cell FIRE RATE and
+    per-cell NEAR-MISS AUROC, which RULING_8's repair left min-only.
+
+    THE TRUNCATION IS STILL HERE AND IS STILL A COLLAPSE AT RETENTION.
+    Outside each cell's top_k the FLOAT is not retained. That is why the
+    admissibility BOOLEAN is recorded separately and completely by
+    `build_admissibility_matrix`: the boolean is what `cov(G)` needs and it
+    costs one bit, so it is kept for every feature; the float is what a
+    re-ranking would need and it costs 24 bytes, so it is kept for the
+    leaders. Stated, so that a later consumer who needs the float for a
+    non-leader knows it must re-run the scan rather than discovering an
+    absence."""
     summary: dict = {
+        "quantity": quantity,
+        "threshold_used_for_the_count": float(auroc_min),
+        # Retained under its historical name so a reader of an older
+        # grid.json sees the same key for the same number.
         "gate_a_auroc_min_used_for_the_count": float(auroc_min),
         "top_k_retained_per_cell": int(top_k),
         "truncation": (
-            "per cell: max, the count at or above the G-A bar, and the top_k leading features. The "
-            "AUROC of every feature outside a cell's top_k is NOT retained -- the full d_sae x cells "
-            "matrix is ~3.9 MB per concept in memory and ~10 MB as JSON, which is refused. This is a "
-            "stated truncation, not a silent one."
+            f"per cell: max, the count at or above the frozen bar, and the top_k leading features by "
+            f"{quantity}. The {quantity} of every feature outside a cell's top_k is NOT retained -- the "
+            f"full d_sae x cells matrix is ~3.9 MB per concept in memory and ~10 MB as JSON per "
+            f"quantity, which is refused. This is a stated truncation, not a silent one. The "
+            f"ADMISSIBILITY BOOLEAN is retained for every feature and is not subject to this top_k."
         ),
         "cells": {},
     }
@@ -3603,14 +3687,185 @@ def summarise_per_cell_auroc(
         values = np.asarray(values, dtype=np.float64)
         order = np.argsort(-values, kind="stable")[:top_k]
         summary["cells"][cell] = {
-            "max_separation_auroc": float(values.max()) if values.size else None,
+            f"max_{quantity}": float(values.max()) if values.size else None,
+            # Historical key, kept for the separation limb's existing readers.
+            **({"max_separation_auroc": float(values.max()) if values.size else None}
+               if quantity == "separation_auroc" else {}),
+            "features_at_or_above_threshold": int((values >= auroc_min).sum()),
             "features_at_or_above_gate_a": int((values >= auroc_min).sum()),
             "features_scored": int(values.size),
             "top_features": [
-                {"feature_index": int(i), "separation_auroc": float(values[i])} for i in order
+                {"feature_index": int(i), quantity: float(values[i])} for i in order
             ],
         }
     return summary
+
+
+#: Slack applied to the SCREEN only, never to a recorded verdict. The
+#: vectorised rank-based AUROC and sklearn's trapezoidal one agree to
+#: floating-point noise, not necessarily bit-for-bit; screening at
+#: `threshold - _SCREEN_EPSILON` and then DECIDING with the frozen scalar
+#: primitive at the exact frozen threshold means a feature can never be
+#: dropped by last-ulp disagreement, and can never be admitted by it
+#: either. This widens what gets verified; it does not weaken any gate.
+#:
+#: Moved above `build_admissibility_matrix` (2026-08-16) because the
+#: admissibility matrix is screened with the same slack, for the same
+#: reason, and a default argument must see it at definition time.
+_SCREEN_EPSILON = 1e-9
+
+
+class PerCellRetentionMissing(RuntimeError):
+    """A scan reached a consumer without its per-cell retention.
+
+    RAISED, NEVER DEGRADED TO A MINIMUM. The whole finding of architect
+    RULING_13 is that a collapse at retention is irreversible, so a
+    selector that quietly fell back to `min_separation_auroc` when the
+    per-cell arrays were absent would reintroduce the defect while
+    reporting success -- a clean negative indistinguishable from a working
+    path. If this raises, the scan is the thing to fix."""
+
+
+#: G-A/G-B/G-C threshold keys, in the fixed order the admissibility record
+#: reports them. Read from the frozen artifact by the caller; never set here.
+_ADMISSIBILITY_GATE_KEYS = (
+    ("separation_auroc", "G_A_separation_auroc_min", "G-A"),
+    ("fire_rate", "G_B_fire_rate_min", "G-B"),
+    ("near_miss_auroc", "G_C_specificity_auroc_vs_near_miss_min", "G-C"),
+)
+
+
+def build_admissibility_matrix(
+    per_cell_values: dict[str, dict[str, np.ndarray]], *, cell_keys: tuple[str, ...],
+    auroc_min: float, fire_rate_min: float, near_miss_auroc_min: float, d_sae: int,
+    screen_epsilon: float = _SCREEN_EPSILON,
+) -> tuple[np.ndarray, dict]:
+    """THE ADMISSIBILITY MATRIX (architect RULING_13 Q1 clause 3).
+
+    `A[f, c] = 1` iff feature `f` clears all three frozen gates IN CELL
+    `c`, over the six cells `c = locale x paraphrase family`. Returns the
+    boolean `[d_sae, n_cells]` array and a LOSSLESS, JSON-serialisable
+    record of it.
+
+    WHY A BOOLEAN MATRIX AND NOT THE FLOATS. The requirement is that
+    `cov(G)[c] = 1 iff some member of G is admissible in c` be computable
+    downstream without re-running the scan. That needs A, not the values
+    behind it: A is one bit per (feature, cell) where the floats are 24
+    bytes, so the quantity that actually has to survive retention intact is
+    ~200x cheaper than the quantity that does not. The per-cell float
+    summaries are truncated at a `top_k` and say so; THIS IS NOT
+    TRUNCATED AT ANY k, and that asymmetry is deliberate.
+
+    THE RECORD IS THE SUPPORT, NOT A DENSE ARRAY: per cell, the sorted
+    list of admissible feature indices. That is exactly A's information
+    content in the sparse regime this is expected to run in, and it
+    degenerates gracefully -- a cell where every feature is admissible
+    costs d_sae integers and is reported as such rather than silently
+    capped.
+
+    SCREEN-DERIVED, AND A SUPERSET RATHER THAN A SUBSET. These values come
+    from the vectorised screen, which agrees with the frozen scalar
+    primitives to floating-point noise (falsified by `verify_gate_fixes.py
+    c3` at 1e-12 for AUROC and bit-exact for G-B). Each gate is applied at
+    `threshold - screen_epsilon`, so A can only ever be a SUPERSET of the
+    exactly-computed admissible set -- a candidate pool may be too
+    generous, never silently short. `features_within_screen_epsilon_band`
+    measures how many features that slack could possibly have added, per
+    cell and per gate, so the size of the ambiguity is recorded instead of
+    argued."""
+    if not cell_keys:
+        raise PerCellRetentionMissing("no cells: the admissibility matrix has no columns to build")
+    missing = [
+        quantity for quantity, _key, _label in _ADMISSIBILITY_GATE_KEYS
+        if quantity not in per_cell_values
+    ]
+    if missing:
+        raise PerCellRetentionMissing(
+            f"per-cell retention is missing the quantity/quantities {missing}; the admissibility "
+            f"matrix needs all three gate limbs PER CELL and must not be approximated from a minimum"
+        )
+
+    minimums = {
+        "separation_auroc": float(auroc_min),
+        "fire_rate": float(fire_rate_min),
+        "near_miss_auroc": float(near_miss_auroc_min),
+    }
+    matrix = np.ones((int(d_sae), len(cell_keys)), dtype=bool)
+    band: dict[str, dict[str, int]] = {}
+    per_gate_counts: dict[str, dict[str, int]] = {}
+    for column, cell in enumerate(cell_keys):
+        band[cell] = {}
+        per_gate_counts[cell] = {}
+        for quantity, _key, label in _ADMISSIBILITY_GATE_KEYS:
+            values = np.asarray(per_cell_values[quantity][cell], dtype=np.float64)
+            if values.shape != (int(d_sae),):
+                raise PerCellRetentionMissing(
+                    f"per-cell {quantity} for cell {cell!r} has shape {values.shape}, expected "
+                    f"({d_sae},) -- a partial per-cell vector cannot produce a sound matrix"
+                )
+            threshold = minimums[quantity]
+            passed = values >= threshold - screen_epsilon
+            matrix[:, column] &= passed
+            per_gate_counts[cell][label] = int(passed.sum())
+            band[cell][label] = int(
+                ((values >= threshold - screen_epsilon) & (values < threshold)).sum()
+            )
+
+    admissible_by_cell = {
+        cell: np.flatnonzero(matrix[:, column]).tolist() for column, cell in enumerate(cell_keys)
+    }
+    # The 2^6 = 64 coverage patterns, censused exactly. RULING_13 Q1 clause
+    # 8 turns minimum-cover into an enumeration over these, so the census is
+    # the object a cover search actually reads.
+    weights = (1 << np.arange(len(cell_keys), dtype=np.uint64))
+    patterns = (matrix.astype(np.uint64) * weights).sum(axis=1)
+    pattern_values, pattern_counts = np.unique(patterns, return_counts=True)
+    cells_covered = matrix.sum(axis=1)
+
+    record = {
+        "definition": (
+            "A[f, c] = 1 iff feature f clears G-A, G-B and G-C IN CELL c. cov(G)[c] = 1 iff some "
+            "member of G is admissible in c; G is COMPLETE iff cov(G) == 1^6. Architect RULING_13 Q1."
+        ),
+        "cell_order": list(cell_keys),
+        "d_sae": int(d_sae),
+        "thresholds_used": {
+            "G_A_separation_auroc_min": float(auroc_min),
+            "G_B_fire_rate_min": float(fire_rate_min),
+            "G_C_specificity_auroc_vs_near_miss_min": float(near_miss_auroc_min),
+        },
+        "screen_epsilon": float(screen_epsilon),
+        "screen_derived": (
+            "Values come from the vectorised screen and each gate is applied at threshold - "
+            "screen_epsilon, so this matrix is a SUPERSET of the exactly-computed admissible set, "
+            "never a subset. features_within_screen_epsilon_band bounds what that slack could add."
+        ),
+        "not_truncated": (
+            "The support below is complete. Unlike the per-cell float summaries, which keep a top_k "
+            "and say so, no feature is dropped from this record for any budget reason."
+        ),
+        "admissible_feature_indices_by_cell": admissible_by_cell,
+        "admissible_count_by_cell": {cell: len(v) for cell, v in admissible_by_cell.items()},
+        "per_gate_pass_count_by_cell": per_gate_counts,
+        "features_within_screen_epsilon_band": band,
+        # Individual CORRELATIONAL admissibility -- gates passing in AT
+        # LEAST ONE cell (RULING_13 Q1 clause 6). This is the membership
+        # bar for a group, and it is far weaker than survivorship.
+        "features_admissible_in_at_least_one_cell": int((cells_covered > 0).sum()),
+        # Individual survivorship -- all six cells. min-across-cells AS A
+        # QUALIFIER, which the ruling holds is correct.
+        "features_admissible_in_all_cells": int((cells_covered == len(cell_keys)).sum()),
+        "coverage_pattern_census": {
+            format(int(value), f"0{len(cell_keys)}b"): int(count)
+            for value, count in zip(pattern_values.tolist(), pattern_counts.tolist(), strict=True)
+            if int(value) != 0
+        },
+        "coverage_pattern_bit_order": (
+            "bit i (counting from the RIGHT of the binary string) is cell_order[i]"
+        ),
+        "features_admissible_in_no_cell": int((cells_covered == 0).sum()),
+    }
+    return matrix, record
 
 
 def summarise_shadow_distribution(
@@ -3684,6 +3939,148 @@ def summarise_shadow_distribution(
     }
 
 
+def audit_retention_granularity(scan: FullSpaceScan) -> dict:
+    """Applies architect RULING_13's GENERAL RULE -- retention must happen
+    at the finest granularity any downstream consumer might need, because a
+    collapse at retention is irreversible -- to every quantity this scan
+    emits, and reports each one's actual granularity.
+
+    A LIVE CHECK, NOT A COMMENT. `gate_limbs_all_per_cell_complete` is
+    False the moment any of the three limbs stops being retained per cell,
+    so a future refactor that reintroduces the min-only collapse is caught
+    by an assertion instead of by the next reader. The remaining entries
+    are DISCLOSURES: they name collapses that are still present and were
+    not changed, so that a consumer who needs one of them knows to ask
+    rather than discovering an absence."""
+    limbs_complete = (
+        scan.per_cell_values is not None
+        and all(q in scan.per_cell_values for q, _k, _l in _ADMISSIBILITY_GATE_KEYS)
+        and scan.admissibility_matrix is not None
+        and bool(scan.cell_keys)
+    )
+    return {
+        "rule": (
+            "RETENTION MUST BE AT THE FINEST GRANULARITY A DOWNSTREAM CONSUMER MIGHT NEED, BECAUSE A "
+            "COLLAPSE AT RETENTION IS IRREVERSIBLE (architect RULING_13 Q1 clause 4). The matrix "
+            "determines the min; the min never determines the matrix."
+        ),
+        "gate_limbs_all_per_cell_complete": bool(limbs_complete),
+        "repaired_by_ruling_13": {
+            "separation_auroc": "per-cell complete (in memory) + per-cell top_k summary + boolean A",
+            "fire_rate": "per-cell complete (in memory) + per-cell top_k summary + boolean A",
+            "near_miss_auroc": "per-cell complete (in memory) + per-cell top_k summary + boolean A",
+            "admissibility_A_f_c": "COMPLETE, untruncated support per cell, plus the 64-pattern census",
+        },
+        "min_arrays_are_qualifiers_not_rankers": (
+            "min_separation_auroc / min_fire_rate / min_near_miss_auroc are RETAINED and are correct "
+            "as the survivorship conjunction. They no longer rank or cut anything in "
+            "select_candidates_from_scan."
+        ),
+        "STILL_COLLAPSED_AT_RETENTION_AND_NOT_CHANGED_HERE": {
+            "per_cell_float_summaries_outside_top_k": (
+                f"The per-cell separation/fire-rate/near-miss SUMMARIES keep each cell's top "
+                f"{PER_CELL_FULL_SPACE_TOP_K} floats and the counts; every other feature's FLOAT is not "
+                f"serialised. A consumer needing a non-leader's per-cell float must re-run the scan. "
+                f"NOT a blocker for groups: A[f,c] is the boolean those floats would be thresholded "
+                f"into, and it is complete."
+            ),
+            "shadow_fire_rate_summary_is_pooled_across_cells": (
+                "within_values/shadow_values are concatenated across all cells before quantiling, so "
+                "the histograms and quantiles cannot be split back per cell, and no per-feature shadow "
+                "value is retained at all. A re-derivation of G_B_fire_rate_min that wanted a per-cell "
+                "or per-feature view cannot get one from this record. Cheap to fix (6 x 21 bins) and "
+                "DELIBERATELY NOT FIXED HERE: the shadow record's shape is the input to a lane I do "
+                "not own, and changing it silently is the failure mode this rule is about."
+            ),
+            "dead_cell_pairs_is_a_scalar": (
+                "The count of (feature, cell) pairs whose positives are all zero is summed across "
+                "cells; WHICH pairs were dead is not retained. Recoverable only by re-running."
+            ),
+            "shadow_reference_pools_both_locales": (
+                "shadow_corpus_max_per_feature takes np.maximum across locales, so the per-locale "
+                "background max is destroyed. Documented as a deliberate conservative choice in its own "
+                "docstring, and it is still a collapse at retention -- named here rather than left to "
+                "that docstring."
+            ),
+            "verbose_gate_records_are_bounded": (
+                "observed_max, activation_floor and the shadow fields are retained per cell only for "
+                "features that got a verbose record (see candidate_recording_bound). The admissibility "
+                "matrix is unaffected by that bound."
+            ),
+        },
+        "SUPERSEDED_BY_THE_MATRIX": {
+            "gate_a_passing_feature_count": (
+                "a scalar count of features passing G-A in all six cells; now recomputable exactly "
+                "from A, so its collapse no longer loses anything"
+            ),
+        },
+    }
+
+
+def measure_retention_cost(
+    *, d_sae: int, n_cells: int = 6, admissible_fractions: tuple[float, ...] = (0.0, 0.001, 0.01, 0.1, 1.0),
+    seed: int = 20260816,
+) -> dict:
+    """MEASURES what RULING_13's retention actually costs, at production
+    `d_sae`, by building the arrays and serialising the record -- not by
+    estimating from a formula.
+
+    Reported per concept: resident bytes of the three per-cell float
+    vectors and of the boolean matrix (`nbytes`, exact), and the SERIALISED
+    JSON length of the admissibility record at several admissibility rates,
+    including the degenerate rate 1.0 where every feature is admissible in
+    every cell.
+
+    The rate matters because the record stores A's SUPPORT: at a realistic
+    sparse rate it is small, and at rate 1.0 it is `n_cells * d_sae`
+    integers. The point of measuring the top of that range is that the
+    worst case is then a known number rather than a hope, and if the worst
+    case is unaffordable the coarsening can be chosen against evidence."""
+    rng = np.random.default_rng(seed)
+    float_bytes = 3 * n_cells * d_sae * np.dtype(np.float64).itemsize
+    bool_bytes = d_sae * n_cells * np.dtype(bool).itemsize
+    cell_keys = tuple(f"c{index}" for index in range(n_cells))
+
+    by_rate = {}
+    for fraction in admissible_fractions:
+        matrix = rng.random((d_sae, n_cells)) < fraction
+        admissible_by_cell = {
+            cell: np.flatnonzero(matrix[:, column]).tolist() for column, cell in enumerate(cell_keys)
+        }
+        weights = (1 << np.arange(n_cells, dtype=np.uint64))
+        patterns = (matrix.astype(np.uint64) * weights).sum(axis=1)
+        values, counts = np.unique(patterns, return_counts=True)
+        record = {
+            "cell_order": list(cell_keys),
+            "admissible_feature_indices_by_cell": admissible_by_cell,
+            "coverage_pattern_census": {
+                format(int(v), f"0{n_cells}b"): int(c)
+                for v, c in zip(values.tolist(), counts.tolist(), strict=True) if int(v) != 0
+            },
+        }
+        by_rate[f"{fraction:g}"] = {
+            "admissible_feature_cell_pairs": int(matrix.sum()),
+            "record_json_bytes": len(json.dumps(record)),
+        }
+        del matrix, record, admissible_by_cell
+
+    return {
+        "d_sae": int(d_sae),
+        "n_cells": int(n_cells),
+        "per_cell_float_vectors_bytes_in_memory": int(float_bytes),
+        "per_cell_float_vectors_mib": round(float_bytes / (1 << 20), 3),
+        "admissibility_matrix_bytes_in_memory": int(bool_bytes),
+        "admissibility_matrix_mib": round(bool_bytes / (1 << 20), 3),
+        "note_on_the_float_vectors": (
+            "TWO of the three were already materialised before this change -- separation AUROC was "
+            "retained by RULING_8 and every vector was materialised to compute its own minimum. The "
+            "INCREMENT is the two vectors that were previously freed on the line that computed them, "
+            "plus the boolean matrix."
+        ),
+        "admissibility_record_json_by_admissible_fraction": by_rate,
+    }
+
+
 def score_full_feature_space(
     backend: Backend, artifact: FrozenPromptArtifact, *, concept_id: str,
     locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES, cache: FeatureMatrixCache | None = None,
@@ -3715,17 +4112,38 @@ def score_full_feature_space(
     same cells are ALSO scored against the protocol's background reference
     and the full `d_sae x cells` distribution of both statistics is
     summarised into `shadow_fire_rate_summary`. That summary feeds the
-    record and nothing else -- `select_candidates_from_scan` reads
-    `min_separation_auroc` only, and no verdict reads any of it."""
+    record and nothing else -- and no verdict reads any of it.
+
+    RULING_13 (2026-08-16) -- PER-CELL RETENTION FOR ALL THREE LIMBS. The
+    RULING_8 repair retained per-cell separation AUROC and left per-cell
+    FIRE RATE and NEAR-MISS AUROC folded straight into `np.minimum` and
+    destroyed on the line that computed them. Two thirds of the
+    admissibility question was therefore unanswerable from the output, so
+    `A[f, c]` could not be formed, so `cov(G)` could not be computed, so
+    there were no groups. All three limbs are now retained per cell, the
+    boolean admissibility matrix is built from them, and its complete
+    support is recorded.
+
+    THIS IS A RECORDING CHANGE. No threshold moves, no gate is added, no
+    verdict changes, and the `min_*` arrays are computed from exactly the
+    same vectors as before. Peak memory rises by the two per-cell float
+    vectors that were previously discarded plus the boolean matrix; that
+    cost is MEASURED rather than asserted (see
+    `measure_retention_cost`)."""
     thresholds = artifact.metadata["thresholds"]
     floor_fraction = thresholds["G_B_activation_floor_fraction_of_observed_max"] if floor_fraction is None else floor_fraction
     fire_rate_min = thresholds["G_B_fire_rate_min"] if fire_rate_min is None else fire_rate_min
     # READ, never chosen: used only to COUNT how many features clear the
-    # frozen G-A bar per cell. No threshold moves.
+    # frozen bars per cell and to build the admissibility matrix. No
+    # threshold moves and no gate is decided here.
     auroc_min = thresholds["G_A_separation_auroc_min"] if auroc_min is None else auroc_min
+    near_miss_auroc_min = thresholds["G_C_specificity_auroc_vs_near_miss_min"]
     cache = FeatureMatrixCache() if cache is None else cache
 
     per_cell_sep: dict[str, np.ndarray] = {}
+    per_cell_fire: dict[str, np.ndarray] = {}
+    per_cell_near: dict[str, np.ndarray] = {}
+    cell_keys: list[str] = []
     min_sep = np.full(backend.d_sae, np.inf, dtype=np.float64)
     min_fire = np.full(backend.d_sae, np.inf, dtype=np.float64)
     min_near = np.full(backend.d_sae, np.inf, dtype=np.float64)
@@ -3758,12 +4176,20 @@ def score_full_feature_space(
             # lost on the same line -- which is what made a single-cell
             # champion unrepresentable. Same array, same arithmetic, no
             # extra allocation: only its lifetime changes.
+            cell_key = f"{locale}/{family}"
+            cell_keys.append(cell_key)
             cell_sep = rank_auroc_matrix(positives, negatives)
-            per_cell_sep[f"{locale}/{family}"] = cell_sep
+            per_cell_sep[cell_key] = cell_sep
             min_sep = np.minimum(min_sep, cell_sep)
             cell_fire = fire_rate_matrix(positives, floor_fraction=floor_fraction)[0]
+            # RULING_13: BOUND, not consumed on the line that computes it.
+            # `min_fire` is still the same minimum of the same vector -- the
+            # only change is that the vector now outlives it.
+            per_cell_fire[cell_key] = cell_fire
             min_fire = np.minimum(min_fire, cell_fire)
-            min_near = np.minimum(min_near, rank_auroc_matrix(positives, near_miss))
+            cell_near = rank_auroc_matrix(positives, near_miss)
+            per_cell_near[cell_key] = cell_near
+            min_near = np.minimum(min_near, cell_near)
             cells += 1
 
             if corpus_max_by_feature is not None:
@@ -3787,47 +4213,117 @@ def score_full_feature_space(
             fire_rate_min=fire_rate_min, floor_fraction=floor_fraction,
         )
 
+    per_cell_values = {
+        "separation_auroc": per_cell_sep, "fire_rate": per_cell_fire, "near_miss_auroc": per_cell_near,
+    }
+    matrix, admissibility = build_admissibility_matrix(
+        per_cell_values, cell_keys=tuple(cell_keys), auroc_min=auroc_min,
+        fire_rate_min=fire_rate_min, near_miss_auroc_min=near_miss_auroc_min, d_sae=int(backend.d_sae),
+    )
     return FullSpaceScan(
         concept_id=concept_id, locales=tuple(locales), families_by_locale=families_by_locale,
         min_separation_auroc=min_sep, min_fire_rate=min_fire, min_near_miss_auroc=min_near,
         cells_scored=cells, shadow_fire_rate_summary=shadow_summary,
-        per_cell_separation_auroc=summarise_per_cell_auroc(per_cell_sep, auroc_min=auroc_min),
+        per_cell_separation_auroc=summarise_per_cell_auroc(
+            per_cell_sep, auroc_min=auroc_min, quantity="separation_auroc"
+        ),
+        per_cell_fire_rate=summarise_per_cell_auroc(
+            per_cell_fire, auroc_min=fire_rate_min, quantity="fire_rate"
+        ),
+        per_cell_near_miss_auroc=summarise_per_cell_auroc(
+            per_cell_near, auroc_min=near_miss_auroc_min, quantity="near_miss_auroc"
+        ),
+        admissibility=admissibility,
+        admissibility_matrix=matrix,
+        cell_keys=tuple(cell_keys),
+        per_cell_values=per_cell_values,
     )
-
-
-#: Slack applied to the SCREEN only, never to a recorded verdict. The
-#: vectorised rank-based AUROC and sklearn's trapezoidal one agree to
-#: floating-point noise, not necessarily bit-for-bit; screening at
-#: `threshold - _SCREEN_EPSILON` and then DECIDING with the frozen scalar
-#: primitive at the exact frozen threshold means a feature can never be
-#: dropped by last-ulp disagreement, and can never be admitted by it
-#: either. This widens what gets verified; it does not weaken any gate.
-_SCREEN_EPSILON = 1e-9
 
 
 def select_candidates_from_scan(
     scan: FullSpaceScan, *, pairing: str, auroc_min: float, report_top_n: int = DEFAULT_REPORT_TOP_N,
 ) -> list[RankedFeature]:
-    """Which features the whole-space screen hands to exact verification,
-    best-first by min-across-cells separation AUROC (ties broken by
-    ascending feature index, so the order is deterministic).
+    """Which features the whole-space screen hands to exact verification.
 
-    Two groups, unioned: EVERY feature whose screened G-A clears the
-    frozen threshold in all six cells (this set is the answer to "which
-    features pass G-A", and must never be truncated by a reporting
-    budget), plus the next best `report_top_n` for context. The mechanical
-    -acceptance placeholder is filtered out by `exclude_mechanical_only`,
-    exactly as it was from the pre-C3 shortlist."""
+    RULING_13 Q1 clause 4 -- MIN IS A QUALIFIER, NOT A RANKER, and this
+    function used to be both. What changed and what deliberately did not:
+
+    KEPT, because it is correct: the min-across-cells QUALIFIER. Survival
+    genuinely is the conjunction "passes in all six cells", and `min >=
+    threshold` is exactly that conjunction, so the instrument has the
+    property's structure. Every feature clearing it is selected and the
+    set is NEVER truncated by a reporting budget.
+
+    REMOVED, because it is not: min-across-cells as the RANKER and as the
+    CUT. `order[:report_top_n]` over `-min_separation_auroc` took the
+    `report_top_n` best-by-minimum features for context -- and a
+    min-ranked pool holds, by construction, the features LEAST in need of
+    a group, since a feature excellent in one cell and weak in another is
+    ranked by its weak cell. That is anti-correlated with complementarity,
+    which is the property a group is selected for. The context pool is now
+    the UNION OF EACH CELL'S OWN LEADERS: per cell, the `report_top_n`
+    features with the highest separation AUROC IN THAT CELL. A single-cell
+    champion now enters the record through its own cell instead of being
+    ranked out by its worst one.
+
+    ADDED: every feature admissible in AT LEAST ONE cell is selected when
+    that set is affordable. That is RULING_13's correlational-admissibility
+    bar -- the group membership rule -- and it is far weaker than
+    survivorship. When it is larger than `max_admissible_recorded` the
+    OVERFLOW IS REPORTED, NOT SILENTLY DROPPED: `scan.admissibility`
+    carries the complete support either way, so `cov(G)` remains
+    computable for every admissible feature whether or not its verbose
+    gate record was written.
+
+    ORDERING is presentation, not retention, and no minimum enters it:
+    features are ordered by cells-admissible descending, then by best
+    single-cell separation AUROC descending, then by ascending feature
+    index. Deterministic, and pre-registered here rather than emergent.
+
+    REFUSES a scan with no per-cell retention rather than falling back to
+    the minimum (`PerCellRetentionMissing`). A silent fallback would be
+    this sprint's recurring defect committed at the exact place RULING_13
+    was written to repair."""
+    if scan.per_cell_values is None or scan.admissibility_matrix is None or not scan.cell_keys:
+        raise PerCellRetentionMissing(
+            "this scan carries no per-cell retention (per_cell_values / admissibility_matrix / "
+            "cell_keys), so neither the admissibility matrix nor per-cell leaders can be formed. "
+            "Refusing to fall back to min_separation_auroc: min is a QUALIFIER, not a RANKER "
+            "(architect RULING_13 Q1 clause 4), and a fallback here would silently restore the "
+            "collapse that ruling exists to repair."
+        )
+
     min_sep = scan.min_separation_auroc
-    gate_a_screened = np.flatnonzero(min_sep >= auroc_min - _SCREEN_EPSILON)
-    order = np.lexsort((np.arange(min_sep.size), -min_sep))
-    selected: list[int] = list(dict.fromkeys([*gate_a_screened.tolist(), *order[:report_top_n].tolist()]))
-    selected.sort(key=lambda i: (-min_sep[i], i))
-    # `RankedFeature.activation_score` carries the SCREENED min-across-cells
-    # separation AUROC here, not a raw activation magnitude -- the container
-    # is reused so that `exclude_mechanical_only` (the frozen placeholder
-    # filter) applies unchanged. Only `.feature_index` is ever recorded.
-    ranked = [RankedFeature(feature_index=int(i), activation_score=float(min_sep[i])) for i in selected]
+    per_cell_sep = scan.per_cell_values["separation_auroc"]
+    matrix = scan.admissibility_matrix
+
+    # (1) THE QUALIFIER. min-across-cells, at the frozen G-A bar. Never truncated.
+    gate_a_screened = np.flatnonzero(min_sep >= auroc_min - _SCREEN_EPSILON).tolist()
+
+    # (2) PER-CELL LEADERS, replacing the min-ranked cut.
+    per_cell_leaders: list[int] = []
+    for cell in scan.cell_keys:
+        values = np.asarray(per_cell_sep[cell], dtype=np.float64)
+        order = np.lexsort((np.arange(values.size), -values))
+        per_cell_leaders += order[:report_top_n].tolist()
+
+    # (3) CORRELATIONAL ADMISSIBILITY: admissible in at least one cell.
+    admissible_any = np.flatnonzero(matrix.any(axis=1)).tolist()
+
+    selected: list[int] = list(dict.fromkeys([*gate_a_screened, *per_cell_leaders, *admissible_any]))
+
+    cells_admissible = matrix.sum(axis=1)
+    best_cell_sep = np.max(
+        np.stack([np.asarray(per_cell_sep[cell], dtype=np.float64) for cell in scan.cell_keys]), axis=0
+    )
+    selected.sort(key=lambda i: (-int(cells_admissible[i]), -float(best_cell_sep[i]), i))
+
+    # `RankedFeature.activation_score` carries the SCREENED best-single-cell
+    # separation AUROC here, not a raw activation magnitude and no longer a
+    # minimum -- the container is reused so that `exclude_mechanical_only`
+    # (the frozen placeholder filter) applies unchanged. Only
+    # `.feature_index` is ever recorded.
+    ranked = [RankedFeature(feature_index=int(i), activation_score=float(best_cell_sep[i])) for i in selected]
     return exclude_mechanical_only(pairing, ranked)
 
 
@@ -3868,6 +4364,7 @@ def evaluate_concept_on_pairing(
     locales: tuple[str, ...] = FROZEN_PROMPT_SET_LOCALES, cache: FeatureMatrixCache | None = None,
     shortlist_size: int | None = None,
     corpus_max_by_feature: np.ndarray | None = None,
+    max_verbose_candidates: int | None = DEFAULT_MAX_VERBOSE_CANDIDATES,
 ) -> ConceptPairingVerdict:
     """One (concept, pairing) grid cell's full verdict.
 
@@ -3923,6 +4420,16 @@ def evaluate_concept_on_pairing(
             scan, pairing=backend.pairing,
             auroc_min=thresholds["G_A_separation_auroc_min"], report_top_n=report_top_n,
         )
+        # THE VERBOSE RECORD'S BOUND, STATED. `max_verbose_candidates`
+        # bounds how many features get a full per-cell gate record here
+        # (~2 KB of JSON each); it does NOT bound the admissibility matrix,
+        # which is complete for all `d_sae` features either way. Any
+        # overflow is COUNTED and named, never silently dropped -- a
+        # top-N applied here without saying so would recreate exactly the
+        # defect RULING_13 repairs.
+        selected_before_bound = len(candidates)
+        if max_verbose_candidates is not None and len(candidates) > max_verbose_candidates:
+            candidates = candidates[:max_verbose_candidates]
 
         evaluated: list[CandidateGabcEvaluation] = []
         surviving_feature_index: int | None = None
@@ -3976,6 +4483,24 @@ def evaluate_concept_on_pairing(
             gate_c_subsumption=gate_c_subsumption_note(artifact, concept_id=concept_id, locales=locales),
             shadow_gate_b_summary=scan.shadow_fire_rate_summary,
             per_cell_full_space_auroc=scan.per_cell_separation_auroc,
+            per_cell_full_space_fire_rate=scan.per_cell_fire_rate,
+            per_cell_full_space_near_miss_auroc=scan.per_cell_near_miss_auroc,
+            admissibility_matrix=scan.admissibility,
+            candidate_recording_bound={
+                "selected_by_the_screen": int(selected_before_bound),
+                "verbose_records_written": len(evaluated),
+                "max_verbose_candidates": (
+                    None if max_verbose_candidates is None else int(max_verbose_candidates)
+                ),
+                "admissible_in_at_least_one_cell": int(
+                    (scan.admissibility or {}).get("features_admissible_in_at_least_one_cell", 0)
+                ),
+                "note": (
+                    "This bounds the VERBOSE per-cell gate record only. admissibility_matrix is "
+                    "complete for all features_scored regardless, so cov(G) is computable for every "
+                    "admissible feature whether or not its verbose record was written."
+                ),
+            },
         )
     except Exception as exc:  # an ERROR cell must record ANY failure, not a curated subset
         return ConceptPairingVerdict(

@@ -49,6 +49,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
@@ -60,7 +62,7 @@ REPORT_SCHEMA_VERSION = 1
 
 FAULTS = (
     "none", "corrupt-prompt-digest", "drop-family-rows", "relabel-family-rows",
-    "invert-near-miss-of", "tamper-threshold",
+    "invert-near-miss-of", "tamper-threshold", "drop-per-cell-retention",
 )
 
 #: Stated on every report, pass or fail. These are the things a CPU box
@@ -461,6 +463,206 @@ def check_gate_plumbing_receives_the_cells(artifact) -> tuple[bool, dict]:
     return ok, detail
 
 
+class _TabulatedSAE:
+    """encode() is a table lookup: the residual is a one-hot text selector,
+    so `relu(x @ M)` returns exactly the designed row of the score matrix.
+    Real torch math -- `encode_texts` still takes its own max over
+    positions. Same construction `verify_gate_fixes.py` uses for C3."""
+
+    def __init__(self, matrix) -> None:
+        import torch
+
+        self.M = torch.as_tensor(matrix, dtype=torch.float32)
+        self.d_in = self.M.shape[0]
+        self.d_sae = self.M.shape[1]
+
+    def encode(self, x):
+        import torch
+
+        return torch.relu(x.to(torch.float32) @ self.M)
+
+
+class _TabulatedModel:
+    def __init__(self, texts: list[str]) -> None:
+        import torch
+
+        self._index = {text: i for i, text in enumerate(texts)}
+        self._n = len(texts)
+        self._torch = torch
+
+    def to_tokens(self, text: str):
+        return self._torch.tensor([[self._index[text]]])
+
+    def run_with_cache(self, tokens, names_filter: str):
+        resid = self._torch.zeros((1, 1, self._n))
+        resid[0, 0, int(tokens[0][0])] = 1.0
+        return None, {names_filter: resid}
+
+
+def check_a_complete_group_forms_from_incomplete_members(artifact) -> tuple[bool, dict]:
+    """VACUITY EXPOSED, THEN CLOSED. The surrogate backend has ZERO
+    admissible features -- random directions never clear G-A 0.90 -- so a
+    cov(G) computed on it is computed on the empty set and proves nothing.
+    A check that passes that way is the exact defect this harness exists to
+    catch, so it is not left standing.
+
+    Here two features are PLANTED through the real production path
+    (`score_full_feature_space` -> `build_admissibility_matrix`): feature 0
+    fires only on the EN positives, feature 1 only on the FR positives.
+    NEITHER SURVIVES -- each is admissible in three of six cells and would
+    be rejected by the six-cell conjunction -- but the GROUP {0, 1} has
+    `cov = 1^6` and is COMPLETE.
+
+    That is the scientific content of architect RULING_13 Q1 in one
+    assertion: a complete group assembled from members that individually
+    fail survivorship, which the old min-collapsed output could not even
+    represent."""
+    concept_id = d.PERSONA_V2_CONCEPT_IDS[0]
+    texts: list[str] = []
+    positives_by_locale: dict[str, list[str]] = {}
+    for locale in d.FROZEN_PROMPT_SET_LOCALES:
+        unrelated, near_miss, positives_by_family = d.concept_locale_texts(
+            artifact, concept_id=concept_id, locale=locale
+        )
+        locale_positives = [t for f in sorted(positives_by_family) for t in positives_by_family[f]]
+        positives_by_locale[locale] = locale_positives
+        texts += unrelated + near_miss + locale_positives
+    index = {text: i for i, text in enumerate(texts)}
+
+    d_sae = 64
+    matrix = np.zeros((len(texts), d_sae), dtype=np.float32)
+    planted = {"en": 0, "fr": 1}
+    for locale, feature_index in planted.items():
+        for text in positives_by_locale[locale]:
+            matrix[index[text], feature_index] = 100.0
+
+    backend = d.Backend(
+        pairing=targets.GEMMA_3_12B_IT_TARGET.name, model_obj=_TabulatedModel(texts),
+        sae=_TabulatedSAE(matrix), hook_name=_SURROGATE_HOOK, d_sae=d_sae, d_model=len(texts),
+        layer=targets.GEMMA_3_12B_IT_TARGET.expected_layer,
+        provenance={"model": {"repository": "tabulated", "local_path": "/tabulated"}, "sae": {"repository": "tabulated"}},
+        checkpoint_hash="tabulated",
+    )
+    scan = d.score_full_feature_space(backend, artifact, concept_id=concept_id)
+    record = scan.admissibility
+    support = {cell: set(v) for cell, v in record["admissible_feature_indices_by_cell"].items()}
+    order = record["cell_order"]
+
+    def cov(group: set[int]) -> list[int]:
+        return [int(bool(group & support[cell])) for cell in order]
+
+    cov_en, cov_fr, cov_group = cov({0}), cov({1}), cov({0, 1})
+    en_cells = [c for c in order if c.startswith("en/")]
+    fr_cells = [c for c in order if c.startswith("fr/")]
+
+    survivors = record["features_admissible_in_all_cells"]
+    ok = (
+        cov_group == [1] * 6
+        and sum(cov_en) == 3 and sum(cov_fr) == 3
+        and cov_en != [1] * 6 and cov_fr != [1] * 6
+        and all(0 in support[c] for c in en_cells) and all(0 not in support[c] for c in fr_cells)
+        and all(1 in support[c] for c in fr_cells) and all(1 not in support[c] for c in en_cells)
+        and survivors == 0
+        and record["features_admissible_in_at_least_one_cell"] == 2
+    )
+    return ok, {
+        "cell_order": order,
+        "cov_of_feature_0_alone": cov_en,
+        "cov_of_feature_1_alone": cov_fr,
+        "cov_of_the_GROUP_0_and_1": cov_group,
+        "group_is_complete": cov_group == [1] * 6,
+        "features_admissible_in_all_cells_i_e_survivors": survivors,
+        "features_admissible_in_at_least_one_cell": record["features_admissible_in_at_least_one_cell"],
+        "coverage_pattern_census": record["coverage_pattern_census"],
+        "the_point": (
+            "Neither member survives the six-cell conjunction -- survivors == 0 -- and the group is "
+            "nonetheless COMPLETE. The min-collapsed output could not represent this at all: both "
+            "members' min-across-cells sits at their worst cell, which is exactly where they do not "
+            "fire. PLANTED and SURROGATE: this establishes the instrument can express a complete "
+            "group, not that any real feature does."
+        ),
+    }
+
+
+def check_admissibility_matrix_is_formable(artifact) -> tuple[bool, dict]:
+    """ARCHITECT RULING_13 Q1. A[f,c] must be formable from the scan output,
+    and cov(G) must be computable from the RECORD alone -- without
+    re-running the scan and without consuming
+    `select_candidates_from_scan`'s output, which the ruling prohibits as a
+    group lane's candidate pool.
+
+    Both are exercised here: the matrix is built by the production path,
+    and `cov(G)` is then computed for a sample group using ONLY the
+    serialisable record."""
+    backend, _model = _surrogate_backend()
+    detail: dict[str, Any] = {"per_concept": {}}
+    ok = True
+    for concept_id in sorted({r["concept_id"] for r in artifact.rows}):
+        scan = d.score_full_feature_space(backend, artifact, concept_id=concept_id)
+        audit = d.audit_retention_granularity(scan)
+        record = scan.admissibility
+        matrix = scan.admissibility_matrix
+
+        # cov(G) from the RECORD ONLY -- no matrix, no scan, no re-run.
+        support = {cell: set(v) for cell, v in record["admissible_feature_indices_by_cell"].items()}
+        sample = sorted({f for cell in record["cell_order"] for f in list(support[cell])[:2]})
+        coverage = [int(bool(set(sample) & support[cell])) for cell in record["cell_order"]]
+
+        # The record's support must agree with the matrix exactly.
+        agrees = all(
+            sorted(support[cell]) == np.flatnonzero(matrix[:, column]).tolist()
+            for column, cell in enumerate(record["cell_order"])
+        )
+        cells_ok = len(record["cell_order"]) == 6 and matrix.shape == (backend.d_sae, 6)
+        ok = ok and agrees and cells_ok and audit["gate_limbs_all_per_cell_complete"]
+
+        detail["per_concept"][concept_id] = {
+            "cell_order": record["cell_order"],
+            "matrix_shape": list(matrix.shape),
+            "VACUITY": (
+                "admissible counts are 0 on this random surrogate, so the cov() computed here is over "
+                "the EMPTY set and establishes only the record's SHAPE. The non-vacuous case is "
+                "check_a_complete_group_forms_from_incomplete_members, which plants two features "
+                "through this same production path."
+            ),
+            "record_support_agrees_with_matrix": agrees,
+            "admissible_count_by_cell": record["admissible_count_by_cell"],
+            "features_admissible_in_at_least_one_cell": record["features_admissible_in_at_least_one_cell"],
+            "features_admissible_in_all_cells": record["features_admissible_in_all_cells"],
+            "coverage_patterns_present": len(record["coverage_pattern_census"]),
+            "sample_group_SURROGATE": sample,
+            "cov_of_sample_group_computed_from_the_record_alone": coverage,
+            "gate_limbs_all_per_cell_complete": audit["gate_limbs_all_per_cell_complete"],
+        }
+    detail["retention_audit_disclosures"] = d.audit_retention_granularity(
+        d.score_full_feature_space(backend, artifact, concept_id=d.PERSONA_V2_CONCEPT_IDS[0])
+    )["STILL_COLLAPSED_AT_RETENTION_AND_NOT_CHANGED_HERE"]
+    detail["WARNING"] = (
+        "Admissibility counts here are SURROGATE counts. The matrix's SHAPE and the computability of "
+        "cov(G) are what this establishes; which real features are admissible is unmeasured."
+    )
+    return ok, detail
+
+
+def check_retention_cost_is_measured() -> tuple[bool, dict]:
+    """The memory objection, MEASURED at production d_sae rather than
+    argued. Reports the resident bytes and the serialised record size,
+    including the degenerate worst case where every feature is admissible
+    in every cell."""
+    measured = {str(n): d.measure_retention_cost(d_sae=n) for n in (16384, 81920)}
+    worst = measured["81920"]["admissibility_record_json_by_admissible_fraction"]["1"]["record_json_bytes"]
+    return True, {
+        "measured": measured,
+        "verdict": (
+            f"FULL RETENTION IS FEASIBLE AND NOTHING IS COARSENED. Worst case at d_sae 81920 is "
+            f"{worst} bytes of admissibility record per concept -- every feature admissible in every "
+            f"cell, which cannot be exceeded -- so ~{14 * worst / (1 << 20):.0f} MiB across a "
+            f"14-concept grid at a rate the real data will not approach. No sampling, no truncation "
+            f"and no top-N is applied to A[f,c]."
+        ),
+    }
+
+
 def check_committed_validator(repo_root: Path) -> tuple[bool, dict]:
     d.run_persona_prompt_set_validator(repo_root)
     return True, {"validator": f"{d.PERSONA_V2_PROMPT_SET_DIR}/validate_prompt_sets.py", "exit": 0}
@@ -493,6 +695,9 @@ def run_clean(repo_root: Path) -> dict:
     record("gates_are_the_frozen_values", lambda: check_gates_are_the_frozen_values(artifact))
     record("positions_default_to_all", lambda: check_positions_default_is_all(artifact))
     record("gate_plumbing_receives_all_six_cells", lambda: check_gate_plumbing_receives_the_cells(artifact))
+    record("admissibility_matrix_is_formable_and_cov_computable", lambda: check_admissibility_matrix_is_formable(artifact))
+    record("a_complete_group_forms_from_incomplete_members", lambda: check_a_complete_group_forms_from_incomplete_members(artifact))
+    record("retention_cost_is_measured_not_guessed", check_retention_cost_is_measured)
     record("committed_v2_validator_passes", lambda: check_committed_validator(repo_root))
 
     return {
@@ -590,6 +795,46 @@ def run_fault(repo_root: Path, fault: str, tmp_root: Path) -> dict:
                 repo_root=repo_root, prompt_sets_sha256="n/a", metadata_sha256="n/a", origin="fault-injected",
             )
 
+        elif fault == "drop-per-cell-retention":
+            # THE RULING_13 CONTROL. A scan whose per-cell retention was
+            # dropped must be DETECTABLE and must FAIL. If this were
+            # tolerated -- if the selector fell back to
+            # min_separation_auroc -- a collapsed run and a retained run
+            # would be indistinguishable at the call site, and the
+            # admissibility matrix would silently not exist.
+            artifact = d.load_frozen_persona_artifact(repo_root)
+            backend, _model = _surrogate_backend()
+            scan = d.score_full_feature_space(
+                backend, artifact, concept_id=d.PERSONA_V2_CONCEPT_IDS[0]
+            )
+            detail["intact_scan"] = {
+                "cells_scored": scan.cells_scored,
+                "per_cell_quantities": sorted(scan.per_cell_values or {}),
+                "admissibility_matrix_shape": list(scan.admissibility_matrix.shape),
+                "audit_gate_limbs_all_per_cell_complete":
+                    d.audit_retention_granularity(scan)["gate_limbs_all_per_cell_complete"],
+            }
+            collapsed = d.FullSpaceScan(
+                concept_id=scan.concept_id, locales=scan.locales,
+                families_by_locale=scan.families_by_locale,
+                min_separation_auroc=scan.min_separation_auroc, min_fire_rate=scan.min_fire_rate,
+                min_near_miss_auroc=scan.min_near_miss_auroc, cells_scored=scan.cells_scored,
+            )
+            detail["collapsed_scan"] = {
+                "per_cell_values": collapsed.per_cell_values,
+                "admissibility_matrix": collapsed.admissibility_matrix,
+                "audit_gate_limbs_all_per_cell_complete":
+                    d.audit_retention_granularity(collapsed)["gate_limbs_all_per_cell_complete"],
+                "note": (
+                    "Every min_* array is still present and still correct, which is exactly why this "
+                    "must not be allowed to proceed: the minima look complete."
+                ),
+            }
+            d.select_candidates_from_scan(
+                collapsed, pairing=backend.pairing,
+                auroc_min=artifact.metadata["thresholds"]["G_A_separation_auroc_min"],
+            )
+
         elif fault == "tamper-threshold":
             original = dict(d.PERSONA_V2_GATE_THRESHOLDS)
             try:
@@ -606,7 +851,7 @@ def run_fault(repo_root: Path, fault: str, tmp_root: Path) -> dict:
         else:
             raise ValueError(f"unknown fault {fault!r}")
 
-    except d.PromptArtifactError as exc:
+    except (d.PromptArtifactError, d.PerCellRetentionMissing) as exc:
         refusal = {"refused_with": type(exc).__name__, "message": str(exc)}
     except Exception as exc:  # any other exception is still a refusal, but a less specific one
         refusal = {"refused_with": type(exc).__name__, "message": str(exc), "unexpected_type": True}
