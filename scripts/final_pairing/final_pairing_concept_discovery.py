@@ -5454,25 +5454,114 @@ def _attached(backend: Backend, hook_fn):
             handle.remove()
 
 
-def _bundle_hook_fn(backend: Backend, feature_indices: list[int], clamp_value: float, positions: str, prompt_lengths, trace_out: list):
-    """Chains one `_make_clamp_hook` per feature in the bundle so each
-    feature's own clamp/ablate math is untouched (never re-derived for a
-    multi-feature case) -- the diagnostic trace records the FIRST feature
-    in the bundle (the seed) as `feature_index`, consistent with a
-    single-feature result being the trace-compatible special case of a
-    bundle of size 1."""
-    inner_hooks = [
-        _make_clamp_hook(backend.sae, i, clamp_value, positions, prompt_lengths, [])
-        for i in feature_indices
+def _import_group_intervention():
+    """Loads `group_intervention` BY FILE IDENTITY, never by module name.
+
+    `scripts/legacy/final_pairing_concept_discovery.py` is a 23-line
+    compatibility stub, and putting `scripts/legacy` on `sys.path` makes a
+    name-based import resolve to it -- a module present BY NAME and empty
+    of the thing it was imported for, which is this sprint's defect class
+    reached through `sys.path`. Engineer 3's lane hit exactly that. So the
+    file a module was loaded FROM is checked, a wrongly-cached module is
+    evicted rather than accepted, and the required attributes are asserted
+    present: name equality is not identity, and neither is a successful
+    import.
+
+    LAZY, deliberately: `group_intervention` imports THIS module (for the
+    shared device gate) from inside its own functions, so a module-level
+    import here would be circular."""
+    import importlib.util
+
+    expected = (SCRIPT_DIR_FOR_GROUP_INTERVENTION / "group_intervention.py").resolve()
+    if not expected.is_file():
+        raise RuntimeError(
+            f"the group-intervention primitive is not present at {expected} -- refusing to fall back "
+            f"to the retired sequential bundle path, which is order-dependent to ~71% of its own "
+            f"intervention magnitude (architect RULING_13 D2)."
+        )
+    cached = sys.modules.get("group_intervention")
+    if cached is not None:
+        cached_file = getattr(cached, "__file__", None)
+        if cached_file is None or Path(cached_file).resolve() != expected:
+            del sys.modules["group_intervention"]
+            cached = None
+    if cached is None:
+        spec = importlib.util.spec_from_file_location("group_intervention", expected)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["group_intervention"] = module
+        spec.loader.exec_module(module)
+        cached = module
+    actual = getattr(cached, "__file__", None)
+    if actual is None or Path(actual).resolve() != expected:
+        raise RuntimeError(
+            f"group_intervention resolved to {actual}, expected {expected} -- a same-named module "
+            f"shadowed it; refusing to intervene through unknown code."
+        )
+    missing = [
+        name for name in ("GroupSpec", "GroupMember", "FiringLedger", "build_group_hook")
+        if not hasattr(cached, name)
     ]
+    if missing:
+        raise RuntimeError(
+            f"group_intervention at {expected} is missing {missing} -- imported, present by name, and "
+            f"empty of what it was imported for. Refusing to continue."
+        )
+    return cached
 
-    def hook_fn(resid, hook):
-        out = resid
-        for inner in inner_hooks:
-            out = inner(out, hook)
-        return out
 
-    return hook_fn
+#: `SCRIPT_DIR` is not defined in this module; the group primitive is a
+#: sibling file, resolved from this file's own location so a working
+#: directory or a `sys.path` entry can never redirect it.
+SCRIPT_DIR_FOR_GROUP_INTERVENTION = Path(__file__).resolve().parent
+
+
+class RetiredBundlePath(RuntimeError):
+    """`_bundle_hook_fn` is RETIRED (architect RULING_13 Q3, defects D1-D3).
+
+    It is a raising tombstone rather than a deletion so a caller learns WHY
+    instead of getting an AttributeError, and rather than a repair because
+    REMOVING THE ABILITY BEATS REQUIRING THE RESTRAINT: two intervention
+    implementations, one of them order-dependent to ~71% of its own signal,
+    is the hazard. Fixing one and leaving both preserves it."""
+
+
+def _bundle_hook_fn(*_args, **_kwargs):
+    """RETIRED. Use the group-intervention primitive; `run_intervention`
+    already does.
+
+    THE THREE DEFECTS THIS PATH HAD, all measured by engineer 3 on the same
+    residual in the same run, not asserted:
+
+    D1 ORDER DEPENDENCE. It chained one `_make_clamp_hook` per member and
+    fed each one the PREVIOUS hook's output (`out = inner(out, hook)`), so
+    every member after the first read an already-steered residual. Measured
+    order spread 8.68e-02 against an intervention magnitude of 0.1220 --
+    about 71%. A GROUP IS A SET AND A SET HAS NO ORDER, so a group's effect
+    being materially a function of the order its members were listed in
+    makes the group ill-defined. The primitive composes SIMULTANEOUSLY
+    (every member's activation read from the one clean residual); its
+    measured spread is 1.49e-08.
+
+    D2 FIRING EVIDENCE DISCARDED. Every inner hook was constructed with an
+    EMPTY stats list, so for k > 1 the per-member firing evidence went
+    nowhere -- absent exactly where groups are the point. The primitive's
+    `FiringLedger` records one entry per call at every k, and its
+    `delta_norm` is the GROUP's.
+
+    D3 ONE MEMBER'S SCALE FOR THE WHOLE GROUP. The absolute clamp value was
+    `value_in_max_units * corpus_max[feature_indices[0]]`, applied to every
+    member. Features have different activation scales, so "the same dose"
+    was not the same dose, and a group could pass because one member was
+    massively overdosed while the rest did nothing -- a single-feature
+    result wearing a group label. The primitive takes each member's OWN
+    `corpus_max` and REFUSES a clamp spec where one is missing."""
+    raise RetiredBundlePath(
+        "_bundle_hook_fn is retired (architect RULING_13 D1-D3: sequential chaining is "
+        "order-dependent to ~71% of its own intervention magnitude, per-member firing evidence is "
+        "discarded at k>1, and one member's corpus_max is used to dose the whole group). "
+        "run_intervention now builds the hook through group_intervention.build_group_hook. There is "
+        "deliberately no repaired in-place version: two intervention implementations is the hazard."
+    )
 
 
 @dataclass
@@ -5491,6 +5580,20 @@ class InterventionOutcome:
     #: `truncation_flag` requirement: "48 tokens ... is thin for Suppress
     #: ... this flag makes the adequacy of 48 an empirical question."
     truncated: bool = False
+    #: WHAT EACH MEMBER WAS ACTUALLY DOSED WITH (architect RULING_13 D3).
+    #: `corpus_max_used` and `absolute_clamp_value` above are the SEED
+    #: member's and are exact at k=1; for k>1 they are descriptive and
+    #: THESE are the authority. The retired bundle path had no per-member
+    #: record because it had no per-member dose.
+    per_member_corpus_max: dict[int, float] | None = None
+    per_member_absolute_targets: dict[int, float] | None = None
+    #: The group primitive's firing ledger, one entry per hook call at
+    #: EVERY k (RULING_13 D2). The retired path built each inner hook with
+    #: an empty stats list, so this evidence did not exist for k > 1 --
+    #: absent exactly where groups are the point. `delta_norm` here is the
+    #: GROUP's realised delta, not any single member's.
+    firing_records: list[dict] | None = None
+    group_spec_label: str = ""
 
 
 def _resolved_generation_kwargs(max_new_tokens: int, generation_kwargs: dict[str, Any] | None) -> dict[str, Any]:
@@ -5583,21 +5686,126 @@ def render_chat_prompt_tokens(tokenizer, prompt: str, *, return_tensors: str = "
     )
 
 
+def build_group_spec_for_intervention(
+    feature_indices: list[int], *, direction: Literal["clamp", "ablate"], value_in_max_units: float,
+    corpus_max: dict[int, float], positions: str,
+    acknowledge_prompt_positions_unablated: bool = False,
+    hook_name: str | None = None,
+):
+    """Translates this file's intervention arguments into the group
+    primitive's `GroupSpec`. The translation is EXACT, not approximate, and
+    that is checkable at k=1:
+
+    - `direction="clamp"` set each named feature's activation to an
+      absolute target via `_make_clamp_hook`, i.e. `h += (target - a_f(h))
+      * W_dec[f]`. That is `kind="amplify", dose_form="clamp"` with
+      `target_f = alpha * member.corpus_max` and `alpha =
+      value_in_max_units`.
+    - `direction="ablate"` clamped to 0.0, i.e. `h += (0 - a_f(h)) *
+      W_dec[f]` -- the decode-difference form, which engineer 3 measured IS
+      decoder subtraction (bias and reconstruction error both cancel in the
+      difference; agreement 1.1e-08 to 1.9e-08 against deltas of 0.207 to
+      0.487 on live features). That is `kind="ablate",
+      ablation_mechanism="subtract"` at `alpha=1, weight=1`.
+
+    So at k=1 this is the SAME arithmetic and the redirect is
+    behaviour-preserving; at k>1 it is behaviour-CORRECTING, which is the
+    point. RULING_13 Q3 ruled SUBTRACT the instrument, so no reconstruct
+    variant is reachable from here.
+
+    THE MISSING-DOSE CASE IS REFUSED, NOT DEFAULTED. The retired path fell
+    back to member zero's `corpus_max` for the whole group; here a member
+    with no `corpus_max` raises."""
+    gi = _import_group_intervention()
+
+    if direction == "ablate":
+        if positions == "generated_only" and not acknowledge_prompt_positions_unablated:
+            raise ValueError(
+                "ablation at positions='generated_only' leaves the concept entirely un-ablated while "
+                "the prompt is processed, so architect RULING_13 Q3.8 requires it to be STATED rather "
+                "than defaulted: pass acknowledge_prompt_positions_unablated=True to select it."
+            )
+        return gi.GroupSpec(
+            kind="ablate",
+            members=tuple(gi.GroupMember(feature_index=int(i), weight=1.0) for i in feature_indices),
+            alpha=1.0, ablation_mechanism="subtract", positions=positions,
+            hook_name=hook_name,
+            label=f"ablate:{'+'.join(str(i) for i in feature_indices)}",
+            acknowledge_prompt_positions_unablated=acknowledge_prompt_positions_unablated,
+        )
+
+    missing = [int(i) for i in feature_indices if corpus_max.get(int(i)) is None]
+    if missing:
+        raise ValueError(
+            f"no corpus_max for feature(s) {missing}; a clamp dose is expressed in EACH MEMBER'S OWN "
+            f"max units and this refuses to substitute another member's scale. The retired bundle "
+            f"path used corpus_max[feature_indices[0]] for the whole group, which is architect "
+            f"RULING_13's defect D3."
+        )
+    return gi.GroupSpec(
+        kind="amplify", dose_form="clamp",
+        members=tuple(
+            gi.GroupMember(feature_index=int(i), weight=1.0, corpus_max=float(corpus_max[int(i)]))
+            for i in feature_indices
+        ),
+        alpha=float(value_in_max_units), positions=positions, hook_name=hook_name,
+        label=f"clamp:{'+'.join(str(i) for i in feature_indices)}",
+    )
+
+
 def run_intervention(
     backend: Backend, feature_indices: list[int], *,
     direction: Literal["clamp", "ablate"], value_in_max_units: float, corpus_max: dict[int, float],
     positions: str, prompt: str, seed: int, max_new_tokens: int, generation_kwargs: dict[str, Any] | None = None,
+    acknowledge_prompt_positions_unablated: bool = False,
 ) -> InterventionOutcome:
+    """One intervention generation, through the GROUP PRIMITIVE.
+
+    REDIRECTED 2026-08-16 (architect RULING_13 Q3): the hook is now built by
+    `group_intervention.build_group_hook`, and the sequential
+    `_bundle_hook_fn` it used to chain is RETIRED (see that function's
+    tombstone for the three measured defects). Behaviour-preserving at k=1,
+    behaviour-correcting at k>1.
+
+    WHAT A CALLER SEES CHANGE. At k=1: nothing, beyond two additional
+    recorded fields. At k>1: members are applied SIMULTANEOUSLY rather than
+    in list order; each member is dosed in its OWN max units; and the
+    firing ledger is populated. A k>1 record produced before this redirect
+    is not comparable to one produced after it, and that is a correction,
+    not a regression."""
     import torch
 
     for i in feature_indices:
         reject_mechanical_only_feature(backend.pairing, i, context="run_intervention")
         targets.validate_feature_index(i, backend.d_sae)
 
+    gi = _import_group_intervention()
     seed_feature = feature_indices[0]
-    absolute_clamp_value = 0.0 if direction == "ablate" else float(value_in_max_units) * float(corpus_max[seed_feature])
+    group_spec = build_group_spec_for_intervention(
+        feature_indices, direction=direction, value_in_max_units=value_in_max_units,
+        corpus_max=corpus_max, positions=positions,
+        acknowledge_prompt_positions_unablated=acknowledge_prompt_positions_unablated,
+        # The hook point the BACKEND scores at, never one guessed from SAE
+        # metadata: the intervention must act where the measurement was taken.
+        hook_name=backend.hook_name,
+    )
+    # PER MEMBER, never one member's scale for the group. Retained on the
+    # outcome so a reader can see what each member was actually asked for.
+    per_member_corpus_max = (
+        {} if direction == "ablate"
+        else {int(i): float(corpus_max[int(i)]) for i in feature_indices}
+    )
+    per_member_absolute_targets = (
+        {int(i): 0.0 for i in feature_indices} if direction == "ablate"
+        else {i: float(value_in_max_units) * m for i, m in per_member_corpus_max.items()}
+    )
+    # DESCRIPTIVE ONLY for k>1, and correct for k==1: kept so an existing
+    # single-feature record is byte-comparable with one written before the
+    # redirect. `per_member_absolute_targets` is the authority.
+    absolute_clamp_value = per_member_absolute_targets[seed_feature]
     gen_kwargs = _resolved_generation_kwargs(max_new_tokens, generation_kwargs)
 
+    ledger = gi.FiringLedger()
     trace: list = []
     if backend.pairing == targets.GEMMA_3_12B_IT_TARGET.name:
         model = backend.model_obj
@@ -5605,7 +5813,9 @@ def run_intervention(
         stop_ids = resolve_stop_token_ids(model.tokenizer)
         prompt_length = tokens.shape[1]
         prompt_lengths = prompt_length if positions == "generated_only" else None
-        inner = _bundle_hook_fn(backend, feature_indices, absolute_clamp_value, positions, prompt_lengths, trace)
+        inner, _resolved = gi.build_group_hook(
+            backend.sae, group_spec, ledger=ledger, prompt_lengths=prompt_lengths
+        )
         hook_fn = harness.wrap_hook_with_diagnostics(
             inner, sae=backend.sae, feature_index=seed_feature, mode=direction,
             dose_or_raw_label=f"value_in_max_units={value_in_max_units}", calibration_input=value_in_max_units,
@@ -5622,7 +5832,9 @@ def run_intervention(
         stop_ids = resolve_stop_token_ids(tokenizer)
         prompt_length = inputs["input_ids"].shape[1]
         prompt_lengths = prompt_length if positions == "generated_only" else None
-        inner = _bundle_hook_fn(backend, feature_indices, absolute_clamp_value, positions, prompt_lengths, trace)
+        inner, _resolved = gi.build_group_hook(
+            backend.sae, group_spec, ledger=ledger, prompt_lengths=prompt_lengths
+        )
         hook_fn = harness.wrap_hook_with_diagnostics(
             inner, sae=backend.sae, feature_index=seed_feature, mode=direction,
             dose_or_raw_label=f"value_in_max_units={value_in_max_units}", calibration_input=value_in_max_units,
@@ -5643,12 +5855,21 @@ def run_intervention(
         "positions": positions,
         "checkpoint_hash": backend.checkpoint_hash,
         "direction_seed": None,
+        # The seed's corpus_max above is the historical field and is
+        # DESCRIPTIVE for k>1. This names what was actually applied.
+        "per_member_corpus_max": per_member_corpus_max,
+        "composition": "simultaneous",
+        "implementation": "group_intervention.build_group_hook",
     }
     return InterventionOutcome(
         feature_indices=list(feature_indices), direction=direction, value_in_max_units=float(value_in_max_units),
         corpus_max_used=float(corpus_max[seed_feature]), absolute_clamp_value=float(absolute_clamp_value),
         positions=positions, generated_text=generated_text, verdict=verdict, spec=spec,
         truncated=bool(new_token_count >= gen_kwargs["max_new_tokens"]),
+        per_member_corpus_max=per_member_corpus_max,
+        per_member_absolute_targets=per_member_absolute_targets,
+        firing_records=[asdict(record) for record in ledger.records],
+        group_spec_label=group_spec.label,
     )
 
 

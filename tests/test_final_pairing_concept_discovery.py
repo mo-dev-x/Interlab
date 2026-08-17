@@ -71,6 +71,17 @@ class _FakeSAE:
         w[CONCEPT_FEATURE, 0] = 1.0
         w[OTHER_FEATURE, 1] = 1.0
         self.W = w
+        #: The SAME matrix `decode()` below already multiplies by, exposed
+        #: under the name a real SAE uses. Added when `run_intervention` was
+        #: redirected to the group primitive (architect RULING_13 Q3): the
+        #: retired bundle path only ever needed `encode`/`decode`, while the
+        #: primitive resolves an EXPLICIT decoder matrix and refuses to guess
+        #: where an SAE keeps its directions. Every real SAE in this project
+        #: (sae_lens, Gemma-Scope) carries `W_dec`, so this makes the fake
+        #: MORE faithful rather than accommodating it -- but the narrowed
+        #: interface is a genuine consequence of the redirect and is reported
+        #: as one.
+        self.W_dec = w
         self.k = None
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
