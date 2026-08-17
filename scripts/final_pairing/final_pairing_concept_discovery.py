@@ -3901,11 +3901,108 @@ def build_admissibility_matrix(
     return matrix, record
 
 
+def summarise_shadow_per_cell(
+    per_cell: dict[str, dict[str, np.ndarray]], *,
+    fire_rate_min: float, corpus_max_by_feature: np.ndarray, d_sae: int,
+) -> dict:
+    """PER-CELL shadow G-B retention (coordinator ruling, 2026-08-16, on the
+    collapse this lane reported).
+
+    WHY THIS IS NOT TIDINESS. The pooled histogram concatenates all six
+    cells before quantiling, and the consumer is the `G_B_fire_rate_min`
+    re-derivation. The architect's standing rule is that AN INSTRUMENT MUST
+    HAVE THE SAME STRUCTURE AS THE PROPERTY IT MEASURES: G-B is decided PER
+    CELL, so a per-cell threshold read off a pooled distribution is a
+    structure mismatch of exactly the kind that produced RULING_8.
+
+    AND THE POOLED FORM IS BLIND, NOT MERELY COARSE. Two populations the
+    re-derivation most needs are invisible in it:
+
+    1. `corpus_max == 0` features -- "below the resolution of a 30-text
+       background", NOT perfect specificity. Their shadow floor collapses
+       to 0.0, so their shadow rate degenerates into "fraction of positives
+       with any activation at all" and is not the statistic it appears to
+       be. Reported at 47% of cells in the preserved run.
+    2. ANTI-SPECIFIC cells -- `separation_auroc < 0.5`, i.e. firing HARDER
+       on unrelated text than on the concept -- some of which nonetheless
+       PASS within-cell G-B. Reported at 343 anti-specific with 105 passing.
+       A threshold re-derived from a distribution that cannot see them
+       would be calibrated partly on cells that are evidence AGAINST the
+       feature.
+
+    The anti-specific cross-tab is computable here and NOWHERE ELSE in the
+    shadow path: it needs the separation vector, which the shadow block
+    never previously saw. That is the substantive addition.
+
+    ADDITIVE. This function creates a new record; it does not read, alter
+    or replace the pooled fields, so no existing consumer can break."""
+    out: dict = {}
+    reference = np.asarray(corpus_max_by_feature, dtype=np.float64)
+    degenerate_reference = reference <= 0.0
+    for cell, vectors in per_cell.items():
+        within = np.asarray(vectors["within"], dtype=np.float64)
+        shadow = np.asarray(vectors["shadow"], dtype=np.float64)
+        separation = np.asarray(vectors["separation"], dtype=np.float64)
+        positive_max = np.asarray(vectors["positive_max"], dtype=np.float64)
+
+        anti_specific = separation < 0.5
+        dead = positive_max <= 0.0
+        out[cell] = {
+            "features_scored": int(d_sae),
+            "fire_rate_within_cell": {
+                "histogram": [int(x) for x in shadow_histogram_bins(within)],
+                "quantiles": _shadow_quantiles(within),
+                "features_at_or_above_current_min": int((within >= fire_rate_min).sum()),
+            },
+            "fire_rate_corpus_max": {
+                "histogram": [int(x) for x in shadow_histogram_bins(shadow)],
+                "quantiles": _shadow_quantiles(shadow),
+                "features_at_or_above_current_min": int((shadow >= fire_rate_min).sum()),
+            },
+            # THE TWO POPULATIONS THE POOLED FORM CANNOT EXPOSE.
+            "degenerate_reference_features": int(degenerate_reference.sum()),
+            "degenerate_reference_note": (
+                "corpus_max == 0.0: BELOW THE RESOLUTION OF THE BACKGROUND SPLIT, never evidence of "
+                "perfect specificity. The shadow floor collapses to 0.0, so the shadow rate degenerates "
+                "to 'fraction of positives with any activation at all'. Constant across cells because "
+                "the reference is per FEATURE; recorded per cell so a reader need not know that."
+            ),
+            "degenerate_reference_and_passing_shadow_gate_b": int(
+                (degenerate_reference & (shadow >= fire_rate_min)).sum()
+            ),
+            "anti_specific_features": int(anti_specific.sum()),
+            "anti_specific_note": (
+                "separation_auroc < 0.5 in THIS cell: the feature fires harder on the pooled controls "
+                "than on the concept. Evidence against the feature, not weak evidence for it."
+            ),
+            "anti_specific_and_passing_within_cell_gate_b": int(
+                (anti_specific & (within >= fire_rate_min)).sum()
+            ),
+            "anti_specific_and_passing_shadow_gate_b": int(
+                (anti_specific & (shadow >= fire_rate_min)).sum()
+            ),
+            "dead_cell_pairs": int(dead.sum()),
+            "dead_and_anti_specific": int((dead & anti_specific).sum()),
+        }
+    return out
+
+
+def _shadow_quantiles(values: np.ndarray) -> dict:
+    if values.size == 0:
+        return {}
+    qs = np.quantile(values, [0.0, 0.05, 0.25, 0.5, 0.75, 0.95, 1.0])
+    return {
+        "min": float(qs[0]), "p05": float(qs[1]), "p25": float(qs[2]), "median": float(qs[3]),
+        "p75": float(qs[4]), "p95": float(qs[5]), "max": float(qs[6]), "mean": float(values.mean()),
+    }
+
+
 def summarise_shadow_distribution(
     within_cell_counts: np.ndarray, corpus_max_counts: np.ndarray, *,
     within_cell_values: np.ndarray, corpus_max_values: np.ndarray,
     degenerate_reference_features: int, dead_cell_pairs: int, cells: int, d_sae: int,
     fire_rate_min: float, floor_fraction: float,
+    per_cell: dict | None = None,
 ) -> dict:
     """The run-level shadow evidence, in the shape someone re-deriving the
     0.70 bar actually needs: two histograms on the SAME fixed bins (the
@@ -3969,6 +4066,23 @@ def summarise_shadow_distribution(
             "record-only 0.5/0.5/1.0 signature saw 182 of them and was blind to the other 113, which "
             "were active on a control set)."
         ),
+        # ADDITIVE, per the coordinator's 2026-08-16 ruling. Every field
+        # above is UNCHANGED and no consumer of them can break. This is the
+        # provenance label the superseded pooled form carries rather than
+        # being deleted (CORRECT-NEVER-REMOVE).
+        "pooled_across_cells_provenance": (
+            "EVERY HISTOGRAM AND QUANTILE ABOVE IS POOLED OVER ALL SIX (locale, family) CELLS. G-B is "
+            "decided PER CELL, so a threshold re-derived from these pooled figures does not have the "
+            "same structure as the property it measures -- the mismatch that produced RULING_8. The "
+            "pooled figures are RETAINED and are not wrong; they are COARSER, and on two specific "
+            "populations they are BLIND: corpus_max == 0 features (a background-resolution limit, not "
+            "specificity) and anti-specific cells that still pass G-B. Use `per_cell` below for any "
+            "re-derivation; these remain valid as a run-level summary."
+        ),
+        "per_cell": per_cell,
+        "per_cell_status": (
+            "not computed" if per_cell is None else f"retained for {len(per_cell)} cells"
+        ),
     }
 
 
@@ -4003,6 +4117,12 @@ def audit_retention_granularity(scan: FullSpaceScan) -> dict:
             "fire_rate": "per-cell complete (in memory) + per-cell top_k summary + boolean A",
             "near_miss_auroc": "per-cell complete (in memory) + per-cell top_k summary + boolean A",
             "admissibility_A_f_c": "COMPLETE, untruncated support per cell, plus the 64-pattern census",
+            "shadow_gate_b": (
+                "PER-CELL histograms, quantiles and population counts for BOTH statistics, plus the "
+                "corpus_max == 0 and anti-specific cross-tabs the pooled form is blind to. The pooled "
+                "fields are RETAINED unchanged and carry a provenance label (coordinator ruling "
+                "2026-08-16; CORRECT-NEVER-REMOVE)."
+            ),
         },
         "min_arrays_are_qualifiers_not_rankers": (
             "min_separation_auroc / min_fire_rate / min_near_miss_auroc are RETAINED and are correct "
@@ -4017,13 +4137,12 @@ def audit_retention_granularity(scan: FullSpaceScan) -> dict:
                 f"NOT a blocker for groups: A[f,c] is the boolean those floats would be thresholded "
                 f"into, and it is complete."
             ),
-            "shadow_fire_rate_summary_is_pooled_across_cells": (
-                "within_values/shadow_values are concatenated across all cells before quantiling, so "
-                "the histograms and quantiles cannot be split back per cell, and no per-feature shadow "
-                "value is retained at all. A re-derivation of G_B_fire_rate_min that wanted a per-cell "
-                "or per-feature view cannot get one from this record. Cheap to fix (6 x 21 bins) and "
-                "DELIBERATELY NOT FIXED HERE: the shadow record's shape is the input to a lane I do "
-                "not own, and changing it silently is the failure mode this rule is about."
+            "shadow_per_feature_values": (
+                "No per-FEATURE shadow rate is serialised -- only per-cell histograms, quantiles and "
+                "population counts. Retaining the full d_sae x cells shadow matrix is the same ~10 MB "
+                "per concept the separation floats were refused at. The per-cell HISTOGRAM is the "
+                "per-cell distribution at 0.05 resolution, which is what a threshold re-derivation "
+                "reads; a consumer needing an individual feature's shadow rate must re-run the scan."
             ),
             "dead_cell_pairs_is_a_scalar": (
                 "The count of (feature, cell) pairs whose positives are all zero is summed across "
@@ -4189,6 +4308,7 @@ def score_full_feature_space(
     shadow_counts = np.zeros(SHADOW_HISTOGRAM_BINS, dtype=np.int64)
     within_values: list[np.ndarray] = []
     shadow_values: list[np.ndarray] = []
+    per_cell_shadow: dict[str, dict[str, np.ndarray]] = {}
     dead_cell_pairs = 0
 
     for locale in locales:
@@ -4234,6 +4354,16 @@ def score_full_feature_space(
                 within_values.append(cell_fire)
                 shadow_values.append(cell_shadow)
                 dead_cell_pairs += int((positives.max(axis=0) <= 0).sum())
+                # PER-CELL SHADOW RETENTION. The vectors are already
+                # materialised; previously they were folded into the pooled
+                # accumulators above and their cell identity was destroyed on
+                # the same line. `cell_sep` is carried in with them because
+                # the anti-specific cross-tab needs it and the shadow block
+                # has never seen a separation value before.
+                per_cell_shadow[cell_key] = {
+                    "within": cell_fire, "shadow": cell_shadow,
+                    "separation": cell_sep, "positive_max": positives.max(axis=0),
+                }
 
     shadow_summary = None
     if corpus_max_by_feature is not None:
@@ -4244,6 +4374,10 @@ def score_full_feature_space(
             degenerate_reference_features=int((np.asarray(corpus_max_by_feature) <= 0).sum()),
             dead_cell_pairs=dead_cell_pairs, cells=cells, d_sae=int(backend.d_sae),
             fire_rate_min=fire_rate_min, floor_fraction=floor_fraction,
+            per_cell=summarise_shadow_per_cell(
+                per_cell_shadow, fire_rate_min=fire_rate_min,
+                corpus_max_by_feature=corpus_max_by_feature, d_sae=int(backend.d_sae),
+            ),
         )
 
     per_cell_values = {
@@ -4662,7 +4796,60 @@ def aggregate_shadow_summaries(verdicts: list[ConceptPairingVerdict]) -> dict | 
             "grid-level quantiles are read off the summed fixed-bin histogram, so they are accurate "
             "to the 0.05 bin width; the per-concept summaries carry exact quantiles."
         ),
+        # ADDITIVE (coordinator ruling, 2026-08-16). Every field above is
+        # unchanged. Cell keys are the same six across concepts, so the
+        # per-cell histograms and counts sum exactly the way the pooled ones
+        # do -- and a grid-level PER-CELL view is what a G_B_fire_rate_min
+        # re-derivation actually needs, since G-B is decided per cell.
+        "per_cell": _aggregate_shadow_per_cell(summaries),
+        "pooled_across_cells_provenance": (
+            "The grid-level histograms and quantiles above are pooled over all six cells AND over "
+            "concepts. Retained and still valid as a run-level summary; NOT the right structure for "
+            "re-deriving a per-cell threshold, and blind to the corpus_max == 0 and anti-specific "
+            "populations. Use `per_cell`."
+        ),
     }
+
+
+def _aggregate_shadow_per_cell(summaries: list[dict]) -> dict | None:
+    """Sums the per-cell shadow records across concepts. Counts and
+    histograms sum exactly (disjoint features per concept, identical fixed
+    bins, identical cell keys). QUANTILES DO NOT SUM and are deliberately
+    NOT carried up here -- inventing a grid-level per-cell quantile by
+    averaging per-concept ones would be a fabricated number; the
+    per-concept records keep their exact quantiles and a consumer that
+    needs them reads those."""
+    per_cell_records = [s.get("per_cell") for s in summaries]
+    present = [record for record in per_cell_records if record]
+    if not present:
+        return None
+    cells = sorted({cell for record in present for cell in record})
+    summed: dict = {}
+    count_fields = (
+        "features_scored", "degenerate_reference_features",
+        "degenerate_reference_and_passing_shadow_gate_b", "anti_specific_features",
+        "anti_specific_and_passing_within_cell_gate_b", "anti_specific_and_passing_shadow_gate_b",
+        "dead_cell_pairs", "dead_and_anti_specific",
+    )
+    for cell in cells:
+        entries = [record[cell] for record in present if cell in record]
+        block: dict = {field: int(sum(e[field] for e in entries)) for field in count_fields}
+        block["concepts_summarised"] = len(entries)
+        for statistic in ("fire_rate_within_cell", "fire_rate_corpus_max"):
+            block[statistic] = {
+                "histogram": [
+                    int(sum(e[statistic]["histogram"][i] for e in entries))
+                    for i in range(SHADOW_HISTOGRAM_BINS)
+                ],
+                "features_at_or_above_current_min": int(
+                    sum(e[statistic]["features_at_or_above_current_min"] for e in entries)
+                ),
+                "quantiles_not_summed": (
+                    "quantiles do not sum; read the per-concept per-cell records for exact ones"
+                ),
+            }
+        summed[cell] = block
+    return summed
 
 
 def write_grid_result(out_dir: str | Path, pairing: str, verdicts: list[ConceptPairingVerdict]) -> Path:
