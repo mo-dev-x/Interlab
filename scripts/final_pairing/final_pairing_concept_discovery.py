@@ -3699,6 +3699,22 @@ class FullSpaceScan:
     #: the whole requirement. Unlike the three summaries above it is NOT
     #: truncated at any k.
     admissibility: dict | None = None
+    #: PER-ITEM raw probe scores behind the per-cell statistics, for the
+    #: per-cell LEADERS only -- 10 positives + 15 near-miss + 15 unrelated per
+    #: retained (feature, cell). ADDITIVE: nothing above changes shape.
+    #:
+    #: Why it exists: an AUROC is a summary and cannot be resampled, its
+    #: inputs can, and `rank_auroc_matrix` held every feature's per-item
+    #: scores in memory simultaneously and then threw them away. Without them
+    #: `CEILINGED_ON_THIS_CORPUS_WITHIN_RESAMPLING_REACH` can only ever be a
+    #: caveat, never a measurement -- and a per-cell ceiling ONE lattice step
+    #: above the bar is a cell whose clearance turns on a single pair
+    #: inversion out of 150.
+    #:
+    #: THIS IS A TRUNCATION and the record says so IN THE RECORD: see its
+    #: `scope` block for the k, the selection rule, and the per-cell count of
+    #: what was NOT retained.
+    per_item_positive_scores: dict | None = None
 
 
 #: How many per-cell full-space leaders `summarise_per_cell_auroc` keeps.
@@ -3716,6 +3732,42 @@ PER_CELL_FULL_SPACE_TOP_K = 25
 #: group lane's candidate set, and the group lane reads
 #: `admissibility_matrix`, which no budget touches.
 DEFAULT_MAX_VERBOSE_CANDIDATES = 2000
+
+
+class PerItemRetentionScopeMismatch(RuntimeError):
+    """A per-item retention record disagrees with the scope it declares.
+
+    THE DEFECT THIS EXISTS TO CATCH, and it is the one this sprint keeps
+    producing: a TRUNCATION later mistaken for full coverage. The 182-vs-295
+    undercount, the top-25 shortlist read as the space, and a withdrawn
+    pooled f3-boundness claim are all the same shape. A per-item block that
+    silently came up short -- because a cell's argmax was not among the
+    retained leaders, or because the declared count and the stored contents
+    disagree -- would be a truncation whose own record certified it as
+    complete.
+
+    So the record STATES its scope as data, and this refusal is what makes
+    that statement falsifiable: a short record is DETECTED rather than
+    emitted."""
+
+
+def per_cell_leader_indices(values: np.ndarray, *, top_k: int) -> np.ndarray:
+    """The per-cell leader ranking, in ONE place.
+
+    Factored out so that `summarise_per_cell_auroc` and the per-item
+    retention below cannot drift apart. The coordinator's constraint is exact
+    and it is the right one: the retention's selection rule must be DERIVED
+    from the existing top-k, never a second independent ranking, because two
+    silently-different rankings would be worse than no retention at all --
+    the per-item values would then describe features other than the ones the
+    ceiling was computed from.
+
+    `argsort(-values)` is a DESCENDING sort of the same vector whose `max()`
+    is recorded as that cell's ceiling, so `order[0]` IS the argmax and the
+    ceiling feature is retained for any `top_k >= 1`. That is a property of
+    this expression rather than an assumption about it, and
+    `verify_per_item_retention` re-checks it per cell per limb anyway."""
+    return np.argsort(-np.asarray(values, dtype=np.float64), kind="stable")[:top_k]
 
 
 def summarise_per_cell_auroc(
@@ -3793,7 +3845,7 @@ def summarise_per_cell_auroc(
     }
     for cell, values in per_cell.items():
         values = np.asarray(values, dtype=np.float64)
-        order = np.argsort(-values, kind="stable")[:top_k]
+        order = per_cell_leader_indices(values, top_k=top_k)
         summary["cells"][cell] = {
             f"max_{quantity}": float(values.max()) if values.size else None,
             # Historical key, kept for the separation limb's existing readers.
@@ -3807,6 +3859,295 @@ def summarise_per_cell_auroc(
             ],
         }
     return summary
+
+
+#: The three per-item splits a resample needs, and why all three. The
+#: separation AUROC runs over `n_pos x (n_near_miss + n_unrelated)` pairs and
+#: the near-miss AUROC over `n_pos x n_near_miss`, so resampling EITHER limb
+#: needs the positives AND the negative side it was scored against. Retaining
+#: the positives alone would answer nothing.
+_PER_ITEM_SPLITS = ("positives", "near_miss", "unrelated")
+
+#: The pooled order `score_full_feature_space` concatenates the negatives in,
+#: recorded so a reader can reconstruct the exact pooled vector rather than
+#: guess at it. `negatives = concatenate([unrelated, near_miss])`.
+_PER_ITEM_POOLED_NEGATIVE_ORDER = ("unrelated", "near_miss")
+
+#: Which limb each per-cell ceiling belongs to, and the label the lattice and
+#: band records already use for it.
+_PER_ITEM_LIMB_QUANTITIES = (
+    ("separation_auroc", "G-A"),
+    ("fire_rate", "G-B"),
+    ("near_miss_auroc", "G-C"),
+)
+
+
+def per_item_retention_for_cell(
+    *,
+    positives: np.ndarray,
+    near_miss: np.ndarray,
+    unrelated: np.ndarray,
+    limb_values: Mapping[str, np.ndarray],
+    top_k: int = PER_CELL_FULL_SPACE_TOP_K,
+) -> dict:
+    """The per-item block for ONE cell: 40 scalars per retained feature.
+
+    WHAT THIS FIXES, and it is the same finding this file has already been
+    corrected for twice: A COLLAPSE AT RETENTION IS IRREVERSIBLE.
+    `rank_auroc_matrix(positives, negatives)` holds every feature's per-item
+    scores in memory simultaneously and then discards them, keeping only the
+    AUROC. So the question "would this cell's ceiling still sit below the bar
+    under a resample of its ten positives?" is not merely unanswered, it is
+    UNANSWERABLE from the output -- and it is the question that decides
+    whether a sub-bar ceiling is a property of the encoding or a property of
+    this corpus. LA-B searched 22 candidate field names across 43 files and
+    all five rescued grids: per-item positive scores are ABSENT everywhere.
+    `positive_scores` occurs 34 times in this file and every one of them is a
+    function parameter -- there is no literal and no assignment into any
+    serialised record.
+
+    WHY THIS IS SCOPED, AND WHY THE SCOPE IS SOUND FOR THE QUESTION. Full
+    space is `d_sae x 40` floats per cell -- ~1.26 GB raw for one pairing and
+    far worse as JSON, which is refused. The retained set is the UNION of the
+    three limbs' existing top-k leaders. A CEILING is by definition a per-cell
+    MAXIMUM, and `per_cell_leader_indices` is a descending sort of the very
+    vector that maximum is taken over, so every limb's argmax is `order[0]`
+    of its own ranking and is therefore retained. The union rather than one
+    limb's top-k is deliberate: the three limbs have three different argmaxes,
+    and retaining only G-A's leaders would leave a G-C ceiling
+    unresamplable.
+
+    WHAT THIS BLOCK IS NOT. It is NOT the space. Every field naming a count
+    below is there so that a future reader cannot mistake it for the space,
+    and `verify_per_item_retention` REFUSES a block whose declared scope and
+    stored contents disagree."""
+    positives = np.asarray(positives, dtype=np.float64)
+    near_miss = np.asarray(near_miss, dtype=np.float64)
+    unrelated = np.asarray(unrelated, dtype=np.float64)
+    if int(top_k) < 1:
+        raise PerItemRetentionScopeMismatch(
+            f"top_k must be at least 1, got {top_k}: a retention that keeps no feature cannot "
+            f"contain any cell's argmax, and the argmax is the whole point of the scoping argument"
+        )
+
+    retained: set[int] = set()
+    ranking_by_limb: dict[str, list[int]] = {}
+    argmax_by_limb: dict[str, int | None] = {}
+    for quantity, label in _PER_ITEM_LIMB_QUANTITIES:
+        values = np.asarray(limb_values[quantity], dtype=np.float64)
+        order = per_cell_leader_indices(values, top_k=int(top_k))
+        ranking_by_limb[label] = [int(i) for i in order]
+        retained.update(int(i) for i in order)
+        argmax_by_limb[label] = int(np.argmax(values)) if values.size else None
+
+    retained_indices = sorted(retained)
+    n_features = int(positives.shape[1]) if positives.ndim == 2 else 0
+    per_item = {
+        str(feature): {
+            "positives": [float(v) for v in positives[:, feature]],
+            "near_miss": [float(v) for v in near_miss[:, feature]],
+            "unrelated": [float(v) for v in unrelated[:, feature]],
+        }
+        for feature in retained_indices
+    }
+    return {
+        "features_scored_in_this_cell": n_features,
+        "features_retained": len(retained_indices),
+        # THE DROPPED POPULATION, COUNTABLE. Not a comment: a number, so the
+        # truncation is visible to anyone reading the record rather than the
+        # source.
+        "features_NOT_retained": max(0, n_features - len(retained_indices)),
+        "retained_feature_indices": retained_indices,
+        "retained_is_the_union_of_these_rankings": ranking_by_limb,
+        "argmax_feature_by_limb": argmax_by_limb,
+        "argmax_retained_by_limb": {
+            label: (None if index is None else bool(index in retained))
+            for label, index in argmax_by_limb.items()
+        },
+        "split_sizes": {
+            "positives": int(positives.shape[0]),
+            "near_miss": int(near_miss.shape[0]),
+            "unrelated": int(unrelated.shape[0]),
+        },
+        "per_item_scores_by_feature": per_item,
+    }
+
+
+def build_per_item_retention_record(
+    cells: Mapping[str, dict], *, d_sae: int, top_k: int = PER_CELL_FULL_SPACE_TOP_K,
+) -> dict:
+    """Assemble the per-item retention record and DECLARE ITS OWN SCOPE AS
+    DATA.
+
+    The scope is in the record, not in a comment, because a comment cannot
+    travel with a `grid.json` and cannot be checked. Every clause a future
+    reader would need in order NOT to mistake this for the space is a field:
+    the `k`, the selection rule as a string, the fact that the set is a
+    per-cell top-k union rather than full space, `d_sae` for the denominator,
+    and the per-cell dropped count."""
+    record = {
+        "what_this_is": (
+            "PER-ITEM raw scores behind the per-cell gate statistics: for each retained (feature, "
+            "cell), the individual score of every positive, near-miss and unrelated probe. This is "
+            "what makes a RESAMPLE possible -- an AUROC is a summary and cannot be resampled, its "
+            "inputs can."
+        ),
+        "why_it_is_retained": (
+            "A COLLAPSE AT RETENTION IS IRREVERSIBLE. These values are all in memory at once inside "
+            "rank_auroc_matrix and were then discarded, so whether a sub-bar per-cell ceiling is a "
+            "property of the ENCODING or of THIS CORPUS was unanswerable from the output. A maximum "
+            "over d_sae features does not reduce corpus-sampling error, because every feature is "
+            "scored against the SAME probes and the error is COMMON MODE."
+        ),
+        "scope": {
+            "THIS_IS_A_TRUNCATION_AND_NOT_THE_SPACE": (
+                "Retained features are the per-cell LEADERS only. This record describes "
+                f"{top_k} x 3 features per cell at most, NOT the {int(d_sae)}-feature dictionary. Any "
+                "count taken from this record is a count over the retained leaders and must be "
+                "reported as such. Reading it as the space is the defect this sprint has produced "
+                "three times."
+            ),
+            "selection": "TOP_K_PER_CELL_UNION_OVER_THE_THREE_LIMBS",
+            "top_k": int(top_k),
+            "selection_rule": (
+                "np.argsort(-values, kind='stable')[:top_k], applied to each limb's own per-cell "
+                "value vector, then UNIONED across the three limbs"
+            ),
+            "selection_rule_is_derived_not_reimplemented": (
+                "the ranking comes from per_cell_leader_indices, the SAME function "
+                "summarise_per_cell_auroc uses, so there is exactly ONE per-cell ranking in this "
+                "file and the per-item values cannot describe different features than the summaries"
+            ),
+            "why_the_argmax_is_guaranteed_present": (
+                "argsort(-values) is a DESCENDING sort of the same vector whose max() is that cell's "
+                "recorded ceiling, so order[0] IS the argmax for any top_k >= 1. Checked per cell "
+                "per limb by verify_per_item_retention rather than assumed."
+            ),
+            "limbs_ranked": [label for _q, label in _PER_ITEM_LIMB_QUANTITIES],
+            "d_sae": int(d_sae),
+            "splits_retained": list(_PER_ITEM_SPLITS),
+            "pooled_negative_order_for_separation_auroc": list(_PER_ITEM_POOLED_NEGATIVE_ORDER),
+            "why_all_three_splits": (
+                "separation AUROC is positives vs concatenate([unrelated, near_miss]) and near-miss "
+                "AUROC is positives vs near_miss, so resampling either limb needs the positives AND "
+                "the negative side it was scored against. Positives alone would answer nothing."
+            ),
+        },
+        "cells": dict(cells),
+    }
+    return verify_per_item_retention(record)
+
+
+def verify_per_item_retention(record: Mapping) -> dict:
+    """REFUSE a per-item record whose declared scope disagrees with its
+    contents, or that is missing a cell's argmax.
+
+    THE TWO CONTROLS THE COORDINATOR ASKED FOR, and they are the reason the
+    scope declaration is worth anything. A declaration that could not be
+    contradicted would be decoration: this is what makes the record's own
+    statement about itself falsifiable.
+
+    1. ARGMAX INCLUSION. If a limb's argmax is not in the retained set, the
+       scoping argument -- "a ceiling feature is by definition a per-cell
+       leader" -- has failed, and the block would be a truncation certifying
+       itself as sufficient for a resample it cannot support.
+    2. SCOPE VERSUS CONTENTS. The declared retained count, the declared
+       index list, the stored features and the declared split sizes must all
+       agree. A short record is DETECTED rather than emitted."""
+    scope = record.get("scope")
+    if not isinstance(scope, Mapping):
+        raise PerItemRetentionScopeMismatch(
+            "a per-item retention record carries no `scope` block, so it declares nothing about "
+            "what it covers and cannot be distinguished from a full-space record"
+        )
+    top_k = scope.get("top_k")
+    if not isinstance(top_k, int) or top_k < 1:
+        raise PerItemRetentionScopeMismatch(
+            f"declared top_k is {top_k!r}; a retention record must state a positive k as DATA, "
+            f"because the k is the whole content of the truncation"
+        )
+    declared_splits = list(scope.get("splits_retained") or ())
+    if declared_splits != list(_PER_ITEM_SPLITS):
+        raise PerItemRetentionScopeMismatch(
+            f"declared splits {declared_splits} are not {list(_PER_ITEM_SPLITS)}. All three are "
+            f"needed: resampling either AUROC limb requires the positives and the negative side it "
+            f"was scored against."
+        )
+    cells = record.get("cells")
+    if not isinstance(cells, Mapping) or not cells:
+        raise PerItemRetentionScopeMismatch(
+            "a per-item retention record covers no cells, so `all()` over its contents would report "
+            "every check satisfied -- the vacuity shape, refused here as elsewhere in this sprint"
+        )
+    for cell, block in cells.items():
+        stored = block.get("per_item_scores_by_feature")
+        declared_indices = block.get("retained_feature_indices")
+        if not isinstance(stored, Mapping) or not isinstance(declared_indices, list):
+            raise PerItemRetentionScopeMismatch(
+                f"cell {cell!r} carries no per-item scores or no retained index list"
+            )
+        # CONTROL 1 -- the argmax must be retained, per limb.
+        for label, index in (block.get("argmax_feature_by_limb") or {}).items():
+            if index is None:
+                continue
+            if int(index) not in set(int(i) for i in declared_indices):
+                raise PerItemRetentionScopeMismatch(
+                    f"cell {cell!r}: the {label} argmax is feature {index}, which is NOT in the "
+                    f"retained set. The scoping argument for this record is that a CEILING feature "
+                    f"is by definition a per-cell leader and is therefore retained; that argument "
+                    f"has failed here, so this block cannot support a resample of the {label} "
+                    f"ceiling and is REFUSED rather than emitted short."
+                )
+            if str(index) not in stored:
+                raise PerItemRetentionScopeMismatch(
+                    f"cell {cell!r}: the {label} argmax feature {index} is declared retained but has "
+                    f"NO per-item scores stored. A declared retention that did not happen is worse "
+                    f"than no retention."
+                )
+        # CONTROL 2 -- the declaration and the contents must agree.
+        declared_count = block.get("features_retained")
+        if declared_count != len(declared_indices):
+            raise PerItemRetentionScopeMismatch(
+                f"cell {cell!r} declares features_retained={declared_count} but lists "
+                f"{len(declared_indices)} indices"
+            )
+        if declared_count != len(stored):
+            raise PerItemRetentionScopeMismatch(
+                f"cell {cell!r} declares features_retained={declared_count} but stores per-item "
+                f"scores for {len(stored)} features. A record whose declared scope disagrees with "
+                f"its contents is exactly the truncation-read-as-coverage defect."
+            )
+        if set(str(i) for i in declared_indices) != set(stored):
+            raise PerItemRetentionScopeMismatch(
+                f"cell {cell!r}: the declared retained index list and the stored per-item keys are "
+                f"different sets"
+            )
+        scored = block.get("features_scored_in_this_cell")
+        dropped = block.get("features_NOT_retained")
+        if (
+            isinstance(scored, int) and isinstance(dropped, int)
+            and dropped != max(0, scored - declared_count)
+        ):
+            raise PerItemRetentionScopeMismatch(
+                f"cell {cell!r} declares {scored} scored, {declared_count} retained and "
+                f"{dropped} not retained, which do not reconcile. The dropped count is the only "
+                f"thing making this truncation's own size visible."
+            )
+        sizes = block.get("split_sizes") or {}
+        for feature, splits in stored.items():
+            if set(splits) != set(_PER_ITEM_SPLITS):
+                raise PerItemRetentionScopeMismatch(
+                    f"cell {cell!r} feature {feature}: per-item splits are {sorted(splits)}, "
+                    f"expected {list(_PER_ITEM_SPLITS)}"
+                )
+            for split, values in splits.items():
+                if split in sizes and len(values) != int(sizes[split]):
+                    raise PerItemRetentionScopeMismatch(
+                        f"cell {cell!r} feature {feature}: {split} has {len(values)} values but the "
+                        f"cell declares {sizes[split]}. A per-item vector shorter than its declared "
+                        f"split cannot be resampled and must not read as if it could."
+                    )
+    return dict(record)
 
 
 #: Slack applied to the SCREEN only, never to a recorded verdict. The
@@ -4626,6 +4967,9 @@ def score_full_feature_space(
     lattice_by_quantity: dict[str, dict[str, int]] = {
         "separation_auroc": {}, "fire_rate": {}, "near_miss_auroc": {},
     }
+    #: Per-item raw probe scores for the per-cell leaders, accumulated in the
+    #: cell loop because that is the only scope where the probe arrays exist.
+    per_item_by_cell: dict[str, dict] = {}
     cell_keys: list[str] = []
     min_sep = np.full(backend.d_sae, np.inf, dtype=np.float64)
     min_fire = np.full(backend.d_sae, np.inf, dtype=np.float64)
@@ -4691,6 +5035,21 @@ def score_full_feature_space(
             cell_near = rank_auroc_matrix(positives, near_miss)
             per_cell_near[cell_key] = cell_near
             min_near = np.minimum(min_near, cell_near)
+            # PER-ITEM RETENTION, taken HERE because this is the only point
+            # where `positives`, `near_miss` and `unrelated` are in scope. A
+            # collapse at retention is irreversible: after this line the raw
+            # per-probe scores are gone and no downstream consumer can
+            # reconstruct them from an AUROC. Scoped to the per-cell leaders
+            # via the SAME ranking the summaries use, so ~40 floats x 75
+            # features per cell rather than d_sae x 40.
+            per_item_by_cell[cell_key] = per_item_retention_for_cell(
+                positives=positives, near_miss=near_miss, unrelated=unrelated,
+                limb_values={
+                    "separation_auroc": cell_sep,
+                    "fire_rate": cell_fire,
+                    "near_miss_auroc": cell_near,
+                },
+            )
             cells += 1
 
             if corpus_max_by_feature is not None:
@@ -4753,6 +5112,12 @@ def score_full_feature_space(
         admissibility_matrix=matrix,
         cell_keys=tuple(cell_keys),
         per_cell_values=per_cell_values,
+        # Assembled through `build_per_item_retention_record`, which DECLARES
+        # the scope as data and REFUSES a block whose declaration disagrees
+        # with its contents or that is missing a cell's argmax.
+        per_item_positive_scores=build_per_item_retention_record(
+            per_item_by_cell, d_sae=int(backend.d_sae),
+        ),
     )
 
 
