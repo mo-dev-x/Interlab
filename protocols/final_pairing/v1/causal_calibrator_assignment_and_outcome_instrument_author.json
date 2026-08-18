@@ -1,6 +1,6 @@
 {
   "$comment": "COORDINATOR ASSIGNMENT recording (a) WHO CALIBRATES the four control-derived boundaries of the causal arm, and (b) WHO AUTHORS the causal outcome instrument. Architect RULING_15 (mailbox sequence 44, checks key THE_PRE_REGISTRATION_GAP_MAY_A_CALIBRATION_PROCEED_UNDER_A_SELF_DECLARED_ASSIGNMENT) ruled that a calibration may NOT fix a binding number under a SELF-DECLARED assignment, and that the discharge is ONE artifact of the shape of entity_discriminator_calibrator_assignment.json. This is that artifact. IT SETS NO NUMBER AND ADDS NO GATE.",
-  "protocol_version": "final-pairing-causal-calibrator-assignment-and-outcome-instrument-author/1.0.0",
+  "protocol_version": "final-pairing-causal-calibrator-assignment-and-outcome-instrument-author/1.1.0",
   "gating": {
     "causal_control_only_calibration": true,
     "causal_outcome_instrument_authorship": true,
@@ -58,7 +58,13 @@
     "where_that_spelling_comes_from": "scripts/final_pairing/causal_calibration.py, ASSIGNED_QUANTITIES, read at the worktree state of this commit. assert_assignment_is_not_self_declared refuses an AssignmentReference whose quantities_covered omits any one of them, so these four strings are the ones a consumer will compare against; they are transcribed rather than paraphrased for exactly that reason.",
     "in_the_rulings_own_prose": "the causal rate margin, the arithmetic ceiling, the crossing band and the dose reference.",
     "NONE_OF_THE_FOUR_EXISTS": "CONFIRMED BY THE RECORDER, not taken from the calibrating lane's word. See NO_CONTROL_DERIVED_BOUNDARY_EXISTS_AS_OF_THIS_COMMIT. That is what makes this artifact a STRICT ANCESTOR rather than a retro-authorisation, and it is the whole reason it can be written at all.",
-    "this_assignment_covers_the_ACT_not_a_module": "If the four quantities later move into other files, split across files, or are derived by a successor routine, this assignment travels with the QUANTITIES and continues to bind. If a FIFTH control-derived boundary is introduced, it is NOT covered here and needs its own record; that is a gap stated rather than papered over."
+    "this_assignment_covers_the_ACT_not_a_module": "If the four quantities later move into other files, split across files, or are derived by a successor routine, this assignment travels with the QUANTITIES and continues to bind. If a FIFTH control-derived boundary is introduced, it is NOT covered here and needs its own record; that is a gap stated rather than papered over.",
+    "NO_FIFTH_QUANTITY_AND_A_PROPOSED_ONE_WAS_REJECTED_ON_THE_RECORD": {
+      "$why_recorded": "So the question is CLOSED rather than merely unasked. A quantity nobody thought of and a quantity considered and rejected read identically in a document that mentions neither.",
+      "what_was_proposed": "The coordinator proposed 'the resolution' as a fourth or fifth covered quantity, in place of or alongside the dose reference.",
+      "REJECTED_and_the_ground": "rubric_resolution and rate_resolution are MEASURED PROPERTIES OF A PIN, not boundaries that anybody sets. NOTHING IS BEING ASSIGNED WHEN A MEASUREMENT IS TAKEN, so there is no assignment for a pre-registration to protect. dose_reference by contrast genuinely is an assigned quantity, and derive_dose_reference currently REFUSES for want of a declared substrate and a measured positive activation, which is the correct state for it to be in.",
+      "outcome": "THE RULING'S FOUR STAND. No fifth quantity is added by this amendment or by anything else."
+    }
   },
   "NO_CONTROL_DERIVED_BOUNDARY_EXISTS_AS_OF_THIS_COMMIT": {
     "$why_this_section_exists": "The discharge is ANCESTRY, and ancestry of nothing is vacuous unless the nothing is established. If a boundary already existed, this artifact could not be its strict ancestor and RULING_15 clause 2 would make that boundary VOID. The recorder therefore checked rather than assumed, and would have stopped and reported instead of writing this file.",
@@ -71,14 +77,35 @@
     ],
     "the_calibrating_lanes_own_statement_which_the_recorder_CONFIRMED_rather_than_relied_on": "causal_calibration.py, UNEXERCISED_WITHOUT_GPU, first entry, verbatim: 'Every number this module has ever produced. No control generation exists, on either pairing, because generation needs weights and a cluster this lane has neither. The arithmetic, the derived minima and the refusals are proven on synthetic control sets; NO MARGIN, CEILING OR BAND FOR EITHER PERSONA HAS BEEN COMPUTED AND NONE MAY BE QUOTED.'",
     "and_its_reports_statement": "researcher inbox sequence 7, checks key DEFECTS_3_AND_4_AND_THE_PRE_REGISTRATION_GAP, verbatim: 'The ancestry discharge is stated in the record as the condition -- the artifact's commit must be a STRICT ANCESTOR of the commit recording the first control-derived boundary -- and no such boundary exists, so nothing is outstanding yet.'",
-    "VERDICT": "NO CONTROL-DERIVED BOUNDARY EXISTS. Nothing is void. Nothing is retro-authorised by this document, because there is nothing to retro-authorise."
+    "VERDICT": "NO CONTROL-DERIVED BOUNDARY EXISTS. Nothing is void. Nothing is retro-authorised by this document, because there is nothing to retro-authorise.",
+    "RE_VERIFIED_AT_THE_AMENDING_COMMIT": {
+      "$why_repeated": "The 1.0.0 sweep proved a negative at a point in time, and a negative proved once is not a negative that stays true. Repeated in full at the amendment.",
+      "git_log_S_sweep_over_tracked_JSON": "rate_margin, rate_ceiling, attained_level_signed_band, rubric_resolution and calibration_digest each return ZERO commits. dose_reference returns ONE, and it is 3f24cba -- THIS DOCUMENT, naming the quantity and setting no value. A record that names a boundary is not a boundary.",
+      "ignored_trees": "results/ and reports/ contain no file matching rate_margin, rate_ceiling, calibration_digest or signed_band.",
+      "tracked_pin_files": "The only tracked path matching 'pin' is tests/fixtures/pinned_text.jsonl, a text fixture and not a calibration pin.",
+      "commits_landed_since_1_0_0": "ZERO, contrary to an expectation of three that the coordinator relayed. HEAD is 3f24cba and origin/final-pairing-harness is 3f24cba; git log shows 3f24cba directly atop 29b1dc0. RECORDED AS OBSERVED rather than as relayed, and it does not change the verdict either way.",
+      "VERDICT_UNCHANGED": "NO CONTROL-DERIVED BOUNDARY EXISTS. The amending commit remains a strict ancestor of nothing yet."
+    },
+    "CORRECTION_TO_THE_RECORDERS_OWN_1_0_0_CLAIM_write_pin_HAS_CALLERS": {
+      "$discipline": "CORRECT-NEVER-REMOVE, applied to the recorder. The 1.0.0 wording above says 'no caller of write_pin' and 'write_pin() takes a caller-supplied path and no caller in the repository invokes it'. THAT WAS OVERSTATED and the original wording is left in place with this correction attached.",
+      "what_is_actually_true": "tests/test_causal_calibration.py calls write_pin at six sites. EVERY ONE writes to a pytest tmp_path from a synthetic build_pin() fixture, and the tests exercise LF-only bytes, idempotence on identical bytes, refusal to overwrite with different bytes, and refusal to read a pin whose bytes moved to CRLF.",
+      "why_the_verdict_is_unaffected": "A pin written to a temporary directory from synthetic control data is not a control-derived boundary and does not persist. RULING_15 clause 1 rules exactly this case: exercising an instrument on synthetic fixtures where no control datum exists IS NOT A CALIBRATION. What was wrong was the recorder's SCOPE OF SEARCH, not the conclusion.",
+      "the_accurate_form_of_the_claim": "NO PRODUCTION CALLER of write_pin exists, and no pin file is committed or present anywhere outside a pytest temporary directory.",
+      "why_this_is_recorded_at_all": "A negative proved by a search is only as good as the search. Publishing the one place the recorder's search was sloppy is what lets a later reader calibrate how much the rest of it is worth."
+    }
   },
   "THE_ANCESTRY_DISCHARGE_AND_HOW_TO_MAKE_IT_FAIL": {
     "the_condition": "THIS ARTIFACT'S COMMIT MUST BE A STRICT ANCESTOR OF THE COMMIT RECORDING THE FIRST CONTROL-DERIVED BOUNDARY.",
     "the_command": "git merge-base --is-ancestor <this artifact's commit> <the commit recording the first boundary>; exit zero is a pass. STRICT: the two must not be the same commit, so a boundary landing in this very commit FAILS the discharge and is VOID.",
     "why_strictness_is_not_pedantry": "A boundary committed alongside its own assignment is a self-declaration with two files instead of one. The identity must PRECEDE the data, and precede is an ordering over commits, not a claim in prose.",
     "it_can_fail_and_here_is_the_case": "If any lane fixes a margin, ceiling, band or dose reference in a commit that IS this commit, or an ancestor of it, the check returns non-zero and RULING_15 clause 2 voids that boundary. The recorder has established that no such commit exists TODAY; the check is what keeps that true TOMORROW.",
-    "the_digest_this_document_cannot_carry": "A file cannot contain its own sha256. The digest that binds this artifact is recorded OUTSIDE it -- in the committer's mailbox report and in the commit that lands these bytes -- and a consumer computes it over the file. AssignmentReference(path, sha256, recorded_by, assigned_by, quantities_covered) is where it is asserted, and an unpinned assignment is refused there rather than stored."
+    "the_digest_this_document_cannot_carry": "A file cannot contain its own sha256. The digest that binds this artifact is recorded OUTSIDE it -- in the committer's mailbox report and in the commit that lands these bytes -- and a consumer computes it over the file. AssignmentReference(path, sha256, recorded_by, assigned_by, quantities_covered) is where it is asserted, and an unpinned assignment is refused there rather than stored.",
+    "STRICT_IS_LOAD_BEARING_AND_A_NON_STRICT_CHECK_WOULD_PASS_THE_VERY_DEFECT": {
+      "the_observation": "git merge-base --is-ancestor X X returns 0. A commit IS an ancestor of itself under that command. The recorder ran it and confirmed it.",
+      "the_consequence_if_left_to_the_checkers_discretion": "A BOUNDARY LANDING IN THE SAME COMMIT AS ITS OWN ASSIGNMENT WOULD PASS A NON-STRICT CHECK. That is precisely the self-declaration RULING_15 exists to exclude, wearing two filenames instead of one.",
+      "THE_REQUIRED_READING_STATED_HERE_RATHER_THAN_LEFT_IMPLICIT": "The discharge holds if and only if BOTH: (a) assignment_commit != boundary_commit, and (b) git merge-base --is-ancestor assignment_commit boundary_commit exits 0. Condition (a) is not optional and is not a refinement; without it the check cannot fail in the one case it is written for.",
+      "one_command_form": "test \"$A\" != \"$B\" && git merge-base --is-ancestor \"$A\" \"$B\""
+    }
   },
   "THE_CAUSAL_OUTCOME_INSTRUMENT_AND_ITS_AUTHOR": {
     "$why_here": "RULING_15 R3 clause 3 states the five author exclusions exhaustively and then declines the appointment: 'I state the exclusion set exhaustively; deriving which lanes remain eligible is analysis, and CHOOSING one is a coordination decision. I do not name it.' The coordinator chose. This records the choice.",
@@ -127,7 +154,8 @@
       "the_ruling_and_the_code": "RULING_15 clause 3 names 'the dose reference' as the fourth quantity, and ASSIGNED_QUANTITIES in causal_calibration.py spells it dose_reference. The consuming refusal compares against that spelling.",
       "the_coordinators_tasking": "named 'the resolution' in the fourth position instead of the dose reference.",
       "what_the_recorder_did": "Recorded the four identifiers AS THE RULING AND THE CODE SPELL THEM, because the ruling is the normative source and the code is what will refuse. The coordinator's word 'resolution' is preserved here unaltered rather than silently mapped onto the dose reference.",
-      "and_it_matters_because_they_are_not_the_same_object": "rubric_resolution and rate_resolution appear in the pin as MEASURED properties of the instrument and of the control sample size; the dose reference is the replacement dose scale, which derive_dose_reference today REFUSES for want of a declared substrate and a measured positive activation. If the coordinator intends resolution to be a FIFTH covered quantity, THAT IS NOT RECORDED HERE and needs saying; this document does not decide it."
+      "and_it_matters_because_they_are_not_the_same_object": "rubric_resolution and rate_resolution appear in the pin as MEASURED properties of the instrument and of the control sample size; the dose reference is the replacement dose scale, which derive_dose_reference today REFUSES for want of a declared substrate and a measured positive activation. If the coordinator intends resolution to be a FIFTH covered quantity, THAT IS NOT RECORDED HERE and needs saying; this document does not decide it.",
+      "RESOLVED_AT_1_1_0": "The coordinator states the fourth-quantity substitution was ITS OWN ERROR and that the ruling's four are correct. No fifth quantity is added; the proposal and the ground for rejecting it are recorded under THE_QUANTITIES_NAMED_RATHER_THAN_THE_FILE.NO_FIFTH_QUANTITY_AND_A_PROPOSED_ONE_WAS_REJECTED_ON_THE_RECORD. The recorder's original decision -- record the ruling's four, preserve the coordinator's word unaltered -- stands and needed no change."
     },
     "2_the_architect_has_twice_named_a_DIFFERENT_calibrating_lane": {
       "what_RULING_13_and_RULING_14_say": "Both STANDING blocks state, in the architect's own words, 'Calibration is engineer3's by the coordinator's assignment and is VOID if that lane also selects the group', and RULING_14 repeats it verbatim.",
@@ -135,13 +163,16 @@
       "the_recorders_reading_offered_as_a_READING_and_not_as_a_reconciliation": "The only coordinator assignment previously written into the protocol tree is entity_discriminator_calibrator_assignment.json, which assigns engineer3 to the ENTITY-DISCRIMINATOR calibration -- a different falsifier, a different quantity, a different timing. The architect may have carried that name across to the causal calibration; or the coordinator may have reassigned. THE RECORDER DOES NOT KNOW WHICH AND DOES NOT DECIDE.",
       "RULING_15_however_left_it_OPEN_rather_than_settled": "Its own STANDING, verbatim: 'Naming the instrument's author and naming the causal calibration's owner remain COORDINATION decisions and are not mine, exactly as at RULING_13 and RULING_14.' The latest ruling therefore does not itself name engineer3 for this calibration, and the architect has consistently refused to make the appointment at all.",
       "WHAT_MUST_HAPPEN_IF_THIS_IS_WRONG": "If the coordinator intends engineer3 to hold the causal calibration, THIS ARTIFACT MUST BE SUPERSEDED BEFORE THE FIRST BOUNDARY IS FIXED, not after -- a correction landing after the boundary cannot be a strict ancestor of it, and the boundary would be VOID under RULING_15 clause 2. Note also that engineer3 is the lane that generates the intervened continuations; whether a GENERATING lane may calibrate is not ruled anywhere the recorder could find, and is flagged rather than answered.",
-      "no_consequence_today": "Because no boundary exists, nothing has yet been fixed under either reading, and correcting this costs one commit."
+      "no_consequence_today": "Because no boundary exists, nothing has yet been fixed under either reading, and correcting this costs one commit.",
+      "RESOLVED_AT_1_1_0": "SETTLED IN FAVOUR OF researcher by the coordinator, before any boundary exists. See THE_COORDINATION_DECISION_THAT_SETTLED_THE_CALIBRATOR for the decision, the reasoning stated as reasoning, the finding that engineer3 RETAINS the entity-discriminator calibration as a distinct assignment neither superseding nor superseded, and the standing offer of architect ratification. The recorder's flag that a GENERATING lane calibrating is unruled is ACCEPTED as unruled and referred; the coordinator reads the gap as an omission rather than a permission and says so as a reading."
     },
     "3_a_fixture_in_the_calibrating_lanes_module_names_lanes_that_are_not_the_real_ones": {
       "observed": "causal_calibration.py's _FIVE_LANES maps selecting_lane to a lane name that is not the selecting lane, and generating_lane to a lane name that is not the generating lane. The real selecting lane is engineer1 and the real generating lane is engineer3.",
       "why_it_is_not_reported_as_a_defect": "Its own comment reads 'The five excluded roles, for fixtures only. A real appointment is a coordination decision and is not made in a selfcheck', and the recorder confirmed by grep that it is referenced nowhere but its own definition site. It is a deliberately fictional fixture and is consumed by no real path.",
-      "why_it_is_recorded_anyway": "A later reader grepping for lane names will find it, and a fictional lane map sitting inside the calibration module is exactly the sort of thing that gets transcribed into a real record by someone in a hurry. Named here so that reading cannot happen silently."
-    }
+      "why_it_is_recorded_anyway": "A later reader grepping for lane names will find it, and a fictional lane map sitting inside the calibration module is exactly the sort of thing that gets transcribed into a real record by someone in a hurry. Named here so that reading cannot happen silently.",
+      "STATUS_AT_1_1_0": "STANDS AS RECORDED. The coordinator agrees it is not a defect today and agrees it is the kind of thing that gets transcribed into a real record in a hurry. Having recorded it IS the mitigation; no code change is requested and none is made."
+    },
+    "$STATUS_AT_1_1_0": "Divergences 1 and 2 are RESOLVED by the coordinator, and their resolutions are attached IN PLACE below. Divergence 3 stands as recorded. THE ORIGINAL WORDING OF ALL THREE IS UNCHANGED -- nothing above this line was edited, and the resolutions are additions."
   },
   "REGISTER_STATUS_PROVENANCE": {
     "$note": "Per register_status_provenance/1.0.0: every status field cites THE OBSERVATION THAT ESTABLISHED IT, not the expectation.",
@@ -154,8 +185,10 @@
     "what_the_recorder_did_NOT_verify": [
       "That the conformance instrument is CORRECT. The recorder verified its digest, its commit and its author's eligibility, and read the appointee's own list of what it does not discharge. It did not audit the instrument's arithmetic, and this artifact certifies no instrument.",
       "That engineer1 and engineer3 are the ONLY holders of selection and generation respectively. Established from each lane's own claimed artifacts and from git log over the two files, which is authorship of code and not a formal appointment; no protocol artifact assigns either role.",
-      "That the coordinator's assignment of researcher supersedes the architect's twice-repeated naming of engineer3. UNVERIFIED, and recorded as a divergence above rather than resolved."
-    ]
+      "That the coordinator's assignment of researcher supersedes the architect's twice-repeated naming of engineer3. UNVERIFIED, and recorded as a divergence above rather than resolved.",
+      "That the architect accepts the reading that a GENERATING lane may not calibrate. UNRATIFIED. It is the coordinator's reading of a pattern across five appointments, is stated as reasoning rather than as a ruling, and no ruling states it in that general form."
+    ],
+    "settlement_source": "Coordinator instruction to the committer lane, 2026-08-18, in direct response to the divergences recorded at 1.0.0. It settles the calibrator as researcher, withdraws the proposed fifth quantity, leaves divergence 3 as recorded, and directs that the ambiguity stay visible with its resolution attached. Recorded as a COORDINATION decision open to architect ratification, at the coordinator's own explicit instruction."
   },
   "hard_stops": [
     "Fixing any of the four named quantities in a commit that IS this commit, or an ancestor of it. The ancestry must be STRICT, and a boundary landing alongside its own assignment is a self-declaration in two files.",
@@ -164,6 +197,39 @@
     "Assigning RULING_12's SEMANTIC corpus-implements-definition instrument to conformance. It voids R3 clause 5's reconciliation from that moment, self-markingly, and no edit to any rule is required for that to happen.",
     "Reading this artifact as authorizing a gate, an exclusion, a number, an allocation, a scan, a generation or a submission. It records two assignments and one prohibition.",
     "Treating the instrument appointment as validating the scale. The upper levels are unexercised by every frozen row, and resolution and rank reliability are UNMEASURED.",
-    "Quoting any margin, ceiling, band or dose reference. None has been computed, and RULING_15 clause 2 makes any that predates this commit VOID."
-  ]
+    "Quoting any margin, ceiling, band or dose reference. None has been computed, and RULING_15 clause 2 makes any that predates this commit VOID.",
+    "Reading THE_COORDINATION_DECISION_THAT_SETTLED_THE_CALIBRATOR as a RULING that a generating lane may never calibrate. It is a coordination appointment plus the reasoning behind it, and the general question is referred and unruled.",
+    "Applying the ancestry discharge NON-STRICTLY. A boundary landing in the same commit as its own assignment passes git merge-base --is-ancestor and must still be refused.",
+    "Treating this amendment as disturbing engineer3's entity-discriminator calibration. That assignment is untouched and stands."
+  ],
+  "AMENDMENT_HISTORY": {
+    "$discipline": "CORRECT-NEVER-REMOVE. Every ambiguity recorded at 1.0.0 is still present below in its original wording, with its resolution ATTACHED rather than substituted. The history is the evidence that the decision was made BEFORE any boundary existed rather than after; editing the ambiguity out would destroy exactly the thing the ancestry discharge is meant to prove.",
+    "1_0_0": {
+      "commit": "3f24cba8a8fca2f7edf68a08eda2918d2aaf9647",
+      "sha256": "bc3d9d0bf6f3dad836c6c52124e6877ea0abf78f38134b105eafec52ec590368",
+      "what_it_recorded": "The assignment, the instrument author, the standing prohibition, and THREE DIVERGENCES recorded and deliberately not reconciled."
+    },
+    "1_1_0": {
+      "what_changed": "The coordinator settled divergences 1 and 2 and left divergence 3 as recorded. This amendment attaches those resolutions, states the STRICT reading of the ancestry check explicitly, re-verifies that no control-derived boundary exists, and CORRECTS one overstated claim of the recorder's own.",
+      "what_did_NOT_change": "CALIBRATING_LANE, the four quantities, the instrument author, the digest of the instrument, and the prohibition on routing the sentence-level corpus limb to conformance. No number appears in either version.",
+      "the_digest_moves_and_that_is_expected": "Any consumer holding an AssignmentReference pinned to the 1.0.0 sha256 must repin to the 1.1.0 sha256. No consumer exists yet, because no calibration has been run."
+    }
+  },
+  "THE_COORDINATION_DECISION_THAT_SETTLED_THE_CALIBRATOR": {
+    "$status": "COORDINATION DECISION, OPEN TO ARCHITECT RATIFICATION. Recorded as REASONING, not as a ruling. RULING_15's own STANDING states that naming the causal calibration's owner is a coordination decision and is not the architect's, so the NAMING is the coordinator's to make. The PRINCIPLE it rests on is architectural and HAS NOT BEEN RULED. The architect can overturn this cheaply, and the wording here is chosen so that overturning it requires no archaeology.",
+    "DECISION": "The causal calibrator is researcher. It is NOT engineer3.",
+    "the_reasoning_stated_so_it_can_be_CHECKED_rather_than_obeyed": {
+      "1_the_unruled_gap_is_read_as_an_OMISSION_not_a_PERMISSION": "engineer3 is the lane that GENERATES the intervened continuations. RULING_15 excluded that lane from authoring the instrument on the explicit ground that a lane which both steers and scores 'can make its own steering succeed'. A calibrator sets the number the result is judged AGAINST, which is if anything a stronger position from which to make one's own steering succeed than authoring the scorer is. The five exclusions bind the INSTRUMENT'S AUTHOR and not the calibrator -- the recorder flagged that gap at 1.0.0 and it remains unruled -- and the coordinator's reading is that the gap is an omission rather than a permission.",
+      "2_the_principle_the_architect_has_now_applied_FIVE_TIMES": "The lane whose work is being judged does not set or operate the judge. Stated as the coordinator's reading of a pattern, NOT as a quotation of any ruling, because no ruling states it in this general form.",
+      "3_the_separation_that_results_is_FOUR_WAY_AND_CLEAN_and_that_was_the_test_applied": "engineer1 selects, engineer3 generates, conformance scores, researcher sets the boundary. NO LANE OCCUPIES TWO OF THOSE FOUR. That is checkable against this document and against git, and it can fail."
+    },
+    "THE_PRIOR_WORDING_IS_NOT_IN_CONFLICT_ONCE_THE_QUANTITY_IS_READ": {
+      "what_RULING_13_and_RULING_14_actually_bind": "Their STANDING blocks say 'Calibration is engineer3's by the coordinator's assignment'. The only coordinator assignment then existing in the protocol tree was entity_discriminator_calibrator_assignment.json, which assigns engineer3 the ENTITY-DISCRIMINATOR calibration -- the numeric form of 'materially below' for the STANCE signature, on the corpus-max activation distribution over three substrates.",
+      "when_it_was_made": "Before the causal arm existed. It could not have been an assignment over the causal quantities, because those quantities did not yet exist to be assigned.",
+      "TWO_ASSIGNMENTS_NEITHER_SUPERSEDING_THE_OTHER": "engineer3 RETAINS the entity-discriminator calibration under entity_discriminator_calibrator_assignment.json, which this document does not touch, weaken or supersede. researcher HOLDS the four causal quantities under this document. They are DISTINCT quantities on distinct data at distinct times, and neither assignment supersedes the other.",
+      "so_the_apparent_contradiction_dissolves_but_the_RECORD_of_it_stays": "The recorder was right to refuse to reconcile it, and the original divergence text is retained below rather than deleted."
+    },
+    "IF_THE_ARCHITECT_OVERTURNS_THIS": "The overturn must land BEFORE any of the four boundaries is fixed. A reassignment landing after the first boundary cannot be a strict ancestor of it, and RULING_15 clause 2 would then void that boundary. As of this commit no boundary exists, so an overturn costs one commit and nothing else.",
+    "WHAT_THIS_DECISION_IS_NOT": "It is not a ruling that a generating lane may never calibrate. That question is ARCHITECTURAL, is unruled, and is referred rather than answered. This document decides one appointment on the coordinator's own authority and states the reasoning so the general question can be ruled separately."
+  }
 }
