@@ -407,20 +407,227 @@ def test_no_band_threshold_or_dose_is_defined_in_this_payload():
 # ---------------------------------------------------------------------------
 
 
-def _script():
-    return cgp.job_script_text(
+CLUSTER_PATHS = {
+    "model_path": "/home/user/scratch/snapshots/gemma",
+    "sae_path": "/home/user/scratch/snapshots/gemma-sae",
+    "out": "/home/user/scratch/final_pairing/control_generations.json",
+    "venv": cgp.DEFAULT_VENV,
+    "log_dir": "/home/user/scratch/final_pairing/logs",
+}
+
+
+def _script(**overrides):
+    """A render as it would happen ON THE LOGIN NODE.
+
+    `platform="linux"` is passed explicitly because this repository's tests run
+    on Windows and the renderer REFUSES there -- which is the point, and is
+    itself asserted below."""
+    kwargs = dict(
         pairing="gemma",
-        model_path="/local/snapshot",
-        sae_path="/local/sae",
+        model_path=CLUSTER_PATHS["model_path"],
+        sae_path=CLUSTER_PATHS["sae_path"],
         cells=["en/f1"],
         seeds=[17],
         max_new_tokens=64,
         selection_rule="cell_positive_family_rows",
-        out="results/control_only/x.json",
-        venv="~/sprint-venv",
-        log_dir="logs",
-        time_limit="01:00:00",
+        out=CLUSTER_PATHS["out"],
+        model_revision="a" * 40,
+        sae_revision="b" * 40,
+        log_dir=CLUSTER_PATHS["log_dir"],
+        platform="linux",
+        create_log_dir=False,
     )
+    kwargs.update(overrides)
+    return cgp.job_script_text(**kwargs)
+
+
+# --- the four blockers LA-B measured on Tamia -------------------------------
+
+
+def test_the_module_stack_is_the_full_stack_the_cluster_recorded():
+    """BLOCKER 2, and the check is ENVIRONMENTAL: the required modules are read
+    from the recorded cluster description, not from a string this test wrote.
+    arrow alone loads cleanly and leaves pyarrow unimportable, and the venv has
+    no system site packages, so nothing fails until datasets/transformer_lens."""
+    script = _script()
+    stack = " ".join(cgp.TAMIA_ENVIRONMENT["required_modules"])
+    assert f"module load {stack}" in script
+    for module in cgp.TAMIA_ENVIRONMENT["required_modules"]:
+        assert module in script
+    assert "module load arrow/25.0.0\n" not in script
+
+
+def test_the_venv_is_activated_through_HOME_and_never_a_quoted_tilde():
+    """BLOCKER 1. Bash does not expand a tilde inside double quotes, and the
+    template quotes every path; the job died about two seconds into a
+    whole-node allocation."""
+    script = _script()
+    assert 'source "$HOME/sprint-venv/bin/activate"' in script
+    assert '"~' not in script
+    assert cgp.DEFAULT_VENV.startswith("$HOME")
+
+
+def test_a_tilde_anywhere_in_a_path_refuses_the_render():
+    with pytest.raises(cgp.JobScriptRenderRefused, match="tilde"):
+        _script(venv="~/sprint-venv")
+
+
+def test_the_log_directory_is_created_at_render_time_and_in_the_body(tmp_path, monkeypatch):
+    """BLOCKER 3. SLURM opens --output BEFORE the body runs, so a mkdir in the
+    body cannot save the first submission; the directory must exist at submit
+    time, which is why the renderer creates it. Rendered against a RELATIVE
+    posix path here because an absolute Windows one is refused -- which is
+    itself the point of the previous test."""
+    monkeypatch.chdir(tmp_path)
+    assert not (tmp_path / "scratch" / "logs").exists()
+    script = _script(log_dir="scratch/logs", create_log_dir=True)
+    assert (tmp_path / "scratch" / "logs").is_dir()
+    assert 'mkdir -p "scratch/logs"' in script
+    assert "#SBATCH --output=scratch/logs/control_only_%j.out" in script
+    assert cgp.DEFAULT_LOG_DIR.startswith("$HOME")
+
+
+def test_the_frozen_layer_is_emitted_and_imported_not_restated():
+    """BLOCKER 4, the silent one: load_backend accepts layer=None and then runs
+    at a different layer, producing a result rather than a crash."""
+    discovery = gi._import_discovery_module()
+    assert cgp.frozen_layer_for("gemma") == int(discovery.PRIMARY_CONFIGURATION.gemma_layer)
+    assert cgp.frozen_layer_for("qwen") == int(discovery.PRIMARY_CONFIGURATION.qwen_layer)
+    assert f"--layer {discovery.PRIMARY_CONFIGURATION.gemma_layer}" in _script()
+    assert f"--layer {discovery.PRIMARY_CONFIGURATION.qwen_layer}" in _script(pairing="qwen")
+    source = (
+        REPO_ROOT / "scripts" / "final_pairing" / "control_generation_payload.py"
+    ).read_bytes().decode("utf-8")
+    assert "PRIMARY_CONFIGURATION" in source
+
+
+def test_an_unknown_pairing_refuses_rather_than_rendering_layer_none():
+    with pytest.raises(cgp.JobScriptRenderRefused, match="layer=None"):
+        _script(pairing="llama")
+
+
+# --- the three smaller items ------------------------------------------------
+
+
+def test_the_time_limit_default_is_safe_and_a_low_one_refuses():
+    """ITEM 5. Submitting at the old default reproduces 413287's timeout."""
+    assert cgp.DEFAULT_TIME_LIMIT == "06:00:00"
+    assert "--time=06:00:00" in _script()
+    with pytest.raises(cgp.JobScriptRenderRefused, match="below the 6 h floor"):
+        _script(time_limit="01:00:00")
+    with pytest.raises(cgp.JobScriptRenderRefused, match="HH:MM:SS"):
+        _script(time_limit="6h")
+
+
+def test_the_plan_reports_the_measured_precedent_and_not_the_false_claim():
+    """ITEM 6. Generation DID run on Qwen3.5-27B in job 416453."""
+    plan = cgp.payload_requirements(
+        pairing="qwen",
+        cells=["en/f1", "en/f2", "en/f3", "fr/f1", "fr/f2", "fr/f3"],
+        prompts_per_cell=20,
+        seeds=[17, 23],
+        max_new_tokens=64,
+    )
+    assert "wall_time_is_not_asserted" not in plan
+    block = plan["wall_time_from_the_measured_precedent"]
+    assert block["measured"]["job"] == 416453
+    assert block["measured"]["tokens_per_second"] == 13.9
+    assert "no generation has ever run" not in json.dumps(plan)
+    # 61,440 tokens at 13.9 tok/s is ~74 min, inside LA-B's ~76 min figure.
+    assert 60.0 < block["applied_to_this_grid"]["qwen_minutes"] < 90.0
+    assert "ZERO files" in block["applied_to_this_grid"]["gemma_is_extrapolated"]
+
+
+def test_both_snapshot_revisions_are_required_and_emitted():
+    """ITEM 7. Both 415590 and 416453 passed real values; load_backend accepts
+    None, so an unasserted digest means a wrong snapshot loads silently."""
+    script = _script()
+    assert '--model-revision "' + "a" * 40 in script
+    assert '--sae-revision "' + "b" * 40 in script
+    with pytest.raises(cgp.JobScriptRenderRefused, match="WRONG SNAPSHOT LOADS SILENTLY"):
+        _script(model_revision="")
+    with pytest.raises(cgp.JobScriptRenderRefused, match="WRONG SNAPSHOT LOADS SILENTLY"):
+        _script(sae_revision="   ")
+
+
+def test_the_run_path_passes_the_revisions_and_a_real_layer():
+    source = (
+        REPO_ROOT / "scripts" / "final_pairing" / "control_generation_payload.py"
+    ).read_bytes().decode("utf-8")
+    assert "expected_model_revision=args.model_revision" in source
+    assert "expected_sae_revision=args.sae_revision" in source
+    assert "expected_model_revision=None" not in source
+    assert "layer=args.layer if args.layer is not None else frozen_layer_for(" in source
+
+
+# --- the rule: render on the cluster, never on Windows -----------------------
+
+
+def test_a_windows_render_is_refused_rather_than_emitted():
+    """THE RULE, ENCODED AS A REFUSAL. LA-B's local render mangled every path
+    through MSYS translation; staging it would have shipped a broken script."""
+    with pytest.raises(cgp.JobScriptRenderRefused, match=r"MUST BE\s+RENDERED ON THE CLUSTER"):
+        cgp.assert_render_is_cluster_shaped(CLUSTER_PATHS, platform="win32")
+    with pytest.raises(cgp.JobScriptRenderRefused):
+        _script(platform="win32")
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "C:/Program Files/Git/scratch/out.json",
+        "c:/scratch/out.json",
+        "/c/Program Files/Git/usr/out.json",
+        "scratch" + chr(92) + "out.json",
+    ],
+)
+def test_every_windows_mangled_path_shape_is_refused(bad):
+    with pytest.raises(cgp.JobScriptRenderRefused):
+        cgp.assert_render_is_cluster_shaped({**CLUSTER_PATHS, "out": bad}, platform="linux")
+
+
+def test_a_cluster_shaped_render_is_accepted_and_records_what_it_checked():
+    result = cgp.assert_render_is_cluster_shaped(CLUSTER_PATHS, platform="linux")
+    assert result["platform"] == "linux"
+    assert result["paths_checked"] == sorted(CLUSTER_PATHS)
+
+
+def test_the_cli_refuses_to_write_a_script_on_this_windows_machine(tmp_path):
+    """The CLI reads the real platform, so on this machine it REFUSES -- and on
+    a login node it would not. Asserted from whichever side we are on."""
+    argv = [
+        "--write-job-script",
+        str(tmp_path / "control_only.sh"),
+        "--pairing",
+        "gemma",
+        "--model-revision",
+        "a" * 40,
+        "--sae-revision",
+        "b" * 40,
+        "--model-path",
+        CLUSTER_PATHS["model_path"],
+        "--sae-path",
+        CLUSTER_PATHS["sae_path"],
+        "--out",
+        CLUSTER_PATHS["out"],
+        "--log-dir",
+        str(tmp_path / "logs").replace(chr(92), "/"),
+    ]
+    if sys.platform.startswith("win"):
+        with pytest.raises(cgp.JobScriptRenderRefused):
+            cgp.main(argv)
+        assert not (tmp_path / "control_only.sh").exists()
+    else:  # pragma: no cover - exercised on the login node, not here
+        assert cgp.main(argv) == 0
+        assert b"\r\n" not in (tmp_path / "control_only.sh").read_bytes()
+
+
+def test_the_cli_refuses_to_render_without_the_revisions(tmp_path):
+    with pytest.raises(SystemExit):
+        cgp.main(["--write-job-script", str(tmp_path / "s.sh"), "--pairing", "gemma"])
+
+
+# --- security posture, unchanged and still asserted --------------------------
 
 
 def test_the_job_script_unsets_the_token_and_runs_offline():
@@ -428,6 +635,7 @@ def test_the_job_script_unsets_the_token_and_runs_offline():
     assert "unset HF_TOKEN" in script
     assert "unset HUGGING_FACE_HUB_TOKEN" in script
     assert "HF_HUB_OFFLINE=1" in script
+    assert "TRANSFORMERS_OFFLINE=1" in script
 
 
 def test_the_job_script_has_no_trace_no_env_dump_and_no_repo_id():
@@ -439,12 +647,23 @@ def test_the_job_script_has_no_trace_no_env_dump_and_no_repo_id():
     assert "$HF_TOKEN" not in script
 
 
-def test_the_job_script_is_lf_only_on_disk(tmp_path):
+def test_the_rendered_script_is_lf_only_and_starts_with_a_shebang(tmp_path):
     path = tmp_path / "control_only.sh"
-    cgp.main(["--write-job-script", str(path), "--pairing", "gemma"])
+    path.write_bytes(_script().encode("utf-8"))
     raw = path.read_bytes()
     assert b"\r\n" not in raw
     assert raw.startswith(b"#!/bin/bash")
+
+
+def test_the_recorded_cluster_description_carries_its_evidence():
+    """The record is what the checks assert against, so it must say what was
+    MEASURED and by whom rather than being a list of preferences."""
+    env = cgp.TAMIA_ENVIRONMENT
+    assert "LA-B" in env["recorded_by"]
+    for key in ("module_evidence", "tilde_evidence", "log_dir_evidence", "windows_render_evidence"):
+        assert "MEASURED" in env[key]
+    assert env["measured_generation_precedent"]["job"] == 416453
+    assert env["frozen_layers"] == {"gemma": 29, "qwen": 38}
 
 
 def test_the_plan_mode_states_what_a_job_needs_and_submits_nothing(capsys):
@@ -452,7 +671,7 @@ def test_the_plan_mode_states_what_a_job_needs_and_submits_nothing(capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["generation_count"] == payload["prompts_per_cell"] * 2 * 4 * 2
     assert payload["authorization"].startswith("NOT REQUESTED")
-    assert "wall_time_is_not_asserted" in payload
+    assert "wall_time_from_the_measured_precedent" in payload
 
 
 # ---------------------------------------------------------------------------

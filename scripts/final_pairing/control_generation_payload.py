@@ -108,6 +108,17 @@ import causal_outcome as co  # noqa: E402
 import claim_type_extent_instrument as cti  # noqa: E402
 import group_intervention as gi  # noqa: E402
 
+#: The venv activation form MEASURED to work on the cluster. A tilde here is
+#: refused, not rewritten: the template quotes every path and bash does not
+#: expand a tilde inside double quotes.
+DEFAULT_VENV = "$HOME/sprint-venv"
+#: An ABSOLUTE default, because SLURM opens --output before the body runs and a
+#: relative logs/ does not exist in the extracted tree.
+DEFAULT_LOG_DIR = "$HOME/scratch/final_pairing/logs"
+#: Requested by LA-B and accepted by the coordinator. Below this the render
+#: REFUSES rather than defaulting low, which is how 413287 timed out.
+DEFAULT_TIME_LIMIT = "06:00:00"
+
 PAYLOAD_ID = "control_only_generation"
 PAYLOAD_VERSION = "1.0.0"
 
@@ -914,20 +925,200 @@ def payload_requirements(
             "instrument": "claim_type_extent_instrument at its frozen definition digest",
             "network": "none: compute nodes are offline, HF_HUB_OFFLINE=1",
         },
-        "wall_time_is_not_asserted": (
-            "no generation has ever run on either final-pairing model, so any wall-time figure "
-            "here would be invented. What is structural: generation_count generations of "
-            f"{int(max_new_tokens)} new tokens each, one forward per generation plus one prefill, "
-            "and no scoring cost worth counting (the instrument is regex over a few sentences)."
-        ),
+        "wall_time_from_the_measured_precedent": {
+            "correction": (
+                "AN EARLIER VERSION OF THIS FIELD CLAIMED THAT NEITHER FINAL PAIRING HAD EVER "
+                "GENERATED, and therefore that any wall-time figure would be invented. THAT WAS "
+                "FALSE, and it read as a scientific claim rather than as a caveat: Qwen3.5-27B "
+                "generated in job 416453 and its artifacts are rescued locally. The figures below "
+                "are measured from them."
+            ),
+            "measured": dict(TAMIA_ENVIRONMENT["measured_generation_precedent"]),
+            "applied_to_this_grid": {
+                "generated_tokens": generations * int(max_new_tokens) // len(ARM_LABELS)
+                * len(ARM_LABELS),
+                "qwen_minutes": round(
+                    generations
+                    * int(max_new_tokens)
+                    / float(TAMIA_ENVIRONMENT["measured_generation_precedent"]["tokens_per_second"])
+                    / 60.0,
+                    1,
+                ),
+                "basis": (
+                    "13.9 tok/s and 3.6 s/generation, MEASURED by LA-B from job 416453's rescued "
+                    "artifacts (3,600 generations, ~180,000 tokens, 12,955 s)."
+                ),
+                "gemma_is_extrapolated": TAMIA_ENVIRONMENT["measured_generation_precedent"][
+                    "gemma_has_no_precedent"
+                ],
+            },
+            "structural": (
+                f"generation_count generations of {int(max_new_tokens)} new tokens each, one "
+                "prefill plus one forward per token, and no scoring cost worth counting (the "
+                "instrument is regex over a few sentences)."
+            ),
+        },
         "authorization": "NOT REQUESTED AND NOT GRANTED HERE. LA-B stages; the coordinator "
         "authorizes; the user decides.",
     }
 
 
+TAMIA_ENVIRONMENT: dict[str, Any] = {
+    "recorded_by": "LA-B, rendered and measured ON THE LOGIN NODE 2026-08-18; not inferred here",
+    "why_this_record_exists": (
+        "Three of the four blockers LA-B found are INVISIBLE to a fixture test, because a test "
+        "comparing rendered text against a string this file also wrote can only prove the renderer "
+        "is self-consistent. So the checks assert the script against a RECORDED DESCRIPTION OF THE "
+        "CLUSTER, and every entry names what was measured there."
+    ),
+    "required_modules": ("StdEnv/2023", "python/3.11", "arrow/25.0.0"),
+    "module_evidence": (
+        "MEASURED: loading arrow/25.0.0 ALONE succeeds (exit 0, appears in the module list) and "
+        "sets exactly ONE PYTHONPATH entry; torch 2.13.0, numpy 2.4.2 and transformers 5.14.1 then "
+        "import and PYARROW FAILS. With StdEnv/2023 python/3.11 arrow/25.0.0 the easybuild entry "
+        "appears and pyarrow 25.0.0 imports. The venv is include-system-site-packages=false, so "
+        "pyarrow comes ONLY from the module path, and nothing breaks until something imports "
+        "datasets or transformer_lens -- the script looks healthy for a long time first."
+    ),
+    "venv_activate_form": "$HOME/sprint-venv/bin/activate",
+    "tilde_evidence": (
+        "MEASURED: bash does NOT expand a tilde inside double quotes -- quoted-tilde resolves NO, "
+        "the $HOME form resolves YES. Under set -euo pipefail the job dies about two seconds in, "
+        "having already taken a whole-node h100:4 allocation."
+    ),
+    "log_dir_evidence": (
+        "MEASURED: the extracted tree has no logs directory, and SLURM opens the --output file "
+        "BEFORE the script body runs, so a mkdir inside the body cannot save the FIRST submission "
+        "and its failure reason may never reach a log. The directory must exist at SUBMIT time: "
+        "this renderer creates it while rendering on the cluster, and the body re-creates it only "
+        "to cover a later run whose directory was removed."
+    ),
+    "frozen_layers": {"gemma": 29, "qwen": 38},
+    "frozen_layer_source": (
+        "final_pairing_concept_discovery.PRIMARY_CONFIGURATION.gemma_layer and .qwen_layer -- "
+        "IMPORTED at render time, never restated, so this payload cannot drift from the frozen "
+        "configuration."
+    ),
+    "measured_generation_precedent": {
+        "job": 416453,
+        "pairing": "qwen3.5-27b",
+        "generations": 3600,
+        "tokens": 180000,
+        "seconds": 12955,
+        "tokens_per_second": 13.9,
+        "seconds_per_generation": 3.6,
+        "measured_by": "LA-B, from the locally rescued artifacts of job 416453",
+        "gemma_has_no_precedent": (
+            "416453's Gemma lane exited in 65 s having produced ZERO files: its grid had zero "
+            "survivors, so there was nothing to generate from. Gemma throughput is extrapolated "
+            "from the Qwen rate and is ARGUED, not measured."
+        ),
+    },
+    "minimum_time_limit_hours": 6,
+    "time_limit_evidence": (
+        "LA-B: 01:00:00 is BELOW the extrapolation for the Qwen pairing alone, and submitting at "
+        "that default reproduces 413287's timeout. 06:00:00 requested and accepted."
+    ),
+    "windows_render_evidence": (
+        "MEASURED: a local Windows render mangled every path through Git Bash MSYS translation "
+        "(a Program Files prefix and backslashes inside --out). Rendered on the login node the "
+        "paths are correct and pass a bash syntax check. Staging the Windows render would have "
+        "shipped a broken script, so this renderer REFUSES rather than documenting the rule."
+    ),
+}
+
+
+class JobScriptRenderRefused(ControlPayloadError):
+    """The render would produce a script that cannot run on the cluster.
+
+    Every refusal here corresponds to a blocker MEASURED on Tamia rather than
+    imagined: a tilde inside double quotes, a Windows-mangled path, a missing
+    frozen layer, a time limit below the measured precedent, or a missing
+    snapshot revision assertion."""
+
+
+_WINDOWS_MANGLE_MARKERS = ("/Program Files/", "/mingw", "/msys", "C:/", "c:/")
+
+
+def assert_render_is_cluster_shaped(values: Mapping[str, Any], *, platform: str) -> dict[str, Any]:
+    """REFUSE a render that would ship a Windows-mangled or tilde-quoted script.
+
+    A rule in a docstring is a rule nobody can fail. `platform` is a parameter
+    rather than a read of the environment so that the refusal itself is
+    testable from either side of it."""
+    if str(platform).startswith("win"):
+        raise JobScriptRenderRefused(
+            f"refusing to render the job script on platform {platform!r}. THE SCRIPT MUST BE "
+            f"RENDERED ON THE CLUSTER. {TAMIA_ENVIRONMENT['windows_render_evidence']}"
+        )
+    problems: list[str] = []
+    for name, value in sorted(values.items()):
+        text = str(value)
+        if "~" in text:
+            problems.append(
+                f"{name}={text!r} contains a tilde, and every path in this template is emitted "
+                f"inside double quotes. {TAMIA_ENVIRONMENT['tilde_evidence']} Use the $HOME form."
+            )
+        if chr(92) in text:
+            problems.append(
+                f"{name}={text!r} contains a backslash: the signature of a Windows-mangled path."
+            )
+        for marker in _WINDOWS_MANGLE_MARKERS:
+            if marker in text:
+                problems.append(
+                    f"{name}={text!r} carries {marker!r}, the signature of a Windows/MSYS-mangled "
+                    "path. Render on the login node."
+                )
+                break
+        if len(text) > 1 and text[1] == ":" and text[0].isalpha():
+            problems.append(f"{name}={text!r} begins with a drive letter; this is a Windows path.")
+    if problems:
+        raise JobScriptRenderRefused(
+            "the rendered script would not run on the cluster: " + "; ".join(problems)
+        )
+    return {"platform": str(platform), "paths_checked": sorted(values)}
+
+
+def frozen_layer_for(pairing: str) -> int:
+    """The frozen layer, IMPORTED from the matched configuration.
+
+    Not restated here: the layer is a scientific pin, and a copy of it in this
+    file is a second opinion that can drift. A pairing the configuration does
+    not name REFUSES rather than defaulting to None, because `load_backend`
+    accepts None and then loads a DIFFERENT LAYER while producing a run -- the
+    failure that leaves no crash to find."""
+    discovery = gi._import_discovery_module()
+    configuration = discovery.PRIMARY_CONFIGURATION
+    layers = {
+        "gemma": int(configuration.gemma_layer),
+        "qwen": int(configuration.qwen_layer),
+    }
+    key = str(pairing).strip().lower()
+    for name, layer in layers.items():
+        if key == name or key.startswith(name):
+            return layer
+    raise JobScriptRenderRefused(
+        f"no frozen layer for pairing {pairing!r}; the matched configuration names {sorted(layers)}. "
+        "Refusing to render a script that would call load_backend with layer=None: that produces a "
+        "RUN at the wrong layer rather than a crash."
+    )
+
+
+def _hours_of(time_limit: str) -> float:
+    parts = str(time_limit).split(":")
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        raise JobScriptRenderRefused(
+            f"time_limit={time_limit!r} is not HH:MM:SS. A malformed limit is discovered at submit "
+            "time, which is after the queue has accepted it."
+        )
+    hours, minutes, seconds = (int(part) for part in parts)
+    return hours + minutes / 60.0 + seconds / 3600.0
+
+
 JOB_SCRIPT_TEMPLATE = """#!/bin/bash
 # Control-only generation payload. STAGED, NOT SUBMITTED.
-# Written by scripts/final_pairing/control_generation_payload.py --write-job-script.
+# Rendered ON THE CLUSTER by scripts/final_pairing/control_generation_payload.py
+# --write-job-script, which REFUSES to render on Windows.
 #SBATCH --job-name=control_only_generation
 #SBATCH --gres=gpu:h100:4
 #SBATCH --mem=0
@@ -944,21 +1135,32 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false
 
-# Shell tracing and environment dumps are deliberately absent from this
-# script: both print the environment, and the environment is where a token
-# lives. The payload's own selfcheck asserts their absence.
+# Shell tracing and environment dumps are deliberately absent from this script:
+# both print the environment, and the environment is where a token lives. The
+# payload's own selfcheck asserts their absence.
 
-module load arrow/25.0.0
+# SLURM opens --output BEFORE this body runs, so the renderer creates the log
+# directory while rendering on the cluster; this line covers only a later run
+# whose directory was removed in between.
+mkdir -p "{log_dir}"
+
+# THE FULL STACK, NOT arrow ALONE. arrow/25.0.0 by itself loads cleanly and
+# leaves pyarrow unimportable, and the venv does not include system site
+# packages, so nothing fails until datasets or transformer_lens is imported.
+module load {module_stack}
 source "{venv}/bin/activate"
 
-python "{payload}" \\
-  --pairing "{pairing}" \\
-  --model-path "{model_path}" \\
-  --sae-path "{sae_path}" \\
-  --cells "{cells}" \\
-  --seeds "{seeds}" \\
-  --max-new-tokens {max_new_tokens} \\
-  --selection-rule "{selection_rule}" \\
+python "{payload}" \
+  --pairing "{pairing}" \
+  --model-path "{model_path}" \
+  --sae-path "{sae_path}" \
+  --layer {layer} \
+  --model-revision "{model_revision}" \
+  --sae-revision "{sae_revision}" \
+  --cells "{cells}" \
+  --seeds "{seeds}" \
+  --max-new-tokens {max_new_tokens} \
+  --selection-rule "{selection_rule}" \
   --out "{out}"
 """
 
@@ -973,19 +1175,77 @@ def job_script_text(
     max_new_tokens: int,
     selection_rule: str,
     out: str,
-    venv: str,
-    log_dir: str,
-    time_limit: str,
+    model_revision: str,
+    sae_revision: str,
+    layer: int | None = None,
+    venv: str = DEFAULT_VENV,
+    log_dir: str = DEFAULT_LOG_DIR,
+    time_limit: str = DEFAULT_TIME_LIMIT,
+    platform: str = sys.platform,
+    create_log_dir: bool = True,
 ) -> str:
     """The job script, as text. WRITTEN ONLY WHEN ASKED, SUBMITTED NEVER.
 
-    No token is read, echoed or written; `unset HF_TOKEN` is the first thing it
-    does. There is no `set -x` and no `env`, because both print the environment
-    a token lives in. Line endings are LF and a test asserts it."""
+    FOUR OF THE SIX REFUSALS BELOW EXIST BECAUSE THE SCRIPT WAS RENDERED ON
+    TAMIA AND COULD NOT RUN. They are stated against `TAMIA_ENVIRONMENT`, a
+    recorded description of what was measured there, rather than against a
+    string this file also wrote:
+
+    - a Windows render, or any path carrying a drive letter, a backslash or an
+      MSYS prefix, REFUSES (`assert_render_is_cluster_shaped`);
+    - a tilde REFUSES, because the template quotes every path and bash does not
+      expand a tilde inside double quotes;
+    - the module stack is the FULL stack, because arrow alone leaves pyarrow
+      unimportable in a venv without system site packages;
+    - the frozen `layer` is IMPORTED from the matched configuration and emitted,
+      because `load_backend(layer=None)` produces a run at the wrong layer
+      rather than a crash;
+    - both snapshot REVISIONS are required and emitted, because a wrong snapshot
+      would otherwise load silently;
+    - a time limit below the measured precedent REFUSES rather than defaulting
+      low, which is how 413287 timed out.
+
+    No token is read, echoed or written; unsetting it is the first thing the
+    script does. There is no shell tracing and no environment dump, because both
+    print the environment a token lives in. Line endings are LF, and the log
+    directory is created HERE -- at render time, on the cluster -- because SLURM
+    opens the output file before the body runs."""
+    resolved_layer = frozen_layer_for(pairing) if layer is None else int(layer)
+    for name, revision in (("model_revision", model_revision), ("sae_revision", sae_revision)):
+        if not str(revision).strip():
+            raise JobScriptRenderRefused(
+                f"{name} is empty. Jobs 415590 and 416453 both passed real values, and "
+                "load_backend accepts None: an unasserted snapshot digest means a WRONG SNAPSHOT "
+                "LOADS SILENTLY. Pass the revision the path was pinned to."
+            )
+    hours = _hours_of(time_limit)
+    minimum = float(TAMIA_ENVIRONMENT["minimum_time_limit_hours"])
+    if hours < minimum:
+        raise JobScriptRenderRefused(
+            f"time_limit={time_limit!r} is {hours:.2f} h, below the {minimum:.0f} h floor. "
+            f"{TAMIA_ENVIRONMENT['time_limit_evidence']}"
+        )
+    assert_render_is_cluster_shaped(
+        {
+            "model_path": model_path,
+            "sae_path": sae_path,
+            "out": out,
+            "venv": venv,
+            "log_dir": log_dir,
+        },
+        platform=platform,
+    )
+    if create_log_dir:
+        # AT RENDER TIME, ON THE CLUSTER. SLURM opens --output before the body
+        # runs, so a mkdir in the body cannot save the first submission.
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
     return JOB_SCRIPT_TEMPLATE.format(
         pairing=pairing,
         model_path=model_path,
         sae_path=sae_path,
+        layer=int(resolved_layer),
+        model_revision=model_revision,
+        sae_revision=sae_revision,
         cells=",".join(cells),
         seeds=",".join(str(int(s)) for s in seeds),
         max_new_tokens=int(max_new_tokens),
@@ -994,6 +1254,7 @@ def job_script_text(
         venv=venv,
         log_dir=log_dir,
         time_limit=time_limit,
+        module_stack=" ".join(TAMIA_ENVIRONMENT["required_modules"]),
         payload="scripts/final_pairing/control_generation_payload.py",
     )
 
@@ -1106,7 +1367,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--pairing", default="gemma")
     parser.add_argument("--model-path", default=None, help="LOCAL SNAPSHOT PATH; never a repo_id")
     parser.add_argument("--sae-path", default=None)
-    parser.add_argument("--layer", type=int, default=None)
+    parser.add_argument(
+        "--layer",
+        type=int,
+        default=None,
+        help="the frozen layer; when omitted it is IMPORTED from PRIMARY_CONFIGURATION, never "
+        "left as None (load_backend accepts None and then runs at the wrong layer)",
+    )
+    parser.add_argument(
+        "--model-revision",
+        default=None,
+        help="REQUIRED for a run and for a render: the snapshot digest the model path is "
+        "pinned to. Without it a wrong snapshot loads silently.",
+    )
+    parser.add_argument(
+        "--sae-revision",
+        default=None,
+        help="REQUIRED for a run and for a render: the SAE snapshot digest.",
+    )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--cells", default="en/f1,en/f2,en/f3,fr/f1,fr/f2,fr/f3")
@@ -1116,9 +1394,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-new-tokens", type=int, default=64)
     parser.add_argument("--selection-rule", default="cell_positive_family_rows")
     parser.add_argument("--out", type=Path, default=None)
-    parser.add_argument("--venv", default="~/sprint-venv")
-    parser.add_argument("--log-dir", default="logs")
-    parser.add_argument("--time-limit", default="01:00:00")
+    parser.add_argument("--venv", default=DEFAULT_VENV)
+    parser.add_argument("--log-dir", default=DEFAULT_LOG_DIR)
+    parser.add_argument("--time-limit", default=DEFAULT_TIME_LIMIT)
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     cells = _parse_list(args.cells)
@@ -1129,10 +1407,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _selfcheck()
 
     if args.write_job_script is not None:
+        if not args.model_revision or not args.sae_revision:
+            parser.error(
+                "--write-job-script requires --model-revision and --sae-revision: load_backend "
+                "accepts None for both, and an unasserted snapshot digest means a wrong snapshot "
+                "loads silently. Jobs 415590 and 416453 both passed real values."
+            )
         text = job_script_text(
             pairing=args.pairing,
             model_path=args.model_path or "<LOCAL SNAPSHOT PATH>",
             sae_path=args.sae_path or "<LOCAL SAE PATH>",
+            layer=args.layer,
+            model_revision=args.model_revision,
+            sae_revision=args.sae_revision,
             cells=cells,
             seeds=seeds,
             max_new_tokens=args.max_new_tokens,
@@ -1166,14 +1453,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not args.model_path or not args.sae_path or args.out is None:
         parser.error("a run needs --model-path, --sae-path and --out (or use --plan/--selfcheck)")
 
+    if not args.model_revision or not args.sae_revision:
+        parser.error(
+            "a run requires --model-revision and --sae-revision. load_backend accepts None for "
+            "both and would then load a WRONG SNAPSHOT SILENTLY; 415590 and 416453 both asserted "
+            "real values."
+        )
     discovery = gi._import_discovery_module()
     backend = discovery.load_backend(
         pairing=args.pairing,
         model_path=args.model_path,
         sae_path=args.sae_path,
-        layer=args.layer,
-        expected_model_revision=None,
-        expected_sae_revision=None,
+        # IMPORTED, never None: load_backend accepts None and then runs at a
+        # different layer than the frozen one, producing a result rather than a
+        # crash. Gemma 29 / Qwen 38 come from PRIMARY_CONFIGURATION.
+        layer=args.layer if args.layer is not None else frozen_layer_for(args.pairing),
+        expected_model_revision=args.model_revision,
+        expected_sae_revision=args.sae_revision,
         device=args.device,
         dtype=args.dtype,
     )
@@ -1521,32 +1817,131 @@ def _selfcheck() -> int:
         f"authorization: {plan['authorization'][:46]}..."
     )
 
-    banner("SUCCESS 3 -- the job script carries no token and no environment dump")
-    script = job_script_text(
-        pairing="gemma",
-        model_path="/local/snapshot/path",
-        sae_path="/local/sae/path",
-        cells=["en/f1"],
-        seeds=[17],
-        max_new_tokens=64,
-        selection_rule="cell_positive_family_rows",
-        out="results/control_only/control_generations.json",
-        venv="~/sprint-venv",
-        log_dir="logs",
-        time_limit="01:00:00",
+    banner("CONTROL 7 -- the RENDER must refuse what Tamia measured it could not run")
+    cluster_paths = {
+        "model_path": "/home/user/scratch/snapshots/gemma",
+        "sae_path": "/home/user/scratch/snapshots/gemma-sae",
+        "out": "/home/user/scratch/final_pairing/control_generations.json",
+        "venv": DEFAULT_VENV,
+        "log_dir": "/home/user/scratch/final_pairing/logs",
+    }
+    must_raise(
+        "rendering ON WINDOWS at all (LA-B's local render mangled every path)",
+        lambda: assert_render_is_cluster_shaped(cluster_paths, platform="win32"),
+        JobScriptRenderRefused,
     )
+    must_raise(
+        "a quoted TILDE venv (bash does not expand it inside double quotes; dies ~2 s into an h100:4)",
+        lambda: assert_render_is_cluster_shaped(
+            {**cluster_paths, "venv": "~/sprint-venv"}, platform="linux"
+        ),
+        JobScriptRenderRefused,
+    )
+    must_raise(
+        "an MSYS-mangled path (the exact shape of the Windows render)",
+        lambda: assert_render_is_cluster_shaped(
+            {**cluster_paths, "out": "C:/Program Files/Git/scratch/out.json"}, platform="linux"
+        ),
+        JobScriptRenderRefused,
+    )
+    must_raise(
+        "a backslash inside a path",
+        lambda: assert_render_is_cluster_shaped(
+            {**cluster_paths, "out": "scratch" + chr(92) + "out.json"}, platform="linux"
+        ),
+        JobScriptRenderRefused,
+    )
+    print(
+        f"  ACCEPTED on a cluster-shaped render: "
+        f"{assert_render_is_cluster_shaped(cluster_paths, platform='linux')}"
+    )
+
+    def render(**overrides):
+        kwargs = dict(
+            pairing="gemma",
+            model_path=cluster_paths["model_path"],
+            sae_path=cluster_paths["sae_path"],
+            cells=["en/f1"],
+            seeds=[17],
+            max_new_tokens=64,
+            selection_rule="cell_positive_family_rows",
+            out=cluster_paths["out"],
+            model_revision="a" * 40,
+            sae_revision="b" * 40,
+            log_dir=cluster_paths["log_dir"],
+            platform="linux",
+            create_log_dir=False,
+        )
+        kwargs.update(overrides)
+        return job_script_text(**kwargs)
+
+    must_raise(
+        "a time limit of 01:00:00 (below the Qwen extrapolation; 413287 timed out that way)",
+        lambda: render(time_limit="01:00:00"),
+        JobScriptRenderRefused,
+    )
+    must_raise(
+        "an empty model revision (load_backend accepts None and loads a wrong snapshot silently)",
+        lambda: render(model_revision=""),
+        JobScriptRenderRefused,
+    )
+    must_raise(
+        "an empty SAE revision",
+        lambda: render(sae_revision=""),
+        JobScriptRenderRefused,
+    )
+    must_raise(
+        "a pairing the frozen configuration does not name (would render layer=None)",
+        lambda: render(pairing="llama"),
+        JobScriptRenderRefused,
+    )
+
+    banner("SUCCESS 3 -- the rendered script matches the RECORDED CLUSTER DESCRIPTION")
+    script = render()
+    stack = " ".join(TAMIA_ENVIRONMENT["required_modules"])
+    layers = TAMIA_ENVIRONMENT["frozen_layers"]
     checks = {
+        "module stack is the FULL stack": f"module load {stack}" in script,
+        "venv uses the $HOME form": 'source "$HOME/sprint-venv/bin/activate"' in script,
+        "no quoted tilde anywhere": '"~' not in script,
+        "log dir is created in the body too": 'mkdir -p "' in script,
+        "the frozen layer is EMITTED": f"--layer {layers['gemma']}" in script,
+        "both revisions are emitted": "--model-revision" in script and "--sae-revision" in script,
+        "time limit is at least the floor": "--time=06:00:00" in script,
         "unset HF_TOKEN": "unset HF_TOKEN" in script,
         "HF_HUB_OFFLINE=1": "HF_HUB_OFFLINE=1" in script,
-        "no set -x": "set -x" not in script,
+        "no shell tracing": "set -x" not in script,
         "no env dump": "\nenv\n" not in script,
         "no repo_id": "huggingface.co" not in script and "--repo-id" not in script,
         "LF only": "\r\n" not in script,
     }
     for name, ok in checks.items():
-        print(f"  {name:20s} {ok}")
+        print(f"  {name:38s} {ok}")
         if not ok:
-            failures.append(f"job script check failed: {name}")
+            failures.append(f"rendered script check failed: {name}")
+    print(f"  frozen layers IMPORTED from the matched configuration: {layers}")
+    print(f"  qwen render emits --layer {frozen_layer_for('qwen')}")
+    if f"--layer {layers['qwen']}" not in render(pairing="qwen"):
+        failures.append("the qwen render did not emit the frozen qwen layer")
+
+    banner("SUCCESS 4 -- wall time comes from a MEASURED precedent, not from a disclaimer")
+    precedent = TAMIA_ENVIRONMENT["measured_generation_precedent"]
+    plan = payload_requirements(
+        pairing="qwen",
+        cells=["en/f1", "en/f2", "en/f3", "fr/f1", "fr/f2", "fr/f3"],
+        prompts_per_cell=20,
+        seeds=[17, 23],
+        max_new_tokens=64,
+    )
+    applied = plan["wall_time_from_the_measured_precedent"]["applied_to_this_grid"]
+    print(
+        f"  job {precedent['job']}: {precedent['generations']} generations, {precedent['tokens']} "
+        f"tokens in {precedent['seconds']} s = {precedent['tokens_per_second']} tok/s"
+    )
+    print(f"  applied to this grid: {applied['qwen_minutes']} min for qwen at 64 new tokens")
+    print(f"  gemma: {precedent['gemma_has_no_precedent'][:96]}...")
+    if "no generation has ever run" in json.dumps(plan):
+        failures.append("the plan still carries the false no-generation-has-ever-run claim")
 
     banner("RESULT")
     if failures:
