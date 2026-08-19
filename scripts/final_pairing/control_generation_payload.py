@@ -676,6 +676,10 @@ def run_control_arm(
             "require_nonzero_delta": False,
             "why": "no hook was attached at all",
         }
+        # No PromptResult exists for the unhooked branch, so bound_digest IS
+        # the only source. Every other branch reads the digest back off what
+        # run_arm actually stamped -- see record_settings_digest below.
+        record_settings_digest = bound_digest
     else:
         result = gi.run_arm(
             backend,
@@ -686,6 +690,7 @@ def run_control_arm(
             seed=seed,
             device=device,
             want_logprobs=False,
+            generation_settings_digest=bound_digest,
         )
         placement = result.device_placement
         (row,) = result.results
@@ -694,15 +699,20 @@ def run_control_arm(
         state = row.intervention_state
         generated_token_ids = row.generated_token_ids
         firing_expectation = dict(row.firing_expectation)
+        # READ BACK, not re-used: this is `run_arm`'s OWN validated field, on
+        # the SAME PromptResult this branch already reads `firing` and `state`
+        # from. Proves the record's digest came from the shared code path
+        # rather than sitting beside it as a second, independently-trusted copy.
+        record_settings_digest = row.generation_settings_digest
 
     firing = firing_block(intervention_state=state, summary=summary, member_count=member_count)
     return {
         "payload_id": PAYLOAD_ID,
         "payload_version": PAYLOAD_VERSION,
         # RULING_16's containment, emitted per record by the SAME function that
-        # will emit it on the intervened arm. Without it the two arms are
-        # compared on trust.
-        "generation_settings_digest": bound_digest,
+        # emits it on the intervened arm (group_intervention.run_arm). Without
+        # it the two arms are compared on trust.
+        "generation_settings_digest": record_settings_digest,
         "pairing": pairing,
         "cell": cell,
         "arm_label": arm.label,
@@ -1173,8 +1183,6 @@ _SETTINGS_CONTRACT_FIELDS_NAME = "GENERATION_SETTINGS_FIELDS"
 _SETTINGS_CONTRACT_DIGEST_NAME = "generation_settings_digest"
 _SETTINGS_CONTRACT_OMISSIONS_NAME = "GENERATION_SETTINGS_DELIBERATE_OMISSIONS"
 
-_PLACEHOLDER_DIGESTS = frozenset({"0" * 64, "f" * 64, "deadbeef" * 8})
-
 
 class SettingsContractUnavailable(ControlPayloadError):
     """The settings-digest contract is not available, so no digest is emitted.
@@ -1183,10 +1191,14 @@ class SettingsContractUnavailable(ControlPayloadError):
     would agree with nothing. See SETTINGS_DIGEST_IS_THE_CONTAINMENT."""
 
 
-class SettingsDigestUnbound(ControlPayloadError):
-    """A record carries no digest, a placeholder digest, or a covered setting is
-    missing or unset. A record that LOOKS bound and is not is worse than one
-    that admits it is not."""
+#: RULING_16's containment is ONE piece of code, not two copies of a hex-shape
+#: check that could drift apart from each other: `group_intervention.run_arm`
+#: -- the SAME function the intervened arm calls to generate -- raises this
+#: SAME exception from this SAME validator. Aliased here, not redefined, so a
+#: control record and an intervened record are bound by shared code rather
+#: than by an agreement between two copies of it.
+SettingsDigestUnbound = gi.SettingsDigestUnbound
+assert_settings_digest_bound = gi.assert_settings_digest_bound
 
 
 def resolve_settings_contract(module: Any = None) -> dict[str, Any]:
@@ -1249,31 +1261,6 @@ def compute_generation_settings_digest(
             + "; ".join(f"{name}: {resolved['omissions'][name][:160]}" for name in smuggled)
         )
     return assert_settings_digest_bound(digest_fn(dict(settings)))
-
-
-def assert_settings_digest_bound(digest: Any) -> str:
-    """REFUSE an absent, malformed or placeholder digest.
-
-    The placeholder set includes the calibration lane's own synthetic constant,
-    because a test double that escaped into an artifact would satisfy every hex
-    check and bind nothing."""
-    text = str(digest or "").strip().lower()
-    if not text:
-        raise SettingsDigestUnbound(
-            "generation_settings_digest is empty. The calibration lane requires it and nothing "
-            "else produces it; an empty value reads to a later reader as NOT CHECKED."
-        )
-    if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
-        raise SettingsDigestUnbound(
-            f"generation_settings_digest={digest!r} is not 64 lowercase hex, which is what "
-            "causal_calibration.PinnedCalibration requires."
-        )
-    if text in _PLACEHOLDER_DIGESTS:
-        raise SettingsDigestUnbound(
-            f"generation_settings_digest={text!r} is a PLACEHOLDER. A record that looks bound and "
-            "is not is worse than one that admits it is not."
-        )
-    return text
 
 
 class JobScriptRenderRefused(ControlPayloadError):

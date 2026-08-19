@@ -350,6 +350,18 @@ class DeviceGateUnavailable(GroupInterventionError):
     """The shared device gate could not be imported, so it cannot run."""
 
 
+class SettingsDigestUnbound(GroupInterventionError):
+    """`generation_settings_digest` is absent, malformed, or a known placeholder.
+
+    RULING_16's containment: this lane holds both the control arm
+    (`control_generation_payload.py`) and the intervened arm (`run_arm`,
+    below), and the digest is what proves the two ran under identical
+    settings rather than trusting that they did. It is refused HERE, inside
+    `run_arm` itself, so neither caller can construct a record that skips it
+    -- the same defect class as a zero dose or a zero weight: a record that
+    looks bound and is not is worse than one that admits it is not."""
+
+
 # ---------------------------------------------------------------------------
 # SAE accessors. Tolerant of shape, intolerant of ambiguity.
 # ---------------------------------------------------------------------------
@@ -2404,6 +2416,43 @@ def assert_devices_before_forward(*, device: str, **objects: Any) -> dict[str, s
 
 
 # ---------------------------------------------------------------------------
+# Settings-digest containment (RULING_16). Every record `run_arm` produces
+# carries this, and `control_generation_payload.assert_settings_digest_bound`
+# is THIS function, not a second copy of a hex-shape check that could drift
+# from it -- the containment is one piece of code, not an agreement between
+# two.
+# ---------------------------------------------------------------------------
+
+_PLACEHOLDER_SETTINGS_DIGESTS = frozenset({"0" * 64, "f" * 64, "deadbeef" * 8})
+
+
+def assert_settings_digest_bound(digest: Any) -> str:
+    """REFUSE an absent, malformed or placeholder `generation_settings_digest`.
+
+    The placeholder set includes the calibration lane's own synthetic test
+    constant, because a test double that escaped into a real record would
+    satisfy every hex check and bind nothing."""
+    text = str(digest or "").strip().lower()
+    if not text:
+        raise SettingsDigestUnbound(
+            "generation_settings_digest is empty. RULING_16 makes this the containment for a lane "
+            "holding both the control arm and the intervened arm; an empty value reads to a later "
+            "reader as NOT CHECKED."
+        )
+    if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
+        raise SettingsDigestUnbound(
+            f"generation_settings_digest={digest!r} is not 64 lowercase hex, which is what "
+            "causal_calibration.PinnedCalibration requires."
+        )
+    if text in _PLACEHOLDER_SETTINGS_DIGESTS:
+        raise SettingsDigestUnbound(
+            f"generation_settings_digest={text!r} is a PLACEHOLDER. A record that looks bound and "
+            "is not is worse than one that admits it is not."
+        )
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Measurement harness.
 # ---------------------------------------------------------------------------
 
@@ -2422,6 +2471,12 @@ class PromptResult:
     sum_logprob: float | None
     firing: dict[str, Any]
     firing_expectation: dict[str, Any]
+    #: RULING_16's containment, REQUIRED: proves this record ran under the
+    #: same settings as its paired arm rather than trusting that it did.
+    #: `run_arm` validates it with `assert_settings_digest_bound` before any
+    #: forward pass and stamps the SAME bound value onto every record it
+    #: returns.
+    generation_settings_digest: str
     intervention_state: InterventionState = "APPLIED"
     exact_identity_to_control: bool | None = None
 
@@ -2447,6 +2502,7 @@ class PromptResult:
             "sum_logprob": self.sum_logprob,
             "firing": self.firing,
             "firing_expectation": self.firing_expectation,
+            "generation_settings_digest": self.generation_settings_digest,
             "intervention_state": self.intervention_state,
             "intervention_state_meaning": INTERVENTION_STATE_MEANINGS[self.intervention_state],
             "outcome_is_readable_as_a_result": self.outcome_is_readable_as_a_result,
@@ -2722,6 +2778,7 @@ def run_arm(
     *,
     max_new_tokens: int,
     seed: int,
+    generation_settings_digest: str,
     device: str | None = None,
     stop_at_eos: bool = False,
     do_sample: bool = False,
@@ -2745,9 +2802,19 @@ def run_arm(
 
     `require_nonzero_delta` defaults to "whatever this spec should do":
     True for a real intervention, False for `noop` and for any null
-    configuration that is an exact identity by construction."""
+    configuration that is an exact identity by construction.
+
+    `generation_settings_digest` is REQUIRED, with no default: this is the
+    ONE function both the control arm (`control_generation_payload.py`) and
+    the intervened arm call to generate, so validating it HERE -- before any
+    forward pass -- is what makes the requirement structural rather than a
+    convention each caller has to remember. `assert_settings_digest_bound`
+    REFUSES an absent, malformed or placeholder value, the same way a zero
+    dose or a zero weight refuses, and the bound value is stamped onto every
+    `PromptResult` this call returns."""
     if max_new_tokens < 1:
         raise ValueError(f"max_new_tokens must be >= 1; got {max_new_tokens}")
+    bound_digest = assert_settings_digest_bound(generation_settings_digest)
 
     backend = resolve_backend(model)
     is_identity = null_configuration_is_exact_identity(spec)
@@ -2840,6 +2907,7 @@ def run_arm(
                 sum_logprob=float(sum(logprobs)) if logprobs else None,
                 firing=firing,
                 firing_expectation=expectation.to_dict(),
+                generation_settings_digest=bound_digest,
                 intervention_state=classify_intervention_state(spec, ledger),
             )
         )

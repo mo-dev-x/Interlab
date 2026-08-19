@@ -58,6 +58,11 @@ def synthetic_residual() -> torch.Tensor:
 
 GROUP = (gi.GroupMember(3, 1.0), gi.GroupMember(7, 0.5), gi.GroupMember(11, 2.0))
 
+#: A valid-SHAPED, non-placeholder settings digest for tests that are not
+#: about the digest itself. `run_arm` requires one; this is not one of
+#: `_PLACEHOLDER_SETTINGS_DIGESTS`.
+FAKE_SETTINGS_DIGEST = "ab" * 32
+
 
 def _expected_direction(sae, members) -> torch.Tensor:
     w_dec = gi.resolve_decoder_matrix(sae).to(torch.float32)
@@ -1065,7 +1070,8 @@ def test_run_arm_asserts_firing_and_returns_per_token_quantities(real_model, rea
         kind="amplify", members=tuple(gi.GroupMember(i) for i in live), alpha=25.0, label="treat"
     )
     arm = gi.run_arm(
-        real_model, real_sae, spec, [PROMPT], max_new_tokens=4, seed=3, device="cpu"
+        real_model, real_sae, spec, [PROMPT], max_new_tokens=4, seed=3, device="cpu",
+        generation_settings_digest=FAKE_SETTINGS_DIGEST,
     )
     assert arm.device_placement == {"model": "cpu", "sae": "cpu"}
     assert arm.null_configuration_is_exact_identity is False
@@ -1081,12 +1087,63 @@ def test_run_arm_asserts_firing_and_returns_per_token_quantities(real_model, rea
 
 def test_run_arm_control_arm_asserts_zero_calls(real_model, real_sae):
     arm = gi.run_arm(
-        real_model, real_sae, gi.GroupSpec.noop(), [PROMPT], max_new_tokens=3, seed=3, device="cpu"
+        real_model, real_sae, gi.GroupSpec.noop(), [PROMPT], max_new_tokens=3, seed=3, device="cpu",
+        generation_settings_digest=FAKE_SETTINGS_DIGEST,
     )
     (row,) = arm.results
     assert row.firing["call_count"] == 0
     assert row.firing_expectation["call_count"] == 0
     assert arm.null_configuration_is_exact_identity is True
+
+
+# --- generation_settings_digest: RULING_16's containment, IN run_arm -------
+# `control_generation_payload.py` already validated a caller-supplied digest
+# before calling here; these tests are about `run_arm` itself, which is the
+# SAME function an intervened-arm caller would use, so the requirement must
+# be structural here rather than a convention each caller remembers.
+
+
+def test_run_arm_requires_a_settings_digest():
+    """No default: the same non-negotiable shape as `ablation_mechanism`."""
+    import inspect
+
+    parameters = inspect.signature(gi.run_arm).parameters
+    assert parameters["generation_settings_digest"].default is inspect.Parameter.empty
+
+
+@pytest.mark.parametrize("stub", ["", None, "f" * 64, "0" * 64, "deadbeef" * 8, "not-hex"])
+def test_run_arm_refuses_an_unset_or_placeholder_digest_before_any_forward_pass(
+    real_model, real_sae, monkeypatch, stub
+):
+    """THE REFUSAL FIRES, and before generate() -- the same pre-forward
+    ordering the zero-dose refusal already gets, checked the same way: a
+    monkeypatched generate() that raises if it is ever reached."""
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("generate() was reached -- the refusal was NOT pre-forward")
+
+    monkeypatch.setattr(real_model, "generate", _boom)
+    spec = gi.GroupSpec.noop()
+    with pytest.raises(gi.SettingsDigestUnbound):
+        gi.run_arm(
+            real_model, real_sae, spec, [PROMPT], max_new_tokens=3, seed=1, device="cpu",
+            generation_settings_digest=stub,
+        )
+
+
+def test_run_arm_stamps_the_same_bound_digest_onto_every_record(real_model, real_sae):
+    """THE REFUSAL DOES NOT FIRE on a real digest, and the value recorded is
+    the BOUND (lower-cased, stripped) form -- proving the record's field came
+    from `assert_settings_digest_bound`, not from echoing the raw argument."""
+    mixed_case = FAKE_SETTINGS_DIGEST.upper()
+    arm = gi.run_arm(
+        real_model, real_sae, gi.GroupSpec.noop(), [PROMPT, PROMPT], max_new_tokens=2, seed=1,
+        device="cpu", generation_settings_digest=mixed_case,
+    )
+    assert len(arm.results) == 2
+    for row in arm.results:
+        assert row.generation_settings_digest == FAKE_SETTINGS_DIGEST
+        assert row.to_dict()["generation_settings_digest"] == FAKE_SETTINGS_DIGEST
 
 
 def test_measure_group_effect_pairs_control_and_treatment_at_one_seed(real_model, real_sae):
@@ -1095,7 +1152,8 @@ def test_measure_group_effect_pairs_control_and_treatment_at_one_seed(real_model
         kind="amplify", members=tuple(gi.GroupMember(i) for i in live), alpha=200.0, label="joint"
     )
     measurement = gi.measure_group_effect(
-        real_model, real_sae, spec, [PROMPT], max_new_tokens=5, seed=17, device="cpu"
+        real_model, real_sae, spec, [PROMPT], max_new_tokens=5, seed=17, device="cpu",
+        generation_settings_digest=FAKE_SETTINGS_DIGEST,
     )
     assert measurement.seed == 17
     (row,) = measurement.per_prompt
@@ -1127,7 +1185,8 @@ def test_ablation_of_maximally_selective_members_still_works_on_the_real_model(
         label="ablate-maximally-selective",
     )
     measurement = gi.measure_group_effect(
-        real_model, real_sae, ablate, [PROMPT], max_new_tokens=5, seed=17, device="cpu"
+        real_model, real_sae, ablate, [PROMPT], max_new_tokens=5, seed=17, device="cpu",
+        generation_settings_digest=FAKE_SETTINGS_DIGEST,
     )
     (row,) = measurement.per_prompt
     assert row["treatment_hook_call_count"] == 5
@@ -1154,6 +1213,7 @@ def test_measure_group_effect_with_a_null_treatment_reproduces_the_control(real_
         seed=17,
         device="cpu",
         require_nonzero_delta=False,
+        generation_settings_digest=FAKE_SETTINGS_DIGEST,
     )
     (row,) = measurement.per_prompt
     assert row["token_ids_identical"] is True
@@ -1185,6 +1245,7 @@ def test_measure_group_effect_against_the_reconstruction_control(real_model, rea
         seed=5,
         device="cpu",
         control_spec=gi.GroupSpec.reconstruction_control(),
+        generation_settings_digest=FAKE_SETTINGS_DIGEST,
     )
     assert measurement.control.results[0].firing["call_count"] == 4
     assert measurement.treatment.results[0].firing["call_count"] == 4
@@ -1537,7 +1598,8 @@ def test_raw_hf_run_arm_and_measure_group_effect_end_to_end(raw_backend, real_sa
         label="raw-hf-joint",
     )
     measurement = gi.measure_group_effect(
-        raw_backend, real_sae, spec, [PROMPT], max_new_tokens=5, seed=17, device="cpu"
+        raw_backend, real_sae, spec, [PROMPT], max_new_tokens=5, seed=17, device="cpu",
+        generation_settings_digest=FAKE_SETTINGS_DIGEST,
     )
     (row,) = measurement.per_prompt
     assert row["treatment_hook_call_count"] == 5
@@ -1731,7 +1793,10 @@ def test_the_raw_hf_path_runs_end_to_end_on_the_real_qwen3_5_class(
     spec = gi.GroupSpec(
         kind="amplify", members=(gi.GroupMember(7, 1.0), gi.GroupMember(11, 0.5)), alpha=60.0
     )
-    arm = gi.run_arm(backend, real_sae, spec, [PROMPT], max_new_tokens=4, seed=5, device="cpu")
+    arm = gi.run_arm(
+        backend, real_sae, spec, [PROMPT], max_new_tokens=4, seed=5, device="cpu",
+        generation_settings_digest=FAKE_SETTINGS_DIGEST,
+    )
     (result,) = arm.results
     assert result.generated_token_count == 4
     assert result.firing["call_count"] == 4
@@ -2227,7 +2292,8 @@ def test_the_zero_dose_refusal_fires_before_any_forward_pass(real_model, real_sa
     monkeypatch.setattr(real_model, "generate", _boom)
     with pytest.raises(gi.ZeroClampDose):
         gi.run_arm(
-            real_model, counting, spec, ["hello"], max_new_tokens=3, seed=1, device="cpu"
+            real_model, counting, spec, ["hello"], max_new_tokens=3, seed=1, device="cpu",
+            generation_settings_digest=FAKE_SETTINGS_DIGEST,
         )
     assert counting.encode_calls == 0
     assert counting.decode_calls == 0
@@ -2518,7 +2584,8 @@ def test_a_reconstruct_result_may_not_be_paired_with_an_unhooked_control(real_mo
     )
     with pytest.raises(gi.InvalidGroupSpec, match="may NOT be read against control"):
         gi.measure_group_effect(
-            real_model, real_sae, spec, [PROMPT], max_new_tokens=3, seed=1, device="cpu"
+            real_model, real_sae, spec, [PROMPT], max_new_tokens=3, seed=1, device="cpu",
+            generation_settings_digest=FAKE_SETTINGS_DIGEST,
         )
 
 
@@ -2619,7 +2686,8 @@ def test_void_states_are_not_readable_as_results(state):
     row = gi.PromptResult(
         prompt="p", prompt_token_count=1, generated_token_count=1, generated_token_ids=(1,),
         full_text="", generated_text="", per_token_logprob=None, sum_logprob=None,
-        firing={}, firing_expectation={}, intervention_state=state,
+        firing={}, firing_expectation={}, generation_settings_digest=FAKE_SETTINGS_DIGEST,
+        intervention_state=state,
     )
     assert row.outcome_is_readable_as_a_result is False
     assert "NOT A NULL" in row.to_dict()["intervention_state_meaning"] or state == "CONTROL"
@@ -2629,13 +2697,15 @@ def test_run_arm_records_the_intervention_state(real_model, real_sae):
     live = _live_features(real_sae, torch.randn(1, 4, 64))
     spec = gi.GroupSpec(kind="amplify", members=tuple(gi.GroupMember(i) for i in live), alpha=25.0)
     arm = gi.run_arm(
-        real_model, real_sae, spec, [PROMPT], max_new_tokens=3, seed=3, device="cpu"
+        real_model, real_sae, spec, [PROMPT], max_new_tokens=3, seed=3, device="cpu",
+        generation_settings_digest=FAKE_SETTINGS_DIGEST,
     )
     assert arm.intervention_states == ("APPLIED",)
     assert arm.void_prompt_count == 0
     assert arm.results[0].outcome_is_readable_as_a_result is True
     control = gi.run_arm(
-        real_model, real_sae, gi.GroupSpec.noop(), [PROMPT], max_new_tokens=3, seed=3, device="cpu"
+        real_model, real_sae, gi.GroupSpec.noop(), [PROMPT], max_new_tokens=3, seed=3, device="cpu",
+        generation_settings_digest=FAKE_SETTINGS_DIGEST,
     )
     assert control.intervention_states == ("CONTROL",)
     assert control.results[0].outcome_is_readable_as_a_result is False
@@ -2648,7 +2718,8 @@ def test_measure_group_effect_carries_the_state_next_to_the_identity_flag(real_m
     live = _live_features(real_sae, torch.randn(1, 4, 64), limit=3)
     spec = gi.GroupSpec(kind="amplify", members=tuple(gi.GroupMember(i) for i in live), alpha=200.0)
     measurement = gi.measure_group_effect(
-        real_model, real_sae, spec, [PROMPT], max_new_tokens=4, seed=5, device="cpu"
+        real_model, real_sae, spec, [PROMPT], max_new_tokens=4, seed=5, device="cpu",
+        generation_settings_digest=FAKE_SETTINGS_DIGEST,
     )
     (row,) = measurement.per_prompt
     assert row["treatment_intervention_state"] == "APPLIED"
