@@ -33,7 +33,10 @@ from test_causal_outcome import (  # noqa: E402
     synthetic_rubric,
 )
 
-SETTINGS_DIGEST = "f" * 64
+#: Built THROUGH THE CONTRACT rather than typed, so that a change to the covered field
+#: set changes the fixture too and a stale test cannot pass on a stale digest.
+SETTINGS = {name: f"SYNTHETIC-{name}" for name, _ in cc.GENERATION_SETTINGS_FIELDS}
+SETTINGS_DIGEST = cc.generation_settings_digest(SETTINGS)
 
 #: The orientation is DERIVED from this, never supplied (RULING_15 DEFECT_2).
 FORWARD_CONDITION = co.JointCondition(
@@ -310,6 +313,8 @@ def test_an_undeclared_cell_refuses_rather_than_being_silently_ignored():
             target_outcome_class="POLE_OWN",
             calibrating_lane="researcher",
             selecting_lane="engineer2",
+            generating_lane="engineer3",
+            generation_settings=SETTINGS,
             generation_settings_digest=SETTINGS_DIGEST,
         )
     assert "undeclared cell" in str(caught.value)
@@ -324,6 +329,8 @@ def test_calibrate_refuses_zero_cells_and_zero_observations():
             target_outcome_class="POLE_OWN",
             calibrating_lane="researcher",
             selecting_lane="engineer2",
+            generating_lane="engineer3",
+            generation_settings=SETTINGS,
             generation_settings_digest=SETTINGS_DIGEST,
         )
     with pytest.raises(cc.EmptyControlSet):
@@ -334,6 +341,8 @@ def test_calibrate_refuses_zero_cells_and_zero_observations():
             target_outcome_class="POLE_OWN",
             calibrating_lane="researcher",
             selecting_lane="engineer2",
+            generating_lane="engineer3",
+            generation_settings=SETTINGS,
             generation_settings_digest=SETTINGS_DIGEST,
         )
 
@@ -347,6 +356,8 @@ def test_the_calibrating_lane_may_not_be_the_selecting_lane():
             target_outcome_class="POLE_OWN",
             calibrating_lane="Engineer2",
             selecting_lane="engineer2",
+            generating_lane="engineer3",
+            generation_settings=SETTINGS,
             generation_settings_digest=SETTINGS_DIGEST,
         )
     assert "VOID if the calibrating lane also selects" in str(caught.value)
@@ -536,6 +547,8 @@ def test_a_passing_cell_can_never_sit_inside_the_control_resample_spread():
         void_counts={},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert verdict.status == "PASS"
     assert verdict.paired_delta_inside_control_resample_spread is False
@@ -555,6 +568,8 @@ def test_a_fail_inside_the_spread_is_distinguishable_from_a_fail_outside_it():
         void_counts={},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert verdict.status == "FAIL"
     assert verdict.paired_rate_delta == pytest.approx(0.0)
@@ -574,6 +589,8 @@ def test_a_not_exercised_cell_reports_no_resample_comparison_rather_than_false()
         void_counts={"not_exercised": 4},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert verdict.paired_delta_inside_control_resample_spread is None
 
@@ -625,7 +642,9 @@ def test_the_resample_note_cites_the_measurement_and_the_retention_commit():
 # --------------------------------------------------------------- the pin
 
 
-def build_pin(cells=("en/f1", "fr/f1"), n_prompts=4, **kwargs) -> cc.PinnedCalibration:
+def build_pin(
+    cells=("en/f1", "fr/f1"), n_prompts=4, calibrating_lane_override=None, **kwargs
+) -> cc.PinnedCalibration:
     observations: list[cc.ControlObservation] = []
     for cell in cells:
         observations += paired_controls(cell, n_prompts=n_prompts)
@@ -634,8 +653,10 @@ def build_pin(cells=("en/f1", "fr/f1"), n_prompts=4, **kwargs) -> cc.PinnedCalib
         rubric=synthetic_rubric(),
         cells=cells,
         target_outcome_class="POLE_OWN",
-        calibrating_lane="researcher",
+        calibrating_lane=calibrating_lane_override or "researcher",
         selecting_lane="engineer2",
+        generating_lane="engineer3",
+        generation_settings=SETTINGS,
         generation_settings_digest=SETTINGS_DIGEST,
         now="2026-08-17T00:00:00Z",
         **kwargs,
@@ -770,6 +791,8 @@ def test_calibrating_after_a_result_has_been_scored_refuses():
         void_counts={},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert cc.seal_state()["scoring_has_begun"] is True
     assert cc.seal_state()["pin_digest"] == pin.digest
@@ -806,6 +829,8 @@ def test_a_cell_with_no_eligible_intervened_generation_is_not_exercised_not_a_fa
         void_counts={"not_exercised": 4, "zero_dose": 2},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert verdict.status == "NOT_EXERCISED"
     assert verdict.crossing_status == "NOT_EXERCISED"
@@ -827,6 +852,8 @@ def test_intervened_generations_with_no_paired_control_refuse():
             void_counts={},
             baseline_excluded=0,
             condition=FORWARD_CONDITION,
+            intervened_settings=SETTINGS,
+            intervened_settings_digest=SETTINGS_DIGEST,
         )
     assert "one-armed reading is not a result" in str(caught.value)
 
@@ -879,6 +906,8 @@ def test_a_baseline_already_at_the_target_pole_is_excluded_and_counted():
         void_counts={},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert verdict.crossing_status == "NO_ADMISSIBLE_BASELINE"
     assert verdict.baseline_excluded == 2
@@ -952,6 +981,8 @@ def test_the_ceiling_is_REACHABLE_and_a_ceilinged_cell_is_never_a_fail():
         void_counts={},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert verdict.control_rate == pytest.approx(0.75)
     assert verdict.status == "CEILING_EXCLUDED_BY_ARITHMETIC"
@@ -1016,6 +1047,8 @@ def test_the_two_criteria_have_different_denominators():
         void_counts={},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert verdict.n == 4
     assert verdict.n_admissible_for_crossing == 2
@@ -1037,6 +1070,8 @@ def test_a_pass_requires_the_delta_to_EXCEED_the_margin_not_merely_reach_it():
         void_counts={},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert verdict.paired_rate_delta == pytest.approx(0.25)
     assert verdict.status == "FAIL", "a delta exactly AT the margin does not exceed it"
@@ -1052,6 +1087,8 @@ def test_a_pass_requires_the_delta_to_EXCEED_the_margin_not_merely_reach_it():
         void_counts={},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert verdict.paired_rate_delta == pytest.approx(0.5)
     assert verdict.status == "PASS"
@@ -1110,6 +1147,8 @@ def test_crossings_are_counted_through_the_shared_predicate():
         void_counts={},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert verdict.crossings == 1
     assert verdict.asserts_both == 1
@@ -1128,6 +1167,8 @@ def test_a_target_pole_that_disagrees_with_the_origin_pole_refuses():
             void_counts={},
             baseline_excluded=0,
             condition=FORWARD_CONDITION.mirrored(),
+            intervened_settings=SETTINGS,
+            intervened_settings_digest=SETTINGS_DIGEST,
         )
     assert "describe different events" in str(caught.value)
 
@@ -1143,6 +1184,8 @@ def test_the_result_vector_is_the_headline_and_the_scalar_travels_with_it():
         void_counts={},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     void = cc.evaluate_cell(
         cell="fr/f1",
@@ -1152,6 +1195,8 @@ def test_the_result_vector_is_the_headline_and_the_scalar_travels_with_it():
         void_counts={"not_exercised": 4},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     vector = cc.result_vector([passing, void])
     assert [row["status"] for row in vector["vector"]] == ["PASS", "NOT_EXERCISED"]
@@ -1229,6 +1274,8 @@ def test_the_derived_orientation_travels_on_the_verdict_and_flips_with_the_condi
         void_counts={},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert forward.origin_pole_derived == "POLE_MIRROR"
     assert forward.crossing_status == "EVIDENCED"
@@ -1244,6 +1291,8 @@ def test_the_derived_orientation_travels_on_the_verdict_and_flips_with_the_condi
             void_counts={},
             baseline_excluded=0,
             condition=FORWARD_CONDITION.mirrored(),
+            intervened_settings=SETTINGS,
+            intervened_settings_digest=SETTINGS_DIGEST,
         )
     assert "describe different events" in str(caught.value)
 
@@ -1256,8 +1305,8 @@ def test_a_pooled_coverage_figure_is_refused_and_a_per_cell_one_is_not():
     assert "STRATIFIED" in str(caught.value)
 
 
-def test_a_pin_without_a_generation_settings_digest_refuses():
-    with pytest.raises(cc.CalibrationError) as caught:
+def test_a_pin_without_a_usable_generation_settings_digest_refuses():
+    with pytest.raises(cc.SettingsDigestMissing) as caught:
         cc.calibrate(
             paired_controls("en/f1", n_prompts=4),
             rubric=synthetic_rubric(),
@@ -1265,9 +1314,11 @@ def test_a_pin_without_a_generation_settings_digest_refuses():
             target_outcome_class="POLE_OWN",
             calibrating_lane="researcher",
             selecting_lane="engineer2",
+            generating_lane="engineer3",
+            generation_settings=SETTINGS,
             generation_settings_digest="not-a-digest",
         )
-    assert "seed independence" in str(caught.value)
+    assert "no producer" in str(caught.value)
 
 
 def valid_assignment(**overrides):
@@ -1276,6 +1327,7 @@ def valid_assignment(**overrides):
         "sha256": "a" * 64,
         "recorded_by": "committer",
         "assigned_by": "the coordinator",
+        "generating_lane_excluded": "engineer3",
         "quantities_covered": cc.ASSIGNED_QUANTITIES,
     }
     payload.update(overrides)
@@ -1309,7 +1361,12 @@ def test_an_assignment_must_name_the_quantities_not_the_file():
     assert "orphan" in str(caught.value)
     with pytest.raises(cc.AssignmentSelfDeclared):
         cc.AssignmentReference(
-            path="p", sha256="a" * 64, recorded_by="x", assigned_by="y", quantities_covered=()
+            path="p",
+            sha256="a" * 64,
+            recorded_by="x",
+            assigned_by="y",
+            generating_lane_excluded="engineer3",
+            quantities_covered=(),
         )
     with pytest.raises(cc.AssignmentSelfDeclared):
         cc.AssignmentReference(
@@ -1317,6 +1374,7 @@ def test_an_assignment_must_name_the_quantities_not_the_file():
             sha256="short",
             recorded_by="x",
             assigned_by="y",
+            generating_lane_excluded="engineer3",
             quantities_covered=cc.ASSIGNED_QUANTITIES,
         )
 
@@ -1348,6 +1406,8 @@ def test_the_ceiling_reports_the_unexcluded_high_baseline_residue():
         void_counts={},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     assert verdict.status == "FAIL"
     assert verdict.distance_to_arithmetic_ceiling == pytest.approx(0.75)
@@ -1536,6 +1596,8 @@ def test_the_verdict_serializes_every_field_it_computes():
         void_counts={"not_exercised": 1},
         baseline_excluded=0,
         condition=FORWARD_CONDITION,
+        intervened_settings=SETTINGS,
+        intervened_settings_digest=SETTINGS_DIGEST,
     )
     text = json.dumps(verdict.to_dict())
     declared = set(cc.CellVerdict.__dataclass_fields__)
@@ -1612,3 +1674,254 @@ def test_crossing_reachability_refuses_nothing_but_answers_both_ways():
         "crossing_reachable_on_this_lattice",
         "finding_if_not",
     }
+
+
+# ===========================================================================
+# RULING_16 CONTAINMENT_2: THE SETTINGS DIGEST, WHICH PREVIOUSLY COULD NOT FAIL.
+# ===========================================================================
+
+
+def test_the_contract_covers_the_settings_that_could_make_the_arms_differ():
+    """The field set is the contract. Each entry carries WHY omitting it is
+    unsafe, because an omission without a reason is indistinguishable from an
+    oversight -- and the deliberate omissions carry reasons too."""
+    names = [name for name, _ in cc.GENERATION_SETTINGS_FIELDS]
+    assert len(names) == len(set(names)), "a duplicated field would be hashed twice"
+    for name, why in cc.GENERATION_SETTINGS_FIELDS:
+        assert why.strip(), f"{name} has no recorded reason"
+    # The settings most likely to drift between two arms sharing a code path.
+    for expected in (
+        "model_reference",
+        "sae_reference",
+        "layer",
+        "hook_name",
+        "dtype",
+        "max_new_tokens",
+        "do_sample",
+        "temperature",
+        "prompt_set_digest",
+        "prompt_render_digest",
+        "transformers_version",
+    ):
+        assert expected in names
+    # SEED IS EXCLUDED ON PURPOSE and the reason is recorded: replicates differ
+    # by seed BY DESIGN, so a digest covering it could never match.
+    assert "seed" not in names
+    assert "seed_policy" in names
+    assert "BREAK the check" in cc.GENERATION_SETTINGS_DELIBERATE_OMISSIONS["seed"]
+    assert "intervention_parameters" in cc.GENERATION_SETTINGS_DELIBERATE_OMISSIONS
+
+
+def test_the_digest_is_order_independent_and_changes_with_any_covered_field():
+    """A canonical form that depended on dict order would make two identical
+    settings maps disagree; one that ignored a field would make two different
+    runs agree. Both are checked."""
+    shuffled = dict(reversed(list(SETTINGS.items())))
+    assert cc.generation_settings_digest(shuffled) == SETTINGS_DIGEST
+    for name, _ in cc.GENERATION_SETTINGS_FIELDS:
+        drifted = dict(SETTINGS, **{name: "CHANGED"})
+        assert cc.generation_settings_digest(drifted) != SETTINGS_DIGEST, (
+            f"changing {name} did not change the digest, so that field is covered in name only"
+        )
+
+
+def test_the_canonical_form_refuses_a_missing_and_an_unexpected_field():
+    with pytest.raises(cc.SettingsDigestMissing) as caught:
+        cc.generation_settings_digest({k: v for k, v in SETTINGS.items() if k != "layer"})
+    assert "layer" in str(caught.value)
+    with pytest.raises(cc.SettingsDigestMissing) as caught:
+        cc.generation_settings_digest(dict(SETTINGS, surprise="x"))
+    assert "MEANING without changing" in str(caught.value)
+
+
+def test_settings_identity_DOES_NOT_FIRE_on_a_genuine_match():
+    """The negative direction, and NOT with a constant on both sides: both
+    digests are computed through the contract from their own field maps."""
+    control = dict(SETTINGS)
+    intervened = dict(reversed(list(SETTINGS.items())))
+    record = cc.assert_settings_identity(
+        control_settings=control,
+        control_digest=cc.generation_settings_digest(control),
+        intervened_settings=intervened,
+        intervened_digest=cc.generation_settings_digest(intervened),
+    )
+    assert record["identical"] is True
+    assert record["settings_digest"] == SETTINGS_DIGEST
+    assert "does NOT establish" in record["what_this_establishes"]
+
+
+@pytest.mark.parametrize("field", [name for name, _ in cc.GENERATION_SETTINGS_FIELDS])
+def test_settings_identity_FIRES_on_a_difference_in_ANY_covered_field(field: str):
+    """Over EVERY field rather than a sample: the setting that drifts in
+    production is never the one the sample happened to include."""
+    intervened = dict(SETTINGS, **{field: "DIFFERENT"})
+    with pytest.raises(cc.SettingsIdentityMismatch) as caught:
+        cc.assert_settings_identity(
+            control_settings=SETTINGS,
+            control_digest=SETTINGS_DIGEST,
+            intervened_settings=intervened,
+            intervened_digest=cc.generation_settings_digest(intervened),
+        )
+    message = str(caught.value)
+    assert field in message, "the refusal must NAME what differed, not just say the digests differ"
+    assert "DIFFERENT" in message
+
+
+@pytest.mark.parametrize("digest", [None, "", "not-hex", "A" * 64, "a" * 63])
+def test_an_unusable_digest_on_either_arm_REFUSES_and_is_never_read_as_a_match(digest):
+    """THE VACUITY GUARD. This is the exact state the field was in before the
+    contract existed: a value with no producer, treated as satisfied."""
+    with pytest.raises(cc.SettingsDigestMissing):
+        cc.assert_settings_identity(
+            control_settings=SETTINGS,
+            control_digest=digest,
+            intervened_settings=SETTINGS,
+            intervened_digest=SETTINGS_DIGEST,
+        )
+    with pytest.raises(cc.SettingsDigestMissing):
+        cc.assert_settings_identity(
+            control_settings=SETTINGS,
+            control_digest=SETTINGS_DIGEST,
+            intervened_settings=SETTINGS,
+            intervened_digest=digest,
+        )
+
+
+def test_a_producer_whose_digest_disagrees_with_its_own_fields_refuses():
+    """Catches a producer that hashes one thing and reports another. Neither the
+    digest nor the field map can be trusted then, and which describes the run
+    cannot be decided by the consumer."""
+    with pytest.raises(cc.SettingsDigestInconsistent) as caught:
+        cc.assert_settings_identity(
+            control_settings=SETTINGS,
+            control_digest=cc.generation_settings_digest(dict(SETTINGS, dtype="fp32")),
+            intervened_settings=SETTINGS,
+            intervened_digest=SETTINGS_DIGEST,
+        )
+    assert "bound nothing" in str(caught.value)
+
+
+def test_evaluate_cell_REFUSES_an_intervened_arm_whose_settings_differ():
+    """THE POINT OF THE WHOLE CONTRACT, at the place the boundary judges an
+    output. Fires on a drifted arm and does not fire on a matching one."""
+    pin = build_pin(n_prompts=4)
+    controls, intervened = scored_pair(pin, "en/f1", {"p0": 5.0, "p1": 5.0, "p2": 5.0, "p3": 5.0})
+    kwargs = dict(
+        cell="en/f1",
+        pin=pin,
+        control_scored=controls,
+        intervened_scored=intervened,
+        void_counts={},
+        baseline_excluded=0,
+        condition=FORWARD_CONDITION,
+    )
+    verdict = cc.evaluate_cell(
+        **kwargs, intervened_settings=SETTINGS, intervened_settings_digest=SETTINGS_DIGEST
+    )
+    assert verdict.status == "PASS"
+    assert verdict.settings_digest_verified == SETTINGS_DIGEST
+    assert "VERIFIED EQUAL" in verdict.to_dict()["settings_identity_rule"]
+
+    cc._reset_seal_for_tests_only()
+    drifted = dict(SETTINGS, max_new_tokens="9999")
+    with pytest.raises(cc.SettingsIdentityMismatch) as caught:
+        cc.evaluate_cell(
+            **kwargs,
+            intervened_settings=drifted,
+            intervened_settings_digest=cc.generation_settings_digest(drifted),
+        )
+    assert "max_new_tokens" in str(caught.value)
+
+
+def test_the_pin_carries_the_settings_MAP_not_only_the_digest(tmp_path):
+    """A digest alone cannot name what differed. The map has to reach the bytes."""
+    pin = build_pin(assignment=valid_assignment())
+    path = tmp_path / "pin.json"
+    cc.write_pin(path, pin)
+    written = json.loads(path.read_bytes().decode("utf-8"))
+    assert written["generation_settings"] == SETTINGS
+    assert written["generation_settings_digest"] == SETTINGS_DIGEST
+    covered = {entry["field"] for entry in written["generation_settings_fields_and_why"]}
+    assert covered == {name for name, _ in cc.GENERATION_SETTINGS_FIELDS}
+    assert "seed" in written["generation_settings_deliberate_omissions"]
+
+
+def test_this_lane_does_not_derive_the_digest_from_an_artifact():
+    """The consumer specifies the FORM and verifies; it must never compute the
+    value from something it was handed, because a digest the consumer derives
+    agrees with itself by construction."""
+    source = (FINAL_PAIRING / "causal_calibration.py").read_bytes().decode("utf-8")
+    assert "THE PRODUCER CALLS THIS" in source
+    assert "not a binding, it is a\n  restatement" in source or "restatement" in source
+    # calibrate() must VERIFY the digest it is handed, never compute it.
+    body = source[source.index("def calibrate("):source.index("def verify_pin(")]
+    assert "_check_one_arm(" in body
+    assert "generation_settings_digest(generation_settings)" not in body
+
+
+# ------------------------------------------------------- G-CAL as a field
+
+
+def test_G_CAL_is_enforced_by_a_field_and_fires_both_ways():
+    """RULING_16 P1, both directions plus the vacuity guard."""
+    # DOES NOT FIRE: today's configuration.
+    pin = build_pin()
+    assert pin.generating_lane_excluded == "engineer3"
+    assert pin.to_dict()["generating_lane_excluded"] == "engineer3"
+    # FIRES under case-folding.
+    with pytest.raises(cc.CalibrationError) as caught:
+        build_pin(calibrating_lane_override="engineer3")
+    assert "PRODUCES O MAY NOT BE THE LANE THAT FIXES B" in str(caught.value)
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_an_empty_generating_lane_refuses_rather_than_passing_vacuously(blank: str):
+    with pytest.raises(cc.CalibrationError) as caught:
+        cc.calibrate(
+            paired_controls("en/f1", n_prompts=4),
+            rubric=synthetic_rubric(),
+            cells=("en/f1",),
+            target_outcome_class="POLE_OWN",
+            calibrating_lane="researcher",
+            selecting_lane="engineer2",
+            generating_lane=blank,
+            generation_settings=SETTINGS,
+            generation_settings_digest=SETTINGS_DIGEST,
+        )
+    assert "vacuously" in str(caught.value)
+
+
+def test_the_assignment_carries_the_generating_lane_and_refuses_a_collision():
+    accepted = cc.assert_assignment_is_not_self_declared(
+        valid_assignment(), calibrating_lane="researcher"
+    )
+    assert accepted["generating_lane_is_not_the_calibrating_lane"] is True
+    with pytest.raises(cc.AssignmentSelfDeclared) as caught:
+        cc.assert_assignment_is_not_self_declared(
+            valid_assignment(generating_lane_excluded="Researcher"), calibrating_lane="researcher"
+        )
+    assert "BOTH the generating" in str(caught.value)
+    with pytest.raises(cc.AssignmentSelfDeclared):
+        cc.AssignmentReference(
+            path="p",
+            sha256="a" * 64,
+            recorded_by="x",
+            assigned_by="y",
+            generating_lane_excluded="  ",
+            quantities_covered=cc.ASSIGNED_QUANTITIES,
+        )
+
+
+def test_a_repin_is_a_record_repair_when_the_values_do_not_move():
+    """RULING_16's ordered note, both directions. Nothing is in this state today
+    -- no boundary exists -- so this is the rule written before it is needed."""
+    pin = build_pin()
+    same = cc.assert_repin_is_a_record_repair(pin.to_dict(), pin)
+    assert same["record_repair"] is True
+    assert "RECORD REPAIR" in same["disposition"]
+    previous = json.loads(json.dumps(pin.to_dict()))
+    previous["cells"][0]["rate_margin"] = 0.99
+    moved = cc.assert_repin_is_a_record_repair(previous, pin)
+    assert moved["record_repair"] is False
+    assert "rate_margin" in moved["changed_boundary_values"][pin.cells[0].cell]
+    assert "itself the finding" in moved["disposition"]

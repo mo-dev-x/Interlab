@@ -55,6 +55,7 @@ class FakeVerdict:
     margin_bound_by: tuple[str, ...] = ("control_rate_leave_one_prompt_out_spread",)
     distance_to_arithmetic_ceiling: float = 0.30
     origin_pole_derived: str = "POLE_MIRROR"
+    settings_digest_verified: str = "c" * 64
     void_counts: Any = None
 
     def __post_init__(self) -> None:

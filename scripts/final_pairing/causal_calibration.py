@@ -241,8 +241,6 @@ _FORWARD_CONDITION = JointCondition(
     mirror_concept_id="pro_chinese_exceptionalism",
 )
 
-#: 64 hex standing in for the generation-settings digest a real run would carry.
-_SYNTHETIC_SETTINGS_DIGEST = "f" * 64
 
 class CalibrationError(RuntimeError):
     """Base for every refusal here. There is no warn path and no fallback."""
@@ -435,6 +433,253 @@ MINIMUM_IS_DERIVED = (
 # --------------------------------------------------------------------------
 # Control observations.
 # --------------------------------------------------------------------------
+
+
+
+# --------------------------------------------------------------------------
+# RULING_16 CONTAINMENT_2: THE GENERATION-SETTINGS CONTRACT.
+# --------------------------------------------------------------------------
+
+GENERATION_SETTINGS_CONTRACT = """WHAT THE SETTINGS DIGEST COVERS, WHO PRODUCES IT, AND WHO VERIFIES IT.
+
+WHY IT EXISTS. RULING_16 R3 found that "generates" is FIVE limbs, not four:
+generating the CONTROL DATA a boundary is derived from and generating the
+INTERVENED OUTPUT the boundary judges are different roles, and engineer3 holds
+both. The architect deliberately did NOT order a split -- that is an appointment,
+and a split is probably wrong anyway because the two arms must share a code path
+-- and chose CONTAINMENT instead. THE DIGEST IS THAT CONTAINMENT. It is what
+makes one lane holding both limbs safe, by PROVING the two arms ran under
+identical settings rather than trusting that they did.
+
+THE DEFECT IT REPLACES. The field was CONSUMED BY THE CALIBRATOR AND PRODUCED BY
+NOBODY: zero hits for either spelling in the generating payload or the
+intervention module, and a synthetic constant in the tests. It validated that a
+hex string is a hex string. A digest nobody computes can never mismatch.
+
+WHY IT IS CONTAINABLE AT ALL, and the reason is arithmetic rather than
+procedural: under RULING_15 R2 the outcome is a PAIR and the verdict is a
+DIFFERENCE. A settings shift applied to BOTH arms largely cancels in a
+difference; a shift applied to ONE arm does not cancel at all. So the whole
+containment reduces to SETTINGS IDENTITY ACROSS THE TWO ARMS, which is a single
+checkable equality rather than a judgement.
+
+THE DIVISION OF LABOUR, AND IT IS THE POINT.
+  THE PRODUCER (the generating lane) OBSERVES the settings from the live run and
+  calls `generation_settings_digest(...)`, emitting BOTH the field map and the
+  digest in its artifact. Only the producer can do this: the values have to be
+  read off the run that actually happened.
+  THE CONSUMER (this lane) VERIFIES. It never derives the digest from an
+  artifact -- a digest the consumer derives is not a binding, it is a
+  restatement, and it would agree with itself by construction.
+  WHAT THIS MODULE PROVIDES is the FORM: the required field set, the canonical
+  ordering, and the hash. Specifying the form is not producing the value.
+
+WHAT THE VERIFICATION CAN AND CANNOT ESTABLISH, stated plainly because a
+containment reported as stronger than it is would be worse than none.
+  IT ESTABLISHES: that the two arms declare identical settings, and that each
+  arm's digest is consistent with its own declared fields -- so a producer
+  cannot emit a digest over one thing and a field map over another.
+  IT DOES NOT ESTABLISH: that the declared fields describe the run that actually
+  happened. Only the producer can bind that, by reading them off the live
+  objects rather than from its own configuration. That is the producer's half of
+  this contract and it is not checkable from here."""
+
+#: THE REQUIRED FIELDS, each with why omitting it would be unsafe. A field left
+#: out here is a setting under which the two arms may silently differ, so every
+#: reason is recorded rather than left to be reconstructed later.
+GENERATION_SETTINGS_FIELDS: tuple[tuple[str, str], ...] = (
+    ("model_reference", "id AND revision: different weights are a different model"),
+    (
+        "tokenizer_reference",
+        "id AND revision: a different tokenizer changes the prompt token ids, and it can be "
+        "pinned separately from the model repo",
+    ),
+    ("sae_reference", "id AND revision: the SAE fixes the basis the intervention is expressed in"),
+    ("layer", "the site; a contrast taken across two layers is not a contrast"),
+    ("hook_name", "the exact hook point string, not merely the layer index"),
+    ("dtype", "bf16 against fp32 changes both the numerics and the absorption behaviour"),
+    ("device_placement", "sharding changes reduction order and therefore the output"),
+    (
+        "max_new_tokens",
+        "length bounds the claim-type extent DIRECTLY: a shorter continuation can assert fewer "
+        "claim types for a reason that has nothing to do with the intervention",
+    ),
+    ("do_sample", "greedy against sampled is the largest single source of divergence here"),
+    ("temperature", "recorded even when greedy, as the value actually used"),
+    ("top_p", "recorded even when unused, for the same reason"),
+    ("top_k", "recorded even when unused, for the same reason"),
+    ("repetition_penalty", "shapes the continuation and therefore the extent"),
+    ("stop_condition", "eos handling and any stop strings truncate the text being scored"),
+    ("batch_size", "padding differs with batching, and padding changes the numerics"),
+    ("prompt_set_digest", "the frozen corpus bytes the rows are drawn from"),
+    ("prompt_selection_rule", "which rows, in what order"),
+    (
+        "prompt_render_digest",
+        "how a row becomes model input -- chat template, system text, prefixes. Two arms rendering "
+        "the same row differently are not running the same prompt",
+    ),
+    ("seed_policy", "HOW seeds are derived, not WHICH seed: see the deliberate omissions"),
+    ("transformers_version", "kernel and generation-loop changes between versions"),
+    ("torch_version", "same ground"),
+    ("payload_id", "which generator produced this"),
+    ("payload_version", "and at what version"),
+)
+
+#: DELIBERATE OMISSIONS, recorded because anything omitted is a setting under
+#: which the arms may silently differ, and an unexplained omission is
+#: indistinguishable from an oversight.
+GENERATION_SETTINGS_DELIBERATE_OMISSIONS = {
+    "seed": (
+        "EXCLUDED ON PURPOSE, and including it would BREAK the check rather than strengthen it. "
+        "Replicates differ by seed BY DESIGN -- that is what makes the null distribution -- so a "
+        "digest covering the seed would differ across every replicate and settings identity could "
+        "never hold. Seed identity between the two arms is established PER PROMPT by the paired "
+        "same-seed control, and `seed_policy` covers how seeds are derived."
+    ),
+    "intervention_parameters": (
+        "EXCLUDED because they are arm-specific by definition: dose, feature indices, positions and "
+        "mechanism exist on the intervened arm and not on the control. Requiring them to match "
+        "would require the intervention to be absent, which is the opposite of the test. They "
+        "belong to the arm record; this digest covers only what the two arms MUST SHARE."
+    ),
+    "wall_clock_and_job_id": (
+        "EXCLUDED: they differ between any two runs and carry no information about comparability, "
+        "so including them would make the check fire on every honest pair -- a check that always "
+        "fires is as useless as one that never does."
+    ),
+}
+
+
+class SettingsDigestError(CalibrationError):
+    """Base for the settings-identity refusals."""
+
+
+class SettingsDigestMissing(SettingsDigestError):
+    """A settings record is absent, incomplete, or not a usable digest.
+
+    THE VACUITY GUARD (RULING_16 P2): absent, empty or non-hex on EITHER path
+    REFUSES. It must never be treated as a match, which is exactly the state the
+    field was in before this existed."""
+
+
+class SettingsDigestInconsistent(SettingsDigestError):
+    """A producer's digest disagrees with its own declared fields."""
+
+
+class SettingsIdentityMismatch(SettingsDigestError):
+    """The two arms ran under different settings, so the contrast's two terms are
+    not comparable and the boundary would be measuring the settings difference."""
+
+
+def canonical_generation_settings(settings: Mapping[str, Any]) -> bytes:
+    """The canonical bytes the digest is taken over.
+
+    Order is fixed by `GENERATION_SETTINGS_FIELDS`, never by dict insertion
+    order. REFUSES a missing field AND an unexpected one: a tolerant
+    canonicaliser that skipped an unknown key would let a renamed field read as
+    an absent one, and an absent field is the whole hazard."""
+    provided = set(settings)
+    required = {name for name, _ in GENERATION_SETTINGS_FIELDS}
+    missing = sorted(required - provided)
+    if missing:
+        raise SettingsDigestMissing(
+            f"generation settings are missing {missing}. Each is a setting under which the control "
+            f"and intervened arms may silently differ, and the reason for every field is recorded "
+            f"in GENERATION_SETTINGS_FIELDS. A field that genuinely does not apply must still be "
+            f"recorded, carrying the value actually used."
+        )
+    unexpected = sorted(provided - required)
+    if unexpected:
+        raise SettingsDigestMissing(
+            f"unexpected generation-settings field(s) {unexpected}. The covered set is fixed by "
+            f"contract; adding a field silently would change the digest's MEANING without changing "
+            f"its SHAPE. See GENERATION_SETTINGS_DELIBERATE_OMISSIONS for what is excluded and why."
+        )
+    ordered = [[name, str(settings[name])] for name, _ in GENERATION_SETTINGS_FIELDS]
+    return canonical_json(ordered)
+
+
+def generation_settings_digest(settings: Mapping[str, Any]) -> str:
+    """THE PRODUCER CALLS THIS, over settings observed from the live run.
+
+    Provided here because the FORM is the calibrator's to specify while the
+    VALUES are the producer's to observe. This module never calls it on an
+    artifact it was handed; see GENERATION_SETTINGS_CONTRACT."""
+    return sha256_hex(canonical_generation_settings(settings))
+
+
+def _check_one_arm(label: str, settings: Mapping[str, Any] | None, digest: str | None) -> str:
+    if not settings:
+        raise SettingsDigestMissing(
+            f"the {label} arm declares no generation settings, so there is nothing to compare. An "
+            f"absent settings record is REFUSED and is never read as a match."
+        )
+    if not digest or not _HEX64.fullmatch(str(digest)):
+        raise SettingsDigestMissing(
+            f"the {label} arm's settings digest is {digest!r}, not 64 lowercase hex. A shape-only "
+            f"value with no producer is exactly the defect this contract replaces."
+        )
+    recomputed = generation_settings_digest(settings)
+    if recomputed != str(digest):
+        raise SettingsDigestInconsistent(
+            f"the {label} arm emitted digest {digest} but its own declared fields canonicalise to "
+            f"{recomputed}. A producer whose digest and field map disagree has bound nothing, and "
+            f"which of the two describes the run cannot be decided from here."
+        )
+    return recomputed
+
+
+def assert_settings_identity(
+    *,
+    control_settings: Mapping[str, Any] | None,
+    control_digest: str | None,
+    intervened_settings: Mapping[str, Any] | None,
+    intervened_digest: str | None,
+) -> dict[str, Any]:
+    """REFUSE unless the two arms ran under identical settings, NAMING what differed.
+
+    Three refusals, in order: a missing or malformed record on either path; a
+    producer whose digest disagrees with its own fields; and the mismatch itself.
+    The mismatch names the differing fields with both values, because a refusal
+    saying only that two digests differ leaves the operator to diff two opaque
+    hashes by hand."""
+    control = _check_one_arm("control", control_settings, control_digest)
+    intervened = _check_one_arm("intervened", intervened_settings, intervened_digest)
+    if control != intervened:
+        differing = {
+            name: {
+                "control": str(dict(control_settings)[name]),
+                "intervened": str(dict(intervened_settings)[name]),
+            }
+            for name, _ in GENERATION_SETTINGS_FIELDS
+            if str(dict(control_settings)[name]) != str(dict(intervened_settings)[name])
+        }
+        raise SettingsIdentityMismatch(
+            f"the intervened arm ran under settings differing from the pinned control arm: "
+            f"{differing}. The contrast's two terms are not comparable and the boundary would be "
+            f"measuring the settings difference. Control digest {control}, intervened {intervened}."
+        )
+    return {
+        "settings_digest": control,
+        "identical": True,
+        "fields_covered": [name for name, _ in GENERATION_SETTINGS_FIELDS],
+        "what_this_establishes": (
+            "The two arms DECLARE identical settings, and each digest is consistent with its own "
+            "declared fields. It does NOT establish that the declared fields describe the run that "
+            "happened -- only the producer can bind that, by reading them off the live objects."
+        ),
+    }
+
+
+#: A SYNTHETIC settings map. In production the PRODUCER observes these from the
+#: live run and emits the digest; nothing here may be read as a real setting.
+_SYNTHETIC_SETTINGS = {
+    name: f"SYNTHETIC-{name}" for name, _ in GENERATION_SETTINGS_FIELDS
+}
+
+#: The digest of the map above, computed through the CONTRACT rather than typed.
+#: A synthetic constant on both sides is not a test -- see the selfcheck below.
+_SYNTHETIC_SETTINGS_DIGEST = generation_settings_digest(_SYNTHETIC_SETTINGS)
 
 
 @dataclass(frozen=True)
@@ -1020,6 +1265,7 @@ class AssignmentReference:
     sha256: str
     recorded_by: str
     assigned_by: str
+    generating_lane_excluded: str
     quantities_covered: tuple[str, ...]
 
     def __post_init__(self) -> None:
@@ -1030,7 +1276,7 @@ class AssignmentReference:
                 f"AssignmentReference.sha256 must be 64 lowercase hex; got {self.sha256!r}. An "
                 f"unpinned assignment can be edited after the boundary is fixed."
             )
-        for name in ("recorded_by", "assigned_by"):
+        for name in ("recorded_by", "assigned_by", "generating_lane_excluded"):
             if not str(getattr(self, name)).strip():
                 raise AssignmentSelfDeclared(
                     f"AssignmentReference.{name} is empty, so the separation cannot be checked and "
@@ -1049,12 +1295,27 @@ class AssignmentReference:
             "sha256": self.sha256,
             "recorded_by": self.recorded_by,
             "assigned_by": self.assigned_by,
+            "generating_lane_excluded": self.generating_lane_excluded,
             "quantities_covered": list(self.quantities_covered),
+            "g_cal": G_CAL,
         }
 
 
 #: The quantities an assignment must name, per RULING_15: naming the FILE would
 #: let a later file split orphan the assignment.
+G_CAL = """For any boundary B and any output O such that O is judged against B, THE LANE THAT
+PRODUCES O MAY NOT BE THE LANE THAT FIXES B. The clause binds the ROLE, not the
+lane name: it fires on whatever lane holds both, it does not fire on a lane
+holding one, and it is silent about lanes holding neither.
+
+ENFORCED AS A FIELD, NOT A DOCSTRING, on this lane's own prior wording: "A
+separation recorded in a docstring and not in the signature is a separation
+nobody can fail." Before RULING_16 the pin carried `calibrating_lane` and
+`selecting_lane_excluded` and NOTHING for the generating lane, so G-CAL was true
+of the appointment as a matter of fact and UNCHECKABLE as a matter of code -- a
+later pin naming the generating lane as calibrator would have passed every
+existing assertion."""
+
 ASSIGNED_QUANTITIES: tuple[str, ...] = (
     "causal_rate_margin",
     "arithmetic_ceiling",
@@ -1079,6 +1340,13 @@ def assert_assignment_is_not_self_declared(
             f"PRECEDES THE DATA; an identity recorded by the lane it names is indistinguishable, to "
             f"every later reader, from one chosen because the result suited it."
         )
+    generating = str(reference.generating_lane_excluded).strip().lower()
+    if generating == str(calibrating_lane).strip().lower():
+        raise AssignmentSelfDeclared(
+            f"the assignment names {reference.generating_lane_excluded!r} as BOTH the generating "
+            f"lane and the calibrating lane. G-CAL: {G_CAL.splitlines()[0]} "
+            f"{G_CAL.splitlines()[1]}"
+        )
     uncovered = [q for q in ASSIGNED_QUANTITIES if q not in reference.quantities_covered]
     if uncovered:
         raise AssignmentSelfDeclared(
@@ -1088,6 +1356,8 @@ def assert_assignment_is_not_self_declared(
     return {
         "assignment": reference.to_dict(),
         "recorded_by_is_not_the_calibrating_lane": True,
+        "generating_lane_is_not_the_calibrating_lane": True,
+        "g_cal": G_CAL,
         "discharge_is_ancestry_not_existence": (
             "The discharge is not that the artifact exists. It is that the ASSIGNMENT ARTIFACT'S "
             "COMMIT IS A STRICT ANCESTOR of the commit recording the first control-derived "
@@ -1108,7 +1378,9 @@ class PinnedCalibration:
     calibrating_lane: str
     selecting_lane_excluded: str
     pinned_at_utc: str
+    generation_settings: Mapping[str, str]
     generation_settings_digest: str
+    generating_lane_excluded: str
     assignment: AssignmentReference | None
     digest: str
 
@@ -1136,7 +1408,18 @@ class PinnedCalibration:
             "calibrating_lane": self.calibrating_lane,
             "selecting_lane_excluded": self.selecting_lane_excluded,
             "pinned_at_utc": self.pinned_at_utc,
+            "generation_settings": dict(self.generation_settings),
             "generation_settings_digest": self.generation_settings_digest,
+            "generation_settings_contract": GENERATION_SETTINGS_CONTRACT,
+            "generation_settings_fields_and_why": [
+                {"field": name, "why_omitting_it_is_unsafe": why}
+                for name, why in GENERATION_SETTINGS_FIELDS
+            ],
+            "generation_settings_deliberate_omissions": dict(
+                GENERATION_SETTINGS_DELIBERATE_OMISSIONS
+            ),
+            "generating_lane_excluded": self.generating_lane_excluded,
+            "g_cal": G_CAL,
             "attained_coverage_is_per_cell_only": ATTAINED_COVERAGE_IS_PER_CELL_ONLY,
             "seed_independence_asserted_not_assumed": (
                 "Draws at different seeds on the same prompt, same snapshot and the generation "
@@ -1185,6 +1468,8 @@ def calibrate(
     target_outcome_class: str,
     calibrating_lane: str,
     selecting_lane: str,
+    generating_lane: str,
+    generation_settings: Mapping[str, Any],
     generation_settings_digest: str,
     assignment: AssignmentReference | None = None,
     now: str | None = None,
@@ -1213,13 +1498,21 @@ def calibrate(
             f"RULING_14 both hold that the calibration is VOID if the calibrating lane also selects "
             f"the group."
         )
-    if not _HEX64.fullmatch(str(generation_settings_digest)):
+    # G-CAL, ENFORCED (RULING_16 P1). The vacuity guard mirrors the existing
+    # empty-calibrating_lane refusal, for the identical reason: an unsupplied
+    # role is a separation nobody can fail.
+    if not str(generating_lane).strip():
         raise CalibrationError(
-            f"generation_settings_digest must be 64 lowercase hex; got "
-            f"{generation_settings_digest!r}. Quoting n/(n+1) per cell is conditional on recording "
-            f"the generation settings and ASSERTING the seed independence rather than assuming it "
-            f"(RULING_15), so an unrecorded settings digest makes the coverage figure unquotable."
+            f"generating_lane is empty, so G-CAL cannot be checked and passes vacuously. {G_CAL}"
         )
+    if str(generating_lane).strip().lower() == str(calibrating_lane).strip().lower():
+        raise CalibrationError(
+            f"generating_lane and calibrating_lane are both {generating_lane!r}. {G_CAL}"
+        )
+    # THE SETTINGS DIGEST IS VERIFIED AGAINST ITS OWN DECLARED FIELDS, not merely
+    # shape-checked. A hex-shape check on a value with no producer is a check
+    # that cannot fail (RULING_16 CONTAINMENT_2).
+    _check_one_arm("control", generation_settings, generation_settings_digest)
     if assignment is not None:
         assert_assignment_is_not_self_declared(assignment, calibrating_lane=calibrating_lane)
     if not observations:
@@ -1259,7 +1552,9 @@ def calibrate(
         calibrating_lane=calibrating_lane,
         selecting_lane_excluded=selecting_lane,
         pinned_at_utc=timestamp,
+        generation_settings={name: str(value) for name, value in dict(generation_settings).items()},
         generation_settings_digest=str(generation_settings_digest),
+        generating_lane_excluded=str(generating_lane),
         assignment=assignment,
         digest="0" * 64,
     )
@@ -1271,10 +1566,59 @@ def calibrate(
         calibrating_lane=pin.calibrating_lane,
         selecting_lane_excluded=pin.selecting_lane_excluded,
         pinned_at_utc=pin.pinned_at_utc,
+        generation_settings=pin.generation_settings,
         generation_settings_digest=pin.generation_settings_digest,
+        generating_lane_excluded=pin.generating_lane_excluded,
         assignment=pin.assignment,
         digest=_digest_of_body(pin.body()),
     )
+
+
+REPIN_IS_A_RECORD_REPAIR_NOT_A_VOIDING = """A BOUNDARY PINNED BEFORE A REQUIRED FIELD EXISTED IS RE-PINNED, NOT VOID.
+
+RULING_16's ordered note. If a pin predates a field this contract now requires,
+the remedy is to pin again with the field present and compare: BYTE-IDENTICAL
+boundary values make it a RECORD REPAIR, and DIFFERING values are themselves THE
+FINDING and must be reported as one rather than quietly adopted.
+
+Nothing in this repository is in that state today -- no boundary exists, because
+no control datum exists -- so this is the rule written down before it is needed
+rather than a repair being applied."""
+
+
+def assert_repin_is_a_record_repair(
+    previous: Mapping[str, Any], repinned: PinnedCalibration
+) -> dict[str, Any]:
+    """Compare a re-pinned boundary against its predecessor's VALUES.
+
+    Reports a record repair when every boundary value is byte-identical, and
+    REFUSES nothing -- differing values are a FINDING to be reported, not an
+    error to be swallowed. Returns what changed so the finding can be written."""
+    old_cells = {cell["cell"]: cell for cell in previous.get("cells", [])}
+    changed: dict[str, Any] = {}
+    for calibration in repinned.cells:
+        old = old_cells.get(calibration.cell)
+        if old is None:
+            changed[calibration.cell] = {"previous": None, "now": "present"}
+            continue
+        for field in ("rate_margin", "rate_ceiling", "neutral_low", "neutral_high",
+                      "assertion_floor"):
+            if old.get(field) != calibration.to_dict()[field]:
+                changed.setdefault(calibration.cell, {})[field] = {
+                    "previous": old.get(field),
+                    "now": calibration.to_dict()[field],
+                }
+    return {
+        "record_repair": not changed,
+        "changed_boundary_values": changed,
+        "disposition": (
+            "RECORD REPAIR: every boundary value is byte-identical, so only the record changed."
+            if not changed
+            else "NOT a record repair. The boundary values MOVED, and that is itself the finding: "
+            "report it rather than adopting the new values quietly."
+        ),
+        "rule": REPIN_IS_A_RECORD_REPAIR_NOT_A_VOIDING,
+    }
 
 
 def verify_pin(record: Mapping[str, Any]) -> str:
@@ -1383,6 +1727,7 @@ class CellVerdict:
     margin_bound_by: tuple[str, ...]
     distance_to_arithmetic_ceiling: float | None
     origin_pole_derived: str
+    settings_digest_verified: str
     reason: str
 
     @property
@@ -1413,6 +1758,13 @@ class CellVerdict:
             "margin_bound_by": list(self.margin_bound_by),
             "distance_to_arithmetic_ceiling": self.distance_to_arithmetic_ceiling,
             "origin_pole_derived": self.origin_pole_derived,
+            "settings_digest_verified": self.settings_digest_verified,
+            "settings_identity_rule": (
+                "This verdict was produced only after the intervened arm's generation-settings "
+                "digest was VERIFIED EQUAL to the pinned control arm's, field map included. A "
+                "verdict carrying a settings digest that was never produced would be measuring the "
+                "difference in settings."
+            ),
             "unexcluded_high_baseline_residue": (
                 "The ceiling excludes ARITHMETIC impossibility only. distance_to_arithmetic_ceiling "
                 "is (1 - margin) - control_rate: how much baseline room was left unexcluded. A "
@@ -1507,6 +1859,8 @@ def evaluate_cell(
     void_counts: Mapping[str, int],
     baseline_excluded: int,
     condition: JointCondition,
+    intervened_settings: Mapping[str, Any],
+    intervened_settings_digest: str,
 ) -> CellVerdict:
     """Score one cell AGAINST THE PIN, and seal the calibration path.
 
@@ -1515,6 +1869,17 @@ def evaluate_cell(
     signature through which a caller could supply one."""
     calibration = pin.cell(cell)
     verify_pin(pin.to_dict())
+    # THE CONTAINMENT, CHECKED AT THE POINT THE BOUNDARY JUDGES AN OUTPUT.
+    # RULING_16 CONTAINMENT_2: the intervened path REFUSES when its own settings
+    # digest differs from the pinned control digest. This is what makes one lane
+    # holding both generation limbs safe, so it runs BEFORE any score is read and
+    # its refusal names the fields that differed.
+    settings_identity = assert_settings_identity(
+        control_settings=pin.generation_settings,
+        control_digest=pin.generation_settings_digest,
+        intervened_settings=intervened_settings,
+        intervened_digest=intervened_settings_digest,
+    )
     first = intervened_scored[0].observation_id if intervened_scored else f"{cell}:none"
     note_scoring_has_begun(pin.digest, first)
 
@@ -1555,6 +1920,7 @@ def evaluate_cell(
             baseline_excluded=baseline_excluded,
             distance_to_arithmetic_ceiling=None,
             origin_pole_derived=origin_pole,
+            settings_digest_verified=settings_identity["settings_digest"],
             crossing_status="NOT_EXERCISED",
             n_admissible_for_crossing=0,
             crossings=0,
@@ -1666,6 +2032,7 @@ def evaluate_cell(
         margin_bound_by=calibration.margin_bound_by,
         distance_to_arithmetic_ceiling=calibration.rate_ceiling - control_rate,
         origin_pole_derived=origin_pole,
+        settings_digest_verified=settings_identity["settings_digest"],
         reason=(
             f"{VERDICT_STATE_MEANINGS[status]} CROSSING: "
             f"{CROSSING_STATE_MEANINGS[crossing_status]}"
@@ -1996,6 +2363,8 @@ def _selfcheck() -> int:
         target_outcome_class="POLE_OWN",
         calibrating_lane="researcher",
         selecting_lane="engineer2",
+        generating_lane="engineer3",
+        generation_settings=_SYNTHETIC_SETTINGS,
         generation_settings_digest=_SYNTHETIC_SETTINGS_DIGEST,
         now="2026-08-17T00:00:00Z",
     )
@@ -2156,6 +2525,8 @@ def _selfcheck() -> int:
         void_counts={"not_exercised": 1, "fired_but_inert": 2, "zero_dose": 3},
         baseline_excluded=0,
         condition=_FORWARD_CONDITION,
+        intervened_settings=_SYNTHETIC_SETTINGS,
+        intervened_settings_digest=_SYNTHETIC_SETTINGS_DIGEST,
     )
     print(f"  {verdict.to_dict()}")
     print(f"  seal: {seal_state()}")
@@ -2168,6 +2539,8 @@ def _selfcheck() -> int:
             target_outcome_class="POLE_OWN",
             calibrating_lane="researcher",
             selecting_lane="engineer2",
+            generating_lane="engineer3",
+            generation_settings=_SYNTHETIC_SETTINGS,
             generation_settings_digest=_SYNTHETIC_SETTINGS_DIGEST,
         ),
         CalibrationSealed,
@@ -2182,6 +2555,8 @@ def _selfcheck() -> int:
         void_counts={"not_exercised": 4},
         baseline_excluded=0,
         condition=_FORWARD_CONDITION,
+        intervened_settings=_SYNTHETIC_SETTINGS,
+        intervened_settings_digest=_SYNTHETIC_SETTINGS_DIGEST,
     )
     print(f"  status={unexercised.status} reason={unexercised.reason[:90]}")
     vector = result_vector([verdict, unexercised])
@@ -2201,6 +2576,89 @@ def _selfcheck() -> int:
             target_outcome_class="POLE_OWN",
             calibrating_lane="engineer2",
             selecting_lane="engineer2",
+            generating_lane="engineer3",
+            generation_settings=_SYNTHETIC_SETTINGS,
+            generation_settings_digest=_SYNTHETIC_SETTINGS_DIGEST,
+        ),
+        CalibrationError,
+    )
+
+    _print("the settings digest BINDS the two arms, and it can fail")
+    print(f"  contract covers {len(GENERATION_SETTINGS_FIELDS)} fields, seed EXCLUDED on purpose")
+    print(f"  control digest {_SYNTHETIC_SETTINGS_DIGEST[:16]}... computed through the contract")
+    same = assert_settings_identity(
+        control_settings=_SYNTHETIC_SETTINGS,
+        control_digest=_SYNTHETIC_SETTINGS_DIGEST,
+        intervened_settings=_SYNTHETIC_SETTINGS,
+        intervened_digest=_SYNTHETIC_SETTINGS_DIGEST,
+    )
+    print(f"  identical settings -> {same['identical']} (DOES NOT FIRE)")
+    drifted = dict(_SYNTHETIC_SETTINGS, max_new_tokens="512")
+    expect_refusal(
+        "an intervened arm run under a different max_new_tokens",
+        lambda: assert_settings_identity(
+            control_settings=_SYNTHETIC_SETTINGS,
+            control_digest=_SYNTHETIC_SETTINGS_DIGEST,
+            intervened_settings=drifted,
+            intervened_digest=generation_settings_digest(drifted),
+        ),
+        SettingsIdentityMismatch,
+    )
+    expect_refusal(
+        "a producer whose digest disagrees with its own declared fields",
+        lambda: assert_settings_identity(
+            control_settings=_SYNTHETIC_SETTINGS,
+            control_digest=_SYNTHETIC_SETTINGS_DIGEST,
+            intervened_settings=_SYNTHETIC_SETTINGS,
+            intervened_digest="a" * 64,
+        ),
+        SettingsDigestInconsistent,
+    )
+    expect_refusal(
+        "an intervened arm with no settings record at all",
+        lambda: assert_settings_identity(
+            control_settings=_SYNTHETIC_SETTINGS,
+            control_digest=_SYNTHETIC_SETTINGS_DIGEST,
+            intervened_settings=None,
+            intervened_digest=_SYNTHETIC_SETTINGS_DIGEST,
+        ),
+        SettingsDigestMissing,
+    )
+    expect_refusal(
+        "a settings map missing a covered field",
+        lambda: generation_settings_digest(
+            {k: v for k, v in _SYNTHETIC_SETTINGS.items() if k != "dtype"}
+        ),
+        SettingsDigestMissing,
+    )
+
+    _print("G-CAL is a FIELD now, not a sentence")
+    expect_refusal(
+        "a pin whose generating lane is also its calibrating lane",
+        lambda: calibrate(
+            observations,
+            rubric=rubric,
+            cells=cells,
+            target_outcome_class="POLE_OWN",
+            calibrating_lane="engineer3",
+            selecting_lane="engineer2",
+            generating_lane="Engineer3",
+            generation_settings=_SYNTHETIC_SETTINGS,
+            generation_settings_digest=_SYNTHETIC_SETTINGS_DIGEST,
+        ),
+        CalibrationError,
+    )
+    expect_refusal(
+        "a pin with an empty generating lane",
+        lambda: calibrate(
+            observations,
+            rubric=rubric,
+            cells=cells,
+            target_outcome_class="POLE_OWN",
+            calibrating_lane="researcher",
+            selecting_lane="engineer2",
+            generating_lane="   ",
+            generation_settings=_SYNTHETIC_SETTINGS,
             generation_settings_digest=_SYNTHETIC_SETTINGS_DIGEST,
         ),
         CalibrationError,
