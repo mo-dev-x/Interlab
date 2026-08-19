@@ -279,6 +279,11 @@ UNEXERCISED_WITHOUT_GPU = (
     "measures and classifies, and owns no success criterion. RULING_13 places that in a "
     "control-only calibration performed by a lane that does not select the group, so no "
     "margin, threshold or ceiling appears here and a test asserts none appears later.",
+    "The REAL raw Qwen SAE object (job 419285): resolve_decoder_orientation's 'feature_minor' "
+    "branch is proven against a synthetic stand-in whose W_dec is deliberately stored as "
+    "(d_in, d_sae) and whose declared d_sae/d_in are plain attributes, matching the SHAPE of "
+    "final_pairing_harness.QwenScopeSAE / the loaded layer38.sae.pt checkpoint as described in "
+    "final_pairing_concept_discovery.py -- never loaded and run through this module directly.",
 )
 
 
@@ -367,37 +372,129 @@ class SettingsDigestUnbound(GroupInterventionError):
 # ---------------------------------------------------------------------------
 
 
-def resolve_decoder_matrix(sae: Any) -> torch.Tensor:
-    """The `[d_sae, d_in]` decoder matrix, row f being feature f's direction.
+DecoderOrientation = Literal["feature_major", "feature_minor"]
+"""How a decoder matrix's RAW storage relates to its logical `[d_sae,
+d_in]` shape. `"feature_major"`: the raw shape is already `(d_sae, d_in)`
+-- row f is feature f's direction (`sae_lens.SAE`'s own convention).
+`"feature_minor"`: the raw shape is `(d_in, d_sae)` -- feature f is COLUMN
+f, not row f (the raw Qwen `layer38.sae.pt` checkpoint's convention: the
+SAME attribute name, `W_dec`, with the OPPOSITE meaning). Recorded on
+`ResolvedGroup` so provenance can say which layout a run actually used."""
 
-    Handles the two shapes this project loads: `sae_lens.SAE` and
-    `final_pairing_harness.QwenScopeSAE` both expose `W_dec` directly;
-    an `nn.Linear`-style decoder exposes `decoder.weight` as `[d_in, d_sae]`
-    and is transposed here. Anything else RAISES rather than guessing --
-    a wrong transpose would silently steer along d_in arbitrary directions
-    and still produce a confident-looking number."""
+
+def _resolve_raw_decoder_matrix(sae: Any) -> torch.Tensor:
+    """The decoder matrix EXACTLY as the SAE stores it -- axes UNRESOLVED.
+
+    `resolve_decoder_orientation` decides which axis is the feature axis;
+    this function only locates the matrix. `sae_lens.SAE` and
+    `final_pairing_harness.QwenScopeSAE` both expose `W_dec` directly; an
+    `nn.Linear`-style decoder exposes `decoder.weight`. Anything else
+    RAISES rather than guessing where an SAE keeps its decoder directions."""
     w_dec = getattr(sae, "W_dec", None)
     if isinstance(w_dec, torch.Tensor):
         if w_dec.ndim != 2:
-            raise UnsupportedSAE(f"sae.W_dec must be 2-D [d_sae, d_in]; got shape {tuple(w_dec.shape)}")
+            raise UnsupportedSAE(f"sae.W_dec must be 2-D; got shape {tuple(w_dec.shape)}")
         return w_dec
     decoder = getattr(sae, "decoder", None)
     weight = getattr(decoder, "weight", None)
     if isinstance(weight, torch.Tensor) and weight.ndim == 2:
-        return weight.t()
+        return weight
     raise UnsupportedSAE(
         f"{type(sae).__name__} exposes neither a 2-D `W_dec` nor a `decoder.weight` -- refusing to "
         "guess where this SAE keeps its decoder directions."
     )
 
 
+def _resolve_declared_dims(sae: Any) -> tuple[int | None, int | None]:
+    """`(d_sae, d_in)` as the SAE ITSELF claims them: `cfg.d_sae`/`cfg.d_in`
+    where a `cfg` exists (`sae_lens.SAE`, the Gemma pairing), else the bare
+    attribute (`final_pairing_harness.QwenScopeSAE`, the Qwen pairing) --
+    the SAME two places `final_pairing_concept_discovery.load_backend`
+    reads them from (`sae.cfg.d_sae`/`.cfg.d_in` for Gemma, `sae.d_sae`/
+    `.d_in` for Qwen), so this module's idea of the feature space cannot
+    silently diverge from discovery's. Either entry may be `None` if the
+    SAE declares neither."""
+    cfg = getattr(sae, "cfg", None)
+    resolved: list[int | None] = []
+    for name in ("d_sae", "d_in"):
+        declared = getattr(cfg, name, None) if cfg is not None else None
+        if declared is None:
+            declared = getattr(sae, name, None)
+        resolved.append(int(declared) if declared is not None else None)
+    return resolved[0], resolved[1]
+
+
+def resolve_decoder_orientation(sae: Any) -> tuple[torch.Tensor, int, int, DecoderOrientation]:
+    """`(matrix, d_sae, d_in, orientation)`. `matrix` is ALWAYS `[d_sae,
+    d_in]` -- feature f's direction is row `matrix[f]`, regardless of how
+    the SAE stores it.
+
+    ORIENTATION IS RESOLVED, NEVER ASSUMED (job 419285). Gemma's SAELens
+    SAE stores `W_dec` as `[d_sae, d_in]`; the raw Qwen `layer38.sae.pt`
+    checkpoint stores the SAME ATTRIBUTE NAME as `[d_in, d_sae]` --
+    opposite meaning, identical spelling. Asserting the first shape
+    unconditionally is what raised `UnsupportedSAE("SAE declares
+    d_sae=81920 but its decoder matrix has d_sae=5120")` on Qwen -- correct
+    only because the two numbers happened to disagree. On an SAE where the
+    mis-read `d_sae`/`d_in` happened to match the declared ones by
+    coincidence, the same unconditional read would have steered along the
+    wrong axis silently instead of refusing.
+
+    Resolved by matching the matrix's RAW shape against the SAE's OWN
+    declared `(d_sae, d_in)` -- never by which attribute the matrix came
+    from, and never by which axis is larger, since a shortlist SAE can have
+    `d_sae < d_in`. REFUSES, naming the actual numbers, when: the SAE
+    declares neither `d_sae` nor `d_in` (nothing to resolve against);
+    `d_sae == d_in` (the raw shape matches BOTH orientations at once and is
+    genuinely undecidable -- picking one silently is exactly the bug this
+    function exists to close); or the raw shape matches NEITHER
+    `(d_sae, d_in)` NOR `(d_in, d_sae)` (the SAE's own two opinions about
+    its feature space disagree, full stop)."""
+    raw = _resolve_raw_decoder_matrix(sae)
+    a, b = int(raw.shape[0]), int(raw.shape[1])
+    declared_d_sae, declared_d_in = _resolve_declared_dims(sae)
+    if declared_d_sae is None or declared_d_in is None:
+        raise UnsupportedSAE(
+            f"{type(sae).__name__} declares no d_sae/d_in (neither cfg.d_sae/cfg.d_in nor a bare "
+            f"attribute) to resolve its decoder matrix's shape {(a, b)} against -- refusing to "
+            "assume which axis is the feature axis."
+        )
+    if declared_d_sae == declared_d_in:
+        raise UnsupportedSAE(
+            f"SAE declares d_sae == d_in == {declared_d_sae}, so its decoder matrix's shape "
+            f"{(a, b)} matches BOTH possible orientations at once -- refusing to pick one "
+            "silently. A feature index would be indeterminate between the feature axis and the "
+            "residual axis."
+        )
+    if (a, b) == (declared_d_sae, declared_d_in):
+        return raw, declared_d_sae, declared_d_in, "feature_major"
+    if (a, b) == (declared_d_in, declared_d_sae):
+        return raw.t(), declared_d_sae, declared_d_in, "feature_minor"
+    raise UnsupportedSAE(
+        f"SAE declares d_sae={declared_d_sae}, d_in={declared_d_in} but its decoder matrix has "
+        f"shape {(a, b)}, which matches NEITHER (d_sae, d_in) NOR (d_in, d_sae) -- refusing to run "
+        "with two disagreeing opinions about the feature space."
+    )
+
+
+def resolve_decoder_matrix(sae: Any) -> torch.Tensor:
+    """The decoder matrix, ALWAYS `[d_sae, d_in]` -- row f is feature f's
+    direction, regardless of how the SAE stores it internally. See
+    `resolve_decoder_orientation` for how the axes are resolved (never
+    assumed) and refused."""
+    matrix, _, _, _ = resolve_decoder_orientation(sae)
+    return matrix
+
+
 def resolve_decoder_bias(sae: Any, d_in: int, *, device, dtype) -> torch.Tensor:
     """`b_dec`, or an exact zero vector when the SAE has none.
 
-    Only mechanism (a) reads it, and only through `sae.decode`; it is
-    resolved here for the closed-form cross-check in
-    `measure_mechanism_gap`, which must not depend on `decode` in order to
-    be an independent check of it."""
+    A 1-D vector of length `d_in` carries no orientation ambiguity -- there
+    is only one axis, so this function is unaffected by
+    `resolve_decoder_orientation`. Only mechanism (a) reads it, and only
+    through `sae.decode`; it is resolved here for the closed-form
+    cross-check in `measure_mechanism_gap`, which must not depend on
+    `decode` in order to be an independent check of it."""
     b_dec = getattr(sae, "b_dec", None)
     if isinstance(b_dec, torch.Tensor):
         return b_dec.to(device=device, dtype=dtype)
@@ -405,26 +502,11 @@ def resolve_decoder_bias(sae: Any, d_in: int, *, device, dtype) -> torch.Tensor:
 
 
 def resolve_sae_dims(sae: Any) -> tuple[int, int]:
-    """`(d_sae, d_in)` taken from the decoder matrix and CROSS-CHECKED
-    against `cfg` where a `cfg` exists.
-
-    The decoder's own shape is authoritative because it is what the hook
-    actually indexes into. A `cfg` that disagrees is a refusal, not a
-    tie-break: one of the two is wrong, and picking either silently is how
-    an out-of-range index becomes an out-of-bounds read on someone else's
-    features."""
-    w_dec = resolve_decoder_matrix(sae)
-    d_sae, d_in = int(w_dec.shape[0]), int(w_dec.shape[1])
-    cfg = getattr(sae, "cfg", None)
-    for name, measured in (("d_sae", d_sae), ("d_in", d_in)):
-        declared = getattr(cfg, name, None) if cfg is not None else None
-        if declared is None:
-            declared = getattr(sae, name, None)
-        if declared is not None and int(declared) != measured:
-            raise UnsupportedSAE(
-                f"SAE declares {name}={int(declared)} but its decoder matrix has {name}={measured} "
-                "-- refusing to run with two disagreeing opinions about the feature space."
-            )
+    """`(d_sae, d_in)`, the SAE's own declared values, cross-checked against
+    its decoder matrix's shape in EITHER orientation (see
+    `resolve_decoder_orientation`) rather than assuming which axis is
+    which."""
+    _, d_sae, d_in, _ = resolve_decoder_orientation(sae)
     return d_sae, d_in
 
 
@@ -989,6 +1071,14 @@ class ResolvedGroup:
     decoder_rows: torch.Tensor  # [k, d_in] float32
     amplify_direction: torch.Tensor  # [d_in] float32 == sum_f w_f * W_dec[f]
     device: torch.device
+    #: How the SAE's raw decoder matrix related to `[d_sae, d_in]` before
+    #: `decoder_rows`/`amplify_direction` were built from it -- PROVENANCE,
+    #: not a live input: nothing downstream branches on this value, because
+    #: `decoder_rows` is already correctly oriented by the time this is set.
+    #: Recorded so an artifact can say which layout a run actually used
+    #: (job 419285: the two frozen pairings use opposite layouts under the
+    #: same attribute name).
+    decoder_orientation: DecoderOrientation
     #: [k] float32 -- alpha * corpus_max_f per member, the absolute clamp
     #: target IN THAT MEMBER'S OWN MAX UNITS. Empty unless dose_form=='clamp'.
     clamp_targets: torch.Tensor | None = None
@@ -1021,11 +1111,14 @@ def resolve_group(sae: Any, spec: GroupSpec) -> ResolvedGroup:
 
     Refuses on: a feature index >= d_sae, a negative index (caught in
     `GroupMember`), a duplicated member (caught in `GroupSpec`), and a
-    decoder/cfg dimension disagreement. Nothing is dropped, clamped, or
-    rounded into range -- `resolved.member_count == spec.member_count` is
-    an invariant this function asserts before returning."""
-    d_sae, d_in = resolve_sae_dims(sae)
-    w_dec = resolve_decoder_matrix(sae)
+    decoder/cfg dimension disagreement -- including an UNRESOLVABLE decoder
+    orientation (see `resolve_decoder_orientation`): no declared d_sae/d_in
+    to check against, d_sae == d_in making the two possible orientations
+    indistinguishable, or a raw shape matching neither. Nothing is dropped,
+    clamped, or rounded into range -- `resolved.member_count ==
+    spec.member_count` is an invariant this function asserts before
+    returning."""
+    w_dec, d_sae, d_in, orientation = resolve_decoder_orientation(sae)
     device = w_dec.device
 
     # Membership is validated BEFORE the hook point is resolved. Ordering
@@ -1099,6 +1192,7 @@ def resolve_group(sae: Any, spec: GroupSpec) -> ResolvedGroup:
         decoder_rows=rows,
         amplify_direction=direction,
         device=device,
+        decoder_orientation=orientation,
         clamp_targets=clamp_targets,
     )
     if resolved.member_count != spec.member_count:
@@ -3059,22 +3153,37 @@ class _SyntheticSAE:
     hook_name = "synthetic.blocks.0.hook_resid_post"
     DEAD_FEATURES = (2, 5, 13, 21)
 
-    def __init__(self, d_in: int = 16, d_sae: int = 32, seed: int = 20260816) -> None:
+    def __init__(
+        self,
+        d_in: int = 16,
+        d_sae: int = 32,
+        seed: int = 20260816,
+        orientation: DecoderOrientation = "feature_major",
+    ) -> None:
         generator = torch.Generator().manual_seed(seed)
         self.d_in = d_in
         self.d_sae = d_sae
+        self.orientation = orientation
         self.W_enc = torch.randn(d_in, d_sae, generator=generator) / (d_in**0.5)
         self.b_enc = torch.randn(d_sae, generator=generator) * 0.1
         for index in self.DEAD_FEATURES:
             self.b_enc[index] = -1.0e6
-        self.W_dec = torch.randn(d_sae, d_in, generator=generator) / (d_sae**0.5)
+        # Built feature-major (row f is feature f's direction) and then
+        # STORED in whichever orientation was requested -- a Qwen-shaped
+        # ("feature_minor") instance really does carry the raw (d_in, d_sae)
+        # layout job 419285 hit, not a feature_major matrix relabelled.
+        # `decode()` below reads `self.W_dec` back out in the SAME
+        # orientation, so either instance is a genuinely self-consistent SAE.
+        decoder = torch.randn(d_sae, d_in, generator=generator) / (d_sae**0.5)
+        self.W_dec = decoder if orientation == "feature_major" else decoder.t().contiguous()
         self.b_dec = torch.randn(d_in, generator=generator) * 0.1
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         return torch.relu(x.to(torch.float32) @ self.W_enc + self.b_enc)
 
     def decode(self, feats: torch.Tensor) -> torch.Tensor:
-        return feats.to(torch.float32) @ self.W_dec + self.b_dec
+        w_dec = self.W_dec if self.orientation == "feature_major" else self.W_dec.t()
+        return feats.to(torch.float32) @ w_dec + self.b_dec
 
 
 def _print(title: str) -> None:

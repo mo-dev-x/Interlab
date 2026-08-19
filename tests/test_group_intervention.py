@@ -101,6 +101,8 @@ def test_out_of_range_refusal_is_not_masked_by_a_missing_hook_name(synthetic_sae
     class _NoHookName:
         W_dec = synthetic_sae.W_dec
         b_dec = synthetic_sae.b_dec
+        d_sae = synthetic_sae.d_sae
+        d_in = synthetic_sae.d_in
 
     with pytest.raises(gi.FeatureNotInSAE):
         gi.resolve_group(_NoHookName(), gi.GroupSpec(kind="amplify", members=(gi.GroupMember(9999),)))
@@ -160,6 +162,7 @@ def test_dimension_disagreement_between_decoder_and_cfg_raises(synthetic_sae):
     class _Lying:
         W_dec = synthetic_sae.W_dec
         d_sae = 999
+        d_in = synthetic_sae.d_in
 
     with pytest.raises(gi.UnsupportedSAE, match="two disagreeing opinions"):
         gi.resolve_sae_dims(_Lying())
@@ -168,6 +171,103 @@ def test_dimension_disagreement_between_decoder_and_cfg_raises(synthetic_sae):
 def test_sae_without_a_decoder_raises():
     with pytest.raises(gi.UnsupportedSAE, match="refusing to guess"):
         gi.resolve_decoder_matrix(object())
+
+
+# ---------------------------------------------------------------------------
+# DECODER ORIENTATION (job 419285). The two frozen pairings store W_dec in
+# OPPOSITE orientations under the SAME attribute name: Gemma's SAELens SAE
+# is [d_sae, d_in] (row f is feature f); the raw Qwen layer38.sae.pt is
+# [d_in, d_sae] (feature f is a COLUMN). resolve_decoder_matrix must resolve
+# which is which from the SAE's OWN declared dims, never assume one.
+# ---------------------------------------------------------------------------
+
+
+def _feature_direction_via_decode(sae, feature_index: int) -> torch.Tensor:
+    """The canonical, orientation-INDEPENDENT definition of 'feature f's
+    decoder direction': decode(one_hot(f)) - b_dec. Discovery never reads
+    W_dec's raw storage at all -- only encode/decode -- so this is the same
+    notion of 'feature f' discovery has, for either raw layout."""
+    one_hot = torch.zeros(sae.d_sae, dtype=torch.float32)
+    one_hot[feature_index] = 1.0
+    return sae.decode(one_hot) - sae.b_dec
+
+
+@pytest.mark.parametrize("orientation", ["feature_major", "feature_minor"])
+def test_resolve_decoder_matrix_selects_the_same_feature_decode_would(orientation):
+    """THE TEST THAT MATTERS: feature f in the intervention path must be the
+    SAME feature as feature f in discovery, for BOTH layouts. d_sae=24
+    (>= the largest DEAD_FEATURES index) and d_in=6 are tiny; only the
+    ORIENTATION is under test."""
+    sae = gi._SyntheticSAE(d_in=6, d_sae=24, orientation=orientation)
+    assert gi.resolve_sae_dims(sae) == (24, 6)
+    for feature_index in (0, 1, 23):
+        expected = _feature_direction_via_decode(sae, feature_index)
+        actual = gi.resolve_decoder_matrix(sae)[feature_index]
+        assert torch.allclose(actual, expected, atol=1e-5), (orientation, feature_index)
+
+
+@pytest.mark.parametrize("orientation", ["feature_major", "feature_minor"])
+def test_resolve_group_selects_the_same_feature_direction_for_either_layout(orientation):
+    """The SAME invariant through the REAL entry point `build_group_hook`
+    calls (:1836 in the fault report) rather than the bare accessor."""
+    sae = gi._SyntheticSAE(d_in=6, d_sae=24, orientation=orientation)
+    spec = gi.GroupSpec(kind="amplify", members=(gi.GroupMember(23, weight=1.0),), alpha=1.0)
+    resolved = gi.resolve_group(sae, spec)
+    assert resolved.decoder_orientation == orientation
+    expected = _feature_direction_via_decode(sae, 23)
+    assert torch.allclose(resolved.decoder_rows[0], expected, atol=1e-5)
+    assert torch.allclose(resolved.amplify_direction, expected, atol=1e-5)
+
+
+def test_gemma_shaped_synthetic_sae_resolves_feature_major_and_does_not_regress(synthetic_sae):
+    """The DEFAULT `_SyntheticSAE()` shape (d_in=16, d_sae=32) is the one
+    every other test in this file already runs against -- unaffected by
+    this fix, and this pins that it still resolves as feature_major."""
+    matrix, d_sae, d_in, orientation = gi.resolve_decoder_orientation(synthetic_sae)
+    assert orientation == "feature_major"
+    assert (d_sae, d_in) == (32, 16)
+    assert torch.equal(matrix, synthetic_sae.W_dec)
+
+
+def test_qwen_shaped_synthetic_sae_resolves_feature_minor():
+    sae = gi._SyntheticSAE(d_in=6, d_sae=24, orientation="feature_minor")
+    assert tuple(sae.W_dec.shape) == (6, 24)  # RAW storage: (d_in, d_sae)
+    matrix, d_sae, d_in, orientation = gi.resolve_decoder_orientation(sae)
+    assert orientation == "feature_minor"
+    assert (d_sae, d_in) == (24, 6)
+    assert tuple(matrix.shape) == (24, 6)  # NORMALISED: (d_sae, d_in)
+
+
+def test_neither_orientation_matching_still_refuses():
+    """job 419285's OWN shape, generalised: a decoder matrix whose raw shape
+    matches NEITHER (d_sae, d_in) NOR (d_in, d_sae) must refuse by NAMING
+    the numbers, not by silently picking the axis that happens to work."""
+
+    class _NeitherOrientationMatches:
+        d_sae = 24
+        d_in = 6
+        W_dec = torch.zeros(7, 8)
+
+    with pytest.raises(gi.UnsupportedSAE, match="matches NEITHER"):
+        gi.resolve_decoder_orientation(_NeitherOrientationMatches())
+
+
+def test_d_sae_equal_to_d_in_refuses_as_ambiguous_rather_than_picking_one():
+    """Pinned explicitly and separately, per the fault report: a square
+    decoder matrix satisfies BOTH orientations at once, so picking one
+    (by convention, by which attribute the matrix came from, or by any
+    other silent rule) is exactly the defect class this module refuses."""
+    sae = gi._SyntheticSAE(d_in=24, d_sae=24)
+    with pytest.raises(gi.UnsupportedSAE, match="matches BOTH possible orientations"):
+        gi.resolve_decoder_orientation(sae)
+
+
+def test_no_declared_dims_at_all_refuses():
+    class _NoDeclaredDims:
+        W_dec = torch.zeros(4, 6)
+
+    with pytest.raises(gi.UnsupportedSAE, match="declares no d_sae/d_in"):
+        gi.resolve_decoder_orientation(_NoDeclaredDims())
 
 
 def test_raw_hf_attach_refuses_a_non_module(synthetic_sae):
