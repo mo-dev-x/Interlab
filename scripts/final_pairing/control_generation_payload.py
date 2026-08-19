@@ -1154,28 +1154,6 @@ would agree with nothing. An unset or placeholder digest is refused for the same
 reason a zero dose is: a record that looks bound and is not is worse than one
 that admits it is not."""
 
-#: What this payload can OBSERVE at emit time, recorded so researcher can check
-#: its coverage set against what the producer can actually reach. THIS IS NOT A
-#: COVERAGE SET and nothing here is hashed by this file.
-REACHABLE_AT_EMIT_TIME: tuple[str, ...] = (
-    "model_reference",
-    "tokenizer_reference",
-    "sae_reference",
-    "layer",
-    "hook_name",
-    "dtype",
-    "device_placement",
-    "max_new_tokens",
-    "do_sample",
-    "temperature",
-    "stop_condition",
-    "batch_size",
-    "prompt_set_digest",
-    "prompt_selection_rule",
-    "payload_id",
-    "payload_version",
-)
-
 #: The calibration lane's names for the FORM. This file defines none of them and
 #: computes no hash of its own: the coverage set, the canonical order and the
 #: hash are researcher's, and the producer's half is OBSERVING the values.
@@ -1216,7 +1194,11 @@ def resolve_settings_contract(module: Any = None) -> dict[str, Any]:
             "payload emits no generation_settings_digest. RULING_16: the calibration lane consumes "
             "the field and the coverage set is researcher's to specify -- the consumer's "
             "expectation and the producer's computation must come from ONE specification. What "
-            f"this payload can observe at emit time: {list(REACHABLE_AT_EMIT_TIME)}."
+            "this payload can observe at emit time is exactly the key set "
+            "observe_generation_settings() builds -- that function is the reachability record, "
+            "and a second, hand-maintained list beside it is a list that can drift from what it "
+            "describes (as REACHABLE_AT_EMIT_TIME did: 16 names recorded against 23 actually "
+            "observed)."
         )
     return {
         "fields": tuple(str(name) for name, *_ in fields),
@@ -1650,7 +1632,8 @@ def job_script_text(
 
 def observe_generation_settings(
     *,
-    backend: Any,
+    hook_name: str,
+    device_objects: Mapping[str, Any],
     model_path: str,
     model_revision: str,
     sae_path: str,
@@ -1669,7 +1652,17 @@ def observe_generation_settings(
     imported modules, not from arguments. The FIELD SET is the contract's; this
     function fills it and refuses if it cannot fill one, because a field this
     payload cannot observe is a field researcher has to be told about rather
-    than one to quietly default."""
+    than one to quietly default.
+
+    `hook_name` and `device_objects` are taken as EXPLICIT VALUES rather than
+    derived here from a generic `backend: Any` via `getattr` duck-typing --
+    that duck-typing is exactly what let a fixture stand in for a real
+    `discovery.Backend` and prove nothing (job 419181). The caller resolves
+    both from whichever object actually carries them: `discovery.Backend.hook_name`
+    for the first, `resolve_generation_backend(backend).device_objects()` for
+    the second -- two different objects, because a `discovery.Backend` and a
+    `group_intervention` adapter are not the same thing and this function no
+    longer pretends they are."""
     import torch as _torch
     import transformers as _transformers
 
@@ -1684,13 +1677,11 @@ def observe_generation_settings(
         "tokenizer_reference": f"{model_path}@{model_revision}",
         "sae_reference": f"{sae_path}@{sae_revision}",
         "layer": int(layer),
-        "hook_name": str(
-            getattr(backend, "hook_label", None) or getattr(backend, "hook_name", "") or ""
-        ),
+        "hook_name": str(hook_name),
         "dtype": str(dtype),
         "device_placement": json.dumps(
             {name: str(getattr(obj, "device", "no-parameters")) for name, obj in
-             sorted(backend.device_objects().items())},
+             sorted(device_objects.items())},
             sort_keys=True,
         ),
         "max_new_tokens": int(max_new_tokens),
@@ -1723,6 +1714,45 @@ def observe_generation_settings(
             "defaulted here: a defaulted setting is one under which the two arms may differ."
         )
     return observed
+
+
+def resolve_generation_backend(backend: Any) -> Any:
+    """`discovery.load_backend`'s return value, wrapped in the SAME adapter
+    `group_intervention.run_arm` builds internally -- `.to_tokens`,
+    `.to_string`, `.generate`, `.device`, `.device_objects()` -- so this
+    payload's control arms and a future intervened arm share ONE adapter
+    shape rather than each learning to read `discovery.Backend`'s own fields.
+
+    THE DECISION, AND WHY: `discovery.Backend` (final_pairing_concept_
+    discovery.py:2289) is a plain dataclass recording what was loaded -- it
+    has `model_obj`/`sae`/`_qwen_decoder_layer`, no methods at all, and
+    `run_control_arm`'s unhooked branch needs `.to_tokens`/`.to_string`/
+    `.generate`/`.device`/`.device_objects()` together, not `device_objects()`
+    alone. Adding all five to `discovery.Backend` would be a THIRD
+    implementation of the interface `group_intervention.HookedTransformerBackend`
+    and `.RawHfBackend` already are (group_intervention.py:2622, :2702) --
+    exactly the drift this file's own `assert_settings_digest_bound` alias
+    exists to refuse elsewhere. So the payload goes through the
+    `group_intervention` adapters instead, built ONCE, right after
+    `load_backend()` returns.
+
+    For Qwen, `discovery.Backend._qwen_decoder_layer` is read only to DECIDE
+    which adapter this is (a marker of "this backend is Qwen-shaped"), never
+    passed into the adapter as the decoder module itself: `gi.RawHfBackend`
+    independently re-derives that module from `(hf_model, layer)` at
+    construction, as its own proof that the intervention hook and the
+    discovery scorer target the SAME tensor object
+    (`assert_hooks_the_scored_tensor`) -- a stored reference is not trusted
+    uninspected. The only thing fetched fresh here, rather than re-derived, is
+    the tokenizer, via `discovery.resolve_tokenizer_for_backend` -- the ONE
+    place that already knows how (Gemma's `HookedTransformer` carries its
+    own; Qwen's raw HF model does not, so it reloads from the validated local
+    path) -- never a second, payload-local tokenizer lookup."""
+    if backend._qwen_decoder_layer is not None:
+        discovery = gi._import_discovery_module()
+        tokenizer = discovery.resolve_tokenizer_for_backend(backend)
+        return gi.RawHfBackend(backend.model_obj, tokenizer, layer=int(backend.layer))
+    return gi.resolve_backend(backend.model_obj)
 
 
 def run_control_set(
@@ -1818,6 +1848,10 @@ def _parse_list(value: str) -> list[str]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # IMPORTED BEFORE THE PARSER IS BUILT: --qwen-sae-family's `choices=` comes
+    # from the ratified registry, not a hand-copied tuple, so a third scientific
+    # family can never be typo'd into existence here.
+    discovery = gi._import_discovery_module()
     parser = argparse.ArgumentParser(
         description=(
             "CONTROL-ONLY generation payload. Emits control continuations, reads them with the "
@@ -1848,6 +1882,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--sae-revision",
         default=None,
         help="REQUIRED for a run and for a render: the SAE snapshot digest.",
+    )
+    parser.add_argument(
+        "--qwen-sae-family",
+        choices=list(discovery._QWEN_SCIENTIFIC_SAE_FAMILIES),
+        default=None,
+        help="REQUIRED for a qwen pairing; distinct from --qwen-sparsity and --layer. "
+        "load_backend refuses a qwen run without it, and job 419181 hit that refusal only "
+        "after a 27B model load -- checked here instead, at argument-parse time.",
+    )
+    parser.add_argument(
+        "--qwen-sparsity",
+        type=int,
+        default=None,
+        help="REQUIRED for a qwen pairing: the SAE's TopK k. Distinct from --qwen-sae-family "
+        "and --layer -- three independently recorded fields, none defaulted from another.",
     )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--dtype", default="bfloat16")
@@ -1937,7 +1986,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             "both and would then load a WRONG SNAPSHOT SILENTLY; 415590 and 416453 both asserted "
             "real values."
         )
-    discovery = gi._import_discovery_module()
+    # DIE ON THE LOGIN NODE, NOT AFTER A 27B LOAD (job 419181). load_backend
+    # itself refuses a qwen pairing with sae_family/sparsity unset, but that
+    # refusal only fires once load_backend actually runs -- after the model
+    # is already loading. This is the same check, moved to argument-parse time.
+    if str(args.pairing).strip().lower().startswith("qwen") and (
+        args.qwen_sae_family is None or args.qwen_sparsity is None
+    ):
+        parser.error(
+            "--qwen-sae-family and --qwen-sparsity are both required for a qwen pairing -- "
+            "SAE family, transformer layer and sparsity are three independently recorded "
+            "fields and none of them defaults from another. job 419181 hit load_backend's own "
+            "refusal for this only after loading a 27B model; refusing here dies in "
+            "milliseconds on the login node instead."
+        )
     # TRANSLATED AT THE BOUNDARY, from the registry: the payload's own tables are
     # keyed short, load_backend takes the ratified name and refuses anything
     # else. 418403 died at 34 s because the short key went straight through.
@@ -1953,13 +2015,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         expected_sae_revision=args.sae_revision,
         device=args.device,
         dtype=args.dtype,
+        sae_family=args.qwen_sae_family,
+        sparsity=args.qwen_sparsity,
     )
+    # ONE ADAPTER, BUILT ONCE: `discovery.Backend` is a plain data holder with
+    # no `.to_tokens`/`.generate`/`.device_objects()` of its own (job 419181's
+    # AttributeError). resolve_generation_backend() wraps it in the SAME
+    # group_intervention adapter run_arm builds internally, and everything
+    # below reads FROM THAT, not from a second unwrapping of `backend` done
+    # differently in two places.
+    generation_backend = resolve_generation_backend(backend)
     features = SURVIVING_FEATURES[args.pairing][concepts[0]]
     # THE CONTRACT IS RESEARCHER'S. This refuses until it exists rather than
     # hashing a coverage set invented here, which would agree with nothing.
     contract = resolve_settings_contract()
     observed_settings = observe_generation_settings(
-        backend=backend,
+        hook_name=backend.hook_name,
+        device_objects=generation_backend.device_objects(),
         model_path=str(args.model_path),
         model_revision=str(args.model_revision),
         sae_path=str(args.sae_path),
@@ -1972,8 +2044,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     settings_digest = compute_generation_settings_digest(observed_settings, contract)
     records = run_control_set(
-        backend.model_obj if hasattr(backend, "model_obj") else backend,
-        backend.sae if hasattr(backend, "sae") else None,
+        generation_backend,
+        backend.sae,
         pairing=args.pairing,
         cells=cells,
         concept_ids=concepts,

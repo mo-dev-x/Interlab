@@ -20,6 +20,8 @@ frozen instrument at its real frozen digest.
 
 from __future__ import annotations
 
+import ast
+import dataclasses
 import json
 import os
 import re
@@ -704,7 +706,8 @@ def test_the_observation_refuses_a_field_it_cannot_read():
     contract["fields"] = contract["fields"] + ("a_setting_nobody_can_observe",)
     with pytest.raises(cgp.SettingsDigestUnbound, match="does not observe"):
         cgp.observe_generation_settings(
-            backend=_FixtureBackend(),
+            hook_name="blocks.1.hook_resid_post",
+            device_objects={},
             model_path="m",
             model_revision="r",
             sae_path="s",
@@ -1094,20 +1097,161 @@ def real_sae():
     return SAE.load_from_pretrained(str(REPO_ROOT / "tests" / "fixtures" / "tiny_sae"), device="cpu")
 
 
-class _FixtureBackend:
-    """The minimum an observation needs: a hook label and device objects."""
-
-    hook_label = "fixture.blocks.1.hook_resid_post"
-
-    def device_objects(self):
-        return {"model": None, "sae": None}
+@pytest.fixture(scope="module")
+def discovery_module():
+    return gi._import_discovery_module()
 
 
 @pytest.fixture(scope="module")
-def fixture_settings():
-    """The contract's own fields, observed from a fixture-scale run."""
+def real_backend(discovery_module, real_model, real_sae):
+    """The EXACT type discovery.load_backend returns for the Gemma pairing --
+    not a stand-in. Job 419181's crash trace named this type by its real
+    class name ('Backend' object has no attribute 'device_objects'); a test
+    built against a hand-written duck-typed stub cannot reproduce that, which
+    is precisely how the stub-shaped defect reached a real GPU allocation."""
+    return discovery_module.Backend(
+        pairing="gemma-3-12b-it",
+        model_obj=real_model,
+        sae=real_sae,
+        hook_name="blocks.1.hook_resid_post",
+        d_sae=int(real_sae.cfg.d_sae),
+        d_model=int(real_sae.cfg.d_in),
+        layer=1,
+        provenance={},
+        checkpoint_hash="c" * 64,
+    )
+
+
+@pytest.fixture(scope="module")
+def raw_hf_model():
+    import torch
+    from transformers import AutoModelForCausalLM
+
+    model = AutoModelForCausalLM.from_pretrained(
+        str(REPO_ROOT / "tests" / "fixtures" / "tiny_model"), dtype=torch.float32
+    )
+    model.eval()
+    return model
+
+
+@pytest.fixture(scope="module")
+def real_qwen_shaped_backend(discovery_module, raw_hf_model, real_sae):
+    """Qwen-shaped: model_obj is a raw AutoModelForCausalLM with none of
+    HookedTransformer's to_tokens/to_string/generate, and _qwen_decoder_layer
+    is SET -- the field resolve_generation_backend branches on to build a
+    RawHfBackend and report the decoder layer SEPARATELY from the model."""
+    decoder_layer = gi.resolve_raw_hf_decoder_layer(raw_hf_model, layer=1)
+    return discovery_module.Backend(
+        pairing="qwen-3.5-27b",
+        model_obj=raw_hf_model,
+        sae=real_sae,
+        hook_name="raw_hf.model.layers.1",
+        d_sae=int(real_sae.cfg.d_sae),
+        d_model=int(real_sae.cfg.d_in),
+        layer=1,
+        provenance={"model": {"local_path": str(REPO_ROOT / "tests" / "fixtures" / "tiny_model")}},
+        checkpoint_hash="d" * 64,
+        sae_family="L0_100",
+        sparsity=100,
+        _qwen_decoder_layer=decoder_layer,
+        _qwen_device="cpu",
+    )
+
+
+def test_discovery_backend_itself_has_no_generation_interface_but_the_resolved_adapter_does(
+    real_backend,
+):
+    """PINS job 419181's exact defect so it cannot silently return: the REAL
+    type discovery.load_backend returns has no device_objects (or to_tokens /
+    generate) of its own -- calling backend.device_objects() directly, as the
+    pre-fix code did, raises AttributeError on THIS object, not on a
+    stand-in. resolve_generation_backend is the fix: it wraps the SAME object
+    in an adapter that has all three. Deleting resolve_generation_backend (or
+    reverting main() to call backend.device_objects() directly) makes this
+    test fail again, which is the point."""
+    assert not hasattr(real_backend, "device_objects")
+    assert not hasattr(real_backend, "to_tokens")
+    assert not hasattr(real_backend, "generate")
+    adapter = cgp.resolve_generation_backend(real_backend)
+    assert callable(adapter.device_objects)
+    assert set(adapter.device_objects()) == {"model"}
+
+
+def test_resolve_generation_backend_wraps_gemma_via_the_group_intervention_adapter(
+    real_backend, real_model
+):
+    adapter = cgp.resolve_generation_backend(real_backend)
+    assert isinstance(adapter, gi.HookedTransformerBackend)
+    assert adapter.model is real_model
+
+
+def test_resolve_generation_backend_reports_the_qwen_decoder_layer_separately(
+    real_qwen_shaped_backend, raw_hf_model
+):
+    """THE ONE THING FAULT 1 NAMES EXPLICITLY: under a device_map shard the
+    model and the decoder layer can be placed differently and the hook runs
+    on the layer, so it must be its own entry, not folded into 'model'."""
+    adapter = cgp.resolve_generation_backend(real_qwen_shaped_backend)
+    assert isinstance(adapter, gi.RawHfBackend)
+    objects = adapter.device_objects()
+    assert set(objects) == {"model", "decoder_layer"}
+    assert objects["model"] is raw_hf_model
+    assert objects["decoder_layer"] is real_qwen_shaped_backend._qwen_decoder_layer
+
+
+def _attributes_read_on(name: str, node: ast.AST) -> set[str]:
+    return {
+        child.attr
+        for child in ast.walk(node)
+        if isinstance(child, ast.Attribute)
+        and isinstance(child.value, ast.Name)
+        and child.value.id == name
+    }
+
+
+def test_every_discovery_backend_attribute_this_payload_reads_is_a_real_field(discovery_module):
+    """A MECHANICAL audit, not a hand-picked list: a hand-picked list is
+    exactly what _FixtureBackend was, and it drifted from both real
+    implementations without anything noticing. This walks the AST of the two
+    places `backend` is a real discovery.Backend in this file
+    (resolve_generation_backend, and main()'s own local `backend`) and checks
+    every `backend.<attr>` read against discovery.Backend's actual declared
+    fields."""
+    source = (
+        REPO_ROOT / "scripts" / "final_pairing" / "control_generation_payload.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    functions = {
+        node.name: node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name in ("resolve_generation_backend", "main")
+    }
+    assert set(functions) == {"resolve_generation_backend", "main"}, (
+        "the audit could not find one of the two functions it inspects -- it is auditing nothing"
+    )
+    touched: set[str] = set()
+    for node in functions.values():
+        touched |= _attributes_read_on("backend", node)
+    assert touched, "the audit found no backend.<attr> reads at all -- the audit itself is broken"
+    real_fields = {f.name for f in dataclasses.fields(discovery_module.Backend)}
+    missing = touched - real_fields
+    assert not missing, (
+        f"this payload reads backend.{sorted(missing)} off a discovery.Backend, which declares "
+        f"only {sorted(real_fields)}. A name that used to resolve and silently stopped is job "
+        "419181's defect."
+    )
+
+
+@pytest.fixture(scope="module")
+def fixture_settings(real_backend):
+    """The contract's own fields, observed from a fixture-scale run, through
+    the SAME two values main() computes: hook_name straight off the real
+    discovery.Backend, device_objects from resolve_generation_backend()'s
+    adapter -- never a stub that defines both under one made-up shape."""
+    generation_backend = cgp.resolve_generation_backend(real_backend)
     return cgp.observe_generation_settings(
-        backend=_FixtureBackend(),
+        hook_name=real_backend.hook_name,
+        device_objects=generation_backend.device_objects(),
         model_path="tests/fixtures/tiny_model",
         model_revision="a" * 40,
         sae_path="tests/fixtures/tiny_sae",
@@ -1126,12 +1270,12 @@ def fixture_digest(fixture_settings):
 
 
 @pytest.fixture(scope="module")
-def fixture_records(real_model, real_sae, fixture_digest):
+def fixture_records(real_backend, fixture_digest):
     reader = cgp.build_instrument_reader()
     rows = cgp.load_prompt_rows()
     return cgp.run_control_set(
-        gi.resolve_backend(real_model),
-        real_sae,
+        cgp.resolve_generation_backend(real_backend),
+        real_backend.sae,
         pairing="fixture",
         cells=["en/f1"],
         concept_ids=[co.PERSONA_CONCEPT_IDS[0]],
