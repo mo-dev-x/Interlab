@@ -21,6 +21,9 @@ frozen instrument at its real frozen digest.
 from __future__ import annotations
 
 import json
+import os
+import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -413,6 +416,7 @@ CLUSTER_PATHS = {
     "out": "/home/user/scratch/final_pairing/control_generations.json",
     "venv": cgp.DEFAULT_VENV,
     "log_dir": "/home/user/scratch/final_pairing/logs",
+    "repo_root": "/home/user/scratch/final_pairing/repo",
 }
 
 
@@ -434,6 +438,7 @@ def _script(**overrides):
         model_revision="a" * 40,
         sae_revision="b" * 40,
         log_dir=CLUSTER_PATHS["log_dir"],
+        repo_root=CLUSTER_PATHS["repo_root"],
         platform="linux",
         create_log_dir=False,
     )
@@ -472,19 +477,413 @@ def test_a_tilde_anywhere_in_a_path_refuses_the_render():
         _script(venv="~/sprint-venv")
 
 
-def test_the_log_directory_is_created_at_render_time_and_in_the_body(tmp_path, monkeypatch):
+def test_the_log_directory_is_created_at_render_time_and_in_the_body():
     """BLOCKER 3. SLURM opens --output BEFORE the body runs, so a mkdir in the
     body cannot save the first submission; the directory must exist at submit
-    time, which is why the renderer creates it. Rendered against a RELATIVE
-    posix path here because an absolute Windows one is refused -- which is
-    itself the point of the previous test."""
-    monkeypatch.chdir(tmp_path)
-    assert not (tmp_path / "scratch" / "logs").exists()
-    script = _script(log_dir="scratch/logs", create_log_dir=True)
-    assert (tmp_path / "scratch" / "logs").is_dir()
-    assert 'mkdir -p "scratch/logs"' in script
-    assert "#SBATCH --output=scratch/logs/control_only_%j.out" in script
-    assert cgp.DEFAULT_LOG_DIR.startswith("$HOME")
+    time, which is why the renderer creates it. An ABSOLUTE POSIX path, because
+    a relative or variable-bearing one now refuses."""
+    log_dir = "/tmp/cgp_render_probe/logs"
+    shutil.rmtree("/tmp/cgp_render_probe", ignore_errors=True)
+    try:
+        script = _script(log_dir=log_dir, create_log_dir=True)
+        assert Path(log_dir).is_dir()
+        assert f'mkdir -p "{log_dir}"' in script
+        assert f"#SBATCH --output={log_dir}/control_only_%j.out" in script
+    finally:
+        shutil.rmtree("/tmp/cgp_render_probe", ignore_errors=True)
+
+
+# --- the pairing bind that killed 418403 at 34 seconds -----------------------
+
+
+def test_the_short_key_is_translated_to_the_ratified_name_from_the_registry():
+    """418403: the payload passed its SHORT key into load_backend, and the
+    ratified long names appeared zero times in the file, so NO --pairing value
+    worked. The mapping is DERIVED from ALL_TARGETS, never restated."""
+    targets = cgp._import_targets()
+    assert cgp.ratified_pairing_name("gemma") in targets.ALL_TARGETS
+    assert cgp.ratified_pairing_name("qwen") in targets.ALL_TARGETS
+    for short in cgp.SURVIVING_FEATURES:
+        assert cgp.ratified_pairing_name(short) in targets.ALL_TARGETS
+    # The ratified names are NOT written down in the PRODUCTION half: the only
+    # place they may appear is the selfcheck, which asserts against them.
+    source = (
+        REPO_ROOT / "scripts" / "final_pairing" / "control_generation_payload.py"
+    ).read_bytes().decode("utf-8")
+    production = source.split("def _selfcheck(")[0]
+    for ratified in targets.ALL_TARGETS:
+        assert ratified not in production
+
+
+def test_a_ratified_name_passes_through_unchanged():
+    targets = cgp._import_targets()
+    for ratified in targets.ALL_TARGETS:
+        assert cgp.ratified_pairing_name(ratified) == ratified
+
+
+def test_an_unmapped_pairing_refuses_at_render_time_not_at_runtime():
+    with pytest.raises(cgp.JobScriptRenderRefused, match="ratified target"):
+        cgp.ratified_pairing_name("llama")
+    with pytest.raises(cgp.JobScriptRenderRefused):
+        _script(pairing="llama")
+
+
+def test_the_script_emits_the_ratified_name_and_never_the_short_key():
+    script = _script()
+    assert '--pairing "gemma-3-12b-it"' in script
+    assert '--pairing "gemma"' not in script
+    qwen = _script(pairing="qwen")
+    assert '--pairing "qwen-3.5-27b"' in qwen
+    assert '--pairing "qwen"' not in qwen
+
+
+def test_the_run_path_translates_at_the_load_backend_boundary():
+    source = (
+        REPO_ROOT / "scripts" / "final_pairing" / "control_generation_payload.py"
+    ).read_bytes().decode("utf-8")
+    assert "pairing=ratified_pairing_name(args.pairing)" in source
+    assert "pairing=args.pairing,\n        model_path" not in source
+
+
+def test_every_identity_argument_is_validated_against_the_frozen_registry():
+    """LA-B's lesson: the gates checked syntax, environment and imports, and
+    none checked that the VALUES the render emits are ones the code accepts."""
+    result = cgp.assert_identity_arguments_are_registered(
+        pairing="gemma", layer=29, model_revision="a" * 40, sae_revision="b" * 40
+    )
+    assert result["pairing_ratified"] == "gemma-3-12b-it"
+    assert result["registry"] == "final_pairing_targets.ALL_TARGETS"
+    with pytest.raises(cgp.JobScriptRenderRefused, match="not the frozen layer"):
+        cgp.assert_identity_arguments_are_registered(
+            pairing="gemma", layer=12, model_revision="a" * 40, sae_revision="b" * 40
+        )
+    with pytest.raises(cgp.JobScriptRenderRefused, match="hexadecimal"):
+        cgp.assert_identity_arguments_are_registered(
+            pairing="gemma", layer=29, model_revision="main", sae_revision="b" * 40
+        )
+
+
+# --- PYTHONPATH, and the form is load-bearing --------------------------------
+
+
+def test_pythonpath_is_prepended_and_never_assigned():
+    """MEASURED both ways: running the payload by path puts its own directory on
+    sys.path[0], so interplab does not import; a bare assignment fixes that and
+    discards what module load arrow put there, breaking pyarrow."""
+    script = _script()
+    root = CLUSTER_PATHS["repo_root"]
+    assert f'export PYTHONPATH="{root}${{PYTHONPATH:+:$PYTHONPATH}}"' in script
+    assert f'export PYTHONPATH="{root}"\n' not in script
+    assert cgp.TAMIA_ENVIRONMENT["pythonpath_form"] == "prepend"
+    assert "MEASURED IN BOTH DIRECTIONS" in cgp.TAMIA_ENVIRONMENT["pythonpath_evidence"]
+
+
+def test_a_render_without_a_repo_root_refuses():
+    with pytest.raises(TypeError):
+        cgp.job_script_text(
+            pairing="gemma",
+            model_path=CLUSTER_PATHS["model_path"],
+            sae_path=CLUSTER_PATHS["sae_path"],
+            cells=["en/f1"],
+            seeds=[17],
+            max_new_tokens=64,
+            selection_rule="cell_positive_family_rows",
+            out=CLUSTER_PATHS["out"],
+            model_revision="a" * 40,
+            sae_revision="b" * 40,
+            platform="linux",
+            create_log_dir=False,
+        )
+
+
+def test_a_variable_bearing_repo_root_refuses():
+    with pytest.raises(cgp.JobScriptRenderRefused, match="NOTHING EXPANDS IT"):
+        _script(repo_root="$SLURM_TMPDIR/repo")
+
+
+def test_the_cli_refuses_to_render_without_a_repo_root(tmp_path):
+    with pytest.raises(SystemExit):
+        cgp.main(
+            [
+                "--write-job-script",
+                str(tmp_path / "s.sh"),
+                "--pairing",
+                "gemma",
+                "--model-revision",
+                "a" * 40,
+                "--sae-revision",
+                "b" * 40,
+            ]
+        )
+
+
+# --- --cpus-per-task --------------------------------------------------------
+
+
+def test_the_script_requests_whole_node_cpus():
+    """MEASURED: 418390/418391 got cpu=1 because the template set none, while
+    418185 got cpu=32 on the same whole-node shape. One CPU starves tokenisation
+    even once every import resolves."""
+    script = _script()
+    cpus = int(cgp.TAMIA_ENVIRONMENT["cpus_per_task"])
+    assert cpus == 32
+    assert f"#SBATCH --cpus-per-task={cpus}" in script
+    assert "MEASURED" in cgp.TAMIA_ENVIRONMENT["cpus_evidence"]
+    assert "418185" in cgp.TAMIA_ENVIRONMENT["cpus_evidence"]
+
+
+# --- generation_settings_digest: RULING_16's containment ---------------------
+
+
+def test_the_contract_is_the_calibration_lanes_and_this_payload_defines_none():
+    """The coverage set, the canonical order and the hash are researcher's;
+    this file computes no hash of its own."""
+    contract = cgp.resolve_settings_contract()
+    assert contract["source"] == "causal_calibration"
+    assert contract["fields"] == tuple(name for name, *_ in cc.GENERATION_SETTINGS_FIELDS)
+    assert contract["digest"] is cc.generation_settings_digest
+    source = (
+        REPO_ROOT / "scripts" / "final_pairing" / "control_generation_payload.py"
+    ).read_bytes().decode("utf-8")
+    assert "GENERATION_SETTINGS_FIELDS = " not in source
+    assert "hashlib" not in source
+
+
+def test_a_module_without_the_form_refuses_rather_than_inventing_one():
+    with pytest.raises(cgp.SettingsContractUnavailable, match="researcher"):
+        cgp.resolve_settings_contract(object())
+
+
+def test_the_emission_fires_on_observed_settings(fixture_settings, fixture_digest):
+    """THE FIRING DIRECTION: every covered field is observed, and the digest is
+    the calibration lane's own function over them."""
+    contract = cgp.resolve_settings_contract()
+    assert set(contract["fields"]) <= set(fixture_settings)
+    assert fixture_digest == cc.generation_settings_digest(fixture_settings)
+    assert cgp.assert_settings_digest_bound(fixture_digest) == fixture_digest
+
+
+def test_the_digest_moves_when_a_covered_setting_moves(fixture_settings):
+    moved = {**fixture_settings, "layer": 38}
+    assert cgp.compute_generation_settings_digest(moved) != cgp.compute_generation_settings_digest(
+        fixture_settings
+    )
+
+
+@pytest.mark.parametrize("stub", ["", None, "f" * 64, "0" * 64, "z" * 64, "abc"])
+def test_an_unset_or_placeholder_digest_refuses(stub):
+    """THE REFUSING DIRECTION, including the calibration lane's own synthetic
+    constant: a test double that escaped into an artifact would satisfy every
+    hex check and bind nothing."""
+    with pytest.raises(cgp.SettingsDigestUnbound):
+        cgp.assert_settings_digest_bound(stub)
+
+
+def test_a_missing_or_unset_covered_setting_refuses(fixture_settings):
+    contract = cgp.resolve_settings_contract()
+    dropped = {k: v for k, v in fixture_settings.items() if k != "dtype"}
+    with pytest.raises(cgp.SettingsDigestUnbound, match="missing"):
+        cgp.compute_generation_settings_digest(dropped, contract)
+    with pytest.raises(cgp.SettingsDigestUnbound, match="unset"):
+        cgp.compute_generation_settings_digest({**fixture_settings, "hook_name": ""}, contract)
+
+
+def test_a_deliberately_omitted_setting_may_not_be_smuggled_in(fixture_settings):
+    """The seed is EXCLUDED ON PURPOSE -- replicates differ by seed by design,
+    so covering it would break the equality rather than strengthen it."""
+    with pytest.raises(cgp.SettingsDigestUnbound, match="EXCLUDES ON PURPOSE"):
+        cgp.compute_generation_settings_digest(
+            {**fixture_settings, "seed": 17}, cgp.resolve_settings_contract()
+        )
+
+
+def test_the_observation_refuses_a_field_it_cannot_read():
+    """A field the producer cannot observe is raised with researcher, never
+    defaulted: a defaulted setting is one under which the two arms may differ."""
+    contract = dict(cgp.resolve_settings_contract())
+    contract["fields"] = contract["fields"] + ("a_setting_nobody_can_observe",)
+    with pytest.raises(cgp.SettingsDigestUnbound, match="does not observe"):
+        cgp.observe_generation_settings(
+            backend=_FixtureBackend(),
+            model_path="m",
+            model_revision="r",
+            sae_path="s",
+            sae_revision="v",
+            layer=29,
+            dtype="bfloat16",
+            max_new_tokens=64,
+            selection_rule="cell_positive_family_rows",
+            contract=contract,
+        )
+
+
+def test_the_seed_is_recorded_as_a_POLICY_and_never_as_a_value(fixture_settings):
+    assert "seed" not in fixture_settings
+    assert "NOT covered by this digest" in fixture_settings["seed_policy"]
+
+
+def test_every_record_carries_the_digest_and_the_artifact_carries_the_field_map(
+    fixture_records, fixture_settings, fixture_digest
+):
+    for record in fixture_records:
+        assert record["generation_settings_digest"] == fixture_digest
+    artifact = cgp.build_artifact(
+        fixture_records,
+        settings=fixture_settings,
+        pairing="fixture",
+        selection_rule="cell_positive_family_rows",
+        model_reference="tests/fixtures/tiny_model",
+        sae_reference="tests/fixtures/tiny_sae",
+        dtype="float32",
+        seeds=[17, 23],
+    )
+    assert artifact["generation_settings_digest"] == fixture_digest
+    assert artifact["generation_settings"]["layer"] == 1
+    # BOTH halves, per the contract: the consumer verifies a digest against its
+    # own field map, which it cannot do from a digest alone.
+    assert cc.generation_settings_digest(artifact["generation_settings"]) == fixture_digest
+
+
+def test_an_artifact_whose_records_disagree_about_the_settings_refuses(fixture_records):
+    mixed = [dict(record) for record in fixture_records]
+    mixed[0]["generation_settings_digest"] = "c" * 64
+    with pytest.raises(cgp.SettingsDigestUnbound, match="different generation_settings_digest"):
+        cgp.build_artifact(
+            mixed,
+            pairing="fixture",
+            selection_rule="cell_positive_family_rows",
+            model_reference="m",
+            sae_reference="s",
+            dtype="float32",
+            seeds=[17],
+        )
+
+
+def test_an_unbound_record_fails_the_artifact_consumability_check(fixture_records):
+    artifact = cgp.build_artifact(
+        fixture_records,
+        pairing="fixture",
+        selection_rule="cell_positive_family_rows",
+        model_reference="m",
+        sae_reference="s",
+        dtype="float32",
+        seeds=[17, 23],
+    )
+    artifact["records"][0]["generation_settings_digest"] = "f" * 64
+    with pytest.raises(cgp.ArtifactNotConsumable, match="not bound to its generation settings"):
+        cgp.assert_artifact_is_consumable(artifact)
+
+
+# --- the shell-variable defect: half-fixed last round, fixed both ways now ---
+
+
+def test_the_default_log_dir_is_absolute_and_carries_no_variable():
+    """The entry LA-B measured wrong three ways: HOME/scratch does not exist,
+    the renderer expands nothing so it created a literal directory named for the
+    variable, and SLURM expands nothing in an SBATCH directive."""
+    default = cgp.DEFAULT_LOG_DIR
+    assert "$" not in default
+    assert "~" not in default
+    assert "{" not in default
+    assert os.path.isabs(default)
+    assert "scratch" not in default
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "$HOME/scratch/final_pairing/logs",
+        "${SCRATCH}/logs",
+        "/home/user/$USER/logs",
+        "${HOME}/logs",
+    ],
+)
+def test_a_shell_variable_in_the_log_dir_refuses(bad):
+    """THE REFUSAL FIRES. SLURM does not expand variables in SBATCH directives,
+    and this file expands nothing either."""
+    with pytest.raises(cgp.JobScriptRenderRefused, match="NOTHING EXPANDS IT"):
+        cgp.assert_render_is_cluster_shaped({**CLUSTER_PATHS, "log_dir": bad}, platform="linux")
+
+
+@pytest.mark.parametrize("key", ["out", "model_path", "sae_path"])
+def test_a_shell_variable_in_any_other_emitted_path_refuses(key):
+    """Swept across every path-shaped substitution, not just the one that bit."""
+    with pytest.raises(cgp.JobScriptRenderRefused, match="NOTHING EXPANDS IT"):
+        cgp.assert_render_is_cluster_shaped(
+            {**CLUSTER_PATHS, key: "$SLURM_TMPDIR/thing"}, platform="linux"
+        )
+
+
+def test_the_refusal_does_NOT_fire_on_a_clean_absolute_path():
+    """THE OTHER DIRECTION. A check that refuses everything is not a check."""
+    result = cgp.assert_render_is_cluster_shaped(
+        {**CLUSTER_PATHS, "log_dir": "/home/user/final_pairing_logs/control_only"},
+        platform="linux",
+    )
+    assert result["platform"] == "linux"
+    script = _script(log_dir="/home/user/final_pairing_logs/control_only")
+    assert "#SBATCH --output=/home/user/final_pairing_logs/control_only/control_only_%j.out" in script
+
+
+def test_the_venv_is_the_one_path_a_variable_is_legal_in():
+    """Because its line IS shell-expanded and the HOME form was measured to
+    resolve. A blanket refusal here would have broken the fix from last round."""
+    assert cgp.DEFAULT_VENV.startswith("$HOME")
+    assert "venv" in cgp._SHELL_EXPANDED_KEYS
+    cgp.assert_render_is_cluster_shaped(CLUSTER_PATHS, platform="linux")
+    assert 'source "$HOME/sprint-venv/bin/activate"' in _script()
+
+
+def test_a_relative_log_dir_refuses():
+    with pytest.raises(cgp.JobScriptRenderRefused, match="absolute POSIX path"):
+        cgp.assert_render_is_cluster_shaped({**CLUSTER_PATHS, "log_dir": "logs"}, platform="linux")
+
+
+def test_the_renderer_refuses_before_it_creates_a_variable_named_directory(tmp_path):
+    """LA-B's probe created a literal directory named for the variable, because
+    the renderer made it cheerfully. The refusal now runs BEFORE the mkdir."""
+    monkey_dir = tmp_path / "$HOME" / "logs"
+    with pytest.raises(cgp.JobScriptRenderRefused):
+        _script(log_dir="$HOME/scratch/logs", create_log_dir=True)
+    assert not monkey_dir.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_every_path_shaped_template_substitution_is_checked():
+    """THE SWEEP, MECHANICAL. Last round the mkdir moved and the variable
+    stayed; this asserts that no path-shaped placeholder in the template is
+    missing from the checked set, so the next one cannot slip through by being
+    unlisted."""
+    placeholders = set(re.findall(r"\{([a-z_]+)\}", cgp.JOB_SCRIPT_TEMPLATE))
+    path_shaped = {name for name in placeholders if name.endswith(("path", "dir", "venv"))}
+    path_shaped |= {"out", "payload"}
+    assert path_shaped <= set(cgp.PATH_SHAPED_TEMPLATE_KEYS), (
+        f"unchecked path-shaped substitution(s): {sorted(path_shaped - set(cgp.PATH_SHAPED_TEMPLATE_KEYS))}"
+    )
+    for key in cgp.PATH_SHAPED_TEMPLATE_KEYS:
+        assert key in placeholders
+
+
+def test_the_record_carries_the_three_new_measurements():
+    env = cgp.TAMIA_ENVIRONMENT
+    assert "MEASURED" in env["home_scratch_does_not_exist"]
+    assert "MEASURED" in env["sbatch_does_not_expand_variables"]
+    assert "MEASURED" in env["renderer_expands_nothing"]
+    assert "no scratch directory under HOME" in env["home_scratch_does_not_exist"]
+    assert env["log_dir_must_be"].startswith("an ABSOLUTE path")
+
+
+def test_nothing_in_the_payload_expands_a_variable_behind_the_refusal():
+    """The refusal is the fix, not an expansion: expanding would paper over a
+    caller's wrong value instead of surfacing it."""
+    source = (
+        REPO_ROOT / "scripts" / "final_pairing" / "control_generation_payload.py"
+    ).read_bytes().decode("utf-8")
+    # The CALLS, not the words: the record names both to explain why neither is
+    # used, and a substring test on the prose would forbid saying so.
+    assert "expandvars(" not in source
+    assert "expanduser(" not in source
+    assert "os.path.expandvars" not in source
 
 
 def test_the_frozen_layer_is_emitted_and_imported_not_restated():
@@ -544,9 +943,9 @@ def test_both_snapshot_revisions_are_required_and_emitted():
     script = _script()
     assert '--model-revision "' + "a" * 40 in script
     assert '--sae-revision "' + "b" * 40 in script
-    with pytest.raises(cgp.JobScriptRenderRefused, match="WRONG SNAPSHOT LOADS SILENTLY"):
+    with pytest.raises(cgp.JobScriptRenderRefused, match="empty"):
         _script(model_revision="")
-    with pytest.raises(cgp.JobScriptRenderRefused, match="WRONG SNAPSHOT LOADS SILENTLY"):
+    with pytest.raises(cgp.JobScriptRenderRefused, match="empty"):
         _script(sae_revision="   ")
 
 
@@ -612,6 +1011,8 @@ def test_the_cli_refuses_to_write_a_script_on_this_windows_machine(tmp_path):
         CLUSTER_PATHS["out"],
         "--log-dir",
         str(tmp_path / "logs").replace(chr(92), "/"),
+        "--repo-root",
+        CLUSTER_PATHS["repo_root"],
     ]
     if sys.platform.startswith("win"):
         with pytest.raises(cgp.JobScriptRenderRefused):
@@ -693,8 +1094,39 @@ def real_sae():
     return SAE.load_from_pretrained(str(REPO_ROOT / "tests" / "fixtures" / "tiny_sae"), device="cpu")
 
 
+class _FixtureBackend:
+    """The minimum an observation needs: a hook label and device objects."""
+
+    hook_label = "fixture.blocks.1.hook_resid_post"
+
+    def device_objects(self):
+        return {"model": None, "sae": None}
+
+
 @pytest.fixture(scope="module")
-def fixture_records(real_model, real_sae):
+def fixture_settings():
+    """The contract's own fields, observed from a fixture-scale run."""
+    return cgp.observe_generation_settings(
+        backend=_FixtureBackend(),
+        model_path="tests/fixtures/tiny_model",
+        model_revision="a" * 40,
+        sae_path="tests/fixtures/tiny_sae",
+        sae_revision="b" * 40,
+        layer=1,
+        dtype="float32",
+        max_new_tokens=4,
+        selection_rule="cell_positive_family_rows",
+        contract=cgp.resolve_settings_contract(),
+    )
+
+
+@pytest.fixture(scope="module")
+def fixture_digest(fixture_settings):
+    return cgp.compute_generation_settings_digest(fixture_settings)
+
+
+@pytest.fixture(scope="module")
+def fixture_records(real_model, real_sae, fixture_digest):
     reader = cgp.build_instrument_reader()
     rows = cgp.load_prompt_rows()
     return cgp.run_control_set(
@@ -707,6 +1139,7 @@ def fixture_records(real_model, real_sae):
         max_new_tokens=4,
         selection_rule="cell_positive_family_rows",
         feature_indices=(7, 11),
+        settings_digest=fixture_digest,
         reader=reader,
         prompt_rows=rows,
         prompts_per_cell=2,

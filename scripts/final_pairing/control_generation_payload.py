@@ -86,7 +86,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -112,9 +114,16 @@ import group_intervention as gi  # noqa: E402
 #: refused, not rewritten: the template quotes every path and bash does not
 #: expand a tilde inside double quotes.
 DEFAULT_VENV = "$HOME/sprint-venv"
-#: An ABSOLUTE default, because SLURM opens --output before the body runs and a
-#: relative logs/ does not exist in the extracted tree.
-DEFAULT_LOG_DIR = "$HOME/scratch/final_pairing/logs"
+#: ABSOLUTE AND VARIABLE-FREE, resolved on the machine that renders (which is
+#: the cluster, because rendering anywhere else refuses). The previous default
+#: was "$HOME/scratch/final_pairing/logs" and it was wrong THREE ways, all
+#: measured by LA-B: $HOME/scratch does not exist on Tamia; the renderer calls
+#: Path(log_dir).mkdir() and nothing in this file expands a variable, so
+#: rendering with it CREATED A LITERAL DIRECTORY NAMED "$HOME"; and SLURM does
+#: not expand shell variables in SBATCH directives at all, so the --output line
+#: was never going to resolve. Path.home() is a real absolute path and needs no
+#: expansion by anyone.
+DEFAULT_LOG_DIR = str(Path.home() / "final_pairing_logs" / "control_only")
 #: Requested by LA-B and accepted by the coordinator. Below this the render
 #: REFUSES rather than defaulting low, which is how 413287 timed out.
 DEFAULT_TIME_LIMIT = "06:00:00"
@@ -622,12 +631,18 @@ def run_control_arm(
     cell: str,
     pairing: str,
     reader: cti.ClaimTypeExtentReader,
+    settings_digest: str,
     device: str | None = None,
 ) -> dict[str, Any]:
-    """One arm, one prompt, one seed, one fully-audited control record."""
+    """One arm, one prompt, one seed, one fully-audited control record.
+
+    `settings_digest` is REQUIRED and validated: RULING_16 makes it the
+    containment for this lane holding two limbs, and the SAME code path emits it
+    on the intervened arm, which is what binds the two."""
     import torch
 
     assert_control_only(arm.spec)
+    bound_digest = assert_settings_digest_bound(settings_digest)
     prompt = str(prompt_row["text"])
     member_count = 0 if arm.spec is None else arm.spec.member_count
 
@@ -684,6 +699,10 @@ def run_control_arm(
     return {
         "payload_id": PAYLOAD_ID,
         "payload_version": PAYLOAD_VERSION,
+        # RULING_16's containment, emitted per record by the SAME function that
+        # will emit it on the intervened arm. Without it the two arms are
+        # compared on trust.
+        "generation_settings_digest": bound_digest,
         "pairing": pairing,
         "cell": cell,
         "arm_label": arm.label,
@@ -732,11 +751,20 @@ def build_artifact(
     sae_reference: str,
     dtype: str,
     seeds: Sequence[int],
+    settings: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the payload artifact. No aggregate is computed over a mixed
     eligibility set: the per-arm counts are reported separately, because a
     denominator that quietly includes an ineligible arm is the state-collapse
     RULING_13 forbids."""
+    digests = {str(record.get("generation_settings_digest", "")) for record in records}
+    if len(digests) != 1:
+        raise SettingsDigestUnbound(
+            f"the records carry {len(digests)} different generation_settings_digest value(s): "
+            f"{sorted(digests)}. One artifact is one set of settings; more than one means the "
+            "records cannot be compared to each other, let alone to an intervened arm."
+        )
+    artifact_digest = assert_settings_digest_bound(next(iter(digests)))
     by_arm: dict[str, int] = {}
     eligible_by_cell: dict[str, int] = {}
     for record in records:
@@ -753,6 +781,12 @@ def build_artifact(
         "dtype": dtype,
         "seeds": [int(seed) for seed in seeds],
         "selection_rule": selection_rule,
+        "generation_settings_digest": artifact_digest,
+        # BOTH the digest and the FIELD MAP, per the contract: the consumer
+        # verifies that each arm's digest is consistent with its own declared
+        # fields, which it cannot do from a digest alone.
+        "generation_settings": dict(settings) if settings is not None else None,
+        "settings_digest_is_the_containment": SETTINGS_DIGEST_IS_THE_CONTAINMENT,
         "arms": list(ARM_LABELS),
         "calibration_eligible_arms": list(CALIBRATION_ELIGIBLE_ARMS),
         "control_only": True,
@@ -829,6 +863,13 @@ def assert_artifact_is_consumable(artifact: Mapping[str, Any]) -> dict[str, Any]
                 )
         if "continuation" not in record:
             raise ArtifactNotConsumable("a record carries a score but not the text it scored")
+        try:
+            assert_settings_digest_bound(record.get("generation_settings_digest"))
+        except SettingsDigestUnbound as exc:
+            raise ArtifactNotConsumable(
+                f"record {record['arm_label']}/{record['prompt_id']} is not bound to its "
+                f"generation settings: {exc}"
+            ) from exc
     return {
         "records_checked": checked,
         "calibration_eligible": eligible,
@@ -993,6 +1034,24 @@ TAMIA_ENVIRONMENT: dict[str, Any] = {
         "this renderer creates it while rendering on the cluster, and the body re-creates it only "
         "to cover a later run whose directory was removed."
     ),
+    "home_scratch_does_not_exist": (
+        "MEASURED by LA-B on Tamia: there is no scratch directory under HOME, so the default that "
+        "pointed there could not have worked even if the variable had expanded."
+    ),
+    "sbatch_does_not_expand_variables": (
+        "MEASURED: SLURM does not expand shell variables in SBATCH directives at all, so a log "
+        "directory carrying one is never resolved -- it is emitted verbatim into --output. This is "
+        "the opposite of the venv line, where the shell DOES expand the HOME form; the two look "
+        "identical in every string comparison and differ only against the real scheduler."
+    ),
+    "renderer_expands_nothing": (
+        "MEASURED, and it is why the refusal exists rather than an expansion: this file calls "
+        "Path(log_dir).mkdir() and contains no expandvars and no expanduser anywhere, so a "
+        "variable-bearing default did not fail -- it CREATED A LITERAL DIRECTORY NAMED FOR THE "
+        "VARIABLE, confirmed in a throwaway probe. A renderer that cheerfully makes such a "
+        "directory hides the defect for another two rounds; this one refuses before it can."
+    ),
+    "log_dir_must_be": "an ABSOLUTE path containing no shell variable and no tilde",
     "frozen_layers": {"gemma": 29, "qwen": 38},
     "frozen_layer_source": (
         "final_pairing_concept_discovery.PRIMARY_CONFIGURATION.gemma_layer and .qwen_layer -- "
@@ -1014,6 +1073,36 @@ TAMIA_ENVIRONMENT: dict[str, Any] = {
             "from the Qwen rate and is ARGUED, not measured."
         ),
     },
+    "pythonpath_form": "prepend",
+    "pythonpath_evidence": (
+        "MEASURED IN BOTH DIRECTIONS by LA-B, and the form is load-bearing. Running "
+        "python scripts/final_pairing/x.py puts scripts/final_pairing on sys.path[0], NOT the "
+        "repository root, so interplab does not import -- that was the 5-second failure. A bare "
+        "export PYTHONPATH=ROOT fixes interplab and BREAKS pyarrow, because it discards what "
+        "module load arrow put there. ONLY THE PREPEND FORM IS CORRECT, and a future maintainer "
+        "will otherwise simplify it back: keep the existing value on the end, guarded so an unset "
+        "PYTHONPATH does not leave a trailing colon."
+    ),
+    "ratified_target_names_source": (
+        "final_pairing_targets.ALL_TARGETS -- IMPORTED at render time, never restated. The "
+        "payload keeps SHORT keys for its own tables and translates only at the load_backend "
+        "boundary; a hand-written second copy of the ratified names is the drift this codebase "
+        "keeps paying for."
+    ),
+    "pairing_mismatch_evidence": (
+        "MEASURED: job 418403 failed at 34 s on both lanes with TargetIdentityMismatch -- the "
+        "payload passed its SHORT key straight into load_backend, and the ratified long names "
+        "appeared zero times in this file, so NO --pairing value could work. An import gate can "
+        "never reach a runtime value check on an argument, which is why identity arguments are "
+        "now validated against the frozen registry AT RENDER TIME: a dict lookup on the login "
+        "node instead of a 34-second allocation."
+    ),
+    "cpus_per_task": 32,
+    "cpus_evidence": (
+        "MEASURED: 418390/418391 were allocated cpu=1 because the template set no "
+        "--cpus-per-task, while job 418185 got cpu=32 on the same whole-node shape. Whole node "
+        "means whole node, and one CPU starves tokenisation even once every import resolves."
+    ),
     "minimum_time_limit_hours": 6,
     "time_limit_evidence": (
         "LA-B: 01:00:00 is BELOW the extrapolation for the Qwen pairing alone, and submitting at "
@@ -1028,6 +1117,165 @@ TAMIA_ENVIRONMENT: dict[str, Any] = {
 }
 
 
+SETTINGS_DIGEST_IS_THE_CONTAINMENT = """WHY THIS PAYLOAD EMITS generation_settings_digest.
+
+RULING_16 (architect, sequence 45) measured that the calibration lane CONSUMES
+`generation_settings_digest` -- `causal_calibration.PinnedCalibration` requires
+64 lowercase hex -- and that NOBODY PRODUCES IT: the only value in the tree is a
+synthetic constant in that lane's own tests. A field whose purpose is to bind
+the control arm to the intervened arm was checking only that a hex string is a
+hex string.
+
+IT LANDS HERE FOR A STRUCTURAL REASON. RULING_16 found five limbs where four
+were recorded, because "generates" merges two roles: generating the CONTROL data
+a boundary is derived from, and generating the OUTPUT that boundary judges. This
+lane holds both (this file and `group_intervention.py`). The architect did not
+order a split -- an appointment is not its call, and a split is probably wrong
+anyway, since both arms must share one code path to be comparable. It ordered
+CONTAINMENT instead, and THIS DIGEST IS THE CONTAINMENT: it is what makes one
+lane holding both limbs safe, because it proves the two arms ran under identical
+settings rather than trusting that they did.
+
+SO THE COVERAGE SET IS NOT MINE TO CHOOSE. The consumer's expectation and the
+producer's computation must come from ONE specification, and `researcher` owns
+it. `resolve_settings_contract()` imports that specification; until it exists
+this payload REFUSES to emit a digest rather than inventing a coverage set that
+would agree with nothing. An unset or placeholder digest is refused for the same
+reason a zero dose is: a record that looks bound and is not is worse than one
+that admits it is not."""
+
+#: What this payload can OBSERVE at emit time, recorded so researcher can check
+#: its coverage set against what the producer can actually reach. THIS IS NOT A
+#: COVERAGE SET and nothing here is hashed by this file.
+REACHABLE_AT_EMIT_TIME: tuple[str, ...] = (
+    "model_reference",
+    "tokenizer_reference",
+    "sae_reference",
+    "layer",
+    "hook_name",
+    "dtype",
+    "device_placement",
+    "max_new_tokens",
+    "do_sample",
+    "temperature",
+    "stop_condition",
+    "batch_size",
+    "prompt_set_digest",
+    "prompt_selection_rule",
+    "payload_id",
+    "payload_version",
+)
+
+#: The calibration lane's names for the FORM. This file defines none of them and
+#: computes no hash of its own: the coverage set, the canonical order and the
+#: hash are researcher's, and the producer's half is OBSERVING the values.
+_SETTINGS_CONTRACT_FIELDS_NAME = "GENERATION_SETTINGS_FIELDS"
+_SETTINGS_CONTRACT_DIGEST_NAME = "generation_settings_digest"
+_SETTINGS_CONTRACT_OMISSIONS_NAME = "GENERATION_SETTINGS_DELIBERATE_OMISSIONS"
+
+_PLACEHOLDER_DIGESTS = frozenset({"0" * 64, "f" * 64, "deadbeef" * 8})
+
+
+class SettingsContractUnavailable(ControlPayloadError):
+    """The settings-digest contract is not available, so no digest is emitted.
+
+    RULING_16: the coverage set belongs to `researcher`, and one invented here
+    would agree with nothing. See SETTINGS_DIGEST_IS_THE_CONTAINMENT."""
+
+
+class SettingsDigestUnbound(ControlPayloadError):
+    """A record carries no digest, a placeholder digest, or a covered setting is
+    missing or unset. A record that LOOKS bound and is not is worse than one
+    that admits it is not."""
+
+
+def resolve_settings_contract(module: Any = None) -> dict[str, Any]:
+    """The FORM, imported from the calibration lane. REFUSES if it is absent.
+
+    Deliberately not a fallback to a local default: the whole value of the
+    digest is that ONE specification drives the producer and the consumer."""
+    source = module if module is not None else cc
+    fields = getattr(source, _SETTINGS_CONTRACT_FIELDS_NAME, None)
+    digest_fn = getattr(source, _SETTINGS_CONTRACT_DIGEST_NAME, None)
+    if not fields or not callable(digest_fn):
+        raise SettingsContractUnavailable(
+            f"{getattr(source, '__name__', source)!r} defines no settings-digest FORM "
+            f"({_SETTINGS_CONTRACT_FIELDS_NAME} + {_SETTINGS_CONTRACT_DIGEST_NAME}), so this "
+            "payload emits no generation_settings_digest. RULING_16: the calibration lane consumes "
+            "the field and the coverage set is researcher's to specify -- the consumer's "
+            "expectation and the producer's computation must come from ONE specification. What "
+            f"this payload can observe at emit time: {list(REACHABLE_AT_EMIT_TIME)}."
+        )
+    return {
+        "fields": tuple(str(name) for name, *_ in fields),
+        "digest": digest_fn,
+        "omissions": dict(getattr(source, _SETTINGS_CONTRACT_OMISSIONS_NAME, {})),
+        "source": str(getattr(source, "__name__", source)),
+    }
+
+
+def compute_generation_settings_digest(
+    settings: Mapping[str, Any], contract: Mapping[str, Any] | None = None
+) -> str:
+    """The digest, computed by THEIR function over THEIR fields.
+
+    This file hashes nothing itself. It checks only what the producer is
+    responsible for -- that every covered setting is present and set, and that
+    no DELIBERATELY OMITTED setting has been smuggled in -- and then calls the
+    calibration lane's own `generation_settings_digest`."""
+    resolved = dict(contract) if contract is not None else resolve_settings_contract()
+    fields = tuple(resolved.get("fields", ()))
+    digest_fn = resolved.get("digest")
+    if not fields or not callable(digest_fn):
+        raise SettingsContractUnavailable(
+            "the settings contract names no fields or no hash, so the digest would bind nothing."
+        )
+    missing = [field for field in fields if field not in settings]
+    unset = [
+        field
+        for field in fields
+        if field in settings and (settings[field] is None or str(settings[field]).strip() == "")
+    ]
+    if missing or unset:
+        raise SettingsDigestUnbound(
+            f"the contract covers {list(fields)}; missing {missing}, unset {unset}. Anything "
+            "omitted is a setting under which the control arm and the intervened arm may silently "
+            "differ, which is what this digest exists to prevent."
+        )
+    smuggled = [name for name in resolved.get("omissions", {}) if name in settings]
+    if smuggled:
+        raise SettingsDigestUnbound(
+            f"settings carry {smuggled}, which the contract EXCLUDES ON PURPOSE: "
+            + "; ".join(f"{name}: {resolved['omissions'][name][:160]}" for name in smuggled)
+        )
+    return assert_settings_digest_bound(digest_fn(dict(settings)))
+
+
+def assert_settings_digest_bound(digest: Any) -> str:
+    """REFUSE an absent, malformed or placeholder digest.
+
+    The placeholder set includes the calibration lane's own synthetic constant,
+    because a test double that escaped into an artifact would satisfy every hex
+    check and bind nothing."""
+    text = str(digest or "").strip().lower()
+    if not text:
+        raise SettingsDigestUnbound(
+            "generation_settings_digest is empty. The calibration lane requires it and nothing "
+            "else produces it; an empty value reads to a later reader as NOT CHECKED."
+        )
+    if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
+        raise SettingsDigestUnbound(
+            f"generation_settings_digest={digest!r} is not 64 lowercase hex, which is what "
+            "causal_calibration.PinnedCalibration requires."
+        )
+    if text in _PLACEHOLDER_DIGESTS:
+        raise SettingsDigestUnbound(
+            f"generation_settings_digest={text!r} is a PLACEHOLDER. A record that looks bound and "
+            "is not is worse than one that admits it is not."
+        )
+    return text
+
+
 class JobScriptRenderRefused(ControlPayloadError):
     """The render would produce a script that cannot run on the cluster.
 
@@ -1038,6 +1286,29 @@ class JobScriptRenderRefused(ControlPayloadError):
 
 
 _WINDOWS_MANGLE_MARKERS = ("/Program Files/", "/mingw", "/msys", "C:/", "c:/")
+
+#: Every path-shaped substitution the template makes. The check below is fed
+#: from THIS tuple rather than from a hand-listed subset, and a test sweeps the
+#: template to assert nothing path-shaped is missing from it -- the previous
+#: round fixed one path and left another, so the sweep is mechanical now.
+PATH_SHAPED_TEMPLATE_KEYS: tuple[str, ...] = (
+    "log_dir",
+    "model_path",
+    "out",
+    "payload",
+    "repo_root",
+    "sae_path",
+    "venv",
+)
+
+#: The ONE path a shell variable is legal in, and it is legal because it was
+#: MEASURED to resolve: the venv is used only in a `source` line, which the
+#: shell expands. Every other path here reaches an SBATCH directive or
+#: Path().mkdir(), and neither expands anything. See
+#: TAMIA_ENVIRONMENT["sbatch_does_not_expand_variables"].
+_SHELL_EXPANDED_KEYS: tuple[str, ...] = ("venv",)
+
+_SHELL_VARIABLE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
 
 
 def assert_render_is_cluster_shaped(values: Mapping[str, Any], *, platform: str) -> dict[str, Any]:
@@ -1059,6 +1330,24 @@ def assert_render_is_cluster_shaped(values: Mapping[str, Any], *, platform: str)
                 f"{name}={text!r} contains a tilde, and every path in this template is emitted "
                 f"inside double quotes. {TAMIA_ENVIRONMENT['tilde_evidence']} Use the $HOME form."
             )
+        variable = _SHELL_VARIABLE.search(text)
+        if variable and name not in _SHELL_EXPANDED_KEYS:
+            problems.append(
+                f"{name}={text!r} carries the shell variable {variable.group(0)!r}. NOTHING "
+                f"EXPANDS IT: {TAMIA_ENVIRONMENT['sbatch_does_not_expand_variables']} "
+                f"{TAMIA_ENVIRONMENT['renderer_expands_nothing']} Pass an absolute path. (The venv "
+                "is the one exception, because its line IS shell-expanded and the HOME form was "
+                "measured to resolve.)"
+            )
+        # POSIX-absolute, checked as the CLUSTER would: Path.is_absolute() is
+        # false for "/home/..." on Windows, and the cluster is where this
+        # renders. A drive-lettered path is refused a few lines below anyway.
+        if name == "log_dir" and not text.startswith("/"):
+            problems.append(
+                f"log_dir={text!r} is not an absolute POSIX path. SLURM opens --output relative to "
+                "the submit directory and expands nothing, and the extracted tree has no logs "
+                "directory."
+            )
         if chr(92) in text:
             problems.append(
                 f"{name}={text!r} contains a backslash: the signature of a Windows-mangled path."
@@ -1077,6 +1366,82 @@ def assert_render_is_cluster_shaped(values: Mapping[str, Any], *, platform: str)
             "the rendered script would not run on the cluster: " + "; ".join(problems)
         )
     return {"platform": str(platform), "paths_checked": sorted(values)}
+
+
+def _import_targets() -> Any:
+    """The ratified target registry, by file identity, never by name."""
+    return gi._import_module_from_exact_file(
+        "final_pairing_targets",
+        SCRIPT_DIR.parent / "legacy" / "final_pairing_targets.py",
+        why="the ratified target names are the registry's, and a second copy of them here is the "
+        "drift this codebase keeps paying for.",
+    )
+
+
+def ratified_pairing_name(pairing: str) -> str:
+    """Translate this payload's SHORT key into the RATIFIED target name.
+
+    The payload keeps short keys for its own tables (SURVIVING_FEATURES, the
+    frozen layers) because they are its own; `load_backend` takes the ratified
+    name and refuses anything else. The mapping is derived from
+    `final_pairing_targets.ALL_TARGETS` rather than written out a second time --
+    the same reason the layer comes from PRIMARY_CONFIGURATION, and the reason
+    that fix stayed fixed.
+
+    MEASURED: job 418403 died at 34 s because the short key went straight
+    through. This refuses on the login node instead."""
+    targets = _import_targets()
+    names = list(getattr(targets, "ALL_TARGETS", {}))
+    if not names:
+        raise JobScriptRenderRefused(
+            "final_pairing_targets.ALL_TARGETS is empty, so no pairing can be validated against "
+            "the ratified registry."
+        )
+    key = str(pairing).strip().lower()
+    if key in names:
+        return key
+    matches = [name for name in names if name.split("-", 1)[0] == key]
+    if len(matches) == 1:
+        return matches[0]
+    raise JobScriptRenderRefused(
+        f"--pairing {pairing!r} does not resolve to exactly one ratified target; ALL_TARGETS names "
+        f"{names} and this payload's own tables are keyed by {sorted(SURVIVING_FEATURES)}. "
+        f"{TAMIA_ENVIRONMENT['pairing_mismatch_evidence']}"
+    )
+
+
+def assert_identity_arguments_are_registered(
+    *, pairing: str, layer: int, model_revision: str, sae_revision: str
+) -> dict[str, Any]:
+    """Validate EVERY identity argument the render emits, at render time.
+
+    LA-B's lesson from 418403, encoded: the gates checked syntax, environment
+    and imports, and none checked that the VALUES the render emits are ones the
+    code will accept. An import test can never reach a runtime value check on an
+    argument. All of this is a dict lookup and a string check -- no GPU, no
+    weights, no allocation."""
+    ratified = ratified_pairing_name(pairing)
+    expected_layer = frozen_layer_for(pairing)
+    if int(layer) != int(expected_layer):
+        raise JobScriptRenderRefused(
+            f"--layer {layer} is not the frozen layer for {ratified!r}, which is {expected_layer} "
+            "per PRIMARY_CONFIGURATION. A contrast taken across two layers is not a contrast."
+        )
+    for name, revision in (("model_revision", model_revision), ("sae_revision", sae_revision)):
+        text = str(revision).strip()
+        if not text:
+            raise JobScriptRenderRefused(f"{name} is empty; a wrong snapshot would load silently.")
+        if len(text) < 7 or any(character not in "0123456789abcdefABCDEF" for character in text):
+            raise JobScriptRenderRefused(
+                f"{name}={revision!r} is not a hexadecimal snapshot digest. 415590 and 416453 both "
+                "passed real values."
+            )
+    return {
+        "pairing_short": str(pairing),
+        "pairing_ratified": ratified,
+        "layer": int(expected_layer),
+        "registry": "final_pairing_targets.ALL_TARGETS",
+    }
 
 
 def frozen_layer_for(pairing: str) -> int:
@@ -1121,6 +1486,7 @@ JOB_SCRIPT_TEMPLATE = """#!/bin/bash
 # --write-job-script, which REFUSES to render on Windows.
 #SBATCH --job-name=control_only_generation
 #SBATCH --gres=gpu:h100:4
+#SBATCH --cpus-per-task={cpus_per_task}
 #SBATCH --mem=0
 #SBATCH --time={time_limit}
 #SBATCH --output={log_dir}/control_only_%j.out
@@ -1150,8 +1516,15 @@ mkdir -p "{log_dir}"
 module load {module_stack}
 source "{venv}/bin/activate"
 
+# PREPEND, NEVER ASSIGN. Running the payload by path puts its own directory on
+# sys.path[0] rather than the repository root, so interplab does not import; a
+# bare assignment fixes that and discards what the arrow module put here, which
+# breaks pyarrow. Both directions were measured on the cluster.
+export PYTHONPATH="{repo_root}${{PYTHONPATH:+:$PYTHONPATH}}"
+
+
 python "{payload}" \
-  --pairing "{pairing}" \
+  --pairing "{ratified_pairing}" \
   --model-path "{model_path}" \
   --sae-path "{sae_path}" \
   --layer {layer} \
@@ -1177,6 +1550,7 @@ def job_script_text(
     out: str,
     model_revision: str,
     sae_revision: str,
+    repo_root: str,
     layer: int | None = None,
     venv: str = DEFAULT_VENV,
     log_dir: str = DEFAULT_LOG_DIR,
@@ -1211,6 +1585,13 @@ def job_script_text(
     directory is created HERE -- at render time, on the cluster -- because SLURM
     opens the output file before the body runs."""
     resolved_layer = frozen_layer_for(pairing) if layer is None else int(layer)
+    # EVERY IDENTITY ARGUMENT, AGAINST THE FROZEN REGISTRY, ON THE LOGIN NODE.
+    identity = assert_identity_arguments_are_registered(
+        pairing=pairing,
+        layer=resolved_layer,
+        model_revision=model_revision,
+        sae_revision=sae_revision,
+    )
     for name, revision in (("model_revision", model_revision), ("sae_revision", sae_revision)):
         if not str(revision).strip():
             raise JobScriptRenderRefused(
@@ -1225,22 +1606,37 @@ def job_script_text(
             f"time_limit={time_limit!r} is {hours:.2f} h, below the {minimum:.0f} h floor. "
             f"{TAMIA_ENVIRONMENT['time_limit_evidence']}"
         )
-    assert_render_is_cluster_shaped(
-        {
-            "model_path": model_path,
-            "sae_path": sae_path,
-            "out": out,
-            "venv": venv,
-            "log_dir": log_dir,
-        },
-        platform=platform,
-    )
+    payload_path = "scripts/final_pairing/control_generation_payload.py"
+    # FED FROM PATH_SHAPED_TEMPLATE_KEYS, not from a hand-listed subset: last
+    # round the mkdir moved to render time and the unexpanded variable stayed,
+    # because the fix addressed one path and the timing rather than every value.
+    candidates = {
+        "log_dir": log_dir,
+        "model_path": model_path,
+        "out": out,
+        "payload": payload_path,
+        "repo_root": repo_root,
+        "sae_path": sae_path,
+        "venv": venv,
+    }
+    missing = [key for key in PATH_SHAPED_TEMPLATE_KEYS if key not in candidates]
+    if missing:
+        raise JobScriptRenderRefused(
+            f"path-shaped template key(s) {missing} are never checked before rendering. A "
+            "substitution nobody checks is the one that ships broken."
+        )
+    assert_render_is_cluster_shaped(candidates, platform=platform)
+    # AFTER the refusal, never before: a renderer that creates a directory whose
+    # name contains a variable hides the defect instead of surfacing it, which is
+    # how a literal directory named for the variable ended up on the cluster.
     if create_log_dir:
         # AT RENDER TIME, ON THE CLUSTER. SLURM opens --output before the body
         # runs, so a mkdir in the body cannot save the first submission.
         Path(log_dir).mkdir(parents=True, exist_ok=True)
     return JOB_SCRIPT_TEMPLATE.format(
         pairing=pairing,
+        ratified_pairing=identity["pairing_ratified"],
+        repo_root=repo_root,
         model_path=model_path,
         sae_path=sae_path,
         layer=int(resolved_layer),
@@ -1255,13 +1651,91 @@ def job_script_text(
         log_dir=log_dir,
         time_limit=time_limit,
         module_stack=" ".join(TAMIA_ENVIRONMENT["required_modules"]),
-        payload="scripts/final_pairing/control_generation_payload.py",
+        cpus_per_task=int(TAMIA_ENVIRONMENT["cpus_per_task"]),
+        payload=payload_path,
     )
 
 
 # ---------------------------------------------------------------------------
 # The run, and the CLI.
 # ---------------------------------------------------------------------------
+
+
+def observe_generation_settings(
+    *,
+    backend: Any,
+    model_path: str,
+    model_revision: str,
+    sae_path: str,
+    sae_revision: str,
+    layer: int,
+    dtype: str,
+    max_new_tokens: int,
+    selection_rule: str,
+    contract: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """THE PRODUCER'S HALF: the covered settings, OBSERVED FROM THE LIVE RUN.
+
+    The contract is explicit that only the producer can bind these, by reading
+    them off the live objects rather than off its own configuration -- so
+    `hook_name` and the library versions come from the loaded backend and the
+    imported modules, not from arguments. The FIELD SET is the contract's; this
+    function fills it and refuses if it cannot fill one, because a field this
+    payload cannot observe is a field researcher has to be told about rather
+    than one to quietly default."""
+    import torch as _torch
+    import transformers as _transformers
+
+    resolved = dict(contract) if contract is not None else resolve_settings_contract()
+    render = (
+        "row['text'] verbatim as the model input: no chat template, no system text, no prefix "
+        "and no suffix; tokenised by the backend's own to_tokens"
+    )
+    stop = "stop_at_eos=False; raw-HF also sets min_new_tokens=max_new_tokens to mean the same"
+    observed = {
+        "model_reference": f"{model_path}@{model_revision}",
+        "tokenizer_reference": f"{model_path}@{model_revision}",
+        "sae_reference": f"{sae_path}@{sae_revision}",
+        "layer": int(layer),
+        "hook_name": str(
+            getattr(backend, "hook_label", None) or getattr(backend, "hook_name", "") or ""
+        ),
+        "dtype": str(dtype),
+        "device_placement": json.dumps(
+            {name: str(getattr(obj, "device", "no-parameters")) for name, obj in
+             sorted(backend.device_objects().items())},
+            sort_keys=True,
+        ),
+        "max_new_tokens": int(max_new_tokens),
+        "do_sample": False,
+        "temperature": 1.0,
+        "top_p": "not-passed-by-this-payload",
+        "top_k": "not-passed-by-this-payload",
+        "repetition_penalty": "not-passed-by-this-payload",
+        "stop_condition": stop,
+        "batch_size": 1,
+        "prompt_set_digest": co.sha256_hex(PROMPT_SET_PATH.read_bytes()),
+        "prompt_selection_rule": str(selection_rule),
+        "prompt_render_digest": co.sha256_hex(render.encode("utf-8")),
+        # HOW seeds are derived, never WHICH: the contract EXCLUDES the seed
+        # itself, because replicates differ by seed by design.
+        "seed_policy": (
+            "torch.manual_seed(seed) immediately before each generate call; one seed per "
+            "(arm, prompt, replicate); seeds supplied per run and NOT covered by this digest"
+        ),
+        "transformers_version": str(_transformers.__version__),
+        "torch_version": str(_torch.__version__),
+        "payload_id": PAYLOAD_ID,
+        "payload_version": PAYLOAD_VERSION,
+    }
+    unobservable = [field for field in resolved.get("fields", ()) if field not in observed]
+    if unobservable:
+        raise SettingsDigestUnbound(
+            f"the contract covers {unobservable}, which this payload does not observe. A field the "
+            "producer cannot read off the live run must be raised with researcher rather than "
+            "defaulted here: a defaulted setting is one under which the two arms may differ."
+        )
+    return observed
 
 
 def run_control_set(
@@ -1275,6 +1749,7 @@ def run_control_set(
     max_new_tokens: int,
     selection_rule: str,
     feature_indices: Sequence[int],
+    settings_digest: str,
     reader: cti.ClaimTypeExtentReader | None = None,
     prompt_rows: Sequence[Mapping[str, Any]] | None = None,
     prompts_per_cell: int | None = None,
@@ -1285,6 +1760,7 @@ def run_control_set(
 
     The ONLY generation entry point, and every arm it can run has already
     passed `assert_control_only`. There is no parameter that makes it dose."""
+    bound_digest = assert_settings_digest_bound(settings_digest)
     resolved_reader = reader if reader is not None else build_instrument_reader()
     rows = list(prompt_rows) if prompt_rows is not None else load_prompt_rows()
     arms = build_control_arms(feature_indices, hook_name=hook_name)
@@ -1310,6 +1786,7 @@ def run_control_set(
                                 cell=cell,
                                 pairing=pairing,
                                 reader=resolved_reader,
+                                settings_digest=bound_digest,
                                 device=device,
                             )
                         )
@@ -1395,6 +1872,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--selection-rule", default="cell_positive_family_rows")
     parser.add_argument("--out", type=Path, default=None)
     parser.add_argument("--venv", default=DEFAULT_VENV)
+    parser.add_argument(
+        "--repo-root",
+        default=None,
+        help="the extracted repository root, PREPENDED to PYTHONPATH by the rendered script; "
+        "required for a render because running the payload by path puts its own directory on "
+        "sys.path[0] instead",
+    )
     parser.add_argument("--log-dir", default=DEFAULT_LOG_DIR)
     parser.add_argument("--time-limit", default=DEFAULT_TIME_LIMIT)
     args = parser.parse_args(list(argv) if argv is not None else None)
@@ -1413,8 +1897,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "accepts None for both, and an unasserted snapshot digest means a wrong snapshot "
                 "loads silently. Jobs 415590 and 416453 both passed real values."
             )
+        if not args.repo_root:
+            parser.error(
+                "--write-job-script requires --repo-root: running the payload by path puts "
+                "scripts/final_pairing on sys.path[0], not the repository root, and interplab then "
+                "does not import (job 418390/418391, 5 s)."
+            )
         text = job_script_text(
             pairing=args.pairing,
+            repo_root=args.repo_root,
             model_path=args.model_path or "<LOCAL SNAPSHOT PATH>",
             sae_path=args.sae_path or "<LOCAL SAE PATH>",
             layer=args.layer,
@@ -1460,8 +1951,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             "real values."
         )
     discovery = gi._import_discovery_module()
+    # TRANSLATED AT THE BOUNDARY, from the registry: the payload's own tables are
+    # keyed short, load_backend takes the ratified name and refuses anything
+    # else. 418403 died at 34 s because the short key went straight through.
     backend = discovery.load_backend(
-        pairing=args.pairing,
+        pairing=ratified_pairing_name(args.pairing),
         model_path=args.model_path,
         sae_path=args.sae_path,
         # IMPORTED, never None: load_backend accepts None and then runs at a
@@ -1474,6 +1968,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         dtype=args.dtype,
     )
     features = SURVIVING_FEATURES[args.pairing][concepts[0]]
+    # THE CONTRACT IS RESEARCHER'S. This refuses until it exists rather than
+    # hashing a coverage set invented here, which would agree with nothing.
+    contract = resolve_settings_contract()
+    observed_settings = observe_generation_settings(
+        backend=backend,
+        model_path=str(args.model_path),
+        model_revision=str(args.model_revision),
+        sae_path=str(args.sae_path),
+        sae_revision=str(args.sae_revision),
+        layer=int(args.layer if args.layer is not None else frozen_layer_for(args.pairing)),
+        dtype=str(args.dtype),
+        max_new_tokens=int(args.max_new_tokens),
+        selection_rule=str(args.selection_rule),
+        contract=contract,
+    )
+    settings_digest = compute_generation_settings_digest(observed_settings, contract)
     records = run_control_set(
         backend.model_obj if hasattr(backend, "model_obj") else backend,
         backend.sae if hasattr(backend, "sae") else None,
@@ -1484,11 +1994,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_new_tokens=args.max_new_tokens,
         selection_rule=args.selection_rule,
         feature_indices=features,
+        settings_digest=settings_digest,
         prompts_per_cell=args.prompts_per_cell,
         device=args.device,
     )
     artifact = build_artifact(
         records,
+        settings=observed_settings,
         pairing=args.pairing,
         selection_rule=args.selection_rule,
         model_reference=str(args.model_path),
@@ -1523,6 +2035,26 @@ SEGMENTATION_PROBES: dict[str, str] = {
         "China has built something the world has never seen. Its people carried a cost that"
     ),
 }
+
+
+def _probe_settings(contract: Mapping[str, Any]) -> dict[str, Any]:
+    """A fully-populated settings map for the CONTRACT'S OWN FIELDS.
+
+    Exercises the mechanism without choosing what it covers: the field list is
+    read from the contract, and the values are obvious probes."""
+    values = {
+        "layer": 29,
+        "max_new_tokens": 64,
+        "do_sample": False,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "repetition_penalty": 1.0,
+        "batch_size": 1,
+        "payload_id": PAYLOAD_ID,
+        "payload_version": PAYLOAD_VERSION,
+    }
+    return {field: values.get(field, f"probe-{field}") for field in contract["fields"]}
 
 
 def _selfcheck() -> int:
@@ -1851,9 +2383,72 @@ def _selfcheck() -> int:
         ),
         JobScriptRenderRefused,
     )
+    must_raise(
+        "a log dir carrying $HOME (SLURM expands NOTHING in an SBATCH directive)",
+        lambda: assert_render_is_cluster_shaped(
+            {**cluster_paths, "log_dir": "$HOME/scratch/final_pairing/logs"}, platform="linux"
+        ),
+        JobScriptRenderRefused,
+    )
+    must_raise(
+        "a log dir carrying ${SCRATCH}",
+        lambda: assert_render_is_cluster_shaped(
+            {**cluster_paths, "log_dir": "${SCRATCH}/logs"}, platform="linux"
+        ),
+        JobScriptRenderRefused,
+    )
+    must_raise(
+        "a variable in an --out path",
+        lambda: assert_render_is_cluster_shaped(
+            {**cluster_paths, "out": "$SLURM_TMPDIR/control.json"}, platform="linux"
+        ),
+        JobScriptRenderRefused,
+    )
+    must_raise(
+        "a RELATIVE log dir",
+        lambda: assert_render_is_cluster_shaped(
+            {**cluster_paths, "log_dir": "logs"}, platform="linux"
+        ),
+        JobScriptRenderRefused,
+    )
     print(
         f"  ACCEPTED on a cluster-shaped render: "
         f"{assert_render_is_cluster_shaped(cluster_paths, platform='linux')}"
+    )
+    print(
+        f"  ACCEPTED, and the ONE legal variable: venv={DEFAULT_VENV!r} -- its line is "
+        "shell-expanded and the HOME form was MEASURED to resolve; every other path reaches an "
+        "SBATCH directive or a mkdir, and neither expands anything."
+    )
+    probe = Path(tempfile.mkdtemp()) / "$HOME" / "logs"
+    must_raise(
+        "RENDERING with a variable-bearing log dir (this is what created a literal $HOME dir)",
+        lambda: job_script_text(
+            pairing="gemma",
+            model_path=cluster_paths["model_path"],
+            sae_path=cluster_paths["sae_path"],
+            cells=["en/f1"],
+            seeds=[17],
+            max_new_tokens=64,
+            selection_rule="cell_positive_family_rows",
+            out=cluster_paths["out"],
+            model_revision="a" * 40,
+            sae_revision="b" * 40,
+            repo_root="/home/user/scratch/final_pairing/repo",
+            log_dir="$HOME/scratch/logs",
+            platform="linux",
+            create_log_dir=True,
+        ),
+        JobScriptRenderRefused,
+    )
+    print(
+        f"  AND NOTHING WAS CREATED: the refusal runs BEFORE the mkdir, so no directory named for "
+        f"a variable exists after it (probe parent has {len(list(probe.parent.parent.iterdir()))} "
+        "entries)."
+    )
+    print(
+        f"  DEFAULT_LOG_DIR is now absolute and variable-free: {DEFAULT_LOG_DIR!r} "
+        f"(contains '$': {'$' in DEFAULT_LOG_DIR}, contains '~': {'~' in DEFAULT_LOG_DIR})"
     )
 
     def render(**overrides):
@@ -1869,6 +2464,7 @@ def _selfcheck() -> int:
             model_revision="a" * 40,
             sae_revision="b" * 40,
             log_dir=cluster_paths["log_dir"],
+            repo_root="/home/user/scratch/final_pairing/repo",
             platform="linux",
             create_log_dir=False,
         )
@@ -1895,6 +2491,92 @@ def _selfcheck() -> int:
         lambda: render(pairing="llama"),
         JobScriptRenderRefused,
     )
+    must_raise(
+        "a --layer that is not the frozen layer for that pairing",
+        lambda: render(layer=12),
+        JobScriptRenderRefused,
+    )
+    must_raise(
+        "a revision that is not a hexadecimal digest",
+        lambda: render(model_revision="main"),
+        JobScriptRenderRefused,
+    )
+    must_raise(
+        "a repo root carrying a variable (PYTHONPATH would be prepended with a literal)",
+        lambda: render(repo_root="$SLURM_TMPDIR/repo"),
+        JobScriptRenderRefused,
+    )
+    identity = assert_identity_arguments_are_registered(
+        pairing="gemma", layer=frozen_layer_for("gemma"), model_revision="a" * 40,
+        sae_revision="b" * 40,
+    )
+    print(
+        f"  IDENTITY VALIDATED AT RENDER TIME against {identity['registry']}: "
+        f"{identity['pairing_short']!r} -> {identity['pairing_ratified']!r} at layer "
+        f"{identity['layer']}. 418403 spent 34 s of an allocation to learn this; it is a dict "
+        "lookup here."
+    )
+
+    banner("CONTROL 8 -- generation_settings_digest: RULING_16's containment, and it REFUSES")
+    contract = resolve_settings_contract()
+    print(
+        f"  CONTRACT RESOLVED from {contract['source']}: {len(contract['fields'])} covered field(s), "
+        f"hashed by THEIR function; deliberate omissions {sorted(contract['omissions'])}"
+    )
+    must_raise(
+        "a module that defines no settings FORM (this payload invents no coverage set)",
+        lambda: resolve_settings_contract(object()),
+        SettingsContractUnavailable,
+    )
+    must_raise(
+        "smuggling in a DELIBERATELY OMITTED setting (seed differs by design across replicates)",
+        lambda: compute_generation_settings_digest(
+            {**_probe_settings(contract), "seed": 17}, contract
+        ),
+        SettingsDigestUnbound,
+    )
+    for label, value in (
+        ("empty", ""),
+        ("None", None),
+        ("not hex", "z" * 64),
+        ("too short", "ab" * 8),
+        ("the calibration lane's own synthetic placeholder", "f" * 64),
+        ("all zeroes", "0" * 64),
+    ):
+        must_raise(
+            f"a {label} digest",
+            lambda value=value: assert_settings_digest_bound(value),
+            SettingsDigestUnbound,
+        )
+    probe_settings = _probe_settings(contract)
+    dropped = dict(probe_settings)
+    dropped.pop(contract["fields"][0])
+    must_raise(
+        f"a covered setting that is MISSING ({contract['fields'][0]})",
+        lambda: compute_generation_settings_digest(dropped, contract),
+        SettingsDigestUnbound,
+    )
+    must_raise(
+        "a covered setting that is present but UNSET",
+        lambda: compute_generation_settings_digest(
+            {**probe_settings, contract["fields"][0]: ""}, contract
+        ),
+        SettingsDigestUnbound,
+    )
+    must_raise(
+        "a contract that covers no field at all",
+        lambda: compute_generation_settings_digest(probe_settings, {"fields": (), "digest": None}),
+        SettingsContractUnavailable,
+    )
+    first = compute_generation_settings_digest(probe_settings, contract)
+    again = compute_generation_settings_digest(dict(probe_settings), contract)
+    moved = compute_generation_settings_digest({**probe_settings, "layer": 38}, contract)
+    print(f"  EMISSION FIRES on real settings: {first}")
+    print(f"  stable across calls: {first == again}; changes when a covered setting moves: {first != moved}")
+    if first != again or first == moved:
+        failures.append("the settings digest is not a function of the covered settings")
+    if assert_settings_digest_bound(first) != first:
+        failures.append("a real digest did not survive its own bound check")
 
     banner("SUCCESS 3 -- the rendered script matches the RECORDED CLUSTER DESCRIPTION")
     script = render()
@@ -1906,6 +2588,11 @@ def _selfcheck() -> int:
         "no quoted tilde anywhere": '"~' not in script,
         "log dir is created in the body too": 'mkdir -p "' in script,
         "the frozen layer is EMITTED": f"--layer {layers['gemma']}" in script,
+        "the RATIFIED pairing name is emitted": '--pairing "gemma-3-12b-it"' in script,
+        "no short pairing key reaches load_backend": '--pairing "gemma"' not in script,
+        "PYTHONPATH is PREPENDED, not assigned": 'PYTHONPATH="/home/user/scratch/final_pairing/repo${PYTHONPATH:+:$PYTHONPATH}"'
+        in script,
+        "whole-node CPUs are requested": "#SBATCH --cpus-per-task=32" in script,
         "both revisions are emitted": "--model-revision" in script and "--sae-revision" in script,
         "time limit is at least the floor": "--time=06:00:00" in script,
         "unset HF_TOKEN": "unset HF_TOKEN" in script,
