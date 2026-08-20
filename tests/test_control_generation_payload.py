@@ -1071,9 +1071,12 @@ def test_the_recorded_cluster_description_carries_its_evidence():
 
 
 def test_the_plan_mode_states_what_a_job_needs_and_submits_nothing(capsys):
-    assert cgp.main(["--plan", "--cells", "en/f1,en/f2", "--seeds", "17,23"]) == 0
+    # ONE seed: do_sample=False makes a second seed BYTE-IDENTICAL (measured
+    # 480/480 on both pairings, job 419773), and main() now refuses more
+    # than one rather than silently accepting a redundant replicate.
+    assert cgp.main(["--plan", "--cells", "en/f1,en/f2", "--seeds", "17"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["generation_count"] == payload["prompts_per_cell"] * 2 * 4 * 2
+    assert payload["generation_count"] == payload["prompts_per_cell"] * 2 * 4
     assert payload["authorization"].startswith("NOT REQUESTED")
     assert "wall_time_from_the_measured_precedent" in payload
 
@@ -1240,6 +1243,376 @@ def test_every_discovery_backend_attribute_this_payload_reads_is_a_real_field(di
         f"only {sorted(real_fields)}. A name that used to resolve and silently stopped is job "
         "419181's defect."
     )
+
+
+# ---------------------------------------------------------------------------
+# CHAT-TEMPLATE RENDERING (job 419773). Both models are instruction-tuned;
+# row['text'] verbatim gets no chat template, so they complete/comment on it
+# instead of speaking in voice. THE INSTRUMENT IS CORRECT and is not touched
+# here -- only the render it reads.
+# ---------------------------------------------------------------------------
+
+
+def test_the_real_instruction_constant_is_concept_neutral():
+    """The constant actually shipped, not a stand-in for it."""
+    cgp.assert_instruction_is_concept_neutral(cgp.CHAT_TEMPLATE_CONTINUATION_INSTRUCTION)
+
+
+@pytest.mark.parametrize(
+    "leaking_instruction",
+    [
+        "Continue this passage about American exceptionalism.",
+        "Write in the voice of Chinese nationalism.",
+        "Continue as if you were an American patriot.",
+        # Not caught by the concept_id token split (neither 'american' nor
+        # 'chinese' nor 'exceptionalism' appears) -- caught ONLY by the
+        # reused referent pattern, proving BOTH vocabulary sources fire.
+        "Continue the passage as if writing about the United States.",
+    ],
+)
+def test_a_concept_leaking_instruction_refuses(leaking_instruction):
+    with pytest.raises(cgp.ConceptLeakingInstruction, match="persona concept"):
+        cgp.assert_instruction_is_concept_neutral(leaking_instruction)
+
+
+def test_a_concept_neutral_instruction_does_not_refuse():
+    cgp.assert_instruction_is_concept_neutral(
+        "Continue the passage below in the same voice, picking up exactly where it stops."
+    )
+
+
+#: A Gemma-shaped test template: literal {{ bos_token }} plus start/end-of-turn
+#: markers, mirroring the REAL Gemma template's shape closely enough to
+#: reproduce job 419773's double-BOS trap and its control-token-leak trap.
+#: tests/fixtures/tiny_model's own tokenizer has NO chat_template at all (used
+#: directly to test trap d); this is injected, never mutating the model's own
+#: config on disk, and always restored.
+GEMMA_SHAPED_TEST_CHAT_TEMPLATE = (
+    "{{ bos_token }}{% for message in messages %}<start_of_turn>{{ message['role'] }}\n"
+    "{{ message['content'] }}<end_of_turn>\n{% endfor %}"
+    "{% if add_generation_prompt %}<start_of_turn>model\n{% endif %}"
+)
+
+
+@pytest.fixture
+def gemma_generation_backend_with_chat_template(real_backend):
+    """resolve_generation_backend(real_backend) wraps `real_model` directly
+    (a MODULE-SCOPED fixture), so its tokenizer is shared across every test
+    in this file -- injected here and ALWAYS restored, never left mutated
+    for a test that runs after this one."""
+    adapter = cgp.resolve_generation_backend(real_backend)
+    tokenizer = adapter.model.tokenizer
+    original = tokenizer.chat_template
+    tokenizer.chat_template = GEMMA_SHAPED_TEST_CHAT_TEMPLATE
+    try:
+        yield adapter
+    finally:
+        tokenizer.chat_template = original
+
+
+@pytest.fixture
+def qwen_generation_backend_with_chat_template(real_qwen_shaped_backend):
+    """resolve_generation_backend's Qwen branch reloads the tokenizer fresh
+    from disk every call (discovery.resolve_tokenizer_for_backend), so this
+    adapter's tokenizer is not shared with any other test regardless."""
+    adapter = cgp.resolve_generation_backend(real_qwen_shaped_backend)
+    adapter.tokenizer.chat_template = GEMMA_SHAPED_TEST_CHAT_TEMPLATE
+    return adapter
+
+
+def test_a_tokenizer_with_no_chat_template_refuses_trap_d(real_model):
+    """trap (d): tests/fixtures/tiny_model's REAL tokenizer has no
+    chat_template at all -- must REFUSE, not silently fall back to
+    row['text'] verbatim (job 419773's actual defect)."""
+    assert not getattr(real_model.tokenizer, "chat_template", None)
+    with pytest.raises(cgp.ChatTemplateUnavailable, match="chat_template"):
+        cgp.render_chat_prompt(real_model.tokenizer, "some frozen row text")
+
+
+def test_render_chat_prompt_wraps_the_row_in_the_instruction_and_the_template(
+    gemma_generation_backend_with_chat_template,
+):
+    tokenizer = gemma_generation_backend_with_chat_template.model.tokenizer
+    rendered = cgp.render_chat_prompt(tokenizer, "America is the indispensable nation.")
+    assert cgp.CHAT_TEMPLATE_CONTINUATION_INSTRUCTION in rendered
+    assert "America is the indispensable nation." in rendered
+    assert rendered.startswith("<bos>")
+    assert rendered.endswith("<start_of_turn>model\n")
+
+
+def test_double_bos_is_detected_end_to_end_on_the_raw_hf_backend(
+    qwen_generation_backend_with_chat_template,
+):
+    """trap (a), reproduced END TO END, no hand-construction: RawHfBackend.
+    to_tokens calls the tokenizer's own __call__ directly
+    (`self.tokenizer(prompt, return_tensors='pt')`), which does NOT know
+    the string already starts with a literal '<bos>' and adds its own --
+    MEASURED to double on this exact render+to_tokens combination."""
+    backend = qwen_generation_backend_with_chat_template
+    tokenizer = backend.tokenizer
+    rendered = cgp.render_chat_prompt(tokenizer, "some frozen row text")
+    tokens = backend.to_tokens(rendered)
+    bos_id = tokenizer.bos_token_id
+    assert bos_id is not None
+    assert tokens[0, :2].tolist() == [bos_id, bos_id], (
+        "fixture assumption broken: expected this template+to_tokens combination to double BOS"
+    )
+    with pytest.raises(cgp.DoubleBOSDetected, match="consecutive BOS"):
+        cgp.assert_exactly_one_leading_bos(tokens, tokenizer)
+
+
+def test_double_bos_is_detected_on_the_hooked_transformer_backend(
+    gemma_generation_backend_with_chat_template,
+):
+    """trap (a) on the OTHER backend shape. tests/fixtures/tiny_model has
+    cfg.default_prepend_bos=False, so THIS fixture's own to_tokens does not
+    naturally double a literal leading '<bos>' the way a real Gemma
+    checkpoint's to_tokens would (RawHfBackend.to_tokens, tested above,
+    reproduces the doubling directly because it never consults
+    default_prepend_bos at all) -- so the doubled shape is constructed here
+    to prove assert_exactly_one_leading_bos flags it correctly on THIS
+    backend's tokenizer, independent of one fixture model's own config."""
+    import torch
+
+    backend = gemma_generation_backend_with_chat_template
+    tokenizer = backend.model.tokenizer
+    bos_id = tokenizer.bos_token_id
+    assert bos_id is not None
+    # Built directly, with no dependence on what this fixture's own
+    # to_tokens happens to produce for a plain string (measured separately
+    # to be zero leading BOS on this exact fixture, since
+    # cfg.default_prepend_bos=False here).
+    doubled = torch.tensor([[bos_id, bos_id, 68, 224, 83]])
+    with pytest.raises(cgp.DoubleBOSDetected, match="consecutive BOS"):
+        cgp.assert_exactly_one_leading_bos(doubled, tokenizer)
+
+
+def test_a_single_leading_bos_does_not_refuse(qwen_generation_backend_with_chat_template):
+    """A PLAIN, non-templated string: RawHfBackend.to_tokens's own
+    tokenizer __call__ adds exactly one leading BOS naturally, with no
+    literal '<bos>' already in the text to double it against -- the
+    correct shape the assertion must let through."""
+    backend = qwen_generation_backend_with_chat_template
+    tokenizer = backend.tokenizer
+    tokens = backend.to_tokens("a plain, non-templated string")
+    assert tokens[0, 0].item() == tokenizer.bos_token_id
+    cgp.assert_exactly_one_leading_bos(tokens, tokenizer)
+
+
+def test_a_tokenizer_with_no_bos_token_is_a_noop_check():
+    class _NoBOSTokenizer:
+        bos_token_id = None
+
+    cgp.assert_exactly_one_leading_bos(None, _NoBOSTokenizer())  # must not raise, must not touch tokens
+
+
+@pytest.fixture
+def tokenizer_with_end_of_turn_markers():
+    """A FRESH tokenizer instance (never the shared `real_model.tokenizer`)
+    with '<end_of_turn>'/'<start_of_turn>' actually registered as special
+    tokens -- tests/fixtures/tiny_model's tokenizer has neither by default
+    (its all_special_tokens is just <bos>/<eos>/<unk>/<pad>), unlike a REAL
+    Gemma tokenizer, where '<end_of_turn>' is a genuine registered special
+    token. Loaded fresh and mutated only here so no other test's tokenizer
+    gains an enlarged vocabulary as a side effect."""
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(str(REPO_ROOT / "tests" / "fixtures" / "tiny_model"))
+    tokenizer.add_special_tokens({"additional_special_tokens": ["<end_of_turn>", "<start_of_turn>"]})
+    return tokenizer
+
+
+def test_continuation_leaking_a_control_token_refuses(tokenizer_with_end_of_turn_markers):
+    """trap (c): a continuation that swallowed end-of-turn scaffolding must
+    refuse, not be scored by the instrument as if it were an assertion."""
+    with pytest.raises(cgp.TemplateControlTokenLeaked, match="control token"):
+        cgp.assert_continuation_has_no_template_control_tokens(
+            "America is great.<end_of_turn>\n<start_of_turn>model\n", tokenizer_with_end_of_turn_markers
+        )
+
+
+def test_a_clean_continuation_does_not_refuse(tokenizer_with_end_of_turn_markers):
+    cgp.assert_continuation_has_no_template_control_tokens(
+        "America is the nation that built the order the world still relies on.",
+        tokenizer_with_end_of_turn_markers,
+    )
+
+
+def test_render_prompt_verbatim_is_byte_identical_to_the_pre_fix_behaviour(real_backend):
+    """job 419773 stays reproducible: 'verbatim' is str(prompt_row_text),
+    nothing else -- no tokenizer lookup, no chat template, no instruction."""
+    adapter = cgp.resolve_generation_backend(real_backend)
+    rendered = cgp.render_prompt(adapter, "row text, unchanged", render_mode="verbatim")
+    assert rendered == "row text, unchanged"
+
+
+def test_render_prompt_rejects_an_unknown_render_mode(real_backend):
+    adapter = cgp.resolve_generation_backend(real_backend)
+    with pytest.raises(cgp.ControlPayloadError, match="render_mode must be one of"):
+        cgp.render_prompt(adapter, "text", render_mode="verbatim_but_typo'd")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# TASK 2: the render is part of the settings contract.
+# ---------------------------------------------------------------------------
+
+#: sha256 of the EXACT render description job 419773 already hashed, pinned
+#: independently of this file's own constant so a future edit to
+#: VERBATIM_RENDER_DESCRIPTION cannot silently redefine what that job's own
+#: recorded prompt_render_digest meant.
+_JOB_419773_VERBATIM_RENDER_DIGEST = "73a51acd54872ffb2b19eb325f830df7803c954cbb8a3e7a19cc22f8f33c08c0"
+
+
+def test_verbatim_render_description_is_unchanged_from_job_419773():
+    assert co.sha256_hex(cgp.VERBATIM_RENDER_DESCRIPTION.encode("utf-8")) == (
+        _JOB_419773_VERBATIM_RENDER_DIGEST
+    )
+
+
+def test_prompt_render_digest_differs_between_chat_template_and_verbatim(real_backend):
+    generation_backend = cgp.resolve_generation_backend(real_backend)
+    kwargs = dict(
+        hook_name=real_backend.hook_name,
+        device_objects=generation_backend.device_objects(),
+        model_path="tests/fixtures/tiny_model",
+        model_revision="a" * 40,
+        sae_path="tests/fixtures/tiny_sae",
+        sae_revision="b" * 40,
+        layer=1,
+        dtype="float32",
+        max_new_tokens=4,
+        selection_rule="cell_positive_family_rows",
+        contract=cgp.resolve_settings_contract(),
+    )
+    verbatim = cgp.observe_generation_settings(**kwargs, render_mode="verbatim")
+    chat_template = cgp.observe_generation_settings(**kwargs, render_mode="chat_template")
+    assert verbatim["prompt_render_digest"] != chat_template["prompt_render_digest"]
+    assert verbatim["prompt_render_digest"] == _JOB_419773_VERBATIM_RENDER_DIGEST
+
+
+def test_observe_generation_settings_rejects_an_unknown_render_mode():
+    with pytest.raises(cgp.ControlPayloadError, match="render_mode must be one of"):
+        cgp.observe_generation_settings(
+            hook_name="h",
+            device_objects={},
+            model_path="m",
+            model_revision="r",
+            sae_path="s",
+            sae_revision="v",
+            layer=1,
+            dtype="float32",
+            max_new_tokens=4,
+            selection_rule="cell_positive_family_rows",
+            contract=cgp.resolve_settings_contract(),
+            render_mode="verbatim_but_typo'd",  # type: ignore[arg-type]
+        )
+
+
+# ---------------------------------------------------------------------------
+# END TO END: run_control_arm/run_control_set with render_mode="chat_template",
+# through BOTH branches (unhooked and gi.run_arm), on the CPU fixtures.
+# ---------------------------------------------------------------------------
+
+
+def test_run_control_arm_unhooked_renders_through_the_chat_template(
+    gemma_generation_backend_with_chat_template, real_sae,
+):
+    backend = gemma_generation_backend_with_chat_template
+    reader = cgp.build_instrument_reader()
+    arm = next(a for a in cgp.build_control_arms((7, 11)) if a.spec is None)
+    record = cgp.run_control_arm(
+        backend,
+        real_sae,
+        arm,
+        {"text": "America is the indispensable nation.", "prompt_id": "p1"},
+        seed=17,
+        max_new_tokens=4,
+        cell="en/f1",
+        pairing="fixture",
+        reader=reader,
+        settings_digest=cgp.assert_settings_digest_bound("a" * 64),
+        device="cpu",
+        render_mode="chat_template",
+    )
+    assert record["render_mode"] == "chat_template"
+    assert record["rendered_prompt"] != "America is the indispensable nation."
+    assert cgp.CHAT_TEMPLATE_CONTINUATION_INSTRUCTION in record["rendered_prompt"]
+    assert record["continuation"] is not None
+
+
+def test_run_control_arm_intervened_renders_through_the_same_chat_template(
+    gemma_generation_backend_with_chat_template, real_sae,
+):
+    """The gi.run_arm branch -- proving the ONE render is shared by BOTH
+    branches, not only the unhooked one."""
+    backend = gemma_generation_backend_with_chat_template
+    reader = cgp.build_instrument_reader()
+    arm = next(a for a in cgp.build_control_arms((7, 11)) if a.label == "identity_hooked_control")
+    record = cgp.run_control_arm(
+        backend,
+        real_sae,
+        arm,
+        {"text": "America is the indispensable nation.", "prompt_id": "p1"},
+        seed=17,
+        max_new_tokens=4,
+        cell="en/f1",
+        pairing="fixture",
+        reader=reader,
+        settings_digest=cgp.assert_settings_digest_bound("a" * 64),
+        device="cpu",
+        render_mode="chat_template",
+    )
+    assert record["render_mode"] == "chat_template"
+    assert record["rendered_prompt"] != "America is the indispensable nation."
+    assert cgp.CHAT_TEMPLATE_CONTINUATION_INSTRUCTION in record["rendered_prompt"]
+
+
+# ---------------------------------------------------------------------------
+# TASK 3: one seed, not two.
+# ---------------------------------------------------------------------------
+
+
+def test_more_than_one_seed_refuses():
+    with pytest.raises(cgp.RedundantGreedySeeds, match="BYTE-IDENTICAL"):
+        cgp.assert_no_redundant_greedy_seeds([17, 23])
+
+
+def test_zero_seeds_refuses():
+    with pytest.raises(cgp.RedundantGreedySeeds, match="at least one seed"):
+        cgp.assert_no_redundant_greedy_seeds([])
+
+
+def test_exactly_one_seed_does_not_refuse():
+    cgp.assert_no_redundant_greedy_seeds([17])
+
+
+def test_the_cli_default_is_a_single_seed():
+    assert cgp.main(["--plan", "--cells", "en/f1"]) == 0
+
+
+def test_the_cli_refuses_two_seeds(capsys):
+    with pytest.raises(SystemExit):
+        cgp.main(["--plan", "--cells", "en/f1", "--seeds", "17,23"])
+    assert "BYTE-IDENTICAL" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# TASK 4: --out is checked at startup, not on write_artifact's final line.
+# ---------------------------------------------------------------------------
+
+
+def test_an_existing_directory_as_out_refuses(tmp_path):
+    with pytest.raises(cgp.OutputPathNotWritable, match="existing DIRECTORY"):
+        cgp.assert_output_path_is_writable(tmp_path)
+
+
+def test_a_missing_parent_directory_refuses(tmp_path):
+    with pytest.raises(cgp.OutputPathNotWritable, match="not an existing directory"):
+        cgp.assert_output_path_is_writable(tmp_path / "does_not_exist" / "out.json")
+
+
+def test_a_writable_path_does_not_refuse(tmp_path):
+    cgp.assert_output_path_is_writable(tmp_path / "out.json")
 
 
 @pytest.fixture(scope="module")

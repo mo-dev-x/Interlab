@@ -93,7 +93,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
@@ -204,6 +204,11 @@ UNEXERCISED_WITHOUT_GPU = (
     "cell. Whether a control boundary should come from a cell's positive prompts or from a "
     "family-free held-out split is a DESIGN decision this payload refuses to make silently -- the "
     "rule is a required argument and the artifact records which one ran.",
+    "The chat-template render (job 419773) against a REAL model's REAL template: proven against "
+    "tests/fixtures/tiny_model's real tokenizer for trap (d) (it genuinely has no chat_template), "
+    "and against that same tokenizer with a Gemma-shaped template INJECTED for the render/BOS/"
+    "control-token traps. Neither Gemma-3-12B-it's nor Qwen3.5-27B's actual chat_template has run "
+    "through this payload.",
 )
 
 
@@ -230,6 +235,45 @@ class ArtifactNotConsumable(ControlPayloadError):
 
 class InsufficientControls(ControlPayloadError):
     """Fewer controls than the calibration lane's own imported minimum."""
+
+
+class ConceptLeakingInstruction(ControlPayloadError):
+    """The chat-template render instruction names or hints at a persona
+    concept. A continuation that then speaks in that persona was caused by
+    the PROMPT, not by the steered features, and the whole causal arm is
+    void (job 419773)."""
+
+
+class ChatTemplateUnavailable(ControlPayloadError):
+    """The tokenizer has no chat_template. An instruction-tuned model with
+    no template is a stop condition, not license to fall back to raw
+    (non-chat) tokenization -- see final_pairing_concept_discovery.
+    resolve_chat_template_identity, whose refusal this wraps."""
+
+
+class DoubleBOSDetected(ControlPayloadError):
+    """The tokenized prompt does not begin with EXACTLY ONE BOS token.
+    HookedTransformer.to_tokens/RawHfBackend.to_tokens prepend BOS by
+    default and a chat template usually emits one too (job 419773)."""
+
+
+class TemplateControlTokenLeaked(ControlPayloadError):
+    """The sliced continuation contains a literal chat-template control
+    token (e.g. '<end_of_turn>'): the instrument must never score
+    scaffolding as if it were the model's own assertion (job 419773)."""
+
+
+class RedundantGreedySeeds(ControlPayloadError):
+    """More than one seed requested under greedy decoding (do_sample=False,
+    hardcoded, never a caller option here). Every replicate beyond the
+    first is BYTE-IDENTICAL to it -- measured 480/480 on both pairings in
+    job 419773 -- so it doubles generation cost for zero information."""
+
+
+class OutputPathNotWritable(ControlPayloadError):
+    """--out is an existing directory, or its parent does not exist.
+    write_artifact would discover this on its FINAL line, after generation
+    completes (jobs 419285/419395 lost ~3 GPU-hours this way)."""
 
 
 # ---------------------------------------------------------------------------
@@ -620,6 +664,207 @@ def record_precondition_outcome(firing: Mapping[str, Any], *, member_count: int)
     }
 
 
+# ---------------------------------------------------------------------------
+# Rendering the model input (job 419773). Both models are INSTRUCTION-TUNED;
+# `row['text']` verbatim gets no chat template, so they fall back to
+# completion behaviour and COMMENT ON the row instead of speaking in voice
+# ("This is a quote from the American diplomat George Kennan..."). The
+# claim-type instrument then correctly reads 0 -- there is no assertion to
+# read. THE INSTRUMENT IS CORRECT; this section fixes the render it reads.
+# ---------------------------------------------------------------------------
+
+#: The ONE instruction every chat-templated prompt uses. CONCEPT-NEUTRAL BY
+#: CONSTRUCTION: it asks for a continuation in the same voice and says
+#: NOTHING about persona, nation, exceptionalism, nationalism, greatness,
+#: mission or any other concept term. If the instruction itself installed
+#: the persona, a continuation that then speaks in it would be caused by
+#: the PROMPT, not by the steered features, voiding the whole causal arm --
+#: `assert_instruction_is_concept_neutral` refuses if it ever does.
+CHAT_TEMPLATE_CONTINUATION_INSTRUCTION = (
+    "Continue the passage below in the same voice and register, picking up exactly where it "
+    "stops. Write only the continuation itself -- no summary, no commentary, no introduction, "
+    "no title."
+)
+
+#: TASK 2 -- the render is part of the settings contract. Two descriptions,
+#: hashed into `prompt_render_digest`, so a record's digest says WHICH one
+#: actually ran. `VERBATIM_RENDER_DESCRIPTION` is BYTE-IDENTICAL to the text
+#: job 419773 already hashed -- changing it would silently redefine what
+#: that job's own recorded digest meant. `CHAT_TEMPLATE_RENDER_DESCRIPTION`
+#: interpolates `CHAT_TEMPLATE_CONTINUATION_INSTRUCTION` directly, so an edit
+#: to the instruction changes THIS digest too, rather than the two silently
+#: drifting apart.
+VERBATIM_RENDER_DESCRIPTION = (
+    "row['text'] verbatim as the model input: no chat template, no system text, no prefix "
+    "and no suffix; tokenised by the backend's own to_tokens"
+)
+CHAT_TEMPLATE_RENDER_DESCRIPTION = (
+    "row['text'] appended, verbatim, after a fixed concept-neutral continuation instruction "
+    f"({CHAT_TEMPLATE_CONTINUATION_INSTRUCTION!r}), as ONE user-role message (no system "
+    "message) rendered through the tokenizer's OWN chat template -- tokenizer."
+    "apply_chat_template(messages, tokenize=False, add_generation_prompt=True) -- then "
+    "tokenised by the backend's own to_tokens, asserted to carry EXACTLY ONE leading BOS "
+    "token before any forward pass (job 419773)"
+)
+
+
+def assert_instruction_is_concept_neutral(instruction: str) -> None:
+    """REFUSES if `instruction` names or hints at either persona concept.
+
+    Reuses vocabulary that ALREADY EXISTS rather than a second, hand-picked
+    word list that could drift from it: `causal_outcome.PERSONA_CONCEPT_IDS`
+    (split on '_' for its meaningful tokens -- 'american', 'chinese',
+    'exceptionalism') and `claim_type_extent_instrument`'s OWN compiled
+    referent patterns (`_REFERENT_PATTERNS`, built from
+    `REFERENT_SURFACE_FORMS` -- the nation-name surface forms in English AND
+    French the frozen instrument itself matches on). Both are already
+    imported by this module; neither is invented here."""
+    lowered = instruction.lower()
+    concept_terms = {
+        term
+        for concept_id in co.PERSONA_CONCEPT_IDS
+        for term in concept_id.split("_")
+        if len(term) > 3
+    }
+    hit = next((term for term in sorted(concept_terms) if term in lowered), None)
+    if hit is None:
+        for concept_id, pattern in cti._REFERENT_PATTERNS.items():
+            if pattern.search(lowered):
+                hit = f"{concept_id} referent pattern {pattern.pattern!r}"
+                break
+    if hit is not None:
+        raise ConceptLeakingInstruction(
+            f"the render instruction names or hints at a persona concept ({hit!r} matched in "
+            f"{instruction!r}) -- a continuation that then speaks in that persona was caused by "
+            "the PROMPT, not by the steered features, and the whole causal arm would be void. "
+            "Rewrite the instruction so it asks for a continuation in voice without naming any "
+            "concept."
+        )
+
+
+def _tokenizer_from_generation_backend(backend: Any) -> Any:
+    """The tokenizer a `resolve_generation_backend()` adapter already
+    carries -- `group_intervention.RawHfBackend` stores it directly
+    (`.tokenizer`, resolved via `discovery.resolve_tokenizer_for_backend`
+    when the adapter was built); `group_intervention.HookedTransformerBackend`
+    wraps a `HookedTransformer`, which carries the SAME object that
+    function would have returned for Gemma (`.model.tokenizer`). Reading it
+    off the adapter is NOT a second lookup: `resolve_generation_backend`
+    already did the one lookup when it built this adapter."""
+    tokenizer = getattr(backend, "tokenizer", None)
+    if tokenizer is not None:
+        return tokenizer
+    tokenizer = getattr(getattr(backend, "model", None), "tokenizer", None)
+    if tokenizer is not None:
+        return tokenizer
+    raise ChatTemplateUnavailable(
+        f"{type(backend).__name__} exposes no tokenizer (.tokenizer or .model.tokenizer) -- "
+        "refusing to guess how to render a chat template."
+    )
+
+
+def render_chat_prompt(tokenizer: Any, prompt_row_text: str) -> str:
+    """THE ONE RENDER, used by BOTH `run_control_arm` branches (the unhooked
+    branch and the `gi.run_arm` branch) so the two arms cannot diverge.
+
+    `prompt_row_text` is appended, verbatim, after the fixed concept-neutral
+    instruction, as ONE user-role message with no system message --
+    matching `final_pairing_concept_discovery.render_chat_prompt_tokens`'s
+    convention exactly. String form (`tokenize=False`), not token form,
+    because `gi.run_arm`'s own `prompts: Sequence[str]` interface tokenizes
+    internally via `backend.to_tokens`; this payload is not changing that
+    interface today.
+
+    REFUSES (trap d) if the tokenizer has no chat_template at all, via
+    `final_pairing_concept_discovery.resolve_chat_template_identity` --
+    reused, not reimplemented -- rather than silently falling back to
+    `row['text']` verbatim, which is job 419773's actual defect."""
+    discovery = gi._import_discovery_module()
+    try:
+        discovery.resolve_chat_template_identity(tokenizer)
+    except ValueError as exc:
+        raise ChatTemplateUnavailable(str(exc)) from exc
+    assert_instruction_is_concept_neutral(CHAT_TEMPLATE_CONTINUATION_INSTRUCTION)
+    content = f"{CHAT_TEMPLATE_CONTINUATION_INSTRUCTION}\n\n{prompt_row_text}"
+    messages = [{"role": "user", "content": content}]
+    return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+
+
+RenderMode = Literal["chat_template", "verbatim"]
+RENDER_MODES: tuple[RenderMode, ...] = ("chat_template", "verbatim")
+
+
+def render_prompt(backend: Any, prompt_row_text: str, *, render_mode: RenderMode) -> str:
+    """The ONE dispatcher both `run_control_arm` branches call.
+
+    `"verbatim"` is BYTE-IDENTICAL to this payload's behaviour before job
+    419773's fix -- `str(prompt_row_text)`, nothing else -- kept reachable
+    so job 419773 itself stays reproducible. `"chat_template"` is the fix:
+    render through the model's own template via `render_chat_prompt`."""
+    if render_mode == "verbatim":
+        return str(prompt_row_text)
+    if render_mode == "chat_template":
+        tokenizer = _tokenizer_from_generation_backend(backend)
+        return render_chat_prompt(tokenizer, str(prompt_row_text))
+    raise ControlPayloadError(
+        f"render_mode must be one of {RENDER_MODES}; got {render_mode!r}"
+    )
+
+
+def assert_exactly_one_leading_bos(tokens: Any, tokenizer: Any) -> None:
+    """REFUSES unless the first row of `tokens` begins with EXACTLY ONE BOS
+    token (trap a). `HookedTransformer.to_tokens` prepends BOS by default
+    and a chat template usually emits one too (often literally, via
+    `{{ bos_token }}` in the Jinja template) -- either alone is fine, both
+    together silently doubles it, and a doubled BOS is invisible without
+    counting.
+
+    If the tokenizer declares no `bos_token_id` at all, there is no BOS
+    concept to check and this is a no-op: asserting a BOS that does not
+    exist would be inventing a requirement no tokenizer here makes."""
+    bos_id = getattr(tokenizer, "bos_token_id", None)
+    if bos_id is None:
+        return
+    row = [int(t) for t in tokens[0].tolist()]
+    leading = 0
+    for token_id in row:
+        if token_id == bos_id:
+            leading += 1
+        else:
+            break
+    if leading != 1:
+        raise DoubleBOSDetected(
+            f"the tokenized prompt begins with {leading} consecutive BOS token(s) (id={bos_id}), "
+            f"not exactly one -- HookedTransformer.to_tokens/RawHfBackend.to_tokens prepend BOS "
+            f"by default and the chat template usually emits one too; both together silently "
+            f"double it. First tokens: {row[:6]}."
+        )
+
+
+def assert_continuation_has_no_template_control_tokens(continuation: str, tokenizer: Any) -> None:
+    """REFUSES if the sliced continuation contains a literal chat-template
+    control token (trap c). With a chat-templated prompt the prompt is
+    LONGER than `row['text']` alone, and the model may emit end-of-turn
+    scaffolding before `max_new_tokens` is reached; `to_string`/`decode`
+    are called with `skip_special_tokens=False` upstream so the plain
+    string slice `full_text[len(prompt_text):]` can see everything that
+    was actually generated, and the instrument must never score
+    scaffolding as if it were the model's own assertion.
+
+    Checked against `tokenizer.all_special_tokens` -- the tokenizer's OWN
+    declared vocabulary of control tokens, never a hand-picked list of
+    marker spellings that could miss one."""
+    specials = [token for token in getattr(tokenizer, "all_special_tokens", ()) if token]
+    leaked = sorted({token for token in specials if token in continuation})
+    if leaked:
+        raise TemplateControlTokenLeaked(
+            f"the continuation contains chat-template control token(s) {leaked} -- the "
+            "instrument must never score scaffolding as if it were the model's own assertion. "
+            "Refusing rather than silently stripping them, which would hide how much of "
+            "max_new_tokens the model actually spent on scaffolding."
+        )
+
+
 def run_control_arm(
     backend: Any,
     sae: Any,
@@ -633,18 +878,34 @@ def run_control_arm(
     reader: cti.ClaimTypeExtentReader,
     settings_digest: str,
     device: str | None = None,
+    render_mode: RenderMode = "verbatim",
 ) -> dict[str, Any]:
     """One arm, one prompt, one seed, one fully-audited control record.
 
     `settings_digest` is REQUIRED and validated: RULING_16 makes it the
     containment for this lane holding two limbs, and the SAME code path emits it
-    on the intervened arm, which is what binds the two."""
+    on the intervened arm, which is what binds the two.
+
+    `render_mode` DEFAULTS TO `"verbatim"` here (job 419773's PRE-FIX
+    behaviour) so this function's own behaviour is unchanged for a caller
+    that does not ask for the fix -- `main()` is the one caller that asks
+    for `"chat_template"` by default; see `render_prompt`."""
     import torch
 
     assert_control_only(arm.spec)
     bound_digest = assert_settings_digest_bound(settings_digest)
-    prompt = str(prompt_row["text"])
+    prompt = render_prompt(backend, prompt_row["text"], render_mode=render_mode)
     member_count = 0 if arm.spec is None else arm.spec.member_count
+    # ONE RENDER, tokenized ONCE, checked ONCE (trap a) -- shared by BOTH
+    # branches below rather than each re-deriving it, which is what "cannot
+    # diverge" has to mean. Skipped for "verbatim": job 419773's own render
+    # never doubled a BOS and this stays byte-identical to it.
+    template_tokenizer: Any = None
+    rendered_tokens: torch.Tensor | None = None
+    if render_mode == "chat_template":
+        template_tokenizer = _tokenizer_from_generation_backend(backend)
+        rendered_tokens = backend.to_tokens(prompt)
+        assert_exactly_one_leading_bos(rendered_tokens, template_tokenizer)
 
     if arm.spec is None:
         # THE UNHOOKED BASELINE: no attach, no ledger, no hook. Generated
@@ -653,7 +914,7 @@ def run_control_arm(
         placement = gi.assert_devices_before_forward(
             device=device or backend.device, sae=sae, **backend.device_objects()
         )
-        tokens = backend.to_tokens(prompt)
+        tokens = rendered_tokens if rendered_tokens is not None else backend.to_tokens(prompt)
         prompt_token_count = int(tokens.shape[1])
         torch.manual_seed(seed)
         with torch.no_grad():
@@ -667,6 +928,10 @@ def run_control_arm(
         full_text = backend.to_string(output[0])
         prompt_text = backend.to_string(output[0, :prompt_token_count])
         continuation = full_text[len(prompt_text):]
+        if render_mode == "chat_template":
+            # trap c: the prompt is LONGER with a template, and the model may
+            # emit end-of-turn scaffolding before max_new_tokens is reached.
+            assert_continuation_has_no_template_control_tokens(continuation, template_tokenizer)
         summary = gi.FiringLedger().summary()
         state = "CONTROL"
         generated_token_ids = tuple(int(t) for t in output[0, prompt_token_count:].tolist())
@@ -695,6 +960,8 @@ def run_control_arm(
         placement = result.device_placement
         (row,) = result.results
         continuation = row.generated_text
+        if render_mode == "chat_template":
+            assert_continuation_has_no_template_control_tokens(continuation, template_tokenizer)
         summary = row.firing
         state = row.intervention_state
         generated_token_ids = row.generated_token_ids
@@ -719,6 +986,12 @@ def run_control_arm(
         "calibration_eligible_by_design": arm.calibration_eligible,
         "prompt_id": str(prompt_row["prompt_id"]),
         "prompt_row": dict(prompt_row),
+        "render_mode": render_mode,
+        # WHAT WAS ACTUALLY SENT to the model, not just the frozen row it was
+        # built from -- with a chat template this is longer than
+        # prompt_row['text'] and an audit needs to see the difference, not
+        # infer it.
+        "rendered_prompt": prompt,
         "seed": int(seed),
         "max_new_tokens": int(max_new_tokens),
         "device_placement": dict(placement),
@@ -934,6 +1207,59 @@ def write_artifact(artifact: Mapping[str, Any], path: Path) -> str:
         raise ArtifactNotConsumable("refusing to write CRLF into a job artifact")
     Path(path).write_bytes(raw)
     return co.sha256_hex(raw)
+
+
+def assert_output_path_is_writable(path: Path) -> None:
+    """`--out` is checked HERE, at startup, before any generation runs.
+
+    `write_artifact` discovers an unwritable destination on its OWN final
+    line, AFTER every arm has already generated -- jobs 419285/419395 lost
+    ~3 GPU-hours to `IsADirectoryError` there. Two shapes are refused: `path`
+    is an existing DIRECTORY (`write_bytes` would raise `IsADirectoryError`),
+    and `path`'s parent does not exist as a directory (`write_bytes` would
+    raise `FileNotFoundError`/`NotADirectoryError`). Nothing here CREATES the
+    parent: a payload that materializes directories on the caller's behalf
+    can put an artifact somewhere nobody asked for it."""
+    path = Path(path)
+    if path.is_dir():
+        raise OutputPathNotWritable(
+            f"--out {path} is an existing DIRECTORY -- write_artifact would raise "
+            "IsADirectoryError on its FINAL line, after every arm has already generated "
+            "(jobs 419285/419395 lost ~3 GPU-hours this way). Refusing before any generation runs."
+        )
+    if not path.parent.is_dir():
+        raise OutputPathNotWritable(
+            f"--out {path}'s parent {path.parent} is not an existing directory -- write_artifact "
+            "would raise on its FINAL line, after every arm has already generated. Refusing before "
+            "any generation runs."
+        )
+
+
+def assert_no_redundant_greedy_seeds(seeds: Sequence[int]) -> None:
+    """This payload ALWAYS generates with `do_sample=False` (hardcoded in
+    `run_control_arm`'s unhooked branch and the default `group_intervention.
+    run_arm` takes and this payload never overrides), so greedy decoding is
+    deterministic given (model, prompt): a second seed cannot produce a
+    different continuation, because nothing downstream of
+    `torch.manual_seed(seed)` reads any randomness. MEASURED, not assumed:
+    seeds 17 and 23 produced BYTE-IDENTICAL text on 480/480 records on BOTH
+    pairings in job 419773.
+
+    Refusing more than one seed here refuses a replicate that was never
+    going to carry information under the path this payload has, not a
+    scientific decision about how many replicates a control needs -- if
+    that changes, it changes by this payload gaining a real
+    `do_sample=True` path, not by silently accepting seeds that can do
+    nothing under the one it has."""
+    if not seeds:
+        raise RedundantGreedySeeds("at least one seed is required")
+    if len(seeds) > 1:
+        raise RedundantGreedySeeds(
+            f"{len(seeds)} seeds requested ({list(seeds)}) under greedy decoding (do_sample=False, "
+            "hardcoded, never a caller option in this payload) -- every replicate beyond the first "
+            "is BYTE-IDENTICAL to it (measured 480/480 on both pairings, job 419773) and doubles "
+            "generation cost for zero information. Pass exactly one seed."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1643,6 +1969,7 @@ def observe_generation_settings(
     max_new_tokens: int,
     selection_rule: str,
     contract: Mapping[str, Any] | None = None,
+    render_mode: RenderMode = "verbatim",
 ) -> dict[str, Any]:
     """THE PRODUCER'S HALF: the covered settings, OBSERVED FROM THE LIVE RUN.
 
@@ -1662,14 +1989,21 @@ def observe_generation_settings(
     for the first, `resolve_generation_backend(backend).device_objects()` for
     the second -- two different objects, because a `discovery.Backend` and a
     `group_intervention` adapter are not the same thing and this function no
-    longer pretends they are."""
+    longer pretends they are.
+
+    `render_mode` DEFAULTS TO `"verbatim"`, matching `run_control_arm`'s and
+    `run_control_set`'s own default, and MUST be the SAME value passed to
+    whichever of those two actually generated: `prompt_render_digest` is
+    only honest if it names the render that ran, not a different one
+    (job 419773, TASK 2)."""
     import torch as _torch
     import transformers as _transformers
 
+    if render_mode not in RENDER_MODES:
+        raise ControlPayloadError(f"render_mode must be one of {RENDER_MODES}; got {render_mode!r}")
     resolved = dict(contract) if contract is not None else resolve_settings_contract()
     render = (
-        "row['text'] verbatim as the model input: no chat template, no system text, no prefix "
-        "and no suffix; tokenised by the backend's own to_tokens"
+        CHAT_TEMPLATE_RENDER_DESCRIPTION if render_mode == "chat_template" else VERBATIM_RENDER_DESCRIPTION
     )
     stop = "stop_at_eos=False; raw-HF also sets min_new_tokens=max_new_tokens to mean the same"
     observed = {
@@ -1772,11 +2106,16 @@ def run_control_set(
     prompts_per_cell: int | None = None,
     device: str | None = None,
     hook_name: str | None = None,
+    render_mode: RenderMode = "verbatim",
 ) -> list[dict[str, Any]]:
     """Every control arm over every prompt in every cell, at every seed.
 
     The ONLY generation entry point, and every arm it can run has already
-    passed `assert_control_only`. There is no parameter that makes it dose."""
+    passed `assert_control_only`. There is no parameter that makes it dose.
+
+    `render_mode` DEFAULTS TO `"verbatim"`, matching `run_control_arm`'s own
+    default: this function's behaviour is unchanged for a caller that does
+    not ask for job 419773's fix. `main()` asks for `"chat_template"`."""
     bound_digest = assert_settings_digest_bound(settings_digest)
     resolved_reader = reader if reader is not None else build_instrument_reader()
     rows = list(prompt_rows) if prompt_rows is not None else load_prompt_rows()
@@ -1805,6 +2144,7 @@ def run_control_set(
                                 reader=resolved_reader,
                                 settings_digest=bound_digest,
                                 device=device,
+                                render_mode=render_mode,
                             )
                         )
     return records
@@ -1902,7 +2242,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--cells", default="en/f1,en/f2,en/f3,fr/f1,fr/f2,fr/f3")
     parser.add_argument("--concepts", default=",".join(co.PERSONA_CONCEPT_IDS))
-    parser.add_argument("--seeds", default="17,23")
+    parser.add_argument(
+        "--seeds",
+        default="17",
+        help="do_sample=False makes every seed's text BYTE-IDENTICAL (measured 480/480 on both "
+        "pairings, job 419773) -- more than one is refused, not silently accepted.",
+    )
+    parser.add_argument(
+        "--verbatim-render",
+        action="store_true",
+        help="use job 419773's PRE-FIX render (row['text'] verbatim, no chat template) instead "
+        "of the default chat-template render, so that job stays exactly reproducible. Do not use "
+        "this for a new run: instruction-tuned models complete/comment on a bare prompt instead "
+        "of speaking in voice without a chat template.",
+    )
     parser.add_argument("--prompts-per-cell", type=int, default=None)
     parser.add_argument("--max-new-tokens", type=int, default=64)
     parser.add_argument("--selection-rule", default="cell_positive_family_rows")
@@ -1922,6 +2275,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     cells = _parse_list(args.cells)
     seeds = [int(value) for value in _parse_list(args.seeds)]
     concepts = _parse_list(args.concepts)
+    render_mode: RenderMode = "verbatim" if args.verbatim_render else "chat_template"
+    # DIE HERE, not after generating half the redundant work: applies to
+    # every subcommand, not only a real run, since --plan's own
+    # generation_count would otherwise double-count a redundant seed too.
+    try:
+        assert_no_redundant_greedy_seeds(seeds)
+    except RedundantGreedySeeds as exc:
+        parser.error(str(exc))
 
     if args.selfcheck:
         return _selfcheck()
@@ -1979,6 +2340,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if not args.model_path or not args.sae_path or args.out is None:
         parser.error("a run needs --model-path, --sae-path and --out (or use --plan/--selfcheck)")
+
+    # DIE ON THE LOGIN NODE, NOT ON THE FINAL LINE (jobs 419285/419395, ~3
+    # GPU-hours each): --out is checked here, before any generation runs.
+    try:
+        assert_output_path_is_writable(args.out)
+    except OutputPathNotWritable as exc:
+        parser.error(str(exc))
 
     if not args.model_revision or not args.sae_revision:
         parser.error(
@@ -2041,6 +2409,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_new_tokens=int(args.max_new_tokens),
         selection_rule=str(args.selection_rule),
         contract=contract,
+        render_mode=render_mode,
     )
     settings_digest = compute_generation_settings_digest(observed_settings, contract)
     records = run_control_set(
@@ -2056,6 +2425,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings_digest=settings_digest,
         prompts_per_cell=args.prompts_per_cell,
         device=args.device,
+        render_mode=render_mode,
     )
     artifact = build_artifact(
         records,
