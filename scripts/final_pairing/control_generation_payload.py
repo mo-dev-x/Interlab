@@ -204,11 +204,15 @@ UNEXERCISED_WITHOUT_GPU = (
     "cell. Whether a control boundary should come from a cell's positive prompts or from a "
     "family-free held-out split is a DESIGN decision this payload refuses to make silently -- the "
     "rule is a required argument and the artifact records which one ran.",
-    "The chat-template render (job 419773) against a REAL model's REAL template: proven against "
-    "tests/fixtures/tiny_model's real tokenizer for trap (d) (it genuinely has no chat_template), "
-    "and against that same tokenizer with a Gemma-shaped template INJECTED for the render/BOS/"
-    "control-token traps. Neither Gemma-3-12B-it's nor Qwen3.5-27B's actual chat_template has run "
-    "through this payload.",
+    "The chat-template render (jobs 419773, 420174) against a REAL model's REAL template: proven "
+    "against tests/fixtures/tiny_model's real tokenizer for trap (d) (it genuinely has no "
+    "chat_template), and against that same tokenizer with a Gemma-shaped template INJECTED for "
+    "the render/BOS/control-token traps, and a SEPARATE synthetic Qwen3-shaped template INJECTED "
+    "(mimicking its documented enable_thinking branch) for the prefill/enable_thinking traps. "
+    "Neither Gemma-3-12B-it's nor Qwen3.5-27B's actual chat_template has run through this "
+    "payload, so whether the ACTUAL Qwen3.5 template's enable_thinking branch behaves as "
+    "documented, and whether the real reasoning-scaffold markers match "
+    "REASONING_SCAFFOLD_MARKERS, are exactly what only a real run settles.",
 )
 
 
@@ -699,12 +703,19 @@ VERBATIM_RENDER_DESCRIPTION = (
     "and no suffix; tokenised by the backend's own to_tokens"
 )
 CHAT_TEMPLATE_RENDER_DESCRIPTION = (
-    "row['text'] appended, verbatim, after a fixed concept-neutral continuation instruction "
-    f"({CHAT_TEMPLATE_CONTINUATION_INSTRUCTION!r}), as ONE user-role message (no system "
-    "message) rendered through the tokenizer's OWN chat template -- tokenizer."
-    "apply_chat_template(messages, tokenize=False, add_generation_prompt=True) -- then "
-    "tokenised by the backend's own to_tokens, asserted to carry EXACTLY ONE leading BOS "
-    "token before any forward pass (job 419773)"
+    "a fixed concept-neutral continuation instruction "
+    f"({CHAT_TEMPLATE_CONTINUATION_INSTRUCTION!r}) rendered as the ONLY user-role message (no "
+    "system message) through the tokenizer's OWN chat template -- tokenizer.apply_chat_template("
+    "messages, tokenize=False, add_generation_prompt=True, enable_thinking=False) -- then "
+    "row['text'] appended, verbatim, directly after that rendered string so it begins the "
+    "ASSISTANT's turn as a PREFILL, never a second request: the model continues its own "
+    "already-started utterance instead of replying to a request about one (job 420174, fixing "
+    "Qwen3.5 spending its whole generation budget reciting/analysing the instruction). "
+    "`enable_thinking=False` is a no-op on a template that never references it (Gemma's); "
+    "tokenised by the backend's own to_tokens with already_templated=True (HookedTransformer "
+    "prepend_bos=False / raw HF add_special_tokens=False) so the template's own literal BOS is "
+    "never doubled, asserted to carry EXACTLY ONE leading BOS token before any forward pass "
+    "(job 419773, kept correct through job 420174's fix)"
 )
 
 
@@ -763,17 +774,43 @@ def _tokenizer_from_generation_backend(backend: Any) -> Any:
     )
 
 
+def _chat_template_accepts_enable_thinking(tokenizer: Any) -> bool:
+    """DIAGNOSTIC (job 420174): whether `tokenizer`'s OWN chat_template
+    Jinja source references `enable_thinking` at all. Qwen3.5's does (an
+    empty `<think>\\n\\n</think>\\n\\n` block is how it signals "no
+    thinking" when the variable is False); Gemma's does not mention it.
+    `apply_chat_template` accepts arbitrary `**kwargs` and forwards them
+    into the Jinja render context regardless (verified against
+    `transformers.PreTrainedTokenizerBase.apply_chat_template`'s own
+    signature), so passing the kwarg to a template that never reads it is
+    always a silent no-op ("Gemma ignores unknown kwargs") -- this function
+    is not a gate on whether to pass it, only a record of which pairing's
+    template actually used it."""
+    template = getattr(tokenizer, "chat_template", "") or ""
+    return "enable_thinking" in template
+
+
 def render_chat_prompt(tokenizer: Any, prompt_row_text: str) -> str:
     """THE ONE RENDER, used by BOTH `run_control_arm` branches (the unhooked
     branch and the `gi.run_arm` branch) so the two arms cannot diverge.
 
-    `prompt_row_text` is appended, verbatim, after the fixed concept-neutral
-    instruction, as ONE user-role message with no system message --
-    matching `final_pairing_concept_discovery.render_chat_prompt_tokens`'s
-    convention exactly. String form (`tokenize=False`), not token form,
-    because `gi.run_arm`'s own `prompts: Sequence[str]` interface tokenizes
-    internally via `backend.to_tokens`; this payload is not changing that
-    interface today.
+    ASSISTANT PREFILL (job 420174), not a user request: the neutral
+    instruction is rendered as the ONLY user-role message via
+    `apply_chat_template(..., add_generation_prompt=True)`, and
+    `prompt_row_text` is appended VERBATIM directly after that rendered
+    string -- so it begins the ASSISTANT's own turn instead of answering a
+    request about one. Asked to reply to a request, Qwen3.5 spent its whole
+    `max_new_tokens` budget reciting/analysing the instruction instead of
+    continuing the passage (measured 16/16 on job 420174's smoke,
+    `extent=0` on all sixteen); a model completing its OWN already-started
+    utterance has no request left to answer and no room to preamble.
+    String form (`tokenize=False`), not token form, because `gi.run_arm`'s
+    own `prompts: Sequence[str]` interface tokenizes internally via
+    `backend.to_tokens`; this payload is not changing that interface today.
+
+    `enable_thinking=False` is passed unconditionally -- see
+    `_chat_template_accepts_enable_thinking` for why that is safe on a
+    template that never references it.
 
     REFUSES (trap d) if the tokenizer has no chat_template at all, via
     `final_pairing_concept_discovery.resolve_chat_template_identity` --
@@ -785,9 +822,32 @@ def render_chat_prompt(tokenizer: Any, prompt_row_text: str) -> str:
     except ValueError as exc:
         raise ChatTemplateUnavailable(str(exc)) from exc
     assert_instruction_is_concept_neutral(CHAT_TEMPLATE_CONTINUATION_INSTRUCTION)
-    content = f"{CHAT_TEMPLATE_CONTINUATION_INSTRUCTION}\n\n{prompt_row_text}"
-    messages = [{"role": "user", "content": content}]
-    return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    messages = [{"role": "user", "content": CHAT_TEMPLATE_CONTINUATION_INSTRUCTION}]
+    preamble = tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True, enable_thinking=False,
+    )
+    return preamble + str(prompt_row_text)
+
+
+#: DIAGNOSTIC markers (job 420174): substrings observed in Qwen3.5's
+#: reasoning-trace scaffold when it talks ABOUT the continuation task
+#: instead of performing it ("Thinking Process:\n\n1. **Analyze the
+#: Request:** ..." on all 16 smoke records). NEVER used to refuse or to
+#: strip -- see `continuation_contains_reasoning_marker`.
+REASONING_SCAFFOLD_MARKERS: tuple[str, ...] = (
+    "<think>",
+    "Thinking Process",
+    "**Analyze the Request",
+)
+
+
+def continuation_contains_reasoning_marker(continuation: str) -> bool:
+    """RECORDS (never refuses, never strips) whether `continuation` holds a
+    reasoning-trace scaffold. Job 420174's ask is explicit: silently
+    stripping this would hide exactly the rate the next smoke needs to
+    measure, so this is a plain boolean field on the record, not a
+    precondition."""
+    return any(marker in continuation for marker in REASONING_SCAFFOLD_MARKERS)
 
 
 RenderMode = Literal["chat_template", "verbatim"]
@@ -902,9 +962,14 @@ def run_control_arm(
     # never doubled a BOS and this stays byte-identical to it.
     template_tokenizer: Any = None
     rendered_tokens: torch.Tensor | None = None
+    enable_thinking_accepted: bool | None = None
     if render_mode == "chat_template":
         template_tokenizer = _tokenizer_from_generation_backend(backend)
-        rendered_tokens = backend.to_tokens(prompt)
+        enable_thinking_accepted = _chat_template_accepts_enable_thinking(template_tokenizer)
+        # already_templated=True (job 420174): `prompt` already carries the
+        # template's own literal BOS -- to_tokens must not prepend a second
+        # one (trap a, still fires below if it ever does).
+        rendered_tokens = backend.to_tokens(prompt, already_templated=True)
         assert_exactly_one_leading_bos(rendered_tokens, template_tokenizer)
 
     if arm.spec is None:
@@ -956,6 +1021,9 @@ def run_control_arm(
             device=device,
             want_logprobs=False,
             generation_settings_digest=bound_digest,
+            # job 420174: the hooked arms tokenize INSIDE run_arm, so fixing
+            # only the unhooked branch above still doubled BOS here.
+            already_templated=render_mode == "chat_template",
         )
         placement = result.device_placement
         (row,) = result.results
@@ -992,6 +1060,10 @@ def run_control_arm(
         # prompt_row['text'] and an audit needs to see the difference, not
         # infer it.
         "rendered_prompt": prompt,
+        # DIAGNOSTIC (job 420174), never a refusal or a strip: whether this
+        # pairing's OWN chat_template actually references enable_thinking.
+        # None under "verbatim" -- no template was involved.
+        "enable_thinking_accepted": enable_thinking_accepted,
         "seed": int(seed),
         "max_new_tokens": int(max_new_tokens),
         "device_placement": dict(placement),
@@ -999,6 +1071,10 @@ def run_control_arm(
         # model text -- and nobody knows whether it is -- this is the only field
         # that can show it.
         "continuation": continuation,
+        # DIAGNOSTIC (job 420174), recorded not refused: true when the
+        # continuation holds a reasoning-trace scaffold. Silently stripping
+        # this would hide exactly the rate the next smoke needs to measure.
+        "continuation_contains_reasoning_marker": continuation_contains_reasoning_marker(continuation),
         "generated_token_ids": list(generated_token_ids),
         "generated_token_count": len(generated_token_ids),
         "firing": firing,

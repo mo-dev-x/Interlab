@@ -1332,12 +1332,15 @@ def test_a_tokenizer_with_no_chat_template_refuses_trap_d(real_model):
 def test_render_chat_prompt_wraps_the_row_in_the_instruction_and_the_template(
     gemma_generation_backend_with_chat_template,
 ):
+    """ASSISTANT PREFILL (job 420174): the instruction is the ONLY user-role
+    message; the passage is appended VERBATIM directly after the rendered
+    add_generation_prompt=True scaffold, so it begins the model's OWN turn
+    rather than sitting inside a request the model could reply ABOUT."""
     tokenizer = gemma_generation_backend_with_chat_template.model.tokenizer
     rendered = cgp.render_chat_prompt(tokenizer, "America is the indispensable nation.")
     assert cgp.CHAT_TEMPLATE_CONTINUATION_INSTRUCTION in rendered
-    assert "America is the indispensable nation." in rendered
     assert rendered.startswith("<bos>")
-    assert rendered.endswith("<start_of_turn>model\n")
+    assert rendered.endswith("<start_of_turn>model\nAmerica is the indispensable nation.")
 
 
 def test_double_bos_is_detected_end_to_end_on_the_raw_hf_backend(
@@ -1385,6 +1388,52 @@ def test_double_bos_is_detected_on_the_hooked_transformer_backend(
     doubled = torch.tensor([[bos_id, bos_id, 68, 224, 83]])
     with pytest.raises(cgp.DoubleBOSDetected, match="consecutive BOS"):
         cgp.assert_exactly_one_leading_bos(doubled, tokenizer)
+
+
+def test_already_templated_avoids_double_bos_on_the_raw_hf_backend(
+    qwen_generation_backend_with_chat_template,
+):
+    """job 420174's FIX, on the SAME backend+render that
+    test_double_bos_is_detected_end_to_end_on_the_raw_hf_backend measures
+    doubling on above: already_templated=True passes add_special_tokens=
+    False into the tokenizer's own __call__, so it never adds a second BOS
+    to the one the template already rendered."""
+    backend = qwen_generation_backend_with_chat_template
+    tokenizer = backend.tokenizer
+    rendered = cgp.render_chat_prompt(tokenizer, "some frozen row text")
+    tokens = backend.to_tokens(rendered, already_templated=True)
+    cgp.assert_exactly_one_leading_bos(tokens, tokenizer)
+
+
+def test_already_templated_avoids_double_bos_on_the_hooked_transformer_backend(
+    gemma_generation_backend_with_chat_template,
+):
+    """job 420174's FIX, measured END TO END on the backend shape that
+    actually failed on job 420174's smoke: tests/fixtures/tiny_model's own
+    cfg.default_prepend_bos is False (see the docstring two tests above),
+    so the naive path never naturally doubles on THIS fixture -- flipped to
+    True here (a real Gemma-3 checkpoint's actual default) so the naive
+    path genuinely reproduces job 420174's exact defect, and
+    already_templated=True (prepend_bos=False, overriding cfg regardless
+    of its value) genuinely avoids it, on the SAME backend and template."""
+    backend = gemma_generation_backend_with_chat_template
+    tokenizer = backend.model.tokenizer
+    rendered = cgp.render_chat_prompt(tokenizer, "some frozen row text")
+    bos_id = tokenizer.bos_token_id
+    assert bos_id is not None
+    original_default = backend.model.cfg.default_prepend_bos
+    backend.model.cfg.default_prepend_bos = True
+    try:
+        naive = backend.to_tokens(rendered)
+        assert naive[0, :2].tolist() == [bos_id, bos_id], (
+            "fixture assumption broken: expected default_prepend_bos=True to double BOS here"
+        )
+        with pytest.raises(cgp.DoubleBOSDetected, match="consecutive BOS"):
+            cgp.assert_exactly_one_leading_bos(naive, tokenizer)
+        fixed = backend.to_tokens(rendered, already_templated=True)
+        cgp.assert_exactly_one_leading_bos(fixed, tokenizer)
+    finally:
+        backend.model.cfg.default_prepend_bos = original_default
 
 
 def test_a_single_leading_bos_does_not_refuse(qwen_generation_backend_with_chat_template):
@@ -1438,6 +1487,94 @@ def test_a_clean_continuation_does_not_refuse(tokenizer_with_end_of_turn_markers
     )
 
 
+# ---------------------------------------------------------------------------
+# job 420174, DEFECT 2: assistant prefill + enable_thinking (Qwen3.5 spending
+# its whole generation budget reciting/analysing the instruction instead of
+# continuing the passage -- extent 0 on all 16 smoke records).
+# ---------------------------------------------------------------------------
+
+
+def test_chat_template_accepts_enable_thinking_detects_the_variable():
+    """A synthetic template shaped like Qwen3's real one: it branches on
+    enable_thinking to emit an empty thinking block when it is False."""
+
+    class _Tokenizer:
+        chat_template = (
+            "{% if enable_thinking is defined and not enable_thinking %}<think>\n\n</think>\n\n"
+            "{% endif %}"
+        )
+
+    assert cgp._chat_template_accepts_enable_thinking(_Tokenizer()) is True
+
+
+def test_chat_template_accepts_enable_thinking_is_false_when_absent():
+    class _Tokenizer:
+        chat_template = GEMMA_SHAPED_TEST_CHAT_TEMPLATE
+
+    assert cgp._chat_template_accepts_enable_thinking(_Tokenizer()) is False
+
+
+#: A Qwen3-shaped test template with the SAME enable_thinking branch its real
+#: chat_template documents: an empty <think></think> block when the caller
+#: passes enable_thinking=False, nothing when the variable is absent.
+QWEN_SHAPED_TEST_CHAT_TEMPLATE_WITH_THINKING_SWITCH = (
+    "{{ bos_token }}{% for message in messages %}<|im_start|>{{ message['role'] }}\n"
+    "{{ message['content'] }}<|im_end|>\n{% endfor %}"
+    "{% if add_generation_prompt %}<|im_start|>assistant\n"
+    "{% if enable_thinking is defined and not enable_thinking %}<think>\n\n</think>\n\n{% endif %}"
+    "{% endif %}"
+)
+
+
+@pytest.fixture
+def qwen_generation_backend_with_thinking_switch_template(real_qwen_shaped_backend):
+    adapter = cgp.resolve_generation_backend(real_qwen_shaped_backend)
+    adapter.tokenizer.chat_template = QWEN_SHAPED_TEST_CHAT_TEMPLATE_WITH_THINKING_SWITCH
+    return adapter
+
+
+def test_render_chat_prompt_passes_enable_thinking_false_when_the_template_accepts_it(
+    qwen_generation_backend_with_thinking_switch_template,
+):
+    backend = qwen_generation_backend_with_thinking_switch_template
+    tokenizer = backend.tokenizer
+    assert cgp._chat_template_accepts_enable_thinking(tokenizer) is True
+    rendered = cgp.render_chat_prompt(tokenizer, "some frozen row text")
+    assert "<think>\n\n</think>\n\n" in rendered
+
+
+def test_render_chat_prompt_does_not_break_when_the_template_ignores_enable_thinking(
+    gemma_generation_backend_with_chat_template,
+):
+    """Gemma's template never references enable_thinking -- passing it must
+    be a silent no-op (transformers' apply_chat_template forwards arbitrary
+    **kwargs into the Jinja render context; an unused variable is simply
+    never read), not a TypeError and not a "<think>" block appearing from
+    nowhere."""
+    tokenizer = gemma_generation_backend_with_chat_template.model.tokenizer
+    assert cgp._chat_template_accepts_enable_thinking(tokenizer) is False
+    rendered = cgp.render_chat_prompt(tokenizer, "some frozen row text")
+    assert "<think>" not in rendered
+
+
+@pytest.mark.parametrize(
+    "continuation",
+    [
+        "Thinking Process:\n\n1. **Analyze the Request:** * **Task:** Continue the passage.",
+        "<think>\nLet me work through this.\n</think>\nAmerica is the indispensable nation.",
+        "**Analyze the Request** -- the user wants a continuation in the same voice.",
+    ],
+)
+def test_continuation_contains_reasoning_marker_true_cases(continuation):
+    assert cgp.continuation_contains_reasoning_marker(continuation) is True
+
+
+def test_continuation_contains_reasoning_marker_false_case():
+    assert cgp.continuation_contains_reasoning_marker(
+        "America is the nation that built the order the world still relies on."
+    ) is False
+
+
 def test_render_prompt_verbatim_is_byte_identical_to_the_pre_fix_behaviour(real_backend):
     """job 419773 stays reproducible: 'verbatim' is str(prompt_row_text),
     nothing else -- no tokenizer lookup, no chat template, no instruction."""
@@ -1462,11 +1599,25 @@ def test_render_prompt_rejects_an_unknown_render_mode(real_backend):
 #: recorded prompt_render_digest meant.
 _JOB_419773_VERBATIM_RENDER_DIGEST = "73a51acd54872ffb2b19eb325f830df7803c954cbb8a3e7a19cc22f8f33c08c0"
 
+#: sha256 of CHAT_TEMPLATE_RENDER_DESCRIPTION as it stood right after job
+#: 419773's fix, BEFORE job 420174's assistant-prefill/enable_thinking
+#: rewrite -- pinned so a future edit cannot silently leave the digest
+#: looking "changed" against the wrong baseline.
+_JOB_419773_CHAT_TEMPLATE_RENDER_DIGEST_PRE_420174 = (
+    "bb80c6e4ed2b6564929334423a08f2479ede524f41896023e696f43b966c5dea"
+)
+
 
 def test_verbatim_render_description_is_unchanged_from_job_419773():
     assert co.sha256_hex(cgp.VERBATIM_RENDER_DESCRIPTION.encode("utf-8")) == (
         _JOB_419773_VERBATIM_RENDER_DIGEST
     )
+
+
+def test_chat_template_render_description_changed_again_for_job_420174():
+    digest = co.sha256_hex(cgp.CHAT_TEMPLATE_RENDER_DESCRIPTION.encode("utf-8"))
+    assert digest != _JOB_419773_VERBATIM_RENDER_DIGEST
+    assert digest != _JOB_419773_CHAT_TEMPLATE_RENDER_DIGEST_PRE_420174
 
 
 def test_prompt_render_digest_differs_between_chat_template_and_verbatim(real_backend):
@@ -1538,6 +1689,11 @@ def test_run_control_arm_unhooked_renders_through_the_chat_template(
     assert record["rendered_prompt"] != "America is the indispensable nation."
     assert cgp.CHAT_TEMPLATE_CONTINUATION_INSTRUCTION in record["rendered_prompt"]
     assert record["continuation"] is not None
+    # job 420174 diagnostics: recorded on every chat_template record, never
+    # gating anything. GEMMA_SHAPED_TEST_CHAT_TEMPLATE never mentions
+    # enable_thinking, so this pairing's own template did not accept it.
+    assert record["enable_thinking_accepted"] is False
+    assert isinstance(record["continuation_contains_reasoning_marker"], bool)
 
 
 def test_run_control_arm_intervened_renders_through_the_same_chat_template(
@@ -1565,6 +1721,43 @@ def test_run_control_arm_intervened_renders_through_the_same_chat_template(
     assert record["render_mode"] == "chat_template"
     assert record["rendered_prompt"] != "America is the indispensable nation."
     assert cgp.CHAT_TEMPLATE_CONTINUATION_INSTRUCTION in record["rendered_prompt"]
+    assert record["enable_thinking_accepted"] is False
+    assert isinstance(record["continuation_contains_reasoning_marker"], bool)
+
+
+def test_run_control_arm_intervened_branch_does_not_double_bos_when_the_backend_would_prepend(
+    gemma_generation_backend_with_chat_template, real_sae,
+):
+    """job 420174's EXACT failure mode, reproduced end to end: fixing only
+    the unhooked branch and leaving the gi.run_arm branch tokenizing without
+    already_templated=True would still double BOS HERE, because run_arm
+    tokenizes internally. cfg.default_prepend_bos is flipped to True (a real
+    Gemma-3 checkpoint's actual default) so the naive path would genuinely
+    double on this fixture too -- must NOT raise."""
+    backend = gemma_generation_backend_with_chat_template
+    reader = cgp.build_instrument_reader()
+    arm = next(a for a in cgp.build_control_arms((7, 11)) if a.label == "identity_hooked_control")
+    original_default = backend.model.cfg.default_prepend_bos
+    backend.model.cfg.default_prepend_bos = True
+    try:
+        record = cgp.run_control_arm(
+            backend,
+            real_sae,
+            arm,
+            {"text": "America is the indispensable nation.", "prompt_id": "p1"},
+            seed=17,
+            max_new_tokens=4,
+            cell="en/f1",
+            pairing="fixture",
+            reader=reader,
+            settings_digest=cgp.assert_settings_digest_bound("a" * 64),
+            device="cpu",
+            render_mode="chat_template",
+        )
+    finally:
+        backend.model.cfg.default_prepend_bos = original_default
+    assert record["render_mode"] == "chat_template"
+    assert record["continuation"] is not None
 
 
 # ---------------------------------------------------------------------------

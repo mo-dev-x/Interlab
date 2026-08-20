@@ -2719,7 +2719,16 @@ class HookedTransformerBackend:
     def describe(self) -> dict[str, str]:
         return {"backend": self.kind, "model_type": type(self.model).__name__}
 
-    def to_tokens(self, prompt: str) -> torch.Tensor:
+    def to_tokens(self, prompt: str, *, already_templated: bool = False) -> torch.Tensor:
+        """`already_templated=True` means `prompt` was already rendered
+        through the tokenizer's OWN chat template
+        (`control_generation_payload.py`'s `"chat_template"` render mode)
+        and therefore ALREADY carries a literal BOS the template emitted
+        itself -- `model.to_tokens` must not prepend a second one. Job
+        420174: Gemma's chat template plus this backend's own
+        `cfg.default_prepend_bos=True` doubled it (`[2, 2, 105, ...]`)."""
+        if already_templated:
+            return self.model.to_tokens([prompt], prepend_bos=False)
         return self.model.to_tokens([prompt])
 
     def to_string(self, ids: torch.Tensor) -> str:
@@ -2811,8 +2820,18 @@ class RawHfBackend:
             )
         return described
 
-    def to_tokens(self, prompt: str) -> torch.Tensor:
-        encoded = self.tokenizer(prompt, return_tensors="pt")
+    def to_tokens(self, prompt: str, *, already_templated: bool = False) -> torch.Tensor:
+        """`already_templated=True` skips the tokenizer's own
+        special-token insertion (`add_special_tokens=False`) -- `prompt`
+        was already rendered through its chat template and any BOS/EOS the
+        model needs is already IN the string. Threaded for symmetry with
+        `HookedTransformerBackend.to_tokens`'s `prepend_bos=False`; Qwen's
+        own tokenizer had no BOS to double in job 420174's smoke (that
+        defect was Gemma-only), so this is not "fixing" a Qwen bug, only
+        making both adapters honor the same contract."""
+        encoded = self.tokenizer(
+            prompt, return_tensors="pt", add_special_tokens=not already_templated
+        )
         return encoded["input_ids"].to(self.device)
 
     def to_string(self, ids: torch.Tensor) -> str:
@@ -2880,8 +2899,17 @@ def run_arm(
     want_logprobs: bool = True,
     verify_exact_delta: bool = True,
     require_nonzero_delta: bool | None = None,
+    already_templated: bool = False,
 ) -> ArmResult:
     """Generate under one intervention and measure it.
+
+    `already_templated` (job 420174) is forwarded, unchanged, to
+    `backend.to_tokens`: `control_generation_payload.py`'s unhooked control
+    branch and THIS function are the two places a chat-templated prompt
+    gets tokenized, and only fixing the former left the hooked (intervened)
+    arms still doubling BOS on Gemma. `False` (the default) is the
+    pre-420174 behaviour, byte-identical for every caller that does not
+    pass a pre-templated prompt.
 
     ONE PROMPT PER `generate()` CALL, deliberately. A padded batch makes
     every per-row prompt length different, which makes the exact
@@ -2922,7 +2950,7 @@ def run_arm(
 
     results: list[PromptResult] = []
     for prompt in prompts:
-        tokens = backend.to_tokens(prompt)
+        tokens = backend.to_tokens(prompt, already_templated=already_templated)
         prompt_token_count = int(tokens.shape[1])
         ledger = FiringLedger()
         prompt_lengths = prompt_token_count if spec.positions == "generated_only" else None
