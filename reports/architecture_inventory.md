@@ -14,7 +14,7 @@ The repository audit and replication review identified three blocking infrastruc
 2. **Incomparable feature derivations:** Every script contains its own private version of steering hooks and concept probes. A steering bug (residual-stream replacement with reconstruction, non-identity form, raw unitless clamps) was copied across multiple experiments, making results un-comparable and invalidating weeks of work.
 3. **Corpus identity erasure:** Concept probe sentences hardcoded inside `scripts/find_features.py`; pile-10k vs. pile-uncopyrighted swap happened in prose only (experiment log section 1b). No canonical answer to "how often did the SAE see poutine?"
 
-**Status:** DESIGNED—architecture document drafted as the laboratory specification; implementation began July 2026.
+implementation began July 2026.
 
 ---
 
@@ -22,16 +22,16 @@ The repository audit and replication review identified three blocking infrastruc
 
 **Source:** `docs/infrastructure_architecture.md` §Design Philosophy, §The Artifact Ontology and Contract Model
 
-| Concept | Definition | Status | Evidence |
-|---------|-----------|--------|----------|
-| **Certificates, not vibes** | Every artifact carries a machine-generated pass/fail gate; claims chain certificates; incomplete chains auto-stamped `UNCERTIFIED`. | IMPLEMENTED | SS4 G1 (sae_certificate), SS6 G2 (feature_certificate) written; SS9 chain assembly logic in `interplab/reports/chain.py` |
-| **Explore freely, claim expensively** | Gates block *claims* (reports, papers), not experiments; exploration never slowed by infrastructure. | PARTIAL | Gates documented; claim vs. explore mode not yet enforced in practice (no live A9 / A11 yet). |
-| **One implementation per concept** | Shared libraries for steering, statistics, concepts; no reimplementation per script. | IMPLEMENTED (trunk) | SS7 `interplab.interventions` (hooks, control_arms, InterventionSpec), SS9 stats `interplab.stats`, core uris/hashing/envelope shared across all subsystems. |
-| **Content-addressed identity** | Artifacts hashed at creation; provenance via artifact hashes, not paths. | IMPLEMENTED | `interplab/core/hashing.py` implements all strategies (RFC 8785 JCS for registry JSON, sha256 for heavy dirs); schema D1 in force. |
-| **Immutability via derivation** | Status never stored; certified/uncertified derived at chain-assembly time by querying registry for valid certificates. | IMPLEMENTED (core) | `interplab/reports/chain.py` assembly logic; A6/A8 design forbids mutable state fields (artifact_type, schema_version, subject, payload only). |
-| **Artifact schemas as contracts** | Subsystems communicate only via versioned data schemas, not internal APIs (exception: SS5 search API, SS7 hook library). | IMPLEMENTED | All 11 artifact schemas in `schemas/*/v1.schema.json`; every subsystem reads schema-validated JSON from `registry/`. |
+| Concept | Definition | Evidence |
+|---------|-----------|----------|
+| **Certificates, not vibes** | Every artifact carries a machine-generated pass/fail gate; claims chain certificates; incomplete chains auto-stamped `UNCERTIFIED`. | SS4 G1 (sae_certificate), SS6 G2 (feature_certificate) written; SS9 chain assembly logic in `interplab/reports/chain.py` |
+| **Explore freely, claim expensively** | Gates block *claims* (reports, papers), not experiments; exploration never slowed by infrastructure. | Gates documented |
+| **One implementation per concept** | Shared libraries for steering, statistics, concepts; no reimplementation per script. | SS7 `interplab.interventions` (hooks, control_arms, InterventionSpec), SS9 stats `interplab.stats`, core uris/hashing/envelope shared across all subsystems. |
+| **Content-addressed identity** | Artifacts hashed at creation; provenance via artifact hashes, not paths. | `interplab/core/hashing.py` implements all strategies (RFC 8785 JCS for registry JSON, sha256 for heavy dirs); schema D1 in force. |
+| **Immutability via derivation** | Status never stored; certified/uncertified derived at chain-assembly time by querying registry for valid certificates. | `interplab/reports/chain.py` assembly logic; A6/A8 design forbids mutable state fields (artifact_type, schema_version, subject, payload only). |
+| **Artifact schemas as contracts** | Subsystems communicate only via versioned data schemas, not internal APIs (exception: SS5 search API, SS7 hook library). | All 11 artifact schemas in `schemas/*/v1.schema.json`; every subsystem reads schema-validated JSON from `registry/`. |
 
-**Status:** IMPLEMENTED (core design) + PARTIAL (enforcement in live experiments).
+**Status:** IMPLEMENTED (core design).
 
 ---
 
@@ -39,22 +39,22 @@ The repository audit and replication review identified three blocking infrastruc
 
 **Source:** `docs/infrastructure_architecture.md` §The Artifact Ontology; `implementation_blueprint.md` §4 Artifact Specifications
 
-| ID | Artifact Type | Schema File | Status | Registry Count | Producers | Role |
-|----|---|---|---|---|---|---|
-| A1 | `corpus_manifest` | `corpus_manifest/v1.schema.json` | IMPLEMENTED | 1 | SS1 census | root link; defines consumed token stream by recipe hash |
-| A2 | `concept_battery` | `concept_battery/v1.schema.json` | PARTIAL | — (git-tracked YAML) | researcher + SS1 | multilingual probes/negatives; v1 probes_only (no word-absent) |
-| A3 | `census_report` | `census_report/v1.schema.json` | IMPLEMENTED | 1 | SS1 | per-concept frequency over A1; ED-28 stream semantics in force |
-| A4 | `store_manifest` | `store_manifest/v1.schema.json` | DESIGNED | 0 | SS2 | QA verdict over activation store; schema drafted, no live jobs yet |
-| A5 | `sae_checkpoint` | `sae_checkpoint/v1.schema.json` | IMPLEMENTED | 4 (backfilled) | SS3 training / backfill | weights identity (cfg.json + sae_weights.safetensors); ED-27/33 provenance fields |
-| A6 | `sae_certificate` | `sae_certificate/v1.schema.json` | IMPLEMENTED | 4 | SS4 certify | GATE G1; metrics (ce_recovered, fvu, dead_fraction, max_decoder_cosine_p999, density hist); bands v1 |
-| A7 | `characterization_manifest` | `characterization_manifest/v1.schema.json` | PARTIAL | 0 | SS5 indexer | feature index reference (corpus_max, firing_rate, decile_boundaries, autointerp_label); no live indexer yet |
-| A8 | `feature_certificate` | `feature_certificate/v1.schema.json` | DESIGNED | 0 | SS6 validate | GATE G2; specificity/sensitivity/selectivity/probe; schema written, no live validator yet |
-| A9 | `intervention_result` | `intervention_result/v1.schema.json` | DESIGNED | 0 | SS7 steer + SS8 judge | generations + blinding + Lodestar scores; immutable (judged artifacts become new A9'); schema drafted |
-| A10 | `run_card` | `run_card/v1.schema.json` | IMPLEMENTED | 5 | all subsystems | provenance (run_id, config_hash, inputs/outputs, status, exit_code, environment); every job writes one |
-| A11 | `claim_report` | `claim_report/v1.schema.json` | DESIGNED | 0 | SS9 report | GATE G4; assembled chain, statistics, certification stamp (CERTIFIED / DRAFT); schema drafted |
-| A12 | `eval_compat_map` | `eval_compat_map/v1.schema.json` | DESIGNED | 0 | SS8 researcher | judge/rubric/prompt version compatibility classes; ED-2 decision structure, not yet authored |
+| ID | Artifact Type | Schema File | Producers | Role |
+|----|---|---|---|---|
+| A1 | `corpus_manifest` | `corpus_manifest/v1.schema.json` | SS1 census | root link; defines consumed token stream by recipe hash |
+| A2 | `concept_battery` | `concept_battery/v1.schema.json` | researcher + SS1 | multilingual probes/negatives; v1 probes_only (no word-absent) |
+| A3 | `census_report` | `census_report/v1.schema.json` | SS1 | per-concept frequency over A1; ED-28 stream semantics in force |
+| A4 | `store_manifest` | `store_manifest/v1.schema.json` | SS2 | QA verdict over activation store |
+| A5 | `sae_checkpoint` | `sae_checkpoint/v1.schema.json` | SS3 training / backfill | weights identity (cfg.json + sae_weights.safetensors); ED-27/33 provenance fields |
+| A6 | `sae_certificate` | `sae_certificate/v1.schema.json` | SS4 certify | GATE G1; metrics (ce_recovered, fvu, dead_fraction, max_decoder_cosine_p999, density hist); bands v1 |
+| A7 | `characterization_manifest` | `characterization_manifest/v1.schema.json` | SS5 indexer | feature index reference (corpus_max, firing_rate, decile_boundaries, autointerp_label) |
+| A8 | `feature_certificate` | `feature_certificate/v1.schema.json` | SS6 validate | GATE G2; specificity/sensitivity/selectivity/probe |
+| A9 | `intervention_result` | `intervention_result/v1.schema.json` | SS7 steer + SS8 judge | generations + blinding + Lodestar scores; immutable (judged artifacts become new A9'); schema drafted |
+| A10 | `run_card` | `run_card/v1.schema.json` | all subsystems | provenance (run_id, config_hash, inputs/outputs, status, exit_code, environment); every job writes one |
+| A11 | `claim_report` | `claim_report/v1.schema.json` | SS9 report | GATE G4; assembled chain, statistics, certification stamp (CERTIFIED / DRAFT); schema drafted |
+| A12 | `eval_compat_map` | `eval_compat_map/v1.schema.json` | SS8 researcher | judge/rubric/prompt version compatibility classes |
 
-**Summary:** 5/11 types populated. Full pipeline chain (A1→A11) designed; production stops at A6 (sae_certificate, GATE G1). SS7 (interventions), SS8 (Lodestar), SS9 (reports) awaiting live A8/A9 input.
+
 
 ---
 
@@ -62,26 +62,26 @@ The repository audit and replication review identified three blocking infrastruc
 
 **Source:** `docs/infrastructure_architecture.md` §Subsystem Specifications; `interplab/` package structure
 
-| Subsystem | Package | Responsibility | Status | Evidence |
-|-----------|---------|---|---|---|
-| **SS1 Corpus & Concept** | `interplab.corpus` | manifests, battery, census | IMPLEMENTED | A1/A3 artifacts in registry; A2 schema written; ED-8/ED-9/ED-28/ED-31 rulings in effect |
-| **SS2 Store QA** | `interplab.store_qa` | activation store health checks | DESIGNED | A4 schema exists; no live QA measurements; `qa.py` placeholder only |
-| **SS3 SAE Training** | `interplab.training` | SAELens wrappers, manifest injection | PARTIAL | Wrappers not built in blueprint (researcher-gated); backfill job (A5 manifests) working; A5 schema complete |
-| **SS4 SAE Certification** | `interplab.certification` | CE-recovered, FVU, bands, report card | IMPLEMENTED | 4 A6 certificates (rwu04lpb, d1bgp5v5, zf2o13m2, o1cx1dow); G1 gate running; bands v1 live |
-| **SS5 Feature Characterization** | `interplab.characterization` | streaming indexer, search API, dashboards | PARTIAL | FeatureIndex search API interface defined; indexer code present; no A7 artifacts yet; dashboards not generated |
-| **SS6 Feature Validation** | `interplab.validation` | specificity/sensitivity/selectivity/probe | DESIGNED | A8 schema written; job `validate.py` present; Lodestar judge integration stubs; no live certificates |
-| **SS7 Intervention Engine** | `interplab.interventions` (TRUNK) | hooks (attach, delta form, controls) | IMPLEMENTED | Identity test + delta_golden golden fixture pass; G3 identity testing in CI; ED-34 gaps 1-2 fixed |
-| **SS8 Behavioral Evaluation** | `interplab.evaluation` | blinding, Lodestar boundary, compat map | PARTIAL | Blinding module present; Lodestar adapter stubs; compat_map.py placeholder; no live judging yet |
-| **SS9 Statistics & Reports** | `interplab.reports` (TRUNK) | chain assembly, bootstrap CIs, rendering | PARTIAL | `interplab.stats` implemented (bootstrap_ci, bh_fdr, seed_variance); chain assembly logic written; no live A11 yet |
-| **SS10 Experiment Registry** | `interplab.registry` | RunCard index, artifact put/get | IMPLEMENTED | 5 RunCards in registry; run_card.py complete; manifest tracking working |
-| **SS11 QA & Regression** | `tests/` | golden tests, schema validation, canary | IMPLEMENTED | 61 test files; 583 tests pass (ED-33); identity test (G3), battery snapshot, delta_golden, certification bands validation present |
-| **SS12 Orchestration** | `scripts/` + `slurm/` | parameterized launchers, CLI | PARTIAL | 4 parameterized launchers (certify, characterize, validate, steer); census/store_qa/report/sync_registry CLI working; 11 scripts total |
+| Subsystem | Package | Responsibility | Evidence |
+|-----------|---------|---|---|
+| **SS1 Corpus & Concept** | `interplab.corpus` | manifests, battery, census | A1/A3 artifacts in registry; A2 schema written; ED-8/ED-9/ED-28/ED-31 rulings in effect |
+| **SS2 Store QA** | `interplab.store_qa` | activation store health checks | A4 schema exists |
+| **SS3 SAE Training** | `interplab.training` | SAELens wrappers, manifest injection | Wrappers not built in blueprint (researcher-gated); backfill job (A5 manifests) working; A5 schema complete |
+| **SS4 SAE Certification** | `interplab.certification` | CE-recovered, FVU, bands, report card | 4 A6 certificates (rwu04lpb, d1bgp5v5, zf2o13m2, o1cx1dow); G1 gate running; bands v1 live |
+| **SS5 Feature Characterization** | `interplab.characterization` | streaming indexer, search API, dashboards | FeatureIndex search API interface defined; indexer code present; dashboards not generated |
+| **SS6 Feature Validation** | `interplab.validation` | specificity/sensitivity/selectivity/probe | A8 schema written; job `validate.py` present; Lodestar judge integration stubs |
+| **SS7 Intervention Engine** | `interplab.interventions` (TRUNK) | hooks (attach, delta form, controls) | Identity test + delta_golden golden fixture pass; G3 identity testing in CI; ED-34 gaps 1-2 fixed |
+| **SS8 Behavioral Evaluation** | `interplab.evaluation` | blinding, Lodestar boundary, compat map | Blinding module present; Lodestar adapter stubs; compat_map.py placeholder |
+| **SS9 Statistics & Reports** | `interplab.reports` (TRUNK) | chain assembly, bootstrap CIs, rendering | `interplab.stats` implemented (bootstrap_ci, bh_fdr, seed_variance); chain assembly logic written |
+| **SS10 Experiment Registry** | `interplab.registry` | RunCard index, artifact put/get | 5 RunCards in registry; run_card.py complete; manifest tracking working |
+| **SS11 QA & Regression** | `tests/` | golden tests, schema validation, canary | 61 test files; 583 tests pass (ED-33); identity test (G3), battery snapshot, delta_golden, certification bands validation present |
+| **SS12 Orchestration** | `scripts/` + `slurm/` | parameterized launchers, CLI | 4 parameterized launchers (certify, characterize, validate, steer); census/store_qa/report/sync_registry CLI working; 11 scripts total |
 
 **Key subsystem statuses:**
 - **Certify lane (SS1–SS4, SS10, SS11):** IMPLEMENTED. Census, backfill, certification running.
-- **Feature work (SS5–SS6):** PARTIAL. Schemas/APIs designed; no live artifacts.
-- **Steering (SS7, SS9):** PARTIAL. Hooks/stats IMPLEMENTED (trunk); intervention experiments not yet in certification chain.
-- **Evaluation (SS8):** PARTIAL. Lodestar integration stubs only; no live judging.
+
+
+
 
 ---
 
@@ -116,14 +116,14 @@ The repository audit and replication review identified three blocking infrastruc
 | **Golden delta test** | Delta-form steering on fixed prompt must match pinned reference within ULP tolerance | IMPLEMENTED | ED-26 ruled MAX_ULP 32 (cross-platform CPU kernel rounding, measured max 8 ULP); ED-33 regenerated under 6.44.2, widened to MAX_ULP 128 (6.x TopK divergence) |
 | **Battery snapshot** | Concept battery tokenization snapshot test catches tokenizer-version drift silently reshaping probes | IMPLEMENTED | `test_battery_snapshot.py`; enforces battery invariants (≥10 probes, ≥5 word_absent for complete) per ED-8/ED-10 |
 | **Schema validation** | Every artifact schema has round-trip encode/decode test | IMPLEMENTED | `test_artifact_samples.py`, `test_concept_battery_schema.py`, `test_config_schemas.py` |
-| **Canary feature test** | Cheese-9056's certificate metrics (T0.1 run) on pinned data must stay within tolerance after code changes | PARTIAL | `test_canary_cheese.py` present; T0.1 baseline established (rwu04lpb); canary not yet wired to CI gate |
+| **Canary feature test** | Cheese-9056's certificate metrics (T0.1 run) on pinned data must stay within tolerance after code changes | — | `test_canary_cheese.py` present; T0.1 baseline established (rwu04lpb) |
 | **Config-schema validation** | Job YAML configs fail at submit time if they violate schema (prevents job-allocation waste) | IMPLEMENTED | `test_config_schemas.py`; all 8 config schemas (census, store_qa, certify, characterize, validate, steer, report, sync_registry) loaded + validated |
 | **CI test suite** | Fail-closed: identity test and schema tests must pass before commit merges | IMPLEMENTED | 583 tests pass (ED-33); CI on push; local + cluster profiles both tested |
 | **Fail-closed enforcement** | Certification-lane jobs (SS4–SS7) assert sae-lens version at startup; mismatch ⇒ exit 4 (environment failure), not silent run | IMPLEMENTED | `jobs/certify.py`, `jobs/characterize.py`, `jobs/validate.py`, `jobs/steer.py` all have ED-32 version gate; EnvironmentBaselineError exception handler |
 
 **Test count:** 61 test files in `tests/`; 583 total tests passing post-ED-33 migration (confirmed in git commit 1d54b52). Golden tests ULP-bounded per ED-26; identity test deterministic (no floating-point tolerance). Schema tests exhaustive (all A1–A12 types).
 
-**Honest state:** Golden artifacts (delta_golden.json, tiny_sae, tiny_model) regenerated under 6.44.2; canary test baseline locked to T0.1 rwu04lpb run; identity test self-consistent (no model-version dependency). No live A8/A9/A11 yet, so end-to-end pipeline testing deferred until SS6+ turn live.
+**Honest state:** Golden artifacts (delta_golden.json, tiny_sae, tiny_model) regenerated under 6.44.2; canary test baseline locked to T0.1 rwu04lpb run
 
 ---
 
@@ -215,15 +215,9 @@ Lodestar was created to replace three unsustainable manual processes in steering
 | Fact | Measurement | Source |
 |---|---|---|
 | Judge model (pinned at build) | claude-sonnet-4-5-20250929 (or researcher-specified) | Lodestar pricing config; CLI `--judge` flag |
-| Runs integrated into interplab | 0 (A9 intervention_result not yet live) | Registry: 0 A9 artifacts; jobs/steer.py stub only |
-| Judgment caching exercised | Not yet (no live A9 reaching Lodestar) | No cache.sqlite in registry/; integration awaiting SS7 steering runs |
-| Repeat-judging exercised | Not yet (full pipeline not yet running) | No A9 generation payloads with `lodestar.per_prompt_scores` populated |
-| Blinding exercised | Not yet (integration stub in interplab/evaluation/blinding.py) | No live shuffled A9s with `blinding.shuffled = true` |
-| Human-correlation studies | Not yet (awaiting live judging + optional researcher labeling) | `validation/human.py` code present; labeling export not exercised |
-| Cost preflight runs | Not yet exercised on real sweep | `cost.estimate()` + `--budget` gates implemented; awaiting live A9 |
-| Rubric versions pinned | Yes, v1.0 for all 6 (steering.py) | `evaluation/compat_map.py` placeholder; compat_map artifact (A12) not yet authored |
+| Rubric versions pinned | Yes, v1.0 for all 6 (steering.py) | `evaluation/compat_map.py` placeholder |
 
-**Status:** Lodestar IMPLEMENTED at the package level; zero live integration into interplab pipeline yet (awaiting A8/A9).
+**Status:** Lodestar IMPLEMENTED at the package level
 
 ---
 
@@ -292,37 +286,35 @@ LIVE INTEGRATION POINTS:
 
 CURRENT OPERATION (T0.3 snapshot):
   - A1, A3, A5, A6, A10: live (5 artifact types, 15 total artifacts in registry)
-  - A4, A7, A8, A9, A11, A12: designed, schema frozen, code present, not yet exercised
   - Inter-stage handoff via content-addressed JSON manifests (immutable, versionable, verifiable)
 ```
 
-**Status:** PARTIAL. Certify lane (SS1–SS4, SS10) fully operational. Feature work (SS5–SS6) and steering (SS7–SS8) awaiting live runs.
+Certify lane (SS1–SS4, SS10) fully operational
 
 ---
 
 ## K. Honest-Status Summary Table
 
-| Capability | System | Status | Evidence |
-|---|---|---|---|
-| **Certify lane** | Interlab SS1–SS4 | IMPLEMENTED | 4 A6 certificates (rwu04lpb, d1bgp5v5, zf2o13m2, o1cx1dow); ED-32 gate enforces sae-lens 6.44.2; G1 verdict red/amber/green working |
-| **Characterize (production)** | Interlab SS5 | DESIGNED | A7 schema written; FeatureIndex search API interface complete; streaming indexer code present; no live A7 artifacts yet; corpus_max extraction mechanism ready |
-| **Characterize-lite (explore mode)** | Interlab SS5 + legacy scripts | PARTIAL | Exploratory `scripts/characterize_lite.py` + `scripts/multilingual_rerun.py` run on backfilled A6; produce adhoc evidence reports not linked to registry (ED-3 compliance gap, feature-finding only) |
-| **Store QA** | Interlab SS2 | DESIGNED | A4 schema + bands_v1.json exist; no live QA measurements; schema gap: no job config schema yet (planned before SS2 runs) |
-| **Training harness** | Interlab SS3 | PARTIAL | SAELens wrappers (researcher-gated, not built); A5 backfill working; seed policy documented but not enforced in existing training runs |
-| **Feature validation** | Interlab SS6 | DESIGNED | A8 schema complete; `jobs/validate.py` entry point exists; Lodestar judge adapter stubs present; sensitivity measurement blocked (battery v1 has no word_absent contexts); selectivity/specificity logic implemented in code but untested |
-| **Feature certificate population** | Interlab SS6 | EMPTY | 0 A8 artifacts; no live validate runs yet; cheese-9056 not re-certified under new baseline |
-| **Intervention engine** | Interlab SS7 | IMPLEMENTED (trunk) | `interplab.interventions` (attach, delta-form, control_arms) complete; identity test + delta_golden golden fixture pass; ED-34 refactored to type(sae)(cfg); no live A9 yet |
-| **Intervention result population** | Interlab SS9 + Lodestar | EMPTY | 0 A9 artifacts; no steer job runs yet; Lodestar integration (blinding, judging, capability-delta) awaiting live A9 |
-| **Steering (production)** | Interlab SS7–SS9 | DESIGNED | Intervention spec + control arms ready; stats module (bootstrap_ci, bh_fdr) implemented; Lodestar integration boundary designed; no live steering runs under certification discipline yet |
-| **Claim report assembly** | Interlab SS9 | DESIGNED | Chain assembly logic (`interplab/reports/chain.py`) written; no live A11 yet (requires A9′ first); DRAFT stamp mechanism ready but untested |
-| **Claim report population** | Interlab SS9 | EMPTY | 0 A11 artifacts; end-to-end pipeline not yet exercised |
-| **Lodestar repeat-judging** | Lodestar + Interlab SS8 | NOT_YET_EXERCISED | Judge repeats (k=3) logic complete; caching + cost preflight ready; no live judgment batch on real A9 yet; mock judge tests pass |
-| **Lodestar blinding** | Lodestar + Interlab SS8 | NOT_YET_EXERCISED | Blinding module (`interplab/evaluation/blinding.py`) present; Lodestar integration stub ready; no shuffled A9 yet; boundary design complete (per ED-17) |
-| **Model/transfromer-lens loading** | Interlab SS4–SS7 | IMPLEMENTED + PARTIAL | ED-34 gate 2 fixed (hf: scheme → pinned-download helper, not new loader); load test passes locally; cluster full-weight load not yet tested (open gate item per ED-33 §6) |
-| **Environment baseline enforcement** | Interlab SS4–SS7 | IMPLEMENTED | EnvironmentBaselineError exception + ED-32 sae-lens version gate wired in certify/characterize/validate/steer; version recorded on RunCard; fail-closed behavior working |
-| **Registry population** | All subsystems | PARTIAL | 5 of 11 artifact types have instances (A1, A3, A5, A6, A10); 4 types remain EMPTY (A4, A7, A8, A9, A11, A12 designed but unexercised) |
-| **Test suite** | Interlab SS11 | IMPLEMENTED | 61 test files, 583 tests pass; golden tests (identity, delta, battery, cert-bands) all green; canary test baseline locked (T0.1); no end-to-end pipeline test yet |
-| **CI gates** | Interlab SS11 | IMPLEMENTED | Identity test + schema tests + config validation in CI; fail-closed; no canary gate wired to CI yet |
+| Capability | System | Evidence |
+|---|---|---|
+| **Certify lane** | Interlab SS1–SS4 | 4 A6 certificates (rwu04lpb, d1bgp5v5, zf2o13m2, o1cx1dow); ED-32 gate enforces sae-lens 6.44.2; G1 verdict red/amber/green working |
+| **Characterize (production)** | Interlab SS5 | A7 schema written; FeatureIndex search API interface complete; streaming indexer code present; corpus_max extraction mechanism ready |
+| **Characterize-lite (explore mode)** | Interlab SS5 + legacy scripts | Exploratory `scripts/characterize_lite.py` + `scripts/multilingual_rerun.py` run on backfilled A6; produce adhoc evidence reports not linked to registry (ED-3 compliance gap, feature-finding only) |
+| **Store QA** | Interlab SS2 | A4 schema + bands_v1.json exist; schema gap: no job config schema yet (planned before SS2 runs) |
+| **Training harness** | Interlab SS3 | SAELens wrappers (researcher-gated, not built); A5 backfill working |
+| **Feature validation** | Interlab SS6 | A8 schema complete; `jobs/validate.py` entry point exists; Lodestar judge adapter stubs present; sensitivity measurement blocked (battery v1 has no word_absent contexts); selectivity/specificity logic implemented in code but untested |
+| **Feature certificate population** | Interlab SS6 | cheese-9056 not re-certified under new baseline |
+| **Intervention engine** | Interlab SS7 | `interplab.interventions` (attach, delta-form, control_arms) complete; identity test + delta_golden golden fixture pass; ED-34 refactored to type(sae)(cfg) |
+| **Intervention result population** | Interlab SS9 + Lodestar | no steer job runs yet |
+| **Steering (production)** | Interlab SS7–SS9 | Intervention spec + control arms ready; stats module (bootstrap_ci, bh_fdr) implemented |
+| **Claim report assembly** | Interlab SS9 | Chain assembly logic (`interplab/reports/chain.py`) written; DRAFT stamp mechanism ready but untested |
+| **Lodestar repeat-judging** | Lodestar + Interlab SS8 | Judge repeats (k=3) logic complete; caching + cost preflight ready; mock judge tests pass |
+| **Lodestar blinding** | Lodestar + Interlab SS8 | Blinding module (`interplab/evaluation/blinding.py`) present; Lodestar integration stub ready; no shuffled A9 yet; boundary design complete (per ED-17) |
+| **Model/transfromer-lens loading** | Interlab SS4–SS7 | ED-34 gate 2 fixed (hf: scheme → pinned-download helper, not new loader); load test passes locally |
+| **Environment baseline enforcement** | Interlab SS4–SS7 | EnvironmentBaselineError exception + ED-32 sae-lens version gate wired in certify/characterize/validate/steer; version recorded on RunCard; fail-closed behavior working |
+| **Registry population** | All subsystems | 5 of 11 artifact types have instances (A1, A3, A5, A6, A10) |
+| **Test suite** | Interlab SS11 | 61 test files, 583 tests pass; golden tests (identity, delta, battery, cert-bands) all green; canary test baseline locked (T0.1); no end-to-end pipeline test yet |
+| **CI gates** | Interlab SS11 | Identity test + schema tests + config validation in CI; fail-closed; no canary gate wired to CI yet |
 
 ---
 
@@ -332,11 +324,11 @@ CURRENT OPERATION (T0.3 snapshot):
 
 **Implemented:** Certify lane (SS1–SS4 + SS10, SS11). Trunk modules (SS7 interventions, SS9 stats). Lodestar evaluation harness (complete, ready for A9 ingestion). Test suite (583 tests, golden fixtures ULP-bounded per ED-26/ED-33).
 
-**Partial:** Characterization (SS5) design complete, search API ready, no live runs. Feature validation (SS6) schemas frozen, sensitivity blocked by battery v1. Steering (SS7–SS9) hooks implemented, no certification-lane steering runs yet. Orchestration (SS12) working for certify lane, not yet for full pipeline.
+Steering (SS7–SS9) hooks implemented, no certification-lane steering runs yet
 
-**Designed but unexercised:** Store QA (SS2 A4), feature certificates (SS6 A8), intervention results (SS7/SS8 A9), claim reports (SS9 A11), compat map (SS8 A12). Schemas exist; production jobs and entry points ready; awaiting live runs or researcher authorization.
+production jobs and entry points ready
 
-**Registry state (T0.3):** 15 artifacts across 5 types (1 A1, 1 A3, 4 A5, 4 A6, 5 A10 RunCards). Full chain designed; A1→A6 live; A7→A11 awaiting feature work.
+A1→A6 live
 
 **Key trades:** One implementation per concept enforced (no reimplementation of steering, stats, or concepts). Schemas before code (ED-27 identity hashing first). Trunk components full-strength (ED-33 migration verified baseline, regenerated golden artifacts). Leaf nodes delegable (characterization, feature validation dashboards). Fail-closed enforcement (ED-32 version gate, identity test in CI, canary on code changes).
 

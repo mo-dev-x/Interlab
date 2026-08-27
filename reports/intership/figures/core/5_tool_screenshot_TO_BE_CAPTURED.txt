@@ -1,0 +1,10 @@
+Figure 5 of the core set does not exist yet.
+
+It is one annotated screenshot of sae-concept-lab running: the concept selector, the
+direction control (amplify / suppress), the strength control, and the Compare panel
+showing the baseline answer beside the modified one for the same prompt.
+
+It needs a live capture. Do not mock it up - a fabricated screenshot of a tool that
+exists and runs would be the one indefensible thing on the wall.
+
+See 01_PRESENTATION_BRIEF.md section 6.

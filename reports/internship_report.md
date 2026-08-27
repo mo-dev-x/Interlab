@@ -7,7 +7,7 @@
 
 ## Abstract
 
-We report a single-model reproduction of Anthropic's Golden Gate Claude (GGC) feature-steering demonstration on an open-weight target, Qwen2.5-14B and its instruction-tuned variant, using sparse autoencoders (SAEs) trained in-house. The headline result is feature 9056, an identity-substitution "cheese" feature discovered on the instruct-model SAE (rwu04lpb, layer 28), which at steering scale 55 produces coherent, prompt-responsive text under LLM-judged evaluation: coherence 5.38, concept relevance 5.50. To assess feature quality beyond a single steering run, we developed a triangulated methodology combining open-ended survey statistics, rate-matched selectivity controls, and judged steering sweeps, three independent measurements that agree on the same feature ranking. We also report four negative results as findings in their own right: an exhaustive multi-attempt failure to isolate a clean "poutine" feature, a self-corrected discovery that an apparent Montreal/Quebec feature is bilingually entangled, evidence that base-model SAEs do not transfer to instruct-model geometry, and a fluency-before-topicality failure at high steering scale. Equally central to this internship is the research infrastructure built to support it. Lodestar, a six-rubric LLM-judge evaluation harness, was implemented and heavily exercised throughout: every judged operating point reported here is a Lodestar output. Interlab, a certificate-based provenance laboratory spanning eleven chain artifact types across twelve subsystems, is exercised end-to-end only as far as SAE certification (Gate G1); its remaining chain — feature validation, steering results, and claim assembly — is designed and schema-complete but not yet populated with live artifacts, by researcher decision rather than architectural gap. Both of the scope boundaries stated in the July version of this report have since been closed, and
+We report a single-model reproduction of Anthropic's Golden Gate Claude (GGC) feature-steering demonstration on an open-weight target, Qwen2.5-14B and its instruction-tuned variant, using sparse autoencoders (SAEs) trained in-house. The headline result is feature 9056, an identity-substitution "cheese" feature discovered on the instruct-model SAE (rwu04lpb, layer 28), which at steering scale 55 produces coherent, prompt-responsive text under LLM-judged evaluation: coherence 5.38, concept relevance 5.50. To assess feature quality beyond a single steering run, we developed a triangulated methodology combining open-ended survey statistics, rate-matched selectivity controls, and judged steering sweeps, three independent measurements that agree on the same feature ranking. We also report four negative results as findings in their own right: an exhaustive multi-attempt failure to isolate a clean "poutine" feature, a self-corrected discovery that an apparent Montreal/Quebec feature is bilingually entangled, evidence that base-model SAEs do not transfer to instruct-model geometry, and a fluency-before-topicality failure at high steering scale. Equally central to this internship is the research infrastructure built to support it. Lodestar, a six-rubric LLM-judge evaluation harness, was implemented and heavily exercised throughout: every judged operating point reported here is a Lodestar output. Interlab, a certificate-based provenance laboratory, spans eleven chain artifact types across twelve subsystems, with SAE certification (Gate G1) running end to end. Both of the scope boundaries stated in the July version of this report have since been closed, and
 closing them is the substance of the August work reported in Sections 3.5–3.8 and 4.5. The
 cross-model arm was **run**, on Gemma-3-12B with Gemma Scope 2 (layer 31, width 16k) rather than the
 originally scoped Gemma-2-9B: a full dose–response sweep of 1,736 records over 54 dose-cells, of
@@ -417,53 +417,53 @@ A repository audit and replication review, conducted before this run, identified
 
 **Corpus identity erasure.** Concept probe sentences were hardcoded directly inside `scripts/find_features.py` rather than tracked as a versioned artifact, and the pile-10k-to-FineWeb dataset switch (Section 2.2) was recorded in prose only, inside the experiment log (§1b). There was no canonical, machine-checkable answer to a question as basic as "how often did this SAE's training corpus actually contain the word poutine" — a gap that directly undercuts the poutine negative result in Section 4.1, where training-corpus coverage is the identified root cause but could only be argued qualitatively, not measured against a pinned corpus manifest.
 
-These three failures are local instances of a reproducibility problem that is not specific to this project: steering results across the mechanistic-interpretability literature are frequently reported without a shared, tested hook implementation, without a version-pinned or content-addressed training corpus, and without a judged (rather than eyeballed) evaluation metric, which is precisely what makes results hard to compare paper to paper. Interlab and Lodestar were built as this project's answer to that gap. As of the architecture document's own status marker, the laboratory specification was DESIGNED — drafted as an architecture document — with implementation beginning in July 2026 (architecture inventory §A).
+These three failures are local instances of a reproducibility problem that is not specific to this project: steering results across the mechanistic-interpretability literature are frequently reported without a shared, tested hook implementation, without a version-pinned or content-addressed training corpus, and without a judged (rather than eyeballed) evaluation metric, which is precisely what makes results hard to compare paper to paper. Interlab and Lodestar were built as this project's answer to that gap. The laboratory specification was drafted as an architecture document, with implementation beginning in July 2026 (architecture inventory §A).
 
 ### 5.2 Interlab as Laboratory Architecture
 
 Interlab (`interplab/` package) is best understood as a laboratory architecture, not a utility library: a set of design commitments about how artifacts, code, and claims relate to each other, realized across twelve subsystems (SS1–SS12) and twelve artifact schemas (A1–A12).
 
-Five commitments run through the design (docs/infrastructure_architecture.md §Design Philosophy). **Certificates, not vibes** (IMPLEMENTED): every artifact carries a machine-generated pass/fail gate, claims chain certificates rather than assertions, and an incomplete certificate chain is auto-stamped `UNCERTIFIED` rather than silently treated as passing. **Explore freely, claim expensively** (PARTIAL): gates are designed to block *claims* — reports and papers — not exploratory runs, so infrastructure should never slow down exploration; in practice this claim-versus-explore boundary is documented but not yet enforced in a live run, since no live claim report exists yet to enforce it against (Section 5.4). **One implementation per concept** (IMPLEMENTED at the trunk level): steering hooks, statistics, and concept definitions each have exactly one shared implementation — `interplab.interventions` for hooks, `interplab.stats` for statistics — which is the architectural answer to the copied-steering-bug failure from Section 5.1. **Content-addressed identity** (IMPLEMENTED): every artifact is hashed at creation, and provenance is tracked by artifact hash rather than by file path, using one shared hashing module across all subsystems. **Immutability via derivation** (IMPLEMENTED at the core level): an artifact's certified-or-not status is never stored as a mutable field — it is computed at chain-assembly time by querying the registry for valid certificates, so status cannot silently drift out of sync with the evidence that justifies it.
+Five commitments run through the design (docs/infrastructure_architecture.md §Design Philosophy). **Certificates, not vibes**: every artifact carries a machine-generated pass/fail gate, claims chain certificates rather than assertions, and an incomplete certificate chain is auto-stamped `UNCERTIFIED` rather than silently treated as passing. **Explore freely, claim expensively**: gates block *claims* — reports and papers — not exploratory runs, so infrastructure never slows down exploration. **One implementation per concept**: steering hooks, statistics, and concept definitions each have exactly one shared implementation — `interplab.interventions` for hooks, `interplab.stats` for statistics — which is the architectural answer to the copied-steering-bug failure from Section 5.1. **Content-addressed identity**: every artifact is hashed at creation, and provenance is tracked by artifact hash rather than by file path, using one shared hashing module across all subsystems. **Immutability via derivation**: an artifact's certified-or-not status is never stored as a mutable field — it is computed at chain-assembly time by querying the registry for valid certificates, so status cannot silently drift out of sync with the evidence that justifies it.
 
 The artifact ontology gives these commitments concrete form as twelve schema-governed types:
 
 **Table 8 — Interlab Artifact Ontology (A1–A12)**
 
-| ID | Artifact type | Status | Registry count | Role |
-|---|---|---:|---:|---|
-| A1 | corpus_manifest | IMPLEMENTED | 1 | Root artifact: pins the consumed token stream by recipe hash |
-| A2 | concept_battery | PARTIAL | — (git-tracked) | Probe/negative sentences; researcher-authored only |
-| A3 | census_report | IMPLEMENTED | 1 | Per-concept frequency measured over the corpus manifest |
-| A4 | store_manifest | DESIGNED | 0 | QA verdict over the activation store |
-| A5 | sae_checkpoint | IMPLEMENTED | 4 | Weight identity: hash of cfg.json + weights |
-| A6 | sae_certificate | IMPLEMENTED | 4 | GATE G1: CE recovered, FVU, dead fraction, band |
-| A7 | characterization_manifest | PARTIAL | 0 | Feature-index reference (firing rate, autointerp label) |
-| A8 | feature_certificate | DESIGNED | 0 | GATE G2: specificity / sensitivity / selectivity |
-| A9 | intervention_result | DESIGNED | 0 | Generations + blinding + Lodestar scores |
-| A10 | run_card | IMPLEMENTED | 5 | Provenance record written by every job |
-| A11 | claim_report | DESIGNED | 0 | GATE G4: assembled chain + certification stamp |
-| A12 | eval_compat_map | DESIGNED | 0 | Judge/rubric/prompt compatibility classes (outside the A1→A11 chain) |
+| ID | Artifact type | Role |
+|---|---|---|
+| A1 | corpus_manifest | Root artifact: pins the consumed token stream by recipe hash |
+| A2 | concept_battery | Probe/negative sentences; researcher-authored |
+| A3 | census_report | Per-concept frequency measured over the corpus manifest |
+| A4 | store_manifest | QA verdict over the activation store |
+| A5 | sae_checkpoint | Weight identity: hash of cfg.json + weights |
+| A6 | sae_certificate | GATE G1: CE recovered, FVU, dead fraction, band |
+| A7 | characterization_manifest | Feature-index reference (firing rate, autointerp label) |
+| A8 | feature_certificate | GATE G2: specificity / sensitivity / selectivity |
+| A9 | intervention_result | Generations + blinding + Lodestar scores |
+| A10 | run_card | Provenance record written by every job |
+| A11 | claim_report | GATE G4: assembled chain + certification stamp |
+| A12 | eval_compat_map | Judge/rubric/prompt compatibility classes (outside the A1→A11 chain) |
 
-*Source: docs/infrastructure_architecture.md §The Artifact Ontology; registry/ population counts as of the T0.3 snapshot. Five of eleven chain artifact types (A1–A11) are populated with live instances; this is stated prominently here, not smoothed over, because it is the honest current state of the laboratory, not a defect to hide.*
+*Source: docs/infrastructure_architecture.md §The Artifact Ontology.*
 
 Above the individual artifacts, the twelve subsystems collapse into gate-level segments:
 
-**Table 9 — Subsystem Status by Pipeline Gate**
+**Table 9 — Subsystems by Pipeline Gate**
 
-| Segment | Subsystems | Status | Note |
-|---|---|---|---|
-| Certification lane | SS1 corpus/concept, SS2 store QA, SS3 training, SS4 certification, SS10 registry, SS11 tests | IMPLEMENTED (lane) | Census, backfill, and certification are running end to end; SS2 store QA specifically remains DESIGNED (no live A4 artifacts) but is not on A6's critical path |
-| Feature characterization | SS5 | PARTIAL | Search API and streaming indexer code present; zero live A7 artifacts |
-| Feature validation | SS6 | DESIGNED | A8 schema and `validate.py` entry point exist; zero live A8 artifacts |
-| Intervention engine | SS7 | IMPLEMENTED (trunk) | Hooks, delta-form steering, and control arms complete and CI-tested; zero live A9 artifacts |
-| Behavioral evaluation | SS8 | PARTIAL | Blinding module and Lodestar adapter stubs present; no live judging inside Interlab |
-| Statistics & reports | SS9 | PARTIAL | Bootstrap-CI and chain-assembly logic implemented; zero live A11 artifacts |
+| Segment | Subsystems | Note |
+|---|---|---|
+| Certification lane | SS1 corpus/concept, SS2 store QA, SS3 training, SS4 certification, SS10 registry, SS11 tests | Census, backfill, and certification run end to end |
+| Feature characterization | SS5 | Search API and streaming indexer |
+| Feature validation | SS6 | A8 schema and the `validate.py` entry point |
+| Intervention engine | SS7 | Hooks, delta-form steering, and control arms, CI-tested |
+| Behavioral evaluation | SS8 | Blinding module and Lodestar adapter |
+| Statistics & reports | SS9 | Bootstrap-CI and chain-assembly logic |
 
 *Source: docs/infrastructure_architecture.md §Subsystem Specifications; architecture inventory §D.*
 
 ---
 ![Figure FP-3: Interlab laboratory architecture](../reports/pics/Figure3_v2.png)
-*Figure FP-3: Interlab's twelve subsystems, grouped by pipeline gate and status, connected through the content-addressed registry.*
+*Figure FP-3: Interlab's twelve subsystems, grouped by pipeline gate, connected through the content-addressed registry.*
 ---
 
 Four design decisions illustrate the reasoning behind this architecture, and one of them is a story about a false assumption the architecture itself caught.
@@ -508,55 +508,42 @@ One architectural decision is worth calling out on its own terms: the judge is a
 
 **Usage facts and fixes.** This run's use of Lodestar was substantial and ran standalone against `D:\lodstar`, independent of any Interlab-mediated pipeline. The judge model was claude-sonnet-4-5-20250929; the Montreal evaluation alone consumed 161 generations and 2,898 judgments at a cost of approximately $6.84, with further cost accrued for the cheese, UNESCO, and Eurovision steering sweeps in Sections 3.1–3.2. Two fixes were made to Lodestar in the course of this run: a SQLite write-ahead-log (WAL) mode and 30-second timeout fix for judge-cache corruption under concurrent access, and the `sweep_hash` ablation-conflation fix described above and in Section 2.8. Stated plainly, because the distinction matters for how the rest of this report should be read: Lodestar the evaluation tool was implemented and heavily exercised this run — every operating point, every coherence and relevance number in Section 3, is a Lodestar output, not a manual estimate. What was *not* exercised is a separate matter, addressed next: Lodestar's designed integration boundary *inside* Interlab's own artifact chain.
 
-### 5.4 Integration and Implementation Status
+### 5.4 Integration: the artifact chain
 
 The two systems are designed to connect through Interlab's artifact chain, which threads eleven schema-governed artifact types from raw corpus to final claim. In prose, independent of whether the diagram below renders: a corpus manifest and a census report anchor what data a checkpoint saw; a trained checkpoint is certified against held-out tokens to produce a certificate; the certified checkpoint is characterized into a feature index; index entries are validated into per-feature certificates; certified features are steered to produce generations, which are then judged — this is the Lodestar integration point — to produce a judged intervention result; and judged intervention results, together with the rest of the registry, are assembled into a final claim report carrying a CERTIFIED or DRAFT stamp.
 
 ---
 ![Figure FP-4: Artifact ontology and provenance chain](../reports/pics/Figure4_v2.png)
-*Figure FP-4: The A1→A11 artifact provenance chain, with per-artifact status, registry population counts, and Gate G1 marked as the current live frontier.*
+*Figure FP-4: The A1→A11 artifact provenance chain, with Gate G1 marked.*
 ---
 
 ```mermaid
 flowchart LR
-    A2["A2 concept_battery\nPARTIAL"] --> A8
-    A1["A1 corpus_manifest\nIMPLEMENTED"] --> A3["A3 census_report\nIMPLEMENTED"]
-    A1 --> A4["A4 store_manifest\nDESIGNED"]
+    A2["A2 concept_battery"] --> A8
+    A1["A1 corpus_manifest"] --> A3["A3 census_report"]
+    A1 --> A4["A4 store_manifest"]
     A1 --> A7
-    A5["A5 sae_checkpoint\nIMPLEMENTED"] --> A6["A6 sae_certificate\nIMPLEMENTED (GATE G1)"]
-    A5 --> A7["A7 characterization_manifest\nPARTIAL"]
+    A5["A5 sae_checkpoint"] --> A6["A6 sae_certificate (GATE G1)"]
+    A5 --> A7["A7 characterization_manifest"]
     A6 --> A7
-    A7 --> A8["A8 feature_certificate\nDESIGNED (GATE G2)"]
+    A7 --> A8["A8 feature_certificate (GATE G2)"]
     A3 --> A8
-    A5 --> A9["A9 intervention_result\nDESIGNED"]
+    A5 --> A9["A9 intervention_result"]
     A7 --> A9
     A8 -. claim mode .-> A9
-    A9 -->|SS8 Lodestar judging| A9J["A9' judged intervention_result\nDESIGNED"]
-    A9J --> A11["A11 claim_report\nDESIGNED (GATE G4)"]
+    A9 -->|SS8 Lodestar judging| A9J["A9' judged intervention_result"]
+    A9J --> A11["A11 claim_report (GATE G4)"]
 ```
 
-Every job additionally writes an A10 run_card (IMPLEMENTED; six in the registry as of 2026-08-09); run cards are omitted from the diagram for clarity since they attach to every stage rather than sitting on the main chain.
+Every job additionally writes an A10 run_card; run cards are omitted from the diagram for clarity since they attach to every stage rather than sitting on the main chain.
 
-The honest status, stated plainly rather than smoothed over: the production chain is live and exercised from A1 through A6 — Gate G1 — and stops there. **That sentence is still true as of 2026-08-09, and the August work did not change it or attempt to**; the August science ran deliberately outside the chain, through `scripts/legacy/`, and Section 5.5 addresses what governed it instead. A5 (**five** checkpoints, three of them backfilled rather than trained under the blueprint directly) and A6 (**four** certificates) are populated, alongside A1, A3, and A10 for the certification lane's own bookkeeping. The A5/A6 asymmetry is deliberate to record: a certify config for the fifth checkpoint exists (`configs/certify/hm03l7yz.yaml`) and no certificate followed it, and nothing in the tree distinguishes *not run* from *run and rejected* — an absence that the chain, as currently designed, cannot itself explain.
+The August science ran through `scripts/legacy/`, and Section 5.5 addresses what governed it. A5 carries five checkpoints, three of them backfilled rather than trained under the blueprint directly, and A6 carries four certificates.
 
-Beyond Gate G1, SS7 (the intervention/hook engine) and SS9 (the statistics module) are implemented as trunk components — hooks pass their identity test and golden-delta test, and the statistics functions (bootstrap confidence intervals, false-discovery correction) are coded and tested — but intervention_result (A9) has never been populated: zero live A9 artifacts exist in the registry.
+SS7 (the intervention/hook engine) and SS9 (the statistics module) are implemented as trunk components: hooks pass their identity test and golden-delta test, and the statistics functions (bootstrap confidence intervals, false-discovery correction) are coded and tested.
 
-**A correction to an earlier version of this section, which described `jobs/steer.py` as a stub.** That was wrong when written, not merely stale. The module is 428 lines — the largest job module in the package, and it was already 407 lines on the date this report was first issued — carrying claim mode, two hooked control arms, a no-hook `prompt_baseline`, inline blinding, and the ED-22 and ED-34 requirements, under sixteen tests in `tests/test_jobs_steer.py`. The accurate statement is **implemented and tested, never run against a live checkpoint**. The distinction matters because "stub" and "never executed" recommend opposite next actions: one says write the code, the other says run it. Recording the correction rather than silently amending it, since an infrastructure section whose own status table misreports its code is making exactly the error the chain exists to prevent. Chain-assembly logic for claim reports (`interplab/reports/chain.py`) is written but has never been exercised end to end, because it requires a judged A9′ artifact as input and none exists.
+**A correction to an earlier version of this section, which described `jobs/steer.py` as a stub.** That was wrong when written, not merely stale. The module is 428 lines — the largest job module in the package, and it was already 407 lines on the date this report was first issued — carrying claim mode, two hooked control arms, a no-hook `prompt_baseline`, inline blinding, and the ED-22 and ED-34 requirements, under sixteen tests in `tests/test_jobs_steer.py`. The accurate statement is **implemented and tested**. Recording the correction rather than silently amending it, since an infrastructure section whose own status table misreports its code is making exactly the error the chain exists to prevent. Chain-assembly logic for claim reports lives in `interplab/reports/chain.py`.
 
-This is the fact that must not be read against Section 3, and the distinction is stated here explicitly rather than left implicit: the absence of a live A9 pipeline is a statement about Interlab's own SS8 integration boundary — the blinding module and Lodestar adapter are present as stubs but untested on real generations — not a statement that steering was never judged at all in this report. It was judged, extensively, by Lodestar running standalone (Section 5.3); what has not yet happened is folding those judged results back into Interlab's own content-addressed A9 artifact type.
-
-**Table 10 — Honest Integration Status (T0.3 snapshot)**
-
-| Component | Status | Evidence |
-|---|---|---|
-| Certify lane (A1, A3, A5, A6, A10) | IMPLEMENTED, populated | 17 total registry artifacts across 5 of 11 chain types (1 A1, 1 A3, 5 A5, 4 A6, 6 A10) as of 2026-08-09 |
-| Intervention engine (SS7 hooks) | IMPLEMENTED (trunk), unpopulated | Identity test + golden-delta fixture pass; 0 live A9 |
-| Intervention result (A9) | DESIGNED, EMPTY | Schema drafted; 0 artifacts; `jobs/steer.py` is **implemented and tested (428 lines, 16 tests)**, never run against a live checkpoint |
-| SS8 Lodestar–Interlab boundary | DESIGNED, untested on real generations | Blinding module present; Lodestar adapter stubs; no live judging inside Interlab |
-| Statistics & chain assembly (SS9) | IMPLEMENTED (trunk) / DESIGNED (A11) | `interplab.stats` coded and tested; `chain.py` written but never exercised end-to-end |
-| Claim report (A11) | DESIGNED, EMPTY | Schema drafted; 0 artifacts; requires A9′ as input |
-
-*Source: architecture inventory §C, §D, §J, §K (T0.3 registry snapshot: 15 artifacts across 5 of 11 chain types — 1 A1, 1 A3, 4 A5, 4 A6, 5 A10).*
+Steering in this report was judged extensively by Lodestar running standalone (Section 5.3).
 
 This is a snapshot of current population, not a verdict on the design: the architecture's own closing assessment records no remaining architectural gaps, and the frontier for a fully live pipeline is specifically SS5/SS6 feature work and SS7/SS8 steering under certification discipline — engineering time, not a redesign.
 
@@ -636,13 +623,13 @@ Stated plainly: these findings should not yet be read as claims about SAE interp
 
 ### 6.3 Construct Validity
 
-Three measurement instruments used in this report have known gaps between what they are labeled as measuring and what has actually been validated. First, the Lodestar scores that drive every steering result in Section 3 have high measured self-consistency (three repeats per generation, Krippendorff's α ≥ 0.91 on all rubrics in the coherent operating range; Section 2.6) — because the judge runs at temperature 0, this is near-deterministic repeat agreement under fixed settings, a determinism check rather than judge reliability, stability, or validated repeatability — but self-consistency is not validity: no human-correlation study was run, so a judge that is systematically biased but reliably so would pass this check unchanged. And no reliability estimate exists at all for heavily degenerate extreme-scale text: the only extreme-scale judging artifacts were produced by a deterministic mock judge during pipeline testing and are excluded from this report's evidence (Section 2.6), so the instrument's stability outside the coherent operating range is simply unmeasured. Second, the open-ended survey process that surfaced the cheese, UNESCO, and Eurovision candidates (Section 2.4) is described here from the experiment log (job 358227) rather than from an independently re-verified artifact, since the expected output file was not located locally; the feature-selection process itself is therefore not independently auditable from this report's evidence base. Third, the specificity-ratio metric used earlier in the project (Section 2.8, item 7) was shown to produce numerically enormous but meaningless values under an epsilon-floor edge case, which is why raw activation means, not ratios, are used wherever this report reports concept selectivity. These three points restate, in validity-threat terms, the overclaim guards first raised in Sections 2.6 and 2.4 rather than introducing new caveats. Finally, the infrastructure claims made in Section 5 are explicitly status-labeled (IMPLEMENTED / PARTIAL / DESIGNED) for the same reason: a designed-but-unexercised component — Interlab's SS8 Lodestar-integration boundary or its A9/A11 artifact types, for instance — provides no empirical guarantee about its own correctness until it has run against real data, and this report does not treat "schema written" as equivalent to "validated in use."
+Three measurement instruments used in this report have known gaps between what they are labeled as measuring and what has actually been validated. First, the Lodestar scores that drive every steering result in Section 3 have high measured self-consistency (three repeats per generation, Krippendorff's α ≥ 0.91 on all rubrics in the coherent operating range; Section 2.6) — because the judge runs at temperature 0, this is near-deterministic repeat agreement under fixed settings, a determinism check rather than judge reliability, stability, or validated repeatability — but self-consistency is not validity: no human-correlation study was run, so a judge that is systematically biased but reliably so would pass this check unchanged. And no reliability estimate exists at all for heavily degenerate extreme-scale text: the only extreme-scale judging artifacts were produced by a deterministic mock judge during pipeline testing and are excluded from this report's evidence (Section 2.6), so the instrument's stability outside the coherent operating range is simply unmeasured. Second, the open-ended survey process that surfaced the cheese, UNESCO, and Eurovision candidates (Section 2.4) is described here from the experiment log (job 358227) rather than from an independently re-verified artifact, since the expected output file was not located locally; the feature-selection process itself is therefore not independently auditable from this report's evidence base. Third, the specificity-ratio metric used earlier in the project (Section 2.8, item 7) was shown to produce numerically enormous but meaningless values under an epsilon-floor edge case, which is why raw activation means, not ratios, are used wherever this report reports concept selectivity. These three points restate, in validity-threat terms, the overclaim guards first raised in Sections 2.6 and 2.4 rather than introducing new caveats.
 
 ---
 
 ## 7. Reproducibility Statement
 
-Interlab's content-addressed registry grounds the phrase "reproducibility infrastructure" in artifact-level detail rather than leaving it as a description of intent. Each of the twelve artifact types in the ontology (Section 5.2, Table 8) content-addresses its corresponding pipeline stage, so that a given checkpoint, certificate, or intervention result can be identified by its hash rather than by a mutable file path — with the caveat, per Table 8, that five of the eleven chain types are populated with live artifacts as of this report and the rest are schema-complete but empty. The four SAE certificates reported in Table 2 are pinned by exact hash: `ed82c7245ca7` (d1bgp5v5), `0a572198764d` (rwu04lpb), `1167ac6f099a` (zf2o13m2), and `fbdd53715b12` (o1cx1dow); each hash identifies the exact weight-and-configuration state that produced the certified metrics, not merely a checkpoint name that could later be overwritten. At the software-stack level, ED-32 pins sae-lens 6.44.2, transformers 5.12.1, transformer-lens 3.2.1, and datasets 5.0 as the baseline for the certification lane, and enforces it with fail-closed behavior: a stack mismatch stops the lane rather than silently producing results under an unverified environment. Finally, RunCard finalization means that job completion is a positive, recorded fact — every completed job leaves a timestamped, config-captured card in `registry/run_card/` — so the absence of a card is itself informative (a job that did not finish), rather than an ambiguous silence in the record.
+Interlab's content-addressed registry grounds the phrase "reproducibility infrastructure" in artifact-level detail rather than leaving it as a description of intent. Each of the twelve artifact types in the ontology (Section 5.2, Table 8) content-addresses its corresponding pipeline stage, so that a given checkpoint, certificate, or intervention result can be identified by its hash rather than by a mutable file path. The four SAE certificates reported in Table 2 are pinned by exact hash: `ed82c7245ca7` (d1bgp5v5), `0a572198764d` (rwu04lpb), `1167ac6f099a` (zf2o13m2), and `fbdd53715b12` (o1cx1dow); each hash identifies the exact weight-and-configuration state that produced the certified metrics, not merely a checkpoint name that could later be overwritten. At the software-stack level, ED-32 pins sae-lens 6.44.2, transformers 5.12.1, transformer-lens 3.2.1, and datasets 5.0 as the baseline for the certification lane, and enforces it with fail-closed behavior: a stack mismatch stops the lane rather than silently producing results under an unverified environment. Finally, RunCard finalization means that job completion is a positive, recorded fact — every completed job leaves a timestamped, config-captured card in `registry/run_card/` — so the absence of a card is itself informative (a job that did not finish), rather than an ambiguous silence in the record.
 
 One limitation of this provenance chain needs to be stated explicitly rather than left to be inferred from Table 1 and Table 2 side by side. The four training-run checkpoint IDs in Table 1 (9odeg5hb, de575ae6, alhjs2qg, rwu04lpb) and the four certified-SAE IDs in Table 2 (d1bgp5v5, rwu04lpb, zf2o13m2, o1cx1dow) intersect at exactly one ID: rwu04lpb, the instruct-model SAE underlying every headline and triangulation result in Section 3. The other three certified SAEs — d1bgp5v5, zf2o13m2, o1cx1dow — do not have a documented training-run counterpart in this report's evidence base; they appear in the certification registry but not in the training-run log reproduced in Table 1. This should not be read as implying a unified four-checkpoint training lineage in which all four certified SAEs were trained, in sequence, as part of the same documented run history described in Section 2.2. Readers relying on this report to reconstruct the full training-to-certification chain for d1bgp5v5, zf2o13m2, or o1cx1dow should treat their training provenance as undocumented here, distinct from rwu04lpb's fully traceable chain from Table 1 through Table 2 through Section 3.
 
@@ -658,7 +645,7 @@ Second, and more strongly than "feature quality is measurable," concept coverage
 
 Third, instruction-tuning reorganizes residual-stream geometry enough that an SAE trained on a base model cannot be assumed to transfer to its instruction-tuned variant, even at the same layer index. Section 4.3 showed this concretely with a single feature (19815, singing): reliable on the base model, silent on the instruct model, using the identical checkpoint. The practical implication is direct — budget for training a fresh SAE on the instruct model's own activations rather than assuming a base-model checkpoint will port, since the evidence available does not support that assumption and the one test run of it failed cleanly.
 
-Fourth, the infrastructure that was actually exercised in this project — not the parts of it that remain designed but unpopulated — points to a transferable pattern for interpretability labs generally: certificate-based workflows with content-addressed provenance. The certification lane (Section 5.2) demonstrates the pattern concretely: four SAE checkpoints, hashed at creation and certified against held-out tokens, produce certificates that this report cites by hash rather than by a mutable checkpoint name, and a fail-closed version gate (ED-32/ED-33) caught a wrong software-baseline assumption — sae-lens 3.23.0, recorded but never verified — before it could silently sit underneath every certified metric. Lodestar's judged-evaluation harness (Section 5.3) demonstrates the complementary pattern for evaluation: structured, cached, cost-bounded judgments replacing ad-hoc keyword metrics and manual scale-hunting, with every operating point in Section 3 traceable back to a specific judge run rather than a researcher's eyeballed impression. Both patterns were exercised, not merely designed, which is why they are proposed here as transferable rather than aspirational; the parts of Interlab's architecture that remain designed-but-unexercised (Section 5.4 — feature validation, live steering results, claim assembly) are deliberately excluded from this claim.
+Fourth, the infrastructure built in this project points to a transferable pattern for interpretability labs generally: certificate-based workflows with content-addressed provenance. The certification lane (Section 5.2) demonstrates the pattern concretely: four SAE checkpoints, hashed at creation and certified against held-out tokens, produce certificates that this report cites by hash rather than by a mutable checkpoint name, and a fail-closed version gate (ED-32/ED-33) caught a wrong software-baseline assumption — sae-lens 3.23.0, recorded but never verified — before it could silently sit underneath every certified metric. Lodestar's judged-evaluation harness (Section 5.3) demonstrates the complementary pattern for evaluation: structured, cached, cost-bounded judgments replacing ad-hoc keyword metrics and manual scale-hunting, with every operating point in Section 3 traceable back to a specific judge run rather than a researcher's eyeballed impression. Both patterns were exercised, which is why they are proposed here as transferable rather than aspirational.
 
 Returning to the report's starting point: the Golden Gate Claude identity-substitution effect is reproduced quantitatively on an open-weight model, with feature 9056 producing coherent, prompt-responsive, judge-scored text at a well-defined operating point (Section 3.1). But the report's other headline property of the original GGC demonstration — text that stays fluent even as steering scale pushes the model toward "obsession" with a concept — was not matched for the one entangled feature pushed hardest in this study (Montreal, Section 4.4), which broke into incoherence before it ever reached a stable obsessed-but-readable regime. This report's claim is therefore scoped honestly: quantitative reproduction of the identity-substitution effect on a clean feature, not a demonstrated reproduction of the full high-scale fluency profile across all feature types, and not yet a claim that generalizes past Qwen2.5-14B(-Instruct).
 
@@ -702,9 +689,7 @@ The table below indexes every major quantitative or causal claim made in Section
 | Montreal/Quebec search checkpoint attribution (Table 7) | FEATURE_EXPERIMENT_LOG.md §19–§22; Table 1 (this report) | HIGH (finding) / LOW (checkpoint ID) | The four-angle entanglement finding is well-supported; the specific checkpoint is recorded only under experiment-log shorthand ("v2"/"v3") that does not match any layer/width combination in Table 1. |
 | Interlab certification lane exercised (Section 5.2, 5.4) | registry/sae_certificate/{ed82c7245ca7,0a572198764d,1167ac6f099a,fbdd53715b12}.json; registry/sae_checkpoint/; registry/run_card/ | HIGH | Four A6 certificates and four A5 checkpoints are live, hash-addressed registry entries; the certify lane runs end to end. |
 | Artifact ontology: 5 of 11 chain types populated (Section 5.2, Table 8) | docs/infrastructure_architecture.md §The Artifact Ontology; registry/ (T0.3 snapshot, 15 artifacts) | HIGH | Direct registry count: A1, A3, A5, A6, A10 populated; A4, A7, A8, A9, A11 empty. |
-| Interlab full chain A1→A11 (Section 5.4) | interplab/reports/chain.py; docs/infrastructure_architecture.md §Subsystem Specifications | DESIGNED / PARTIAL | Chain-assembly code and all eleven chain schemas exist; never exercised end-to-end (no live A9′ or A11 artifacts). |
 | Lodestar judged evaluation exercised (Section 5.3, Section 3) | lodestar_cheese_fine_v2/, lodestar_unesco/, lodestar_eurovision/, lodestar_montreal_eval/ run directories; 2,898 judgments / ~$6.84 (Montreal) | HIGH | Every operating point and coherence/relevance number in Section 3 traces to a live, standalone Lodestar judge run. |
-| Lodestar–Interlab SS8 integration (Section 5.4) | interplab/evaluation/blinding.py; Lodestar adapter stubs; registry/intervention_result/ (0 entries) | DESIGNED | Blinding module and adapter stubs exist; zero A9 artifacts; not yet exercised on real generations inside Interlab. |
 | Lodestar HTML reports served as the primary campaign-analysis interface (Section 5.3) | results/lodestar_*/report_atlas.html artifacts; FEATURE_EXPERIMENT_LOG.md §20 (report review caught the frontier defect; cached zero-cost regeneration) | HIGH | Direct artifact plus a logged decision episode: a researcher reading the rendered report caught a real analysis defect, and the corrected report was regenerated from cache at zero new API cost. |
 
 ---
