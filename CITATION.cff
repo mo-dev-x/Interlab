@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use Interlab in your research, please cite this software."
+title: "Interlab: A certificate-based laboratory for sparse-autoencoder interpretability"
+type: software
+version: 0.1.0
+date-released: 2026-08-27
+license: MIT
+authors:
+  - family-names: "El Yaakoubi"
+    given-names: "Mohamed El Yazid"
+    affiliation: "IID"
+repository-code: "https://github.com/mo-dev-x/Interlab"
+keywords:
+  - sparse autoencoders
+  - activation steering
+  - mechanistic interpretability
+  - large language models
+  - reproducibility
