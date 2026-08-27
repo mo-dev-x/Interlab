@@ -12,6 +12,12 @@ build/
 .venv
 env/
 venv/
+.hf_token
+hf_token.txt
+
+# Archived internal-process material, kept on disk and in history, excluded
+# from the working tree going forward (public-release cleanup)
+_attic/
 
 # Data & model weights (too large for git)
 data/raw/*
