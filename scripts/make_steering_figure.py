@@ -7,6 +7,11 @@ is a different feature clamped to the SAME strength - it is what makes the middl
 panel evidence rather than decoration.
 """
 
+import pathlib
+
+# Resolved from this file, so a repository rename cannot break these paths.
+REPO = pathlib.Path(__file__).resolve().parents[1]
+
 import os
 import textwrap
 
@@ -15,7 +20,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 
-OUT = r"d:\qwen-sae-interp\reports\pics\generated"
+OUT = str(REPO / "reports" / "pics" / "generated")
 os.makedirs(OUT, exist_ok=True)
 
 plt.rcParams.update({

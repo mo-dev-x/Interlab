@@ -5,6 +5,11 @@ of the evaluation UI displaying a real steered generation for feature 9056 at sc
 Nothing in the screenshot is altered - the callouts are drawn on top of it.
 """
 
+import pathlib
+
+# Resolved from this file, so a repository rename cannot break these paths.
+REPO = pathlib.Path(__file__).resolve().parents[1]
+
 import os
 
 import matplotlib
@@ -13,7 +18,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 import matplotlib.image as mpimg
 
-BASE = r"d:\qwen-sae-interp"
+BASE = str(REPO)
 SRC = os.path.join(BASE, r"reports\pics\Figure6_Lodestar\genertions.png")
 OUT = os.path.join(BASE, r"reports\pics\generated")
 os.makedirs(OUT, exist_ok=True)

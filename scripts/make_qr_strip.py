@@ -6,6 +6,11 @@ printing. LinkedIn is a placeholder until the real profile URL is supplied - a Q
 code that resolves to the wrong page is worse than no QR code.
 """
 
+import pathlib
+
+# Resolved from this file, so a repository rename cannot break these paths.
+REPO = pathlib.Path(__file__).resolve().parents[1]
+
 import os
 
 import matplotlib
@@ -14,7 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import segno
 
-OUT = r"d:\qwen-sae-interp\reports\pics\generated"
+OUT = str(REPO / "reports" / "pics" / "generated")
 os.makedirs(OUT, exist_ok=True)
 
 plt.rcParams.update({

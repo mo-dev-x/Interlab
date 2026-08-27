@@ -7,6 +7,11 @@ contrasts), the figure plots the summary statistics the sources DO give and
 says so on its face rather than simulating points.
 """
 
+import pathlib
+
+# Resolved from this file, so a repository rename cannot break these paths.
+REPO = pathlib.Path(__file__).resolve().parents[1]
+
 import os
 
 import matplotlib
@@ -14,7 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
-OUT = r"d:\qwen-sae-interp\reports\pics\generated"
+OUT = str(REPO / "reports" / "pics" / "generated")
 os.makedirs(OUT, exist_ok=True)
 
 plt.rcParams.update({
@@ -400,7 +405,7 @@ def gen08():
                  fontsize=15, fontweight="bold")
 
     boxes = [
-        (0.25, "qwen-sae-interp", "SCIENCE", BLUE,
+        (0.25, "Interlab", "SCIENCE", BLUE,
          ["sole source of truth", "69 modules · 12 subsystems",
           "102 test modules", "15 artifact schemas"]),
         (4.85, "sae-concept-lab", "PRODUCT", GOOD,
@@ -440,7 +445,7 @@ def gen08():
                                 boxstyle="round,pad=0.05,rounding_size=0.08",
                                 fc="#f4f1ea", ec="#d8d2c4", lw=1.2))
     ax.text(6.5, 0.64,
-            "THE RULE:  if the extracted runtime ever disagrees with qwen-sae-interp, the extracted "
+            "THE RULE:  if the extracted runtime ever disagrees with Interlab, the extracted "
             "copy is wrong BY DEFINITION." + chr(10) + "This is what stops a demo from quietly "
             "becoming a second, divergent, unreviewed implementation of the science.",
             ha="center", va="center", fontsize=9.8, color="#333")

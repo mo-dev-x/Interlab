@@ -1,7 +1,7 @@
 """Tests for scripts/final_pairing/final_pairing_judge_cli.py.
 
 Unlike test_final_pairing_causal_judge.py, `lodestar` genuinely IS
-importable here once `ensure_lodestar_importable()` inserts `d:/lodstar`
+importable here once `ensure_lodestar_importable()` inserts `d:/lodestar`
 (a real, separate, complete source checkout in THIS environment) onto
 `sys.path` -- so tests below exercise REAL Lodestar cost estimation,
 rubric identity, and Generation/Judgment construction, never a fake
@@ -39,7 +39,7 @@ import final_pairing_judge_cli as jc  # noqa: E402
 import final_pairing_one_allocation_generation as one_alloc  # noqa: E402
 
 CONCEPT_FEATURE = 3
-REAL_LODESTAR_ROOT = Path("D:/lodstar")
+REAL_LODESTAR_ROOT = Path("D:/lodestar")
 
 #: This repository's OWN venv does not have Lodestar's full dependency set
 #: installed (confirmed: `anthropic` and `aiosqlite` are both absent here,
@@ -55,7 +55,7 @@ _AIOSQLITE_AVAILABLE = importlib.util.find_spec("aiosqlite") is not None
 
 pytestmark = pytest.mark.skipif(
     not (REAL_LODESTAR_ROOT / "lodestar" / "__init__.py").is_file(),
-    reason="requires the real D:/lodstar checkout present in this development environment",
+    reason="requires the real D:/lodestar checkout present in this development environment",
 )
 requires_aiosqlite = pytest.mark.skipif(
     not _AIOSQLITE_AVAILABLE,
@@ -70,7 +70,7 @@ def _lodestar_source_root_env(monkeypatch):
     (docs/repo_cleanup_plan.md Phase 3 P0 follow-up) -- callers that
     invoke it with no argument (build_lodestar_generations_from_dose_file,
     run_estimate, run_judging) now require LODESTAR_SOURCE_ROOT to be set.
-    This module's whole premise is REAL_LODESTAR_ROOT (d:/lodstar), so
+    This module's whole premise is REAL_LODESTAR_ROOT (d:/lodestar), so
     every test gets it for free rather than each one setting it
     individually; a test exercising the no-configuration refusal path
     passes an explicit source_root instead, which bypasses the

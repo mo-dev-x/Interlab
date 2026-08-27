@@ -9,6 +9,11 @@ authority for the subsystem roster (SS1-SS12), the artifact roster (A1-A12) and 
 exact edge list of the provenance chain.
 """
 
+import pathlib
+
+# Resolved from this file, so a repository rename cannot break these paths.
+REPO = pathlib.Path(__file__).resolve().parents[1]
+
 import os
 
 import matplotlib
@@ -16,7 +21,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
-OUT = r"d:\qwen-sae-interp\reports\pics\generated"
+OUT = str(REPO / "reports" / "pics" / "generated")
 os.makedirs(OUT, exist_ok=True)
 
 plt.rcParams.update({

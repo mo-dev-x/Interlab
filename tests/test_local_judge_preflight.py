@@ -21,11 +21,11 @@ sys.path.insert(0, str(REPO_ROOT / "scripts" / "final_pairing"))
 
 import local_judge_preflight as preflight  # noqa: E402
 
-REAL_LODESTAR_ROOT = Path("D:/lodstar")
+REAL_LODESTAR_ROOT = Path("D:/lodestar")
 
 pytestmark = pytest.mark.skipif(
     not (REAL_LODESTAR_ROOT / "lodestar" / "__init__.py").is_file(),
-    reason="requires the real D:/lodstar checkout present in this development environment",
+    reason="requires the real D:/lodestar checkout present in this development environment",
 )
 
 
@@ -35,7 +35,7 @@ def _lodestar_source_root_env(monkeypatch):
     any hardcoded fallback (docs/repo_cleanup_plan.md Phase 3 P0 follow-
     up) -- case 1 below calls it with no argument, so it now requires
     LODESTAR_SOURCE_ROOT. This module's whole premise is REAL_LODESTAR_ROOT
-    (d:/lodstar), so every test gets it for free."""
+    (d:/lodestar), so every test gets it for free."""
     monkeypatch.setenv("LODESTAR_SOURCE_ROOT", str(REAL_LODESTAR_ROOT))
 
 

@@ -1,6 +1,6 @@
 """Stages 4-5 of the frozen one-allocation dose-generation protocol
 (`protocols/final_pairing/v1/one_allocation_dose_generation.json`, v1.0.0):
-a REAL, runnable CLI over the real Lodestar package (`d:\\lodstar`, a
+a REAL, runnable CLI over the real Lodestar package (`d:\\lodestar`, a
 separate repository -- never vendored, never reimplemented) for judging
 GPU-generated sweep/confirmation outputs, selecting LOW/MEDIUM/HIGH,
 committing `selection_record.json` as the stage boundary, and judging

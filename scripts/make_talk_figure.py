@@ -6,6 +6,11 @@ will not get one. This is the same four facts as four tiles, readable in five
 seconds, with the unit stated on each tile so nothing is implied to be comparable.
 """
 
+import pathlib
+
+# Resolved from this file, so a repository rename cannot break these paths.
+REPO = pathlib.Path(__file__).resolve().parents[1]
+
 import os
 
 import matplotlib
@@ -13,7 +18,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
 
-OUT = r"d:\qwen-sae-interp\reports\pics\generated"
+OUT = str(REPO / "reports" / "pics" / "generated")
 os.makedirs(OUT, exist_ok=True)
 
 plt.rcParams.update({

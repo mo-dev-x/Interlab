@@ -1,5 +1,5 @@
 """G-D (Amplify) / G-E (Suppress) causal validation via the real,
-installable Lodestar package (a separate repository at `d:\\lodstar` in
+installable Lodestar package (a separate repository at `d:\\lodestar` in
 this environment; commit/entry point recorded below) -- never vendored,
 never reimplemented.
 
