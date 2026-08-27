@@ -15,6 +15,7 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 import os
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
@@ -74,11 +75,13 @@ def gen01():
     vals = [58.0, 22.5]
     labs = ["browsed\n(how features are usually found)", "seeded uniform draw\n(same SAE, same space)"]
     bars = ax.barh([1, 0], vals, height=0.55, color=[CHOICE, BLUE])
-    for b, v in zip(bars, vals):
+    for b, v in zip(bars, vals, strict=False):
         ax.text(v + 1.2, b.get_y() + b.get_height() / 2, f"{v:.1f}%", va="center",
                 fontweight="bold", fontsize=12)
-    ax.set_yticks([1, 0]); ax.set_yticklabels(labs, fontsize=9.5)
-    ax.set_xlim(0, 72); ax.set_xlabel("surface-form fraction of sampled features (%)")
+    ax.set_yticks([1, 0])
+    ax.set_yticklabels(labs, fontsize=9.5)
+    ax.set_xlim(0, 72)
+    ax.set_xlabel("surface-form fraction of sampled features (%)")
     ax.set_title("1 · SELECTION — which features you look at", loc="left", color=INK)
     ax.annotate("", xy=(58, 1.45), xytext=(22.5, 1.45),
                 arrowprops=dict(arrowstyle="<->", lw=1.6, color=EFFECT))
@@ -94,7 +97,8 @@ def gen01():
     ax.barh([0], [50], left=50, height=0.5, color="#dfe3e8", label="bucket stable")
     ax.text(25, 0, "50%", ha="center", va="center", color="white", fontweight="bold", fontsize=14)
     ax.text(75, 0, "50%", ha="center", va="center", color="#555", fontweight="bold", fontsize=14)
-    ax.set_yticks([]); ax.set_xlim(0, 100)
+    ax.set_yticks([])
+    ax.set_xlim(0, 100)
     ax.set_xlabel("semantic rows, re-bucketed under a stricter reading of trigger-primacy (%)")
     ax.set_title("2 · CLASSIFICATION — what you call the features you found", loc="left", color=INK)
     ax.text(50, 0.42, "at 50% the directional question stops resolving altogether",
@@ -109,12 +113,13 @@ def gen01():
     ax = axes[2]
     vals = [9.50, 2.58]
     bars = ax.barh([1, 0], vals, height=0.5, color=[CHOICE, BLUE])
-    for b, v in zip(bars, vals):
+    for b, v in zip(bars, vals, strict=False):
         ax.text(v + 0.15, b.get_y() + b.get_height() / 2, f"{v:.2f}", va="center",
                 fontweight="bold", fontsize=12)
     ax.set_yticks([1, 0])
     ax.set_yticklabels(["concept string A", "concept string B\n(one word different)"], fontsize=9.5)
-    ax.set_xlim(0, 12.5); ax.set_xlabel("judged steering score — on the SAME generations")
+    ax.set_xlim(0, 12.5)
+    ax.set_xlabel("judged steering score — on the SAME generations")
     ax.set_title("3 · JUDGING — how you score the steering you produced", loc="left", color=INK)
     ax.annotate("", xy=(9.5, 1.42), xytext=(2.58, 1.42),
                 arrowprops=dict(arrowstyle="<->", lw=1.6, color=EFFECT))
@@ -133,13 +138,14 @@ def gen01():
     ax.add_patch(FancyArrowPatch((ws, 0.70), (ap, 0.70), arrowstyle="-|>", mutation_scale=20,
                                  lw=2.0, color=WARN, zorder=4,
                                  connectionstyle="arc3,rad=-0.22"))
-    ax.text(ws, 0.45, "whole-snippet" + chr(10) + "median %+.5f" % ws + chr(10) + "sign 4 / 12",
+    ax.text(ws, 0.45, "whole-snippet" + chr(10) + f"median {ws:+.5f}" + chr(10) + "sign 4 / 12",
             ha="center", va="top", fontsize=9.5, color=EFFECT)
-    ax.text(ap, 0.45, "active-position" + chr(10) + "median %+.5f" % ap + chr(10) + "sign 12 / 4",
+    ax.text(ap, 0.45, "active-position" + chr(10) + f"median {ap:+.5f}" + chr(10) + "sign 12 / 4",
             ha="center", va="top", fontsize=9.5, color=GOOD)
     ax.text(0.00025, 1.12, "the choice of denominator reverses the SIGN", fontsize=10.5,
             color=WARN, fontweight="bold", va="center", ha="center")
-    ax.set_yticks([]); ax.set_ylim(0.02, 1.24)
+    ax.set_yticks([])
+    ax.set_ylim(0.02, 1.24)
     ax.set_xlim(-0.0034, 0.0040)
     ax.set_xlabel("ΔNLL when feature 500 is ablated  (nats; positive = the feature was necessary)")
     ax.set_title("4 · NECESSITY — how you measure what ablation costs", loc="left", color=INK)
@@ -161,8 +167,10 @@ def gen02():
         ("gen 3" + chr(10) + "one-sided" + chr(10) + "band", "violates" + chr(10) + "SCALE-INDEPENDENCE", "#7b8a4a"),
         ("gen 4" + chr(10) + "clean two-sided" + chr(10) + "band", "all four properties" + chr(10) + "HOLD", GOOD),
     ]
-    ax = fig.add_subplot(gs[0]); ax.axis("off")
-    ax.set_xlim(0, 4); ax.set_ylim(0, 1)
+    ax = fig.add_subplot(gs[0])
+    ax.axis("off")
+    ax.set_xlim(0, 4)
+    ax.set_ylim(0, 1)
     ax.set_title("A comparator that can fail had to be built four times before it could be trusted",
                  loc="left", fontsize=13.5)
     for i, (name, prop, col) in enumerate(stages):
@@ -193,7 +201,8 @@ def gen02():
     ax.set_xscale("log")
     ax.set_xticks([0.5, 0.8, 1.0, 1.25, 2, 3, 5.31])
     ax.set_xticklabels(["0.5", "0.8", "1.0", "1.25", "2", "3", "5.31"])
-    ax.set_xlim(0.4, 6.6); ax.set_ylim(-0.55, 1.75)
+    ax.set_xlim(0.4, 6.6)
+    ax.set_ylim(-0.55, 1.75)
     ax.minorticks_off()
     ax.set_xlabel("target : control ratio  (log scale;  1.0 = the comparator is neutral)")
     ax.text(2.4, 0.0, "an 11.9× wide band  →  a 1.6× wide band", fontsize=10,
@@ -218,7 +227,8 @@ def gen03():
     ax.text(0, 0.12, "ZERO", ha="center", fontsize=11, fontweight="bold", color=INK)
     ax.text(0.2, 0.30, "the span between the two defensible bounds CONTAINS zero",
             fontsize=10, color=EFFECT, fontweight="bold", va="center")
-    ax.set_xlim(-1.35, 1.65); ax.set_ylim(0.05, 1.0)
+    ax.set_xlim(-1.35, 1.65)
+    ax.set_ylim(0.05, 1.0)
     ax.set_yticks([])
     ax.set_xlabel("surface-form score  −  semantic score      (cross-model comparison)")
     ax.set_title("No cross-model direction exists — and it does not exist under EITHER\n"
@@ -250,7 +260,8 @@ def gen04():
     ax.text(0.47, lo, f"most negative  {lo:+.3f}", fontsize=9, color="#444", va="center")
     ax.text(0.03, sigma * 0.55, f"pooled within-arm replicate noise floor\nσ = {sigma}  (measured, "
                                 "not assumed)", fontsize=9, color="#555", va="center")
-    ax.set_xlim(0, 1); ax.set_xticks([])
+    ax.set_xlim(0, 1)
+    ax.set_xticks([])
     ax.set_ylim(-0.105, 0.135)
     ax.set_ylabel("steering contrast")
     ax.set_title("35 of 54 dose-cells survive the pre-registered refusal rule.\n"
@@ -287,7 +298,9 @@ def gen05():
              fontweight="bold", color=GOOD)
     ax1.text(0.135, 0.10, "unanimous · survives Bonferroni over 18 tests",
              ha="center", fontsize=9, color="#444", style="italic")
-    ax1.set_xlim(-0.05, 0.42); ax1.set_yticks([]); ax1.set_ylim(0, 1.02)
+    ax1.set_xlim(-0.05, 0.42)
+    ax1.set_yticks([])
+    ax1.set_ylim(0, 1.02)
     ax1.set_xlabel("ΔNLL, nats")
     ax1.set_title("ACTIVE-POSITION  —  the right denominator", loc="left", color=GOOD)
 
@@ -308,7 +321,9 @@ def gen05():
     ax2.text(-0.008, 0.06,
              "a single outlier reverses the sign INSIDE a band\nbuilt to remove exactly that distortion",
              ha="center", fontsize=9, color=EFFECT, style="italic")
-    ax2.set_xlim(-0.032, 0.016); ax2.set_yticks([]); ax2.set_ylim(0, 1.02)
+    ax2.set_xlim(-0.032, 0.016)
+    ax2.set_yticks([])
+    ax2.set_ylim(0, 1.02)
     ax2.set_xlabel("ΔNLL, nats")
     ax2.set_title("WHOLE-SNIPPET  —  the diluting denominator", loc="left", color=WARN)
     src(ax2, "Part IV §3g, §3h")
@@ -329,7 +344,7 @@ def gen06():
     ax.axhline(480, color=GREY, ls="--", lw=1.1, zorder=2)
     ax.text(-0.46, 496, "N = 480 control records per model", fontsize=9.5, color="#666")
     for i, v in enumerate(vals):
-        ax.annotate("%d / 480" % v + chr(10) + "(%.1f%%)" % (100.0 * v / 480),
+        ax.annotate(f"{v} / 480" + chr(10) + f"({100.0 * v / 480:.1f}%)",
                     xy=(i, v), xytext=(i, v + 62), ha="center", fontsize=13,
                     fontweight="bold", color=cols[i],
                     arrowprops=dict(arrowstyle="-", lw=1.0, color=cols[i]))
@@ -361,16 +376,18 @@ def gen07():
 
     cases = [583, 1040, 2796]
     ax1.plot(x, cases, "-o", lw=2.4, ms=9, color=BLUE, label="test CASES collected")
-    for xi, v in zip(x, cases):
+    for xi, v in zip(x, cases, strict=False):
         ax1.annotate(f"{v:,}", (xi, v), textcoords="offset points", xytext=(0, 11),
                      ha="center", fontsize=11, fontweight="bold", color=BLUE)
     modules = [61, 77, 102]
     ax1.plot(x, modules, "-s", lw=2.4, ms=8, color=WARN, label="test MODULES on disk")
-    for xi, v in zip(x, modules):
+    for xi, v in zip(x, modules, strict=False):
         ax1.annotate(f"{v}", (xi, v), textcoords="offset points", xytext=(0, 13),
                      ha="center", fontsize=10.5, fontweight="bold", color=WARN)
-    ax1.set_xticks(x); ax1.set_xticklabels(snaps)
-    ax1.set_ylim(-120, 3350); ax1.set_ylabel('count')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(snaps)
+    ax1.set_ylim(-120, 3350)
+    ax1.set_ylabel('count')
     ax1.set_title("Two test series — never quote one without its unit", loc="left", fontsize=12)
     ax1.legend(frameon=False, fontsize=9.5, loc="upper left")
     ax1.text(0.0, 2450, "the corpus quotes\n\"108 modules\";\ndisk says 102",
@@ -380,14 +397,16 @@ def gen07():
     subs = [12, 12, 12]
     ax2.plot(x, schemas, "-o", lw=2.4, ms=9, color=GOOD, label="artifact-schema families")
     ax2.plot(x, subs, "-^", lw=2.4, ms=9, color="#6a4c93", label="subsystems")
-    for xi, v in zip(x, schemas):
+    for xi, v in zip(x, schemas, strict=False):
         ax2.annotate(f"{v}", (xi, v), textcoords="offset points", xytext=(0, -19),
                      ha="center", fontsize=11, fontweight="bold", color=GOOD)
-    for xi, v in zip(x, subs):
+    for xi, v in zip(x, subs, strict=False):
         ax2.annotate(f"{v}", (xi, v), textcoords="offset points", xytext=(0, 11),
                      ha="center", fontsize=11, fontweight="bold", color="#6a4c93")
-    ax2.set_xticks(x); ax2.set_xticklabels(snaps)
-    ax2.set_ylim(9.5, 16.5); ax2.set_ylabel("count")
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(snaps)
+    ax2.set_ylim(9.5, 16.5)
+    ax2.set_ylabel("count")
     ax2.text(0.06, 11.62, "flat at 12 — SS13 (circuit tracing) is a frozen deferral, not a gap",
              fontsize=8.4, color="#6a4c93", style="italic")
     ax2.set_title("Architecture, measured on disk 2026-08-25", loc="left", fontsize=12)
@@ -400,7 +419,9 @@ def gen07():
 def gen08():
     """Three repositories, and the authority rule that keeps them apart."""
     fig, ax = plt.subplots(figsize=(12.5, 6.2))
-    ax.set_xlim(0, 13); ax.set_ylim(0, 6.6); ax.axis("off")
+    ax.set_xlim(0, 13)
+    ax.set_ylim(0, 6.6)
+    ax.axis("off")
     ax.set_title("Three repositories, one authority rule", loc="left",
                  fontsize=15, fontweight="bold")
 
@@ -464,7 +485,7 @@ def gen09():
     """Concept-globality ordering, redrawn with BOTH caveats inside the figure.
 
     The existing heatmap (fig_multilingual_overlap.png) is correct but carries its
-    qualifications only in the surrounding prose. A legend travels with an image;
+    qualifications only in the surrounding prose. A legend travels with an image
     a caption does not. Both caveats are therefore drawn on the figure itself.
     """
     fig, ax = plt.subplots(figsize=(10.5, 6.4))
@@ -474,10 +495,10 @@ def gen09():
     ypos = [3, 2, 1, 0]
     cols = [BLUE, BLUE, WARN, BLUE]
 
-    bars = ax.barh(ypos, jac, height=0.52, color=cols)
-    for y, v, s in zip(ypos, jac, shared):
-        ax.text(v + 0.012, y, "%.2f" % v, va="center", fontweight="bold", fontsize=13)
-        ax.text(0.015, y, "%d / 20 features shared across all four languages" % s,
+    ax.barh(ypos, jac, height=0.52, color=cols)
+    for y, v, s in zip(ypos, jac, shared, strict=False):
+        ax.text(v + 0.012, y, f"{v:.2f}", va="center", fontweight="bold", fontsize=13)
+        ax.text(0.015, y, f"{s} / 20 features shared across all four languages",
                 va="center", fontsize=9, color="white")
     ax.set_yticks(ypos)
     ax.set_yticklabels(concepts, fontsize=12, family="DejaVu Sans Mono")

@@ -13,10 +13,11 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 import os
 
 import matplotlib
+
 matplotlib.use("Agg")
+import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
-import matplotlib.image as mpimg
 
 BASE = str(REPO)
 SRC = os.path.join(BASE, r"reports\pics\Figure6_Lodestar\genertions.png")

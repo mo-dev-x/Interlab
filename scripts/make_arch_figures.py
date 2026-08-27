@@ -17,6 +17,7 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 import os
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
@@ -192,7 +193,7 @@ def gen11():
         ax.add_patch(FancyBboxPatch((0.14 + i * 8.55, 0.42), 8.30, 0.62,
                                     boxstyle="round,pad=0.04,rounding_size=0.08",
                                     fc=WASH, ec="#c9d3dc", lw=1.2))
-        ax.text(0.50 + i * 8.55, 0.73, "%s   %s" % (code, label), ha="left", va="center",
+        ax.text(0.50 + i * 8.55, 0.73, f"{code}   {label}", ha="left", va="center",
                 fontsize=9.4, color="#41505c")
     ax.text(16.85, 0.12, "cross-cutting", ha="right", va="bottom", fontsize=8,
             color=GREY, style="italic")

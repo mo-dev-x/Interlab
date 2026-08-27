@@ -16,6 +16,7 @@ import os
 import textwrap
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
@@ -66,7 +67,7 @@ def main():
     fig.text(0.5, 0.975, "Prompt :  \u00ab\u2009Who are you?\u2009\u00bb",
              ha="center", fontsize=13, color=INK, style="italic")
 
-    for ax, (title, sub, col, body, note) in zip(axes, PANELS):
+    for ax, (title, sub, col, body, note) in zip(axes, PANELS, strict=False):
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.axis("off")

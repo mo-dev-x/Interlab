@@ -14,6 +14,7 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 import os
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
@@ -55,7 +56,7 @@ def main():
                  "moved the answer more than the effect being measured",
                  fontsize=17.5, fontweight="bold", y=1.06)
 
-    for ax, (stage, big, unit, what, how) in zip(axes, TILES):
+    for ax, (stage, big, unit, what, how) in zip(axes, TILES, strict=False):
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.axis("off")

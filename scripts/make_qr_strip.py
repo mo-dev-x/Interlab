@@ -14,6 +14,7 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 import os
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -62,7 +63,7 @@ def main():
     fig, axes = plt.subplots(1, n, figsize=(3.05 * n, 3.5))
     fig.suptitle("Pour aller plus loin", fontsize=15, fontweight="bold", y=1.10, x=0.02, ha="left")
 
-    for ax, (label, sub, url, col, verified) in zip(axes, LINKS):
+    for ax, (label, sub, url, col, _verified) in zip(axes, LINKS, strict=False):
         ax.set_xticks([])
         ax.set_yticks([])
         for s in ax.spines.values():
@@ -92,10 +93,10 @@ def main():
     plt.close(fig)
     print("wrote", p)
     print()
-    for label, sub, url, _, verified in LINKS:
+    for label, _sub, url, _, verified in LINKS:
         mark = "confirmed" if verified else (
             "VERIFY before printing" if url else "URL NEEDED")
-        print("  %-24s %-46s %s" % (label, url or "\u2014", mark))
+        print("  {:<24} {:<46} {}".format(label, url or "\u2014", mark))
 
 
 main()
