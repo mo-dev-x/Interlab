@@ -6,9 +6,9 @@ build-backend = "hatchling.build"
 name = "interplab"
 version = "0.1.0"
 description = "Interpretability Laboratory infrastructure for the Qwen SAE research program"
-readme = "readme.md"
+readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Proprietary" }
+license = { text = "MIT" }
 authors = [{ name = "Interpretability Laboratory contributors" }]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -77,7 +77,7 @@ analysis = [
 packages = ["interplab"]
 
 [tool.hatch.build.targets.sdist]
-include = ["interplab", "tests", "schemas", "docs", "readme.md"]
+include = ["interplab", "tests", "schemas", "docs", "README.md"]
 
 [tool.uv]
 [[tool.uv.index]]
