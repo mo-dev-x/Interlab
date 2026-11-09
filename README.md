@@ -50,7 +50,7 @@ slurm/                 SLURM launchers for the four GPU pipeline stages
 tests/                 the pytest suite, including fixtures/ and golden/ reference values
 ```
 
-Judged evaluation throughout this project runs through [Lodestar](https://github.com/lodestar-eval/lodestar-eval), a companion LLM-judge harness (six rubrics, content-addressed judgment cache, cost-bounded runs) built alongside Interlab and used as a standalone dependency rather than vendored into this repo.
+Judged evaluation throughout this project runs through [Lodestar](https://github.com/mo-dev-x/lodestar), a companion LLM-judge harness (six rubrics, content-addressed judgment cache, cost-bounded runs) built alongside Interlab and used as a standalone dependency rather than vendored into this repo.
 
 ## Install and run
 
