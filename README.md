@@ -1,19 +1,33 @@
 <p align="center">
-  <img src="assets/logo-wide.svg" alt="Interlab" width="360">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-wide-dark.svg">
+    <img src="assets/logo-wide.svg" alt="Interlab" height="120">
+  </picture>
 </p>
 
 <p align="center">
-  <a href="https://github.com/mo-dev-x/Interlab/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mo-dev-x/Interlab/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-1e7b4f.svg">
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-1e7b4f.svg"></a>
+  <a href="https://github.com/mo-dev-x/Interlab/actions/workflows/ci.yml"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/mo-dev-x/Interlab/ci.yml?branch=main&amp;label=CI"></a>
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&amp;logoColor=white">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/mo-dev-x/Interlab"></a>
+  <a href="https://github.com/mo-dev-x/Interlab/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/mo-dev-x/Interlab"></a>
+  <img alt="Top language" src="https://img.shields.io/github/languages/top/mo-dev-x/Interlab">
 </p>
 
-# Interlab
+<p align="center">
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#key-features">Key features</a> ·
+  <a href="#what-it-produced">What it produced</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="reports/internship_report.md">Report</a> ·
+  <a href="#testing">Testing</a> ·
+  <a href="#roadmap-and-limitations">Roadmap</a>
+</p>
 
 **Interlab is a research laboratory in a repository.** It finds human-readable concepts inside an open-source language model, checks that they are real, and records every result so it can be audited later. It was built to reproduce Anthropic's "Golden Gate Claude" experiment, where turning up one internal feature makes a model talk about one concept, on an open-weight model instead of a closed one.
 
 **In technical terms:** Interlab is a content-addressed pipeline for training, certifying and causally validating sparse autoencoders (SAEs) on Qwen2.5-14B and Qwen2.5-14B-Instruct, extended later to Gemma-3-12B with Gemma Scope 2. Each stage reads the previous stage's artifacts from a registry and writes its own, validated against a JSON Schema and identified by its content hash. Four gates (certification, feature validation, intervention, report) decide whether a claim is stamped `CERTIFIED` or `DRAFT`. GPU stages run as SLURM jobs.
 
+> [!NOTE]
 > Part of a three-repo interpretability toolkit, see [Related projects](#related-projects).
 
 ---
@@ -47,7 +61,8 @@ These are summaries of [`reports/internship_report.md`](reports/internship_repor
 - **Methodological finding.** The report's main conclusion: at four separate stages of the analysis, an unstated analyst choice moved the reported answer by more than the effect being reported.
 - **Certified checkpoints.** The four SAE checkpoints are certified on a held-out 10M-token slice, with CE recovered between 0.9785 and 0.9938 and a dead-feature fraction of at most 0.0020. They are pinned in `registry/sae_certificate/`.
 
-None of this has been shown to generalize beyond the models named above.
+> [!IMPORTANT]
+> None of this has been shown to generalize beyond the models named above.
 
 ## Architecture
 
@@ -73,7 +88,10 @@ Python 3.11+ · PyTorch · Hugging Face Transformers · TransformerLens · [SAEL
 
 ## Quickstart
 
-The project uses `uv`, with `pyproject.toml` and `uv.lock` as the single source of truth for dependencies. Locally and in CI, `uv` installs the **CPU** build of PyTorch. The cluster profile (`slurm/setup_env.sh`) installs CUDA PyTorch separately.
+The project uses `uv`, with `pyproject.toml` and `uv.lock` as the single source of truth for dependencies.
+
+> [!NOTE]
+> Locally and in CI, `uv` installs the **CPU** build of PyTorch. The cluster profile (`slurm/setup_env.sh`) installs CUDA PyTorch separately.
 
 ```bash
 git clone https://github.com/mo-dev-x/Interlab.git
@@ -90,7 +108,10 @@ uv run python scripts/<job>.py --config path/to/<job>.yaml
 uv run python scripts/certify.py --config configs/certify/rwu04lpb.yaml
 ```
 
-`census`, `store_qa`, `report` and `sync_registry` run locally or against an API. The GPU stages (`certify`, `characterize`, `validate`, `steer`) need model and SAE weights and have SLURM launchers in `slurm/`, for example `slurm/launch_certify.sh`. Example configs for real runs are in `configs/`.
+`census`, `store_qa`, `report` and `sync_registry` run locally or against an API.
+
+> [!WARNING]
+> The GPU stages (`certify`, `characterize`, `validate`, `steer`) need model and SAE weights and have SLURM launchers in `slurm/`, for example `slurm/launch_certify.sh`. Example configs for real runs are in `configs/`.
 
 ## Project structure
 
