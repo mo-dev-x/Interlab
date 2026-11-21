@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-wide-dark.svg">
-    <img src="assets/logo-wide.svg" alt="Interlab" height="120">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-animated-dark.svg">
+    <img src="assets/logo-animated.svg" alt="Interlab" height="120">
   </picture>
 </p>
 
@@ -21,6 +21,13 @@
   <a href="reports/internship_report.md">Report</a> ·
   <a href="#testing">Testing</a> ·
   <a href="#roadmap-and-limitations">Roadmap</a>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/divider-dark.svg">
+    <img src="assets/divider.svg" alt="" width="100%" height="12">
+  </picture>
 </p>
 
 **Interlab is a research laboratory in a repository.** It finds human-readable concepts inside an open-source language model, checks that they are real, and records every result so it can be audited later. It was built to reproduce Anthropic's "Golden Gate Claude" experiment, where turning up one internal feature makes a model talk about one concept, on an open-weight model instead of a closed one.
